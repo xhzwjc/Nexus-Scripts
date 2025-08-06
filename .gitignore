@@ -1,0 +1,15 @@
+# 必须提交的核心文件（保留这些文件，不要忽略）
+!Dockerfile
+!docker-compose.yml
+!.dockerignore
+
+# 忽略本地覆盖配置（这些文件每个开发者不同）
+docker-compose.override.yml
+docker-compose.local.yml
+
+# 敏感文件（绝对不要提交）
+.env
+.env.*
+
+.idea
+*.iml
