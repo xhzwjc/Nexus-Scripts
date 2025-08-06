@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest cache
+**/.pytest_cache/
+
+# Allure test reports
+allure-results/
+allure-report/
+
+# VS Code or PyCharm IDE settings
+.vscode/
+.idea/
+*.iml
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs and output
+*.log
+*.csv
+*.xlsx
+results/log/
+
+# Local virtual environments
+.venv/
+env/
+venv/
+
+# Pytest run history
+.cache/
+
+# 忽略 report 文件夹中的所有内容
+results/report/

@@ -1,0 +1,39 @@
+services:
+  # 后端FastAPI服务
+  fastapi:
+    build: ./fastApiProject
+    restart: always
+    ports:
+      - "8000:8000"
+    # 关键：传递.env中的所有数据库环境变量（和你的config.py对应）
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT}  # 从.env读取环境（test/prod）
+      - DB_TEST_HOST=${DB_TEST_HOST}
+      - DB_TEST_PORT=${DB_TEST_PORT}
+      - DB_TEST_USER=${DB_TEST_USER}
+      - DB_TEST_PASSWORD=${DB_TEST_PASSWORD}
+      - DB_TEST_DATABASE=${DB_TEST_DATABASE}
+      - DB_PROD_HOST=${DB_PROD_HOST}
+      - DB_PROD_PORT=${DB_PROD_PORT}
+      - DB_PROD_USER=${DB_PROD_USER}
+      - DB_PROD_PASSWORD=${DB_PROD_PASSWORD}
+      - DB_PROD_DATABASE=${DB_PROD_DATABASE}
+      # 关键修改：添加公司内网IP段（示例：192.168.1.0/24表示192.168.1.x所有地址）
+      - CORS_ORIGINS=http://localhost,http://127.0.0.1,http://localhost:80,http://192.168.1.0/24,http://192.168.20.0/24
+    networks:
+      - app-network
+
+  # 前端React服务
+  frontend:
+    build: ./my-app
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - fastapi  # 确保后端启动后再启动前端
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

@@ -1,0 +1,488 @@
+{
+  "code": 0,
+  "data": {
+    "list": [
+      {
+        "id": 47,
+        "type": 2,
+        "status": 0,
+        "code": "channel_open_notice",
+        "name": "渠道账户开通通知",
+        "content": "尊敬的${name}，您好! 您的灵零后灵工${role}渠道平台已成功开通,您可以通过http://fwos-chl-test.seedlingintl.com/ 账号:${username}，密码:${password}登录平台。如有疑问，请联系客服，祝您生活愉快!",
+        "params": [
+          "name",
+          "role",
+          "username",
+          "password"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_491105117",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1751263580000
+      },
+      {
+        "id": 46,
+        "type": 2,
+        "status": 0,
+        "code": "reset_worker_sign",
+        "name": " 补发共享协议签约短信通知",
+        "content": "尊敬的${name}，您的《共享经济协议》还未签署，请于${deadline}前点击签署链接完成签约：http://s.seedlingintl.com/index/#/${signUrl} 签约事宜仅限本人操作。",
+        "params": [
+          "name",
+          "deadline",
+          "signUrl"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_487280150",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1748228392000
+      },
+      {
+        "id": 45,
+        "type": 2,
+        "status": 0,
+        "code": "worker_sign_notice",
+        "name": "共享协议签约短信通知(dev)",
+        "content": "尊敬的${name}，现有一份《共享经济协议》待签署请于${deadline}前点击签署链接完成签约：http://s.seedlingintl.com/index/#/${signUrl} 签约事宜仅限本人操作。",
+        "params": [
+          "name",
+          "deadline",
+          "signUrl"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_487335093",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1747293947000
+      },
+      {
+        "id": 44,
+        "type": 2,
+        "status": 0,
+        "code": "reset_tax_user_notice",
+        "name": "重置税局账户密码",
+        "content": "您的账号${eAccount}已重置密码，新密码${newPwd}，请妥善保管。\n",
+        "params": [
+          "eAccount",
+          "newPwd"
+        ],
+        "remark": "重置税局账户密码",
+        "apiTemplateId": "SMS_483215617",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1744792391000
+      },
+      {
+        "id": 43,
+        "type": 2,
+        "status": 0,
+        "code": "open_tax_user_notice",
+        "name": "开通税局账号通知模板",
+        "content": "您好，您的监管账号已开通，账号${eAccount}，密码${pwd}，登录地址:http://bi-test.seedlingintl.com/${loginUr}",
+        "params": [
+          "eAccount",
+          "pwd",
+          "loginUr"
+        ],
+        "remark": "开通税局账号通知模板",
+        "apiTemplateId": "SMS_483330519",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1744704207000
+      },
+      {
+        "id": 42,
+        "type": 2,
+        "status": 0,
+        "code": "batch_remind_notice",
+        "name": "批量提醒上传资料",
+        "content": "${realName}您好，为保证您在灵零后灵工业务的合规要求，请在接收短信后三日内完成相关材料的上传工作，详情请点击https://applet.seedlingintl.com/#/${linkUrl} 。如有疑问请联系${concact}。",
+        "params": [
+          "realName",
+          "linkUrl",
+          "concact"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_490980140",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1728979139000
+      },
+      {
+        "id": 41,
+        "type": 2,
+        "status": 0,
+        "code": "import_staff_notice",
+        "name": "上传人员后发送通知",
+        "content": "尊敬的用户，您已被${entName}指派一个灵工任务，为保证您结算进度；请您尽快上传所需材料至灵零后灵工小程序http://applet-test.seedlingintl.com/#/${linkUrl}。请确保材料清晰、完整、合法、准确。如有任何疑问或需要帮助，请随时联系${concact}。感谢您的配合！",
+        "params": [
+          "entName",
+          "linkUrl",
+          "concact"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_491040125",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1728979082000
+      },
+      {
+        "id": 40,
+        "type": 2,
+        "status": 0,
+        "code": "settled_remind",
+        "name": "合作者事后打款完成发短信",
+        "content": "尊敬的用户，您好！您有一个灵工任务已完成结算。请您尽快上传所需材料至灵零后灵工小程序http://applet-test.seedlingintl.com/#/${linkUrl} 。请确保材料清晰、完整、合法、准确。如有任何疑问或需要帮助，请随时联系${concact}。感谢您的配合与支持！",
+        "params": [
+          "linkUrl",
+          "concact"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_491105119",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1728978541000
+      },
+      {
+        "id": 39,
+        "type": 2,
+        "status": 0,
+        "code": "settled_task_remind",
+        "name": "结算成功定时提醒上传材料",
+        "content": "尊敬的用户，您好！根据相关政策与合规要求，请您尽快上传所需材料至灵零后灵工小程序http://applet-test.seedlingintl.com/#/${linkUrl}。请确保材料清晰、完整、合法、准确。如有任何疑问或需要帮助，请随时联系${concact}。感谢您的配合与支持！",
+        "params": [
+          "linkUrl",
+          "concact"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_491100148",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1728978478000
+      },
+      {
+        "id": 38,
+        "type": 2,
+        "status": 0,
+        "code": "user_add",
+        "name": "新增员工账号通知",
+        "content": "${nickName}，您好！系统管理员已为你创建灵零后灵工平台账号；登录账号为本手机号，初始密码${pwd}，为保护您的账号安全，初次登录请修改密码。系统使用中如有任何疑问，请联系系统管理员或企业专属客服咨询与解决。",
+        "params": [
+          "nickName",
+          "pwd"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_490960243",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1726135611000
+      },
+      {
+        "id": 37,
+        "type": 2,
+        "status": 0,
+        "code": "enterprise_expire",
+        "name": "企业续签通知",
+        "content": "\n尊敬的${entName}，您好！您的灵零后灵工服务平台使用期限即将于${expreTime}到期，为确保服务的连续性，我们已为您准备续签事宜。后续会有专人联系您确认续签细节。如有疑问，请联系专属客服。谢谢！",
+        "params": [
+          "entName",
+          "expreTime"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_491005140",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1726135537000
+      },
+      {
+        "id": 36,
+        "type": 2,
+        "status": 0,
+        "code": "enterprise_reopen",
+        "name": "企业重新开通通知",
+        "content": "尊敬的${entName}：您好！您的企业账号${userName}已成功重新开通。请尽快登录并检查账号状态，如有任何疑问或更新企业信息，请联系您的专属客服。感谢您的支持！",
+        "params": [
+          "entName",
+          "userName"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_472845139",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1725938219000
+      },
+      {
+        "id": 35,
+        "type": 2,
+        "status": 0,
+        "code": "reset_client_user_pwd",
+        "name": "企业用户重置密码",
+        "content": "${nickname}，您好！您的系统密码已成功重置，新密码为${pwd}。为了您的账户安全，请尽快登录系统并修改密码。请注意保护您的密码信息，避免泄露给他人！",
+        "params": [
+          "nickname",
+          "pwd"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_474975558",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1724202434000
+      },
+      {
+        "id": 32,
+        "type": 2,
+        "status": 0,
+        "code": "pay_fail_notice",
+        "name": "账单支付失败通知",
+        "content": "尊敬的客户，您好！您的最近${count}笔结算单结算未能成功完成。失败原因可能包括：账户余额不足、支付信息有误、银行系统异常或我们的服务暂时出现故障等，您可在平台”批次账单列表”中查看详细信息或尝试二次打款操作；或联系您的专属客服协助处理",
+        "params": [
+          "count"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_491085149",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1723512185000
+      },
+      {
+        "id": 31,
+        "type": 2,
+        "status": 0,
+        "code": "recharge_notice",
+        "name": "充值失败通知",
+        "content": "尊敬的客户，您好！非常抱歉，您的充值请求未能成功完成。失败原因可能包括：银行卡信息错误、网络问题或系统繁忙等。请您检查充值信息后重新尝试，或联系您的专属客服，感谢您的理解和支持！",
+        "params": [],
+        "remark": "",
+        "apiTemplateId": "SMS_471495462",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1723512141000
+      },
+      {
+        "id": 30,
+        "type": 2,
+        "status": 0,
+        "code": "amount_chg_notice",
+        "name": "余额变动通知",
+        "content": "尊敬的客户，您好！您的账户于${datetime}发生余额变动，变动金额为${chgAmount}（元），变动后账户余额为${curAmount}（元）。本次变动原因为[“发放扣款”/“退款到账”等]。如有任何疑问，请随时联系您的专属客服。感谢您的使用与支持！",
+        "params": [
+          "datetime",
+          "chgAmount",
+          "curAmount"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_474965588",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1723457630000
+      },
+      {
+        "id": 28,
+        "type": 2,
+        "status": 0,
+        "code": "stop_ent",
+        "name": "关停企业通知",
+        "content": "尊敬的${entName}：您好！由于特殊原因，我们决定暂时终止与您的合作。感谢您的支持与信任，如需了解详细原因以及处理后续事宜，请尽快联系专属客服。",
+        "params": [
+          "entName"
+        ],
+        "remark": "关停企业通知",
+        "apiTemplateId": "SMS_469090922",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1721697306000
+      },
+      {
+        "id": 27,
+        "type": 2,
+        "status": 0,
+        "code": "task_pass",
+        "name": "任务审核通过通知",
+        "content": "尊敬的客户，您好！您于${date}提交的任务已经通过平台审核；您可登录平台进行相关任务操作和发放。如有疑问，可以联系您的专属客服协助处理，祝您使用愉快！",
+        "params": [
+          "date"
+        ],
+        "remark": "任务审核通过通知",
+        "apiTemplateId": "SMS_468990670",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1721197311000
+      },
+      {
+        "id": 26,
+        "type": 2,
+        "status": 0,
+        "code": "task_fail",
+        "name": "任务审核驳回通知",
+        "content": "尊敬的客户，您好！您于${date}提交的任务暂未通过平台审核；原因${auditRemark}，您可登录平台任务列表查看以及修改后重新提交。如有疑问，可以联系您的专属客服协助处理，祝您使用愉快！",
+        "params": [
+          "date",
+          "auditRemark"
+        ],
+        "remark": "任务审核驳回通知",
+        "apiTemplateId": "SMS_468995675",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1721197281000
+      },
+      {
+        "id": 25,
+        "type": 2,
+        "status": 0,
+        "code": "invoice_apply_pass",
+        "name": "发票审核通过通知",
+        "content": "尊敬的客户，您好！您提交的发票申请编号为${applyNo}的申请已经通过平台审核。发票开票周期一般为1-3个工作日，您可登录平台查看开票结果或邮寄信息（如需）。如有疑问，可以联系您的专属客服，祝您使用愉快！",
+        "params": [
+          "applyNo"
+        ],
+        "remark": "发票审核通过通知",
+        "apiTemplateId": "SMS_475010371",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1721197163000
+      },
+      {
+        "id": 24,
+        "type": 2,
+        "status": 0,
+        "code": "invoice_apply_fail",
+        "name": "发票审核驳回通知",
+        "content": "尊敬的客户，您好！您提交的发票申请编号为${applyNo}的申请暂未通过平台审核，原因${auditRemark}；您可登录平台重新选择结算单（或批次账单）进行重新开票。如有疑问，可以联系您的专属客服，祝您使用愉快！",
+        "params": [
+          "applyNo",
+          "auditRemark"
+        ],
+        "remark": "发票审核驳回通知",
+        "apiTemplateId": "SMS_474855362",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1721197129000
+      },
+      {
+        "id": 23,
+        "type": 2,
+        "status": 0,
+        "code": "recharge_success",
+        "name": "充值成功通知",
+        "content": "尊敬的客户，您好！您已成功充值${amount}元(人民币)到您的账户中，当前账户余额为${balance}元。感谢您对灵零后灵工的支持！如有任何疑问，请随时联系您的专属客服。",
+        "params": [
+          "amount",
+          "balance"
+        ],
+        "remark": "充值成功通知",
+        "apiTemplateId": "SMS_491005168",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1721196961000
+      },
+      {
+        "id": 22,
+        "type": 2,
+        "status": 0,
+        "code": "recharge_fail",
+        "name": "充值失败通知",
+        "content": "尊敬的客户，您好！非常抱歉，您的充值请求未能成功完成。失败原因可能包括:银行卡信息错误、网络问题或系统繁忙等。请您检查充值信息后重新尝试，或联系您的专属客服，感谢您的理解和支持！",
+        "params": [],
+        "remark": "充值失败通知",
+        "apiTemplateId": "SMS_469075650",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1721196883000
+      },
+      {
+        "id": 21,
+        "type": 2,
+        "status": 0,
+        "code": "balance_change",
+        "name": "账户余额通知",
+        "content": "尊敬的客户，您好！您的账户于${date}发生余额变动，变动金额为${amount}(元)，变动后账户余额为${balance}(元)。本次变动原因为${reason}。如有任何疑问，请随时联系您的专属客服。感谢您的使用与支持！",
+        "params": [
+          "date",
+          "amount",
+          "balance",
+          "reason"
+        ],
+        "remark": "账户余额通知",
+        "apiTemplateId": "SMS_468985661",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1721196705000
+      },
+      {
+        "id": 20,
+        "type": 2,
+        "status": 0,
+        "code": "pay_fail",
+        "name": "账单支付失败通知",
+        "content": "尊敬的客户，您好！您的最近${payTimes}笔结算单结算未能成功完成。失败原因可能包括：账户余额不足、支付信息有误、银行系统异常或我们的服务暂时出现故障等，您可在平台(批次账单列表)中查看详细信息或尝试二次打款操作；或联系您的专属客服协助处理。",
+        "params": [
+          "payTimes"
+        ],
+        "remark": "账单支付失败通知",
+        "apiTemplateId": "SMS_468975677",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1721184891000
+      },
+      {
+        "id": 19,
+        "type": 2,
+        "status": 0,
+        "code": "compliance_fail",
+        "name": "合规材料审核通知",
+        "content": "尊敬的客户，您好！您提交关于${taskName}的合规材料暂未通过平台审核，原因${auditRemark}；烦请您3日内登录平台（交付管理）重新提交合规材料。如有疑问，可以联系您的专属客服协助处理，祝您使用愉快！",
+        "params": [
+          "taskName",
+          "auditRemark"
+        ],
+        "remark": "合规材料审核通知",
+        "apiTemplateId": "SMS_475025352",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1721183337000
+      },
+      {
+        "id": 18,
+        "type": 2,
+        "status": 0,
+        "code": "sign_notice",
+        "name": "电子签约通知",
+        "content": "尊敬的${accountName}：贵司已完成灵零后灵工平台资料录入，现需要进行合同电子签约，请点击 http://s.seedlingintl.com/#/${signUrl} 签署，截止日期${expireTime}。如有疑问，请联系专属客服。",
+        "params": [
+          "accountName",
+          "signUrl",
+          "expireTime"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_491090154",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1720666654000
+      },
+      {
+        "id": 17,
+        "type": 2,
+        "status": 0,
+        "code": "open_notice",
+        "name": "开通企业通知模板",
+        "content": "您好，您的${eName}账号已开通，帐号：${eAccount}，密码：${pwd} 登录地址:http://fwos-client-test.seedlingintl.com/${loginUrl} 初始密码请登录后立即修改，确保账号安全。如有疑问，请联系专属客服。",
+        "params": [
+          "eName",
+          "eAccount",
+          "pwd",
+          "loginUrl"
+        ],
+        "remark": "开通企业通知模板",
+        "apiTemplateId": "SMS_474855593",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1717382377000
+      }
+    ],
+    "total": 28
+  },
+  "msg": "",
+  "open": false
+}
