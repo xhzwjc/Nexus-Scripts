@@ -200,7 +200,7 @@ export default function CommissionScript({onBack}: { onBack: () => void }) {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 p-6">
+        <div className="min-h-screen colorful-background">
             <Toaster richColors position="top-center"/>
             <div className="max-w-7xl mx-auto">
                 <div className="mb-6">

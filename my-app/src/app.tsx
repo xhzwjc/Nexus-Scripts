@@ -11,6 +11,7 @@ import BalanceScript from './components/BalanceScript';
 import TaskAutomationScript from './components/TaskAutomationScript';
 import SmsManagementScript from "./components/BatchSmsScript";
 import TaxReportReportManagement from "./components/TaxReportManagement";
+import './App.css';
 
 // 定义角色类型和权限映射
 type Role = 'admin' | 'operator' | 'custom';
@@ -277,7 +278,8 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+      // 已修改：将背景类从 bg-gray-50 更改为 colorful-background
+      <div className="min-h-screen colorful-background flex items-center justify-center p-6">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="w-10 h-10 text-primary animate-spin" />
           <h2 className="text-lg font-medium">正在验证身份...</h2>
@@ -290,7 +292,8 @@ export default function App() {
   // 未登录状态 - 显示密钥输入界面
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+      // 已修改：将背景类从 bg-gray-50 更改为 colorful-background
+      <div className="min-h-screen colorful-background flex items-center justify-center p-6">
         <Toaster richColors position="top-center"/>
         <Card className="w-full max-w-md animate-fadeIn">
           <CardHeader className="space-y-1">
@@ -355,7 +358,8 @@ export default function App() {
     const hasFewScripts = scripts.length > 0 && scripts.length <= 2;
 
     return (
-      <div className="min-h-screen bg-gray-50 p-6">
+      // 已修改：将背景类从 bg-gray-50 更改为 colorful-background
+      <div className="min-h-screen colorful-background p-6">
         <div className="max-w-6xl mx-auto">
           <div className="flex justify-between items-center mb-6">
             <Button 
@@ -433,7 +437,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    // 已修改：将背景类从 bg-gray-50 更改为 colorful-background
+    <div className="min-h-screen colorful-background p-6">
       <div className="max-w-6xl mx-auto">
         <div className="flex justify-end mb-6">
           <div className="flex items-center gap-2">

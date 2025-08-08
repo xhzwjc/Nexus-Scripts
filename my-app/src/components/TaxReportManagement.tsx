@@ -225,7 +225,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
             return;
         }
         if (selectedEnterpriseIds.length === 0) {
-            if (!window.confirm('未选择企业，将为所有企业生成报表，是否继续？')) return;
+            toast.info('未选择企业，将为所有企业生成报表。');
         }
 
         setIsGenerating(true);
@@ -363,347 +363,357 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
     };
 
     return (
-        <div className="max-w-6xl mx-auto px-4 py-6">
+        <div className="min-h-screen colorful-background p-6">
             <Toaster richColors position="top-center"/>
-            <div className="flex items-center justify-between mb-6">
-                <h1 className="text-2xl font-bold">税务报表管理</h1>
-                <Button variant="outline" onClick={onBack}>返回</Button>
-            </div>
-
-            <div className="flex justify-end mb-4">
-                <div className="flex items-center space-x-2">
-                    <Label htmlFor="environment" className="whitespace-nowrap">环境:</Label>
-                    <Select value={environment} onValueChange={setEnvironment}>
-                        <SelectTrigger id="environment" className="w-[180px]"><SelectValue
-                            placeholder="选择环境"/></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="prod">生产环境 (prod)</SelectItem>
-                            <SelectItem value="test">Beta (test)</SelectItem>
-                        </SelectContent>
-                    </Select>
-                    <Button variant="ghost" size="icon" onClick={() => fetchEnterprises(new AbortController().signal)}
-                            disabled={isFetchingEnterprises}>
-                        <RefreshCw size={16}/>
-                    </Button>
+            <div className="max-w-6xl mx-auto px-4 py-6 colorful-background">
+                <div className="flex items-center justify-between mb-6">
+                    <h1 className="text-2xl font-bold">税务报表管理</h1>
+                    <Button variant="outline" onClick={onBack}>返回</Button>
                 </div>
-            </div>
 
-            <Tabs defaultValue="query" className="w-full">
-                <TabsList className="mb-6 w-full max-w-md mx-auto grid grid-cols-2">
-                    <TabsTrigger value="query" className="flex-1">获取税务数据</TabsTrigger>
-                    <TabsTrigger value="generate" className="flex-1">生成报表（请先获取税务数据）</TabsTrigger>
-                </TabsList>
+                <div className="flex justify-end mb-4">
+                    <div className="flex items-center space-x-2">
+                        <Label htmlFor="environment" className="whitespace-nowrap">环境:</Label>
+                        <Select value={environment} onValueChange={setEnvironment}>
+                            <SelectTrigger id="environment" className="w-[180px]"><SelectValue
+                                placeholder="选择环境"/></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="prod">生产环境 (prod)</SelectItem>
+                                <SelectItem value="test">Beta (test)</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Button variant="ghost" size="icon"
+                                onClick={() => fetchEnterprises(new AbortController().signal)}
+                                disabled={isFetchingEnterprises}>
+                            <RefreshCw size={16}/>
+                        </Button>
+                    </div>
+                </div>
 
-                <TabsContent value="query" className="space-y-6">
-                    <Card className="shadow-sm">
-                        <CardHeader className="pb-3">
-                            <CardTitle>查询条件</CardTitle>
-                            <CardDescription>设置查询参数，获取企业税务数据</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-5">
-                            {/* ... 查询条件UI，无改动 ... */}
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="yearMonth">年月（默认上月）</Label>
-                                    <div className="relative">
-                                        <Calendar size={16}
-                                                  className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"/>
-                                        <Input id="yearMonth" type="month" value={yearMonth}
-                                               onChange={(e) => setYearMonth(e.target.value)} className="pl-10"/>
-                                    </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="amountType">金额类型</Label>
-                                    <Select value={amountType.toString()}
-                                            onValueChange={(val) => setAmountType(Number(val))}>
-                                        <SelectTrigger id="amountType"><SelectValue
-                                            placeholder="选择金额类型"/></SelectTrigger>
-                                        <SelectContent>
-                                            <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem value="1">含服务费
-                                                (pay_amount)</SelectItem></TooltipTrigger><TooltipContent
-                                                className="max-w-xs z-50">指企业的总支出金额，包含服务费<br/>例：110元（100元本金+10元服务费）</TooltipContent></Tooltip></TooltipProvider>
-                                            <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem value="2">不含服务费
-                                                (worker_pay_amount)</SelectItem></TooltipTrigger><TooltipContent
-                                                className="max-w-xs z-50">指合作者实际到手金额，扣除了服务费<br/>例：90元（100元本金-10元服务费）</TooltipContent></Tooltip></TooltipProvider>
-                                            <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem value="3">账单金额
-                                                (bill_amount)</SelectItem></TooltipTrigger><TooltipContent
-                                                className="max-w-xs z-50">指原始导入和报名时的金额，未计算服务费<br/>例：100元（原始金额）</TooltipContent></Tooltip></TooltipProvider>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="flex items-end">
-                                    <Button onClick={fetchTaxData} disabled={isFetchingTaxData} className="w-full">
-                                        {isFetchingTaxData ? (<><Loader2 size={16}
-                                                                         className="mr-2 animate-spin"/>查询中...</>) : (<>
-                                            <Search size={16} className="mr-2"/>获取税务数据</>)}
-                                    </Button>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <Label>选择企业 (可多选，不选默认获取所有企业数据！！！)</Label>
-                                    <Button variant="ghost" size="sm" onClick={toggleSelectAllEnterprises}
-                                            disabled={!enterprises.length}>
-                                        {selectedEnterpriseIds.length === enterprises.length ? '取消全选' : '全选'}
-                                    </Button>
-                                </div>
-                                <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
-                                    {isFetchingEnterprises ? (
-                                        <div className="flex justify-center py-6"><Loader2 size={20}
-                                                                                           className="animate-spin text-gray-500"/>
-                                        </div>) : enterprises.length === 0 ? (
-                                        <div className="text-gray-500 text-center py-6">未获取到企业数据</div>) : (
-                                        enterprises.map(enterprise => (
-                                            <div key={enterprise.id} className="flex items-center">
-                                                <Checkbox id={`ent-${enterprise.id}`}
-                                                          checked={selectedEnterpriseIds.includes(enterprise.id)}
-                                                          onCheckedChange={() => handleEnterpriseSelect(enterprise.id)}/>
-                                                <Label htmlFor={`ent-${enterprise.id}`}
-                                                       className="ml-2 flex-1 cursor-pointer">{enterprise.enterprise_name}</Label>
-                                                <Badge
-                                                    variant={[0, 2, 3, 4, 5, 7].includes(enterprise.status) ? "default" : "destructive"}>状态: {enterprise.status}</Badge>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
+                <Tabs defaultValue="query" className="w-full">
+                    <TabsList className="mb-6 w-full max-w-md mx-auto grid grid-cols-2">
+                        <TabsTrigger value="query" className="flex-1">获取税务数据</TabsTrigger>
+                        <TabsTrigger value="generate" className="flex-1">生成报表（请先获取税务数据）</TabsTrigger>
+                    </TabsList>
 
-                    {/* 仅在开始查询后显示结果区域 */}
-                    {searchAttempted && (
+                    <TabsContent value="query" className="space-y-6">
                         <Card className="shadow-sm">
                             <CardHeader className="pb-3">
-                                {/* ... CardHeader内容无改动 ... */}
-                                <div className="flex justify-between items-center">
-                                    <div>
-                                        <CardTitle>税务数据列表</CardTitle>
-                                        <CardDescription>{yearMonth} 查询结果</CardDescription>
-                                    </div>
-                                    <TooltipProvider>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <div
-                                                    className="text-lg font-semibold text-primary cursor-pointer flex items-center">
-                                                    总金额: {formatCurrency(amountDetails.grandTotal)}
-                                                    {amountDetails.breakdown.length > 1 &&
-                                                        <Info size={16} className="ml-2 text-blue-500"/>}
-                                                </div>
-                                            </TooltipTrigger>
-                                            <TooltipContent className="max-w-md text-white">
-                                                <p className="font-bold mb-2 border-b pb-1">金额明细</p>
-                                                <div className="space-y-1 max-h-60 overflow-y-auto">
-                                                    {amountDetails.breakdown.map((item) => (
-                                                        <div key={item.key}
-                                                             className="flex justify-between items-center text-sm">
-                                                            <span className="mr-4 text-gray-200">{item.key}:</span>
-                                                            <span
-                                                                className="font-mono">{formatCurrency(item.amount)}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </TooltipContent>
-                                        </Tooltip>
-                                    </TooltipProvider>
-                                </div>
+                                <CardTitle>查询条件</CardTitle>
+                                <CardDescription>设置查询参数，获取企业税务数据</CardDescription>
                             </CardHeader>
-                            <CardContent>
-                                <div className="overflow-x-auto rounded-md border">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead className="w-[80px]">序号</TableHead>
-                                                <TableHead>纳税人姓名</TableHead>
-                                                <TableHead>身份证号</TableHead>
-                                                <TableHead>企业名称</TableHead>
-                                                <TableHead>税地名称</TableHead>
-                                                <TableHead>营业额(元)</TableHead>
-                                                <TableHead>增值税(元)</TableHead>
-                                                <TableHead>个人经营所得税(元)</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {isFetchingTaxData ? (
-                                                // 加载中，显示骨架屏
-                                                Array.from({length: rowsPerPage}).map((_, i) => <SkeletonRow key={i}/>)
-                                            ) : currentTaxData.length > 0 ? (
-                                                // 显示数据
-                                                currentTaxData.map((item, index) => (
-                                                    <TableRow key={`${item.身份证号}-${index}`}>
-                                                        <TableCell>{(currentPage - 1) * rowsPerPage + index + 1}</TableCell>
-                                                        <TableCell>{item['纳税人姓名']}</TableCell>
-                                                        <TableCell>{item['身份证号'].replace(/(\d{6})(\d{8})(\d{4})/, '$1********$3')}</TableCell>
-                                                        <TableCell>{item.enterprise_name}</TableCell>
-                                                        <TableCell>{item['税地名称']}</TableCell>
-                                                        <TableCell>{formatCurrency(Number(item['营业额_元']))}</TableCell>
-                                                        <TableCell>{formatCurrency(Number(item['增值税_元']))}</TableCell>
-                                                        <TableCell>{formatCurrency(Number(item['应纳个人经营所得税_元']))}</TableCell>
-                                                    </TableRow>
-                                                ))
-                                            ) : (
-                                                // 空状态
-                                                <TableRow>
-                                                    <TableCell colSpan={8} className="h-24 text-center">
-                                                        未找到数据。
-                                                    </TableCell>
-                                                </TableRow>
-                                            )}
-                                        </TableBody>
-                                    </Table>
+                            <CardContent className="space-y-5">
+                                {/* ... 查询条件UI，无改动 ... */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="yearMonth">年月（默认上月）</Label>
+                                        <div className="relative">
+                                            <Calendar size={16}
+                                                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"/>
+                                            <Input id="yearMonth" type="month" value={yearMonth}
+                                                   onChange={(e) => setYearMonth(e.target.value)}
+                                                   className="pl-10"/>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="amountType">金额类型</Label>
+                                        <Select value={amountType.toString()}
+                                                onValueChange={(val) => setAmountType(Number(val))}>
+                                            <SelectTrigger id="amountType"><SelectValue
+                                                placeholder="选择金额类型"/></SelectTrigger>
+                                            <SelectContent>
+                                                <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem value="1">含服务费
+                                                    (pay_amount)</SelectItem></TooltipTrigger><TooltipContent
+                                                    className="max-w-xs z-50">指企业的总支出金额，包含服务费<br/>例：110元（100元本金+10元服务费）</TooltipContent></Tooltip></TooltipProvider>
+                                                <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem value="2">不含服务费
+                                                    (worker_pay_amount)</SelectItem></TooltipTrigger><TooltipContent
+                                                    className="max-w-xs z-50">指合作者实际到手金额，扣除了服务费<br/>例：90元（100元本金-10元服务费）</TooltipContent></Tooltip></TooltipProvider>
+                                                <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem value="3">账单金额
+                                                    (bill_amount)</SelectItem></TooltipTrigger><TooltipContent
+                                                    className="max-w-xs z-50">指原始导入和报名时的金额，未计算服务费<br/>例：100元（原始金额）</TooltipContent></Tooltip></TooltipProvider>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="flex items-end">
+                                        <Button onClick={fetchTaxData} disabled={isFetchingTaxData} className="w-full">
+                                            {isFetchingTaxData ? (<><Loader2 size={16}
+                                                                             className="mr-2 animate-spin"/>查询中...</>) : (<>
+                                                <Search size={16} className="mr-2"/>获取税务数据</>)}
+                                        </Button>
+                                    </div>
                                 </div>
-                                {/* 仅在有数据时显示分页 */}
-                                {taxData.length > 0 && (
-                                    <fieldset disabled={isFetchingTaxData}
-                                              className="flex items-center justify-between pt-4">
-                                        <div className="text-sm text-muted-foreground">
-                                            共 {taxData.length} 条记录
-                                        </div>
-                                        <div className="flex items-center space-x-4">
-                                            <div className="flex items-center space-x-2">
-                                                <p className="text-sm font-medium">每页行数</p>
-                                                <Select value={rowsPerPage.toString()}
-                                                        onValueChange={handleRowsPerPageChange}>
-                                                    <SelectTrigger className="h-8 w-[70px]"><SelectValue
-                                                        placeholder={rowsPerPage}/></SelectTrigger>
-                                                    <SelectContent side="top">
-                                                        {[10, 20, 50, 100, 500, 1000].map((pageSize) => (
-                                                            <SelectItem key={pageSize}
-                                                                        value={`${pageSize}`}>{pageSize}</SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div className="flex items-center space-x-2">
-                                                <Button variant="outline" size="sm" onClick={handlePrevPage}
-                                                        disabled={currentPage === 1}>上一页</Button>
-                                                <div className="flex items-center text-sm font-medium">
-                                                    第
-                                                    <Input
-                                                        type="text"
-                                                        className="h-8 w-12 mx-1 text-center"
-                                                        value={pageInput}
-                                                        onChange={handlePageInputChange}
-                                                        onKeyDown={handlePageInputSubmit}
-                                                    />
-                                                    页 / {totalPages}
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <Label>选择企业 (可多选，不选默认获取所有企业数据！！！)</Label>
+                                        <Button variant="ghost" size="sm" onClick={toggleSelectAllEnterprises}
+                                                disabled={!enterprises.length}>
+                                            {selectedEnterpriseIds.length === enterprises.length ? '取消全选' : '全选'}
+                                        </Button>
+                                    </div>
+                                    <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
+                                        {isFetchingEnterprises ? (
+                                            <div className="flex justify-center py-6"><Loader2 size={20}
+                                                                                               className="animate-spin text-gray-500"/>
+                                            </div>) : enterprises.length === 0 ? (
+                                            <div className="text-gray-500 text-center py-6">未获取到企业数据</div>) : (
+                                            enterprises.map(enterprise => (
+                                                <div key={enterprise.id} className="flex items-center">
+                                                    <Checkbox id={`ent-${enterprise.id}`}
+                                                              checked={selectedEnterpriseIds.includes(enterprise.id)}
+                                                              onCheckedChange={() => handleEnterpriseSelect(enterprise.id)}/>
+                                                    <Label htmlFor={`ent-${enterprise.id}`}
+                                                           className="ml-2 flex-1 cursor-pointer">{enterprise.enterprise_name}</Label>
+                                                    <Badge
+                                                        variant={[0, 2, 3, 4, 5, 7].includes(enterprise.status) ? "default" : "destructive"}>状态: {enterprise.status}</Badge>
                                                 </div>
-                                                <Button variant="outline" size="sm" onClick={handleNextPage}
-                                                        disabled={currentPage === totalPages}>下一页</Button>
-                                            </div>
-                                        </div>
-                                    </fieldset>
-                                )}
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
                             </CardContent>
                         </Card>
-                    )}
-                </TabsContent>
 
-                <TabsContent value="generate" className="space-y-6">
-                    {/* ... 生成报表Tab内容无改动 ... */}
-                    <Card className="shadow-sm">
-                        <CardHeader className="pb-3">
-                            <CardTitle>生成税务报表</CardTitle>
-                            <CardDescription>设置报表参数，生成Excel格式的税务报表并下载</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-6 pt-6">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <Label htmlFor="reportYearMonth">年月 <span
-                                        className="text-red-500">*</span></Label>
-                                    <div className="relative">
-                                        <Calendar size={16}
-                                                  className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"/>
-                                        <Input id="reportYearMonth" type="month" value={yearMonth}
-                                               onChange={(e) => setYearMonth(e.target.value)} className="pl-10"/>
+                        {/* 仅在开始查询后显示结果区域 */}
+                        {searchAttempted && (
+                            <Card className="shadow-sm">
+                                <CardHeader className="pb-3">
+                                    {/* ... CardHeader内容无改动 ... */}
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <CardTitle>税务数据列表</CardTitle>
+                                            <CardDescription>{yearMonth} 查询结果</CardDescription>
+                                        </div>
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <div
+                                                        className="text-lg font-semibold text-primary cursor-pointer flex items-center">
+                                                        总金额: {formatCurrency(amountDetails.grandTotal)}
+                                                        {amountDetails.breakdown.length > 1 &&
+                                                            <Info size={16} className="ml-2 text-blue-500"/>}
+                                                    </div>
+                                                </TooltipTrigger>
+                                                <TooltipContent className="max-w-md text-white">
+                                                    <p className="font-bold mb-2 border-b pb-1">金额明细</p>
+                                                    <div className="space-y-1 max-h-60 overflow-y-auto">
+                                                        {amountDetails.breakdown.map((item) => (
+                                                            <div key={item.key}
+                                                                 className="flex justify-between items-center text-sm">
+                                                                <span
+                                                                    className="mr-4 text-gray-200">{item.key}:</span>
+                                                                <span
+                                                                    className="font-mono">{formatCurrency(item.amount)}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="overflow-x-auto rounded-md border">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead className="w-[80px]">序号</TableHead>
+                                                    <TableHead>纳税人姓名</TableHead>
+                                                    <TableHead>身份证号</TableHead>
+                                                    <TableHead>企业名称</TableHead>
+                                                    <TableHead>税地名称</TableHead>
+                                                    <TableHead>营业额(元)</TableHead>
+                                                    <TableHead>增值税(元)</TableHead>
+                                                    <TableHead>个人经营所得税(元)</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {isFetchingTaxData ? (
+                                                    // 加载中，显示骨架屏
+                                                    Array.from({length: rowsPerPage}).map((_, i) => <SkeletonRow
+                                                        key={i}/>)
+                                                ) : currentTaxData.length > 0 ? (
+                                                    // 显示数据
+                                                    currentTaxData.map((item, index) => (
+                                                        <TableRow key={`${item.身份证号}-${index}`}>
+                                                            <TableCell>{(currentPage - 1) * rowsPerPage + index + 1}</TableCell>
+                                                            <TableCell>{item['纳税人姓名']}</TableCell>
+                                                            <TableCell>{item['身份证号'].replace(/(\d{6})(\d{8})(\d{4})/, '$1********$3')}</TableCell>
+                                                            <TableCell>{item.enterprise_name}</TableCell>
+                                                            <TableCell>{item['税地名称']}</TableCell>
+                                                            <TableCell>{formatCurrency(Number(item['营业额_元']))}</TableCell>
+                                                            <TableCell>{formatCurrency(Number(item['增值税_元']))}</TableCell>
+                                                            <TableCell>{formatCurrency(Number(item['应纳个人经营所得税_元']))}</TableCell>
+                                                        </TableRow>
+                                                    ))
+                                                ) : (
+                                                    // 空状态
+                                                    <TableRow>
+                                                        <TableCell colSpan={8} className="h-24 text-center">
+                                                            未找到数据。
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                    {/* 仅在有数据时显示分页 */}
+                                    {taxData.length > 0 && (
+                                        <fieldset disabled={isFetchingTaxData}
+                                                  className="flex items-center justify-between pt-4">
+                                            <div className="text-sm text-muted-foreground">
+                                                共 {taxData.length} 条记录
+                                            </div>
+                                            <div className="flex items-center space-x-4">
+                                                <div className="flex items-center space-x-2">
+                                                    <p className="text-sm font-medium">每页行数</p>
+                                                    <Select value={rowsPerPage.toString()}
+                                                            onValueChange={handleRowsPerPageChange}>
+                                                        <SelectTrigger className="h-8 w-[70px]"><SelectValue
+                                                            placeholder={rowsPerPage}/></SelectTrigger>
+                                                        <SelectContent side="top">
+                                                            {[10, 20, 50, 100, 500, 1000].map((pageSize) => (
+                                                                <SelectItem key={pageSize}
+                                                                            value={`${pageSize}`}>{pageSize}</SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className="flex items-center space-x-2">
+                                                    <Button variant="outline" size="sm" onClick={handlePrevPage}
+                                                            disabled={currentPage === 1}>上一页</Button>
+                                                    <div className="flex items-center text-sm font-medium">
+                                                        第
+                                                        <Input
+                                                            type="text"
+                                                            className="h-8 w-12 mx-1 text-center"
+                                                            value={pageInput}
+                                                            onChange={handlePageInputChange}
+                                                            onKeyDown={handlePageInputSubmit}
+                                                        />
+                                                        页 / {totalPages}
+                                                    </div>
+                                                    <Button variant="outline" size="sm" onClick={handleNextPage}
+                                                            disabled={currentPage === totalPages}>下一页</Button>
+                                                </div>
+                                            </div>
+                                        </fieldset>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        )}
+                    </TabsContent>
+
+                    <TabsContent value="generate" className="space-y-6">
+                        {/* ... 生成报表Tab内容无改动 ... */}
+                        <Card className="shadow-sm">
+                            <CardHeader className="pb-3">
+                                <CardTitle>生成税务报表</CardTitle>
+                                <CardDescription>设置报表参数，生成Excel格式的税务报表并下载</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6 pt-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="reportYearMonth">年月 <span
+                                            className="text-red-500">*</span></Label>
+                                        <div className="relative">
+                                            <Calendar size={16}
+                                                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"/>
+                                            <Input id="reportYearMonth" type="month" value={yearMonth}
+                                                   onChange={(e) => setYearMonth(e.target.value)}
+                                                   className="pl-10"/>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="reportAmountType">金额类型</Label>
+                                        <Select value={amountType.toString()}
+                                                onValueChange={(val) => setAmountType(Number(val))}>
+                                            <SelectTrigger id="reportAmountType"><SelectValue
+                                                placeholder="选择金额类型"/></SelectTrigger>
+                                            <SelectContent>
+                                                <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem
+                                                    value="1">含服务费
+                                                    (pay_amount)</SelectItem></TooltipTrigger><TooltipContent
+                                                    className="max-w-xs z-50">指企业的总支出金额，包含服务费<br/>例：110元（100元本金+10元服务费）</TooltipContent></Tooltip></TooltipProvider>
+                                                <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem
+                                                    value="2">不含服务费
+                                                    (worker_pay_amount)</SelectItem></TooltipTrigger><TooltipContent
+                                                    className="max-w-xs z-50">指合作者实际到手金额，扣除了服务费<br/>例：90元（100元本金-10元服务费）</TooltipContent></Tooltip></TooltipProvider>
+                                                <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem
+                                                    value="3">账单金额
+                                                    (bill_amount)</SelectItem></TooltipTrigger><TooltipContent
+                                                    className="max-w-xs z-50">指原始导入和报名时的金额，未计算服务费<br/>例：100元（原始金额）</TooltipContent></Tooltip></TooltipProvider>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="platformCompany">平台企业名称 (可选)</Label>
+                                        <Input id="platformCompany" value={platformCompany}
+                                               onChange={(e) => setPlatformCompany(e.target.value)}
+                                               placeholder="不填则使用默认值"/>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="creditCode">社会统一信用代码 (可选)</Label>
+                                        <Input id="creditCode" value={creditCode}
+                                               onChange={(e) => setCreditCode(e.target.value)}
+                                               placeholder="不填则使用默认值"/>
                                     </div>
                                 </div>
+
+                                <Separator/>
+
                                 <div className="space-y-2">
-                                    <Label htmlFor="reportAmountType">金额类型</Label>
-                                    <Select value={amountType.toString()}
-                                            onValueChange={(val) => setAmountType(Number(val))}>
-                                        <SelectTrigger id="reportAmountType"><SelectValue
-                                            placeholder="选择金额类型"/></SelectTrigger>
-                                        <SelectContent>
-                                            <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem value="1">含服务费
-                                                (pay_amount)</SelectItem></TooltipTrigger><TooltipContent
-                                                className="max-w-xs z-50">指企业的总支出金额，包含服务费<br/>例：110元（100元本金+10元服务费）</TooltipContent></Tooltip></TooltipProvider>
-                                            <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem value="2">不含服务费
-                                                (worker_pay_amount)</SelectItem></TooltipTrigger><TooltipContent
-                                                className="max-w-xs z-50">指合作者实际到手金额，扣除了服务费<br/>例：90元（100元本金-10元服务费）</TooltipContent></Tooltip></TooltipProvider>
-                                            <TooltipProvider><Tooltip><TooltipTrigger asChild><SelectItem value="3">账单金额
-                                                (bill_amount)</SelectItem></TooltipTrigger><TooltipContent
-                                                className="max-w-xs z-50">指原始导入和报名时的金额，未计算服务费<br/>例：100元（原始金额）</TooltipContent></Tooltip></TooltipProvider>
-                                        </SelectContent>
-                                    </Select>
+                                    <Label>已选择的企业</Label>
+                                    <div className="border rounded-md p-3 min-h-[100px]">
+                                        {selectedEnterpriseIds.length === 0 ? (<div
+                                            className="text-gray-500 italic">未选择任何企业，将为所有企业生成报表</div>) : (
+                                            <div className="flex flex-wrap gap-2">
+                                                {selectedEnterpriseIds.map(entId => {
+                                                    const enterprise = enterprises.find(e => e.id === entId);
+                                                    return (
+                                                        <Badge key={entId} variant="secondary"
+                                                               className="flex items-center gap-1">
+                                                            {enterprise?.enterprise_name || `企业ID: ${entId}`}
+                                                            <button onClick={() => handleEnterpriseSelect(entId)}
+                                                                    className="ml-1 rounded-full hover:bg-white hover:bg-opacity-20 p-0.5">×
+                                                            </button>
+                                                        </Badge>
+                                                    );
+                                                })}
+                                                <Button variant="ghost" size="sm"
+                                                        onClick={() => setSelectedEnterpriseIds([])}
+                                                        className="mt-2">清除选择</Button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="platformCompany">平台企业名称 (可选)</Label>
-                                    <Input id="platformCompany" value={platformCompany}
-                                           onChange={(e) => setPlatformCompany(e.target.value)}
-                                           placeholder="不填则使用默认值"/>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="creditCode">社会统一信用代码 (可选)</Label>
-                                    <Input id="creditCode" value={creditCode}
-                                           onChange={(e) => setCreditCode(e.target.value)}
-                                           placeholder="不填则使用默认值"/>
-                                </div>
-                            </div>
 
-                            <Separator/>
-
-                            <div className="space-y-2">
-                                <Label>已选择的企业</Label>
-                                <div className="border rounded-md p-3 min-h-[100px]">
-                                    {selectedEnterpriseIds.length === 0 ? (<div
-                                        className="text-gray-500 italic">未选择任何企业，将为所有企业生成报表</div>) : (
-                                        <div className="flex flex-wrap gap-2">
-                                            {selectedEnterpriseIds.map(entId => {
-                                                const enterprise = enterprises.find(e => e.id === entId);
-                                                return (
-                                                    <Badge key={entId} variant="secondary"
-                                                           className="flex items-center gap-1">
-                                                        {enterprise?.enterprise_name || `企业ID: ${entId}`}
-                                                        <button onClick={() => handleEnterpriseSelect(entId)}
-                                                                className="ml-1 rounded-full hover:bg-white hover:bg-opacity-20 p-0.5">×
-                                                        </button>
-                                                    </Badge>
-                                                );
-                                            })}
-                                            <Button variant="ghost" size="sm"
-                                                    onClick={() => setSelectedEnterpriseIds([])}
-                                                    className="mt-2">清除选择</Button>
-                                        </div>
-                                    )}
+                                <div className="flex justify-center pt-2">
+                                    <Button onClick={generateAndDownloadReport}
+                                            disabled={isGenerating || taxData.length === 0} className="mt-4">
+                                        {isGenerating ? (<><Loader2
+                                            className="mr-2 h-4 w-4 animate-spin"/>生成中...</>) : (<><Download
+                                            className="mr-2 h-4 w-4"/>下载税务报表</>)}
+                                    </Button>
                                 </div>
-                            </div>
 
-                            <div className="flex justify-center pt-2">
-                                <Button onClick={generateAndDownloadReport}
-                                        disabled={isGenerating || taxData.length === 0} className="mt-4">
-                                    {isGenerating ? (<><Loader2
-                                        className="mr-2 h-4 w-4 animate-spin"/>生成中...</>) : (<><Download
-                                        className="mr-2 h-4 w-4"/>下载税务报表</>)}
-                                </Button>
-                            </div>
-
-                            <div
-                                className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex items-start mt-4">
-                                <FileText size={18} className="mr-2 mt-0.5 flex-shrink-0"/>
-                                <div>
-                                    <p className="font-medium">报表生成说明</p>
-                                    <ul className="list-disc pl-5 mt-1 space-y-1 text-sm">
-                                        <li>生成报表可能需要几秒钟到几分钟，请耐心等待</li>
-                                        <li>文件将自动下载到浏览器默认下载路径</li>
-                                        <li>下载完成后可在浏览器右上角查看下载记录</li>
-                                        <li>如果选择多个企业，将在一个Excel文件中生成多个工作表</li>
-                                    </ul>
+                                <div
+                                    className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex items-start mt-4">
+                                    <FileText size={18} className="mr-2 mt-0.5 flex-shrink-0"/>
+                                    <div>
+                                        <p className="font-medium">报表生成说明</p>
+                                        <ul className="list-disc pl-5 mt-1 space-y-1 text-sm">
+                                            <li>生成报表可能需要几秒钟到几分钟，请耐心等待</li>
+                                            <li>文件将自动下载到浏览器默认下载路径</li>
+                                            <li>下载完成后可在浏览器右上角查看下载记录</li>
+                                            <li>如果选择多个企业，将在一个Excel文件中生成多个工作表</li>
+                                        </ul>
+                                    </div>
                                 </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-            </Tabs>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                </Tabs>
+            </div>
         </div>
     );
 }

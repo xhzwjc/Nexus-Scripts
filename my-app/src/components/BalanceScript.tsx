@@ -110,7 +110,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 p-6">
+        <div className="min-h-screen colorful-background p-6">
             <Toaster richColors position="top-center"/>
             <div className="max-w-6xl mx-auto">
                 <div className="mb-6">
