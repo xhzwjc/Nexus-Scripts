@@ -17,7 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, InvalidRequestError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, List, Dict, Optional, Any
-
+import base64
 from .models import EnterpriseTaskBase, SettlementRequest, MobileTaskInfo, MobileTaskRequest
 from .config import settings
 from .utils import get_channel_tax_rates, get_tax_region_data, get_enterprise_recharge_data, process_tax_regions, \
@@ -605,7 +605,7 @@ class CommissionCalculationService:
             # 获取税地费率配置
             tax_rate_config = get_channel_tax_rates(self.db_config, channel_id)
             if not tax_rate_config:
-                raise ValueError(f"渠道 {channel_id} 没有找到税地费率配置")
+                raise ValueError(f"渠道 {channel_id} 不存在！")
 
             # 获取结算数据
             raw_data = get_tax_region_data(self.db_config, channel_id)
@@ -719,7 +719,6 @@ class MobileTaskService:
         # 处理文件内容
         if file_content:
             try:
-                import base64
                 # 修复1：处理可能的Base64填充问题
                 file_content = file_content.strip()
                 padding_needed = len(file_content) % 4
@@ -763,6 +762,44 @@ class MobileTaskService:
         if not mobiles:
             raise ValueError("未提供有效的手机号")
 
+        return mobiles
+
+
+    def parse_mobile_numbers(self, file_content: str, range_str: Optional[str] = None) -> List[str]:
+        """
+        单独解析手机号，仅需要文件内容和范围参数
+        """
+        mobiles = []
+
+        try:
+            # 解码base64文件内容
+            file_data = base64.b64decode(file_content)
+            content = file_data.decode('utf-8', errors='ignore')
+
+            # 按行提取手机号
+            for line in content.splitlines():
+                line = line.strip()
+                # 简单的手机号格式验证（11位数字）
+                if line and line.isdigit() and len(line) == 11:
+                    mobiles.append(line)
+
+            # 处理范围筛选
+            if range_str:
+                try:
+                    start, end = map(int, range_str.split('-'))
+                    start = max(0, start - 1)  # 转换为0基索引
+                    end = min(len(mobiles), end)
+                    mobiles = mobiles[start:end]
+                except ValueError:
+                    logger.warning(f"无效的范围格式: {range_str}，将使用全部号码")
+
+        except Exception as e:
+            logger.error(f"文件解析错误: {str(e)}")
+            # 解析错误时返回空列表，不抛出异常
+        print("这是解析的手机号：", mobiles)
+        # 去重处理
+        mobiles = list(set(mobiles))
+        logger.info(f"成功解析{len(mobiles)}个有效手机号")
         return mobiles
 
     def process_mobile_tasks(self, request: MobileTaskRequest) -> Dict[str, Any]:
@@ -902,6 +939,8 @@ class TaskAutomation:
             if mode is None:
                 # 完整流程
                 result["steps"]["sign"] = sign_res = self.sign_task(task_info.task_id)
+                if sign_res.get("code") == 500:
+                    raise Exception(f"报名失败：任务ID不存在！")
                 if sign_res.get("code") != 0:
                     raise Exception(f"报名失败: {json.dumps(sign_res, ensure_ascii=False)}")
 
@@ -929,6 +968,8 @@ class TaskAutomation:
             if mode == 1:
                 # 登录+报名
                 result["steps"]["sign"] = sign_res = self.sign_task(task_info.task_id)
+                if sign_res.get("code") == 500:
+                    raise Exception(f"报名失败：任务ID不存在！")
                 if sign_res.get("code") != 0:
                     raise Exception(f"报名失败: {json.dumps(sign_res, ensure_ascii=False)}")
                 result["success"] = True
@@ -1118,7 +1159,7 @@ class SMSService:
             data = response.json()
 
             if data.get('code') != 0:
-                return {"success": False, "message": f"更新失败: {data.get('msg', '未知错误')}", "data": data}
+                return {"success": False, "message": f"补发短信失败，前置条件模版更新失败，原因: {data.get('msg', '未知错误')}", "data": data}
 
             # 保存到文件
             file_path = self._get_template_file_path()

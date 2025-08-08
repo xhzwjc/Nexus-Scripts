@@ -9,8 +9,8 @@ from typing import List, Dict, Optional, Union, Tuple
 from collections import defaultdict
 from pathlib import Path
 import logging
-from app.config import settings
-from app.utils import DatabaseManager
+from .config import settings
+from .utils import DatabaseManager
 
 logger = logging.getLogger(__name__)
 

@@ -151,6 +151,23 @@ class MobileTaskResponse(BaseModel):
     success_count: int = Field(..., description="成功数量")
     failure_count: int = Field(..., description="失败数量")
 
+# 简化的手机号解析请求模型
+class MobileParseRequest(BaseModel):
+    file_content: str = Field(..., description="base64编码的TXT文件内容")
+    range: Optional[str] = Field(None, description="处理范围，如1-50，仅对文件有效")
+
+# 手机号解析响应数据模型
+class MobileParseData(BaseModel):
+    mobiles: List[str] = Field(..., description="解析后的手机号列表")
+    count: int = Field(..., description="手机号数量")
+
+# 手机号解析响应模型
+class MobileParseResponse(BaseModel):
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(..., description="处理信息")
+    data: Optional[MobileParseData] = Field(None, description="解析结果")
+    request_id: str = Field(..., description="请求ID")
+
 
 # 短信相关模型
 class SMSTemplateItem(BaseModel):

@@ -10,7 +10,6 @@ import requests
 import pymysql
 from pymysql.cursors import DictCursor
 
-from app.config import settings
 
 
 class Environment(Enum):

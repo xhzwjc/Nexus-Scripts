@@ -17,7 +17,8 @@ from .models import (
     SettlementRequest, SettlementResponse,
     BalanceVerificationRequest, BalanceVerificationResponse, CommissionCalculationRequest,
     CommissionCalculationResponse, MobileTaskRequest, MobileTaskResponse, SMSResendResponse, SMSResendRequest,
-    SMSSendResponse, SMSBatchSendRequest, SMSSendSingleRequest, SMSBaseRequest, SMSTemplateResponse
+    SMSSendResponse, SMSBatchSendRequest, SMSSendSingleRequest, SMSBaseRequest, SMSTemplateResponse,
+    MobileParseResponse, MobileParseRequest
 )
 from .services import EnterpriseSettlementService, AccountBalanceService, CommissionCalculationService, \
     MobileTaskService, SMSService
@@ -181,6 +182,54 @@ def get_mobile_task_service(request: MobileTaskRequest):
     """根据请求中的environment创建MobileTaskService实例"""
     return MobileTaskService(environment=request.environment)
 
+# 为手机号解析接口创建专用的依赖注入函数
+def get_mobile_parse_service(request: MobileParseRequest):
+    """根据请求创建MobileTaskService实例（用于解析接口）"""
+    # 如果MobileParseRequest没有environment字段，可以设置默认值
+    return MobileTaskService(environment=getattr(request, 'environment', 'test'))
+
+
+@app.post("/mobile/parse", response_model=MobileParseResponse, tags=["手机号任务"])
+async def parse_mobile_numbers(
+        request: MobileParseRequest,
+        service: MobileTaskService = Depends(get_mobile_parse_service)
+):
+    """
+    单独解析手机号（仅解析，不执行后续任务）
+
+    仅需要两个参数：
+    - file_content: base64编码的TXT文件内容
+    - range: 可选，处理范围，如1-50
+    """
+    try:
+        request_id = str(uuid.uuid4())
+        logger.info(f"收到手机号解析请求: 请求ID={request_id}, 是否有文件={bool(request.file_content)}, 范围={request.range}")
+
+        # 仅执行解析操作，只传入需要的参数
+        mobiles = service.parse_mobile_numbers(
+            file_content=request.file_content,
+            range_str=request.range
+        )
+
+        return {
+            "success": True,
+            "message": f"成功解析{len(mobiles)}个有效手机号",
+            "data": {
+                "mobiles": mobiles,
+                "count": len(mobiles)
+            },
+            "request_id": request_id
+        }
+    except Exception as e:
+        logger.error(f"手机号解析出错: {str(e)}", exc_info=True)
+        return {
+            "success": False,
+            "message": f"解析失败: {str(e)}",
+            "data": None,
+            "request_id": str(uuid.uuid4())
+        }
+
+
 
 # 手机号任务接口（新增）
 @app.post("/mobile/task/process", response_model=MobileTaskResponse, tags=["手机号任务"])
@@ -205,6 +254,7 @@ async def process_mobile_tasks(
         logger.info(f"收到手机号任务请求: 模式={request.mode}, 手机号数量={len(request.mobiles)}, "
                     f"是否有文件={bool(request.file_content)}, 范围={request.range}")
         result = service.process_mobile_tasks(request)
+        print(result)
         return result
     except Exception as e:
         logger.error(f"手机号任务API处理出错: {str(e)}", exc_info=True)
@@ -419,9 +469,9 @@ async def resend_sms(
         }
 
 
-from app.reports import TaxReportGenerator
-from app.utils import get_enterprise_list
-from app.models import (
+from .reports import TaxReportGenerator
+from .utils import get_enterprise_list
+from .models import (
     EnterpriseListResponse,
     TaxDataRequest,
     TaxDataResponse,
