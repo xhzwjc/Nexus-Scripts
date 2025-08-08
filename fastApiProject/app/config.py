@@ -1,3 +1,4 @@
+import json
 import os
 from dotenv import load_dotenv
 
@@ -12,27 +13,27 @@ class Settings:
     DESCRIPTION = "春苗系统自动结算接口服务（含账户余额核对功能）"
 
     # 服务基础URL配置
-    BASE_URL_TEST = os.getenv("BASE_URL_TEST", "http://fwos-client-api-test.seedlingintl.com")
-    BASE_URL_PROD = os.getenv("BASE_URL_PROD", "https://client-api.seedlingintl.com")
-    BASE_URL_LOCAL = os.getenv("BASE_URL_LOCAL", "http://192.168.20.245:48081")
+    BASE_URL_TEST = os.getenv("BASE_URL_TEST")
+    BASE_URL_PROD = os.getenv("BASE_URL_PROD")
+    BASE_URL_LOCAL = os.getenv("BASE_URL_LOCAL")
 
     # 默认环境 (test, prod, local)
     ENVIRONMENT = os.getenv("ENVIRONMENT", "prod")
 
     # 账户余额核对 - 数据库配置（新增）
     # 测试环境数据库
-    DB_TEST_HOST = os.getenv("DB_TEST_HOST", "114.55.94.154")
-    DB_TEST_PORT = int(os.getenv("DB_TEST_PORT", 3308))
-    DB_TEST_USER = os.getenv("DB_TEST_USER", "root")
-    DB_TEST_PASSWORD = os.getenv("DB_TEST_PASSWORD", "2House@.2023")
-    DB_TEST_DATABASE = os.getenv("DB_TEST_DATABASE", "db_fwos_test")
+    DB_TEST_HOST = os.getenv("DB_TEST_HOST")
+    DB_TEST_PORT = int(os.getenv("DB_TEST_PORT"))
+    DB_TEST_USER = os.getenv("DB_TEST_USER")
+    DB_TEST_PASSWORD = os.getenv("DB_TEST_PASSWORD")
+    DB_TEST_DATABASE = os.getenv("DB_TEST_DATABASE")
 
     # 生产环境数据库
-    DB_PROD_HOST = os.getenv("DB_PROD_HOST", "rm-bp18h097b1umpi24h6o.mysql.rds.aliyuncs.com")
-    DB_PROD_PORT = int(os.getenv("DB_PROD_PORT", 3306))
-    DB_PROD_USER = os.getenv("DB_PROD_USER", "fwos_prod")
-    DB_PROD_PASSWORD = os.getenv("DB_PROD_PASSWORD", "tangren_fwos@2024")
-    DB_PROD_DATABASE = os.getenv("DB_PROD_DATABASE", "db_fwos")
+    DB_PROD_HOST = os.getenv("DB_PROD_HOST")
+    DB_PROD_PORT = int(os.getenv("DB_PROD_PORT"))
+    DB_PROD_USER = os.getenv("DB_PROD_USER")
+    DB_PROD_PASSWORD = os.getenv("DB_PROD_PASSWORD")
+    DB_PROD_DATABASE = os.getenv("DB_PROD_DATABASE")
 
     # 本地环境数据库（可选，复用测试环境配置或单独配置）
     DB_LOCAL_HOST = os.getenv("DB_LOCAL_HOST", DB_TEST_HOST)
@@ -87,21 +88,22 @@ class Settings:
         }
 
     # 短信服务配置
-    SMS_API_BASE_TEST = "http://fwos-api-test.seedlingintl.com/admin-api/system/sms-template"
-    SMS_API_BASE_PROD = "https://smp-api.seedlingintl.com/admin-api/system/sms-template"
-    SMS_AUTH_TOKEN_TEST = "Bearer 05a1ec4dd4bc42d88a5ddda604d2380b"
-    SMS_AUTH_TOKEN_PROD = "Bearer be390ca76e1d457989244e70c4c2df11"
+    SMS_API_BASE_TEST = os.getenv("SMS_API_BASE_TEST")
+    SMS_API_BASE_PROD = os.getenv("SMS_API_BASE_PROD")
+    SMS_AUTH_TOKEN_TEST = os.getenv("SMS_AUTH_TOKEN_TEST")
+    SMS_AUTH_TOKEN_PROD = os.getenv("SMS_AUTH_TOKEN_PROD")
     SMS_TENANT_ID = "1"
-    SMS_ORIGIN_TEST = "http://fwos-test.seedlingintl.com"
-    SMS_ORIGIN_PROD = "https://fwos-test.seedlingintl.com"
-    SMS_REFERER_TEST = "http://fwos-test.seedlingintl.com/"
-    SMS_REFERER_PROD = "https://fwos-test.seedlingintl.com/"
+    SMS_ORIGIN_TEST = os.getenv("SMS_ORIGIN_TEST")
+    SMS_ORIGIN_PROD = os.getenv("SMS_ORIGIN_PROD")
+    SMS_REFERER_TEST = os.getenv("SMS_REFERER_TEST")
+    SMS_REFERER_PROD = os.getenv("SMS_REFERER_PROD")
 
     # 预设手机号
-    PRESET_MOBILES = [
-        "19523303551",
-        "17274802003",
-    ]
+    preset_mobiles_str = os.getenv("PRESET_MOBILES")
+    if preset_mobiles_str:
+        PRESET_MOBILES = json.loads(preset_mobiles_str)
+    else:
+        PRESET_MOBILES = []
 
     @property
     def sms_api_base_url(self):
