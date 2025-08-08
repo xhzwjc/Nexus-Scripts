@@ -377,7 +377,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
             }
 
             // 处理返回结果
-            const formattedResults = data.data.map((item: any) => ({
+            const formattedResults: PhoneNumber[] = data.data.map((item: ExecutionDetail): PhoneNumber => ({
                 ...item,
                 phone: item.mobile,
                 status: item.success ? 'success' : 'failed',
@@ -389,6 +389,10 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                     get_balance_id: item.steps?.get_balance_id || {}
                 }
             }));
+            if (!Array.isArray(data.data)) {
+                setError('返回数据格式错误');
+                return;
+            }
 
             // 同时更新执行中的列表和结果存储
             setPhoneNumbers(formattedResults);
