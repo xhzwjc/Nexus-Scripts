@@ -80,7 +80,7 @@ interface Script {
 const allScripts = {
   chunmiao: {
     name: 'CM系统',
-    description: '企业结算与渠道管理系统',
+    description: '一个用于管理企业和渠道业务流程的综合系统',
     scripts: [
       {
         id: 'settlement',
@@ -490,7 +490,7 @@ export default function App() {
                   ) : (
                     <div className="text-center py-8 text-muted-foreground">
                       <Database className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                      <p>您没有该系统的访问权限</p>
+                      <p>烹饪中！</p>
                     </div>
                   )}
                 </div>
@@ -503,9 +503,9 @@ export default function App() {
           <Card className="inline-block p-6">
             <div className="flex items-center gap-3 text-muted-foreground">
               <CheckCircle className="w-5 h-5" />
-              <span>系统运行正常，您有权访问 {
+              <span>系统运行正常，目前共有 {
                 Object.values(systems).reduce((total, system) => total + system.scripts.length, 0)
-              } 个自动化脚本</span>
+              } 个可用的自动化脚本</span>
             </div>
           </Card>
         </div>
