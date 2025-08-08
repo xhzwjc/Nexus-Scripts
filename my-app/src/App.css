@@ -1,39 +1,24 @@
-/* src/App.css */
 .colorful-background {
-    /* 使用 radial-gradient 创建多色渐变 */
+    /* 使用更少但更协调的渐变 */
     background: radial-gradient(
-            circle at 25% 45%, /* 第一个渐变点，位置在25% 45% */
-            #ffc0cb,          /* 桃红色 */
-            transparent 50%
+            circle at 30% 30%,
+            rgba(166, 185, 255, 0.3),  /* 淡紫色，低饱和度 */
+            transparent 60%
     ),
     radial-gradient(
-            circle at 75% 25%, /* 第二个渐变点，位置在75% 25% */
-            #add8e6,          /* 浅蓝色 */
-            transparent 50%
-    ),
-    radial-gradient(
-            circle at 50% 85%, /* 第三个渐变点，位置在50% 85% */
-            #90ee90,          /* 浅绿色 */
-            transparent 50%
-    ),
-    radial-gradient(
-            circle at 80% 60%, /* 第四个渐变点，位置在80% 60% */
-            #ffd700,          /* 金黄色 */
-            transparent 50%
+            circle at 70% 70%,
+            rgba(255, 221, 233, 0.3),  /* 淡粉色，低饱和度 */
+            transparent 60%
     );
 
-    /* 设置背景大小和混合模式 */
-    background-size: cover;
-    background-attachment: fixed; /* 保持背景固定，不随内容滚动 */
-    background-color: #f7fafc;    /* 一个基础的浅色背景 */
+    /* 背景设置优化 */
+    background-color: #f8fafc;    /* 更干净的基础色 */
+    background-attachment: fixed;
+    background-size: 100% 100%;
+    transition: background-position 8s ease-in-out; /* 缓慢移动效果 */
 }
 
-/* 你也可以尝试使用 linear-gradient 来实现类似效果，但它更像条状渐变 */
-/*
-.colorful-background-linear {
-  background: linear-gradient(
-    to bottom right,
-    #ffc0cb, #add8e6, #90ee90, #ffd700
-  );
+/* 悬停时微妙的背景移动，增加高级感 */
+.colorful-background:hover {
+    background-position: 5% 5%, -5% -5%;
 }
-*/
