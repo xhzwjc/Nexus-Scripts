@@ -1,10 +1,12 @@
 services:
   # 后端FastAPI服务
   fastapi:
-    build: ./fastApiProject
+    build:
+      context: ./fastApiProject
+    image: project-root-fastapi:v1.0.0  # ✅ 显式命名
     restart: always
     ports:
-      - "8000:8000"
+      - "8091:8091"
     # 关键：传递.env中的所有数据库环境变量（和你的config.py对应）
     environment:
       - ENVIRONMENT=${ENVIRONMENT}  # 从.env读取环境（test/prod）
@@ -25,10 +27,12 @@ services:
 
   # 前端React服务
   frontend:
-    build: ./my-app
+    build:
+      context: ./my-app
+    image: project-root-frontend:v1.0.0  # ✅ 显式命名
     restart: always
     ports:
-      - "80:80"
+      - "8090:80"
     depends_on:
       - fastapi  # 确保后端启动后再启动前端
     networks:
