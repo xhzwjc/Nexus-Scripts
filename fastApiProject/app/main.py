@@ -507,7 +507,7 @@ async def list_enterprises(
 
         return {
             "success": True,
-            "message": "企业信息获取成功",
+            "message": "已加载企业信息！",
             "data": enterprises,
             "request_id": request_id,
             "total": len(enterprises)

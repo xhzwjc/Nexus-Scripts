@@ -67,7 +67,8 @@ class TaxReportGenerator:
                         enterprise_name,
                         enterprise_id,
                         tax_id AS 税地ID,
-                        tax_address AS 税地名称
+                        tax_address AS 税地名称,
+                        service_pay_status
                     FROM
                         biz_balance_worker
                     WHERE

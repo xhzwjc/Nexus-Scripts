@@ -283,6 +283,7 @@ class TaxDataItem(BaseModel):
     应纳个人经营所得税_元: float = Field(..., description="应纳个人经营所得税(元)")
     税地ID: int = Field(..., description="税地ID")
     税地名称: str = Field(..., description="税地名称")
+    service_pay_status: int = Field(..., description="服务费收取状态")
     备注: str = Field(..., description="备注")
 
 

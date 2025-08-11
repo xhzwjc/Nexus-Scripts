@@ -55,6 +55,7 @@ interface TaxData {
     营业额_元: number;
     enterprise_name: string;
     enterprise_id: number;
+    service_pay_status: number;
     增值税_元: number;
     教育费附加_元: number;
     地方教育附加_元: number;
@@ -96,6 +97,7 @@ interface TaxReportManagementProps {
 const SkeletonRow = () => (
     <TableRow>
         <TableCell className="w-[80px]"><Skeleton className="h-5"/></TableCell>
+        <TableCell><Skeleton className="h-5"/></TableCell>
         <TableCell><Skeleton className="h-5"/></TableCell>
         <TableCell><Skeleton className="h-5"/></TableCell>
         <TableCell><Skeleton className="h-5"/></TableCell>
@@ -524,6 +526,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                     <TableHead>营业额(元)</TableHead>
                                                     <TableHead>增值税(元)</TableHead>
                                                     <TableHead>个人经营所得税(元)</TableHead>
+                                                    <TableHead>服务费扣除状态</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
@@ -543,6 +546,11 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                             <TableCell>{formatCurrency(Number(item['营业额_元']))}</TableCell>
                                                             <TableCell>{formatCurrency(Number(item['增值税_元']))}</TableCell>
                                                             <TableCell>{formatCurrency(Number(item['应纳个人经营所得税_元']))}</TableCell>
+                                                            <TableCell>
+                                                                <span style={{ color:item.service_pay_status === 1 ? "red" : "inherit" }}>
+                                                                {item.service_pay_status === 0 ? "成功" : "失败"}
+                                                                </span>
+                                                            </TableCell>
                                                         </TableRow>
                                                     ))
                                                 ) : (
