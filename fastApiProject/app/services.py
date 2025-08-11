@@ -796,7 +796,6 @@ class MobileTaskService:
         except Exception as e:
             logger.error(f"文件解析错误: {str(e)}")
             # 解析错误时返回空列表，不抛出异常
-        print("这是解析的手机号：", mobiles)
         # 去重处理
         mobiles = list(set(mobiles))
         logger.info(f"成功解析{len(mobiles)}个有效手机号")
@@ -1151,7 +1150,6 @@ class SMSService:
         try:
             # 获取环境配置
             env_settings = self._get_env_settings()
-            print("返回的环境配置：",env_settings.sms_api_base_url)
             url = f"{env_settings.sms_api_base_url}/page?pageNo=1&pageSize=50&type=2&code=&content=&apiTemplateId=&channelId=2"
 
             response = requests.get(url, headers=env_settings.sms_headers, timeout=10)
@@ -1159,7 +1157,7 @@ class SMSService:
             data = response.json()
 
             if data.get('code') != 0:
-                return {"success": False, "message": f"补发短信失败，前置条件模版更新失败，原因: {data.get('msg', '未知错误')}", "data": data}
+                return {"code": 500,"success": False, "message": f"模版更新失败，原因: {data.get('msg', '未知错误')}", "data": data}
 
             # 保存到文件
             file_path = self._get_template_file_path()
@@ -1369,7 +1367,6 @@ class SMSService:
 
     def fetch_workers(self, batch_no=None, mobiles=None):
         """查询需要补发短信的工人信息"""
-        print("传来的批次号和手机号：", batch_no, mobiles)
         if not batch_no and not mobiles:
             return {"success": False, "message": "批次号和手机号不能同时为空", "data": []}
 
@@ -1377,7 +1374,6 @@ class SMSService:
         if self.environment:
             settings.ENVIRONMENT = self.environment
         db_config = settings.get_db_config()
-        print("-------------------------------------------------------",db_config)
 
         # 构建SQL
         where_clauses = ["t.deleted = 0"]

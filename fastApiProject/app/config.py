@@ -107,7 +107,6 @@ class Settings:
 
     @property
     def sms_api_base_url(self):
-        print("看看环境：",self.ENVIRONMENT)
         if self.ENVIRONMENT == "prod":
             return self.SMS_API_BASE_PROD
         return self.SMS_API_BASE_TEST

@@ -160,7 +160,6 @@ async def calculate_commission(
             channel_id=request.channel_id,
             timeout=request.timeout,
         )
-        print(result.get("commission_details"))
         return {
             "success": True,
             "message": "佣金计算完成",
@@ -301,6 +300,7 @@ async def update_sms_templates(
 
         result = service.update_templates()
         return {
+            "code": result.get("code",0),
             "success": result["success"],
             "message": result["message"],
             "data": result.get("data", {}).get("list", []),
