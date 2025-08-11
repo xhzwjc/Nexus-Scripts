@@ -253,7 +253,6 @@ async def process_mobile_tasks(
         logger.info(f"收到手机号任务请求: 模式={request.mode}, 手机号数量={len(request.mobiles)}, "
                     f"是否有文件={bool(request.file_content)}, 范围={request.range}")
         result = service.process_mobile_tasks(request)
-        print(result)
         return result
     except Exception as e:
         logger.error(f"手机号任务API处理出错: {str(e)}", exc_info=True)
@@ -322,7 +321,6 @@ async def get_allowed_templates(
         logger.info(f"获取允许的短信模板，环境: {request.environment}, 请求ID: {request_id}")
 
         templates = service.get_allowed_templates()
-        print(templates)
         return {
             "success": True,
             "message": f"获取到 {len(templates)} 个允许的模板",

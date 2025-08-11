@@ -1404,14 +1404,11 @@ class SMSService:
 --             AND (t1.sign_status IS NULL OR t1.sign_status <> 0)
         GROUP BY t.worker_id
         """
-        print(sql)
         try:
             with DatabaseManager(db_config) as conn:
                 with conn.cursor(DictCursor) as cursor:
                     a = cursor.execute(sql, params)
-                    print(a)
                     workers = cursor.fetchall()
-                    print(workers)
 
                     # 保存到文件
                     resend_file = os.path.join(self.template_dir, "resend_data.json")

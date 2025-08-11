@@ -93,7 +93,6 @@ class TaxReportGenerator:
                             params.extend(ids_to_query)
 
                     sql += " ORDER BY enterprise_name, id"
-                    print(sql)
                     cursor.execute(sql, tuple(params))
                     results = cursor.fetchall()
 
