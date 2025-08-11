@@ -154,6 +154,58 @@ const getEndOfDayTimestamp = () => {
     return now.getTime();
 };
 
+// 轻量通用确认弹窗（无需额外依赖）
+interface ConfirmDialogProps {
+    open: boolean;
+    title: string;
+    description?: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+}
+
+const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
+                                                         open,
+                                                         title,
+                                                         description,
+                                                         confirmText = '确认',
+                                                         cancelText = '取消',
+                                                         onConfirm,
+                                                         onCancel
+                                                     }) => {
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onCancel();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open, onCancel]);
+
+    if (!open) return null;
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/50" onClick={onCancel}/>
+            <div className="relative w-full max-w-sm p-4">
+                <Card className="animate-fadeIn">
+                    <CardHeader>
+                        <CardTitle className="text-lg">{title}</CardTitle>
+                        {description && <CardDescription>{description}</CardDescription>}
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={onCancel}>{cancelText}</Button>
+                            <Button onClick={onConfirm}>{confirmText}</Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+        </div>
+    );
+};
+
 export default function App() {
     // 状态管理
     const [currentView, setCurrentView] = useState<'home' | 'system' | 'script'>('home');
@@ -165,6 +217,7 @@ export default function App() {
     const [systems, setSystems] = useState(allScripts);
     const [isLoading, setIsLoading] = useState(true);
     const [isVerifying, setIsVerifying] = useState(false);
+    const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
     // 初始化时检查本地存储的认证信息
     useEffect(() => {
@@ -204,15 +257,12 @@ export default function App() {
     const validateKey = () => {
         setErrorMessage('');
         if (!userKey.trim()) {
-            // setErrorMessage('请输入访问密钥');
-            toast.error("请输入访问密钥")
+            toast.error("请输入访问密钥");
             return;
         }
 
-        // 设置验证状态为true，禁用按钮并显示加载动画
         setIsVerifying(true);
 
-        // 500ms后执行验证逻辑
         setTimeout(() => {
             const user = keyUserMap[userKey.trim()];
             if (user) {
@@ -225,9 +275,9 @@ export default function App() {
                 localStorage.setItem('scriptHubAuth', JSON.stringify(authData));
                 setCurrentUser(user);
                 filterScriptsByPermission(user);
+                toast.success("验证成功，欢迎使用");
             } else {
-                // setErrorMessage('无效的访问密钥，请重新输入');
-                toast.error("无效的访问密钥，请重新输入")
+                toast.error("无效的访问密钥，请重新输入");
             }
 
             setIsVerifying(false);
@@ -236,15 +286,11 @@ export default function App() {
 
     // 根据权限过滤脚本
     const filterScriptsByPermission = (user: User) => {
-        // 使用 Object.fromEntries 和 .map 来创建一个全新的、经过过滤的 systems 对象
         const filteredSystems = Object.fromEntries(
             Object.entries(allScripts).map(([systemKey, system]) => {
-                // 1. 过滤当前 system 的 scripts 数组
                 const filteredScripts = system.scripts.filter(script =>
                     user.permissions[script.id]
                 );
-
-                // 2. 返回一个新的 [key, value] 对，其中 value 是一个包含过滤后 scripts 的新 system 对象
                 return [systemKey, {...system, scripts: filteredScripts}];
             })
         ) as typeof allScripts;
@@ -256,6 +302,8 @@ export default function App() {
     const logout = () => {
         setCurrentUser(null);
         setUserKey('');
+        setSelectedSystem('');
+        setSelectedScript('');
         setCurrentView('home');
         setSystems(allScripts);
         localStorage.removeItem('scriptHubAuth');
@@ -295,7 +343,6 @@ export default function App() {
 
     if (isLoading) {
         return (
-            // 已修改：将背景类从 bg-gray-50 更改为 colorful-background
             <div className="min-h-screen colorful-background flex items-center justify-center p-6">
                 <div className="flex flex-col items-center gap-4">
                     <Loader2 className="w-10 h-10 text-primary animate-spin"/>
@@ -309,7 +356,6 @@ export default function App() {
     // 未登录状态 - 显示密钥输入界面
     if (!currentUser) {
         return (
-            // 已修改：将背景类从 bg-gray-50 更改为 colorful-background
             <div className="min-h-screen colorful-background flex items-center justify-center p-6">
                 <Toaster richColors position="top-center"/>
                 <Card className="w-full max-w-md animate-fadeIn">
@@ -340,6 +386,7 @@ export default function App() {
                                         validateKey();
                                     }
                                 }}
+                                autoFocus
                                 disabled={isVerifying}
                                 className="pr-10"
                             />
@@ -371,12 +418,11 @@ export default function App() {
     if (currentView === 'system') {
         const system = systems[selectedSystem as keyof typeof systems];
         const {scripts} = system || {scripts: []};
-        // 根据脚本数量决定布局样式
         const hasFewScripts = scripts.length > 0 && scripts.length <= 2;
 
         return (
-            // 已修改：将背景类从 bg-gray-50 更改为 colorful-background
             <div className="min-h-screen colorful-background p-6">
+                <Toaster richColors position="top-center"/>
                 <div className="max-w-6xl mx-auto">
                     <div className="flex justify-between items-center mb-6">
                         <Button
@@ -388,7 +434,7 @@ export default function App() {
                         </Button>
                         <div className="flex items-center gap-2">
                             <Badge variant="outline">{currentUser.name} ({currentUser.role})</Badge>
-                            <Button variant="ghost" size="sm" onClick={logout}>退出</Button>
+                            <Button variant="ghost" size="sm" onClick={() => setShowLogoutConfirm(true)}>退出</Button>
                         </div>
                     </div>
 
@@ -400,7 +446,6 @@ export default function App() {
                         <p className="text-muted-foreground">{system?.description}</p>
                     </div>
 
-                    {/* 根据脚本数量动态调整布局 */}
                     <div className={`
             ${hasFewScripts
                         ? 'flex flex-col items-center justify-center min-h-[300px]'
@@ -449,18 +494,32 @@ export default function App() {
                         ))}
                     </div>
                 </div>
+
+                <ConfirmDialog
+                    open={showLogoutConfirm}
+                    title="确认退出登录？"
+                    description="退出后需要重新输入访问密钥才可继续使用。"
+                    confirmText="确认退出"
+                    cancelText="取消"
+                    onCancel={() => setShowLogoutConfirm(false)}
+                    onConfirm={() => {
+                        setShowLogoutConfirm(false);
+                        logout();
+                        toast.success('已退出登录');
+                    }}
+                />
             </div>
         );
     }
 
     return (
-        // 已修改：将背景类从 bg-gray-50 更改为 colorful-background
         <div className="min-h-screen colorful-background p-6">
+            <Toaster richColors position="top-center"/>
             <div className="max-w-6xl mx-auto">
                 <div className="flex justify-end mb-6">
                     <div className="flex items-center gap-2">
                         <Badge variant="outline">{currentUser.name} ({currentUser.role})</Badge>
-                        <Button variant="ghost" size="sm" onClick={logout}>退出</Button>
+                        <Button variant="ghost" size="sm" onClick={() => setShowLogoutConfirm(true)}>退出</Button>
                     </div>
                 </div>
 
@@ -532,6 +591,20 @@ export default function App() {
                     </Card>
                 </div>
             </div>
+
+            <ConfirmDialog
+                open={showLogoutConfirm}
+                title="确认退出登录？"
+                description="退出后需要重新输入访问密钥才可继续使用。"
+                confirmText="确认退出"
+                cancelText="取消"
+                onCancel={() => setShowLogoutConfirm(false)}
+                onConfirm={() => {
+                    setShowLogoutConfirm(false);
+                    logout();
+                    toast.success('已退出登录');
+                }}
+            />
         </div>
     );
 }

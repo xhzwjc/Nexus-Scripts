@@ -1,4 +1,4 @@
-import React, {useState, useRef} from 'react';
+import React, {useRef, useState} from 'react';
 import {Card, CardContent, CardHeader, CardTitle} from './ui/card';
 import {Button} from './ui/button';
 import {Input} from './ui/input';
@@ -8,34 +8,36 @@ import {Textarea} from './ui/textarea';
 import {Badge} from './ui/badge';
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from './ui/table';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from './ui/tabs';
-import {ArrowLeft, Upload, Play, Download, Trash2, AlertCircle, ChevronDown, ChevronRight} from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import {AlertCircle, ArrowLeft, ChevronDown, ChevronRight, Download, Play, Trash2, Upload} from 'lucide-react';
+import {Toaster, toast} from 'sonner';
 
-// 定义步骤信息接口
+// ---------- 类型定义 ----------
 interface StepInfo {
     code?: number | string;
-    data?: any;
+    data?: unknown;
     msg?: string;
     open?: boolean;
     taskStaffId?: string;
     taskAssignId?: string;
 }
 
-// 定义详细执行结果接口
+type StepKey = 'login' | 'sign' | 'get_task_ids' | 'delivery' | 'get_balance_id';
+
+interface Steps {
+    login: StepInfo;
+    sign: StepInfo;
+    get_task_ids: StepInfo;
+    delivery: StepInfo;
+    get_balance_id: StepInfo;
+}
+
 interface ExecutionDetail {
     mobile: string;
     success: boolean;
     error: string | null;
-    steps: {
-        login: StepInfo;
-        sign: StepInfo;
-        get_task_ids: StepInfo;
-        delivery: StepInfo;
-        get_balance_id: StepInfo; // 结算单步骤
-    };
+    steps: Steps;
 }
 
-// 定义手机号状态接口
 interface PhoneNumber extends ExecutionDetail {
     phone: string;
     status: 'pending' | 'success' | 'failed';
@@ -62,8 +64,127 @@ interface TaskAutomationScriptProps {
     onBack: () => void;
 }
 
+// 解析手机号 API 响应
+interface ParseMobilesResponse {
+    data?: { mobiles?: string[] };
+    message?: string;
+    detail?: string;
+}
+
+// 执行任务 API 响应
+interface TaskProcessResponse {
+    data?: ExecutionDetail[];
+    message?: string;
+    detail?: string;
+}
+
+// ---------- 工具函数（无 any） ----------
+// API 基地址
+const getApiBaseUrl = (): string | null => {
+    const base = process.env.NEXT_PUBLIC_API_BASE_URL;
+    if (!base) {
+        toast.error('缺少环境变量 NEXT_PUBLIC_API_BASE_URL，请配置后重试');
+        return null;
+    }
+    return base;
+};
+
+// 统一安全 JSON 解析
+async function parseJson<T>(resp: Response): Promise<T | null> {
+    try {
+        return (await resp.json()) as unknown as T;
+    } catch {
+        return null;
+    }
+}
+
+// 文件转 Base64
+const fileToBase64 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+            if (typeof reader.result === 'string') {
+                resolve(reader.result.split(',')[1]);
+            } else {
+                reject(new Error('文件转换失败'));
+            }
+        };
+        reader.onerror = (error) => reject(error);
+    });
+
+// 仅支持读取 'code' | 'msg'，并返回 string
+const getStepProperty = (step: StepInfo | undefined, property: 'code' | 'msg', defaultValue = 'N/A'): string => {
+    if (!step) return defaultValue;
+    const value = step[property];
+    if (value === undefined || value === null) return defaultValue;
+    return String(value);
+};
+
+// 结算单数据类型守卫
+type BalanceData = { list?: unknown[]; total?: number };
+const isBalanceData = (v: unknown): v is BalanceData => {
+    if (typeof v !== 'object' || v === null) return false;
+    // 有 list 或 total 字段即认为是结算单数据
+    return 'list' in v || 'total' in v;
+};
+
+// 格式化步骤数据
+const formatStepData = (step: StepInfo | undefined, stepKey: StepKey): string => {
+    if (!step) return JSON.stringify({}, null, 2);
+
+    if (stepKey === 'get_task_ids') {
+        return JSON.stringify(
+            {
+                taskStaffId: step.taskStaffId || 'N/A',
+                taskAssignId: step.taskAssignId || 'N/A',
+                code: step.code ?? 'N/A',
+                msg: step.msg || ''
+            },
+            null,
+            2
+        );
+    }
+
+    if (stepKey === 'get_balance_id') {
+        const d = step.data;
+        if (isBalanceData(d)) {
+            if ((d.list?.length ?? 0) === 0 && (d.total ?? 0) === 0) {
+                return JSON.stringify({list: '无结算单数据', total: 0}, null, 2);
+            }
+            return JSON.stringify(d, null, 2);
+        }
+        return JSON.stringify('无数据', null, 2);
+    }
+
+    return JSON.stringify({code: step.code ?? 'N/A', msg: step.msg || '', data: step.data ?? null}, null, 2);
+};
+
+// 根据执行模式获取步骤
+const getStepsForMode = (mode: string): Array<{ key: StepKey; label: string }> => {
+    const allSteps: Array<{ key: StepKey; label: string }> = [
+        {key: 'login', label: '登录'},
+        {key: 'sign', label: '报名'},
+        {key: 'get_task_ids', label: '任务ID获取'},
+        {key: 'delivery', label: '交付'},
+        {key: 'get_balance_id', label: '结算单确认'}
+    ];
+
+    switch (mode) {
+        case '1':
+            return allSteps.filter(s => ['login', 'sign'].includes(s.key));
+        case '2':
+            return allSteps.filter(s => ['login', 'delivery'].includes(s.key));
+        case '3':
+            return allSteps.filter(s => ['login', 'get_balance_id'].includes(s.key));
+        default:
+            return allSteps;
+    }
+};
+
+// ---------- 组件 ----------
 export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps) {
-    // 主要状态 - 新增environment状态
+    // 主要状态
     const [environment, setEnvironment] = useState('test');
     const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumber[]>([]);
     const [manualInput, setManualInput] = useState('');
@@ -80,103 +201,102 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
     const [expandedPhone, setExpandedPhone] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [executionResults, setExecutionResults] = useState<PhoneNumber[]>([]);
+    const [dragOver, setDragOver] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // 任务信息状态
     const [taskInfo, setTaskInfo] = useState<TaskInfo>({
         task_id: '',
-        task_content: "交付成果：列明本阶段完成的具体交付物（如代码模块、设计文档、测试报告等），需标注版本号及对应功能清单。\n验收指标：对照合同要求的KPI（如性能参数、安全标准、测试覆盖率等），逐项说明达标情况，附检测数据截图。\n问题记录：汇总验收过程中发现的缺陷（如Bug清单、未达标项），并注明整改计划与预计完成时间。\n附件清单：列出所有提交的支撑文件（如日志、测试用例、第三方认证等），确保可追溯。",
-        report_name: "XX项目阶段交付验收报告",
-        report_address: "北京市丰台区看丹街道看丹路418号",
-        supplement: "补充一",
+        task_content:
+            '交付成果：列明本阶段完成的具体交付物（如代码模块、设计文档、测试报告等），需标注版本号及对应功能清单。\n验收指标：对照合同要求的KPI（如性能参数、安全标准、测试覆盖率等），逐项说明达标情况，附检测数据截图。\n问题记录：汇总验收过程中发现的缺陷（如Bug清单、未达标项），并注明整改计划与预计完成时间。\n附件清单：列出所有提交的支撑文件（如日志、测试用例、第三方认证等），确保可追溯。',
+        report_name: 'XX项目阶段交付验收报告',
+        report_address: '北京市丰台区看丹街道看丹路418号',
+        supplement: '补充一',
         attachments: [
             {
-                fileName: "tmp_1eb627ad4a5d62e68b9ef43759a4c750.jpg",
-                fileType: ".jpg",
+                fileName: 'tmp_1eb627ad4a5d62e68b9ef43759a4c750.jpg',
+                fileType: '.jpg',
                 uploadTime: 1751247594260,
                 fileLength: 246533,
                 isPic: 1,
                 isWx: 0,
-                filePath: "app/2025-06-30/tmp_1eb627ad4a5d62e68b9ef43759a4c750.jpg"
+                filePath: 'app/2025-06-30/tmp_1eb627ad4a5d62e68b9ef43759a4c750.jpg'
             }
         ]
     });
 
-    // 安全获取步骤属性，防止undefined错误
-    const getStepProperty = (step: StepInfo | undefined, property: keyof StepInfo, defaultValue: string = 'N/A') => {
-        if (!step) return defaultValue;
-        return step[property] ?? defaultValue;
-    };
-
-    // 根据执行模式获取应显示的步骤 - 修复mode=3的步骤映射
-    const getStepsForMode = (mode: string): Array<{
-        key: 'login' | 'sign' | 'get_task_ids' | 'delivery' | 'get_balance_id';
-        label: string
-    }> => {
-        const allSteps: Array<{
-            key: 'login' | 'sign' | 'get_task_ids' | 'delivery' | 'get_balance_id';
-            label: string
-        }> = [
-            {key: 'login', label: '登录'},
-            {key: 'sign', label: '报名'},
-            {key: 'get_task_ids', label: '任务ID获取'},
-            {key: 'delivery', label: '交付'},
-            {key: 'get_balance_id', label: '结算单确认'}
-        ];
-
-        switch (mode) {
-            case '1':
-                return allSteps.filter(s => ['login', 'sign'].includes(s.key));
-            case '2':
-                return allSteps.filter(s => ['login', 'delivery'].includes(s.key));
-            case '3':
-                return allSteps.filter(s => ['login', 'get_balance_id'].includes(s.key));
-            default:
-                return allSteps;
-        }
-    };
-
-    // 文件转Base64
-    const fileToBase64 = (file: File): Promise<string> => {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => {
-                if (typeof reader.result === 'string') {
-                    resolve(reader.result.split(',')[1]);
-                } else {
-                    reject(new Error('文件转换失败'));
-                }
-            };
-            reader.onerror = (error) => reject(error);
-        });
+    // 交互函数
+    const togglePhoneDetails = (mobile: string) => {
+        setExpandedPhone(expandedPhone === mobile ? null : mobile);
     };
 
     const goToTaskStep = () => {
-        // 在进入任务执行页之前清空历史执行记录
         setExecutionResults([]);
-        setPhoneNumbers(phoneNumbers.map(phone => ({
-            ...phone,
-            status: 'pending',
-            success: false,
-            error: null,
-            steps: {
-                login: {},
-                sign: {},
-                get_task_ids: {},
-                delivery: {},
-                get_balance_id: {}
-            }
-        })));
+        setPhoneNumbers(prev =>
+            prev.map(phone => ({
+                ...phone,
+                status: 'pending',
+                success: false,
+                error: null,
+                steps: {login: {}, sign: {}, get_task_ids: {}, delivery: {}, get_balance_id: {}}
+            }))
+        );
         setCurrentTab('task');
+    };
+
+    const handleFileUploadClick = () => fileInputRef.current?.click();
+
+    const handleFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+        setError('');
+        const file = event.target.files?.[0];
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.txt')) {
+            setError('仅支持 .txt 文件');
+            return;
+        }
+        setSelectedFile(file);
+        setPhoneNumbers([]);
+        setStartLine('');
+        setEndLine('');
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setDragOver(true);
+    };
+    const onDragLeave = () => setDragOver(false);
+    const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setDragOver(false);
+        const file = e.dataTransfer.files?.[0];
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.txt')) {
+            setError('仅支持 .txt 文件');
+            return;
+        }
+        setSelectedFile(file);
+        setPhoneNumbers([]);
+        setStartLine('');
+        setEndLine('');
     };
 
     // 提取手机号列表
     const fetchPhoneNumbers = async () => {
         setError('');
+        const base = getApiBaseUrl();
+        if (!base) return;
+
         if (!selectedFile) {
             setError('请先选择文件');
+            return;
+        }
+
+        const start = parseInt(startLine, 10);
+        const end = parseInt(endLine, 10);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start) {
+            setError('请输入有效的行数范围（起始行 <= 结束行，且均为正数）');
             return;
         }
 
@@ -184,158 +304,86 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
             setIsLoading(true);
             const base64Content = await fileToBase64(selectedFile);
 
-            // 验证起始行和结束行
-            const start = parseInt(startLine);
-            const end = parseInt(endLine);
-
-            if (isNaN(start) || isNaN(end) || start < 1 || end < start) {
-                setError('请输入有效的行数范围（起始行 <= 结束行，且均为正数）');
-                setIsLoading(false);
-                return;
-            }
-
-            // 调用后端接口解析文件
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/mobile/parse`, {
+            const resp = await fetch(`${base}/mobile/parse`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    file_content: base64Content,
-                    range: `${startLine}-${endLine}`,
-                })
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({file_content: base64Content, range: `${start}-${end}`})
             });
 
-            const data = await response.json();
+            const data = await parseJson<ParseMobilesResponse>(resp);
 
-            if (!response.ok) {
-                if (data.message && (data.message.includes('超出索引') || data.message.includes('不存在'))) {
-                    setError(`行数范围错误: ${data.message}`);
-                } else {
-                    setError(data.message || '文件解析失败');
-                }
-                setIsLoading(false);
+            if (!resp.ok) {
+                const msg =
+                    (data && (data.message || data.detail)) ||
+                    `解析失败（HTTP ${resp.status}）`;
+                setError(
+                    data && data.message && (data.message.includes('超出索引') || data.message.includes('不存在'))
+                        ? `行数范围错误: ${data.message}`
+                        : msg
+                );
                 return;
             }
 
-            // 更新手机号列表
-            setPhoneNumbers(data.data.mobiles.map((mobile: string) => ({
-                phone: mobile,
-                mobile: mobile,
+            const mobiles = data?.data?.mobiles;
+            if (!Array.isArray(mobiles)) {
+                setError('返回数据结构不合法：缺少 mobiles 数组');
+                return;
+            }
+
+            const list: PhoneNumber[] = mobiles.map((mobile: string) => ({
+                phone: String(mobile).trim(),
+                mobile: String(mobile).trim(),
                 status: 'pending',
                 success: false,
                 error: null,
-                steps: {
-                    login: {},
-                    sign: {},
-                    get_task_ids: {},
-                    delivery: {},
-                    get_balance_id: {} // 初始化结算单步骤
-                }
-            })));
-            setIsLoading(false);
+                steps: {login: {}, sign: {}, get_task_ids: {}, delivery: {}, get_balance_id: {}}
+            }));
+            setPhoneNumbers(list);
+            toast.success(`成功解析 ${list.length} 个手机号`);
         } catch (err) {
-            setError(err instanceof Error ? err.message : '文件处理出错，请重试');
+            const msg = err instanceof Error ? err.message : '文件处理出错，请重试';
+            setError(msg);
             console.error('文件上传错误:', err);
+        } finally {
             setIsLoading(false);
-        }
-    };
-
-    // 处理文件上传点击
-    const handleFileUploadClick = () => {
-        if (fileInputRef.current) {
-            fileInputRef.current.click();
-        }
-    };
-
-    // 处理文件选择
-    const handleFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
-        setError('');
-        const file = event.target.files?.[0];
-        if (!file) return;
-
-        setSelectedFile(file);
-        setPhoneNumbers([]);
-        setStartLine('');
-        setEndLine('');
-
-        // 清除input值，允许重复选择同一文件
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
         }
     };
 
     // 手动提交手机号
     const handleManualSubmit = () => {
         setError('');
-        const phones = manualInput.split('\n').filter(phone => phone.trim());
+        const phones = manualInput
+            .split('\n')
+            .map(s => s.trim())
+            .filter(Boolean);
         if (phones.length === 0) {
             toast.error('请输入有效的手机号');
             return;
         }
-
-        setPhoneNumbers(phones.map(phone => ({
-            phone: phone.trim(),
-            mobile: phone.trim(),
+        const list: PhoneNumber[] = phones.map(p => ({
+            phone: p,
+            mobile: p,
             status: 'pending',
             success: false,
             error: null,
-            steps: {
-                login: {},
-                sign: {},
-                get_task_ids: {},
-                delivery: {},
-                get_balance_id: {} // 初始化结算单步骤
-            }
-        })));
+            steps: {login: {}, sign: {}, get_task_ids: {}, delivery: {}, get_balance_id: {}}
+        }));
+        setPhoneNumbers(list);
         setCurrentTab('mode');
     };
 
-    // 清空数据（保留文件和输入框）
     const clearPhoneNumbers = () => {
         setPhoneNumbers([]);
         setManualInput('');
         setError('');
     };
 
-    // 切换手机号详情
-    const togglePhoneDetails = (mobile: string) => {
-        setExpandedPhone(expandedPhone === mobile ? null : mobile);
-    };
-
-    // 格式化步骤数据 - 针对不同步骤类型进行特殊处理
-    const formatStepData = (step: StepInfo | undefined, stepKey: string): string => {
-        if (!step) return JSON.stringify({}, null, 2);
-
-        // 任务ID获取步骤特殊处理
-        if (stepKey === 'get_task_ids') {
-            return JSON.stringify({
-                taskStaffId: step.taskStaffId || 'N/A',
-                taskAssignId: step.taskAssignId || 'N/A',
-                code: step.code ?? 'N/A',
-                msg: step.msg || ''
-            }, null, 2);
-        }
-
-        // 结算单确认步骤特殊处理
-        if (stepKey === 'get_balance_id') {
-            if (step.data?.list?.length === 0 && step.data?.total === 0) {
-                return JSON.stringify({list: '无结算单数据', total: 0}, null, 2);
-            }
-            return JSON.stringify(step.data || '无数据', null, 2);
-        }
-
-        // 其他通用步骤
-        return JSON.stringify({
-            code: step.code ?? 'N/A',
-            msg: step.msg || '',
-            data: step.data || null
-        }, null, 2);
-    };
-
     // 开始执行任务
     const startExecution = async () => {
         setError('');
+        const base = getApiBaseUrl();
+        if (!base) return;
+
         if (!taskId || !mode || phoneNumbers.length === 0) {
             setError('请完善任务信息并确保有手机号数据');
             return;
@@ -345,39 +393,45 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
             setIsRunning(true);
             setCurrentTab('task');
 
-            // 更新任务ID
-            const updatedTaskInfo = {
-                ...taskInfo,
-                task_id: taskId
-            };
+            const updatedTaskInfo: TaskInfo = {...taskInfo, task_id: taskId};
             setTaskInfo(updatedTaskInfo);
 
-            // 调用后端执行任务接口
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/mobile/task/process`, {
+            const concurrent_workers =
+                executionType === 'concurrent'
+                    ? Math.max(1, Math.min(200, parseInt(concurrency, 10) || 1))
+                    : 1;
+
+            const body = {
+                mobiles: phoneNumbers.map(p => p.phone),
+                file_content: null as string | null,
+                range: null as string | null,
+                task_info: updatedTaskInfo,
+                mode: mode === 'full' ? null : parseInt(mode, 10),
+                concurrent_workers,
+                interval_seconds: 0.5,
+                environment
+            };
+
+            const resp = await fetch(`${base}/mobile/task/process`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    mobiles: phoneNumbers.map(p => p.phone),
-                    file_content: null,
-                    range: null,
-                    task_info: updatedTaskInfo,
-                    mode: mode === 'full' ? null : parseInt(mode),
-                    concurrent_workers: parseInt(concurrency),
-                    interval_seconds: 0.5,
-                    environment: environment
-                })
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
             });
 
-            const data = await response.json();
+            const data = await parseJson<TaskProcessResponse>(resp);
 
-            if (!response.ok) {
-                throw new Error(data.message || '任务执行失败');
+            if (!resp.ok) {
+                const msg = (data && (data.message || data.detail)) || `任务执行失败（HTTP ${resp.status}）`;
+                throw new Error(msg);
             }
 
-            // 处理返回结果
-            const formattedResults: PhoneNumber[] = data.data.map((item: ExecutionDetail): PhoneNumber => ({
+            const arr = data?.data;
+            if (!Array.isArray(arr)) {
+                setError('返回数据格式错误：data 不是数组');
+                return;
+            }
+
+            const formattedResults: PhoneNumber[] = arr.map((item: ExecutionDetail) => ({
                 ...item,
                 phone: item.mobile,
                 status: item.success ? 'success' : 'failed',
@@ -389,37 +443,17 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                     get_balance_id: item.steps?.get_balance_id || {}
                 }
             }));
-            if (!Array.isArray(data.data)) {
-                setError('返回数据格式错误');
-                return;
-            }
 
-            // 同时更新执行中的列表和结果存储
             setPhoneNumbers(formattedResults);
             setExecutionResults(formattedResults);
 
-            // 轮询获取任务执行结果
-            const pollResults = async () => {
-                const allCompleted = formattedResults.every((item: PhoneNumber) =>
-                    item.status === 'success' || item.status === 'failed'
-                );
-
-                if (allCompleted) {
-                    setIsRunning(false);
-                    setCurrentTab('results');
-                } else {
-                    setTimeout(() => {
-                        setIsRunning(false);
-                        setCurrentTab('results');
-                    }, 2000);
-                }
-            };
-
-            // 开始轮询
-            setTimeout(pollResults, 2000);
+            setIsRunning(false);
+            setCurrentTab('results');
+            toast.success('任务已完成');
         } catch (err) {
             setIsRunning(false);
-            setError(err instanceof Error ? err.message : '任务执行出错，请重试');
+            const msg = err instanceof Error ? err.message : '任务执行出错，请重试';
+            setError(msg);
             console.error('执行任务错误:', err);
         }
     };
@@ -437,17 +471,15 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
             failed: executionResults.filter(p => p.status === 'failed').length,
             results: executionResults
         };
-
         const blob = new Blob([JSON.stringify(results, null, 2)], {type: 'application/json'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `task_${taskId}_results.json`;
+        a.download = `task_${taskId || '未命名'}_results.json`;
         a.click();
         URL.revokeObjectURL(url);
     };
 
-    // 获取模式描述
     const getModeDescription = (modeValue: string) => {
         switch (modeValue) {
             case 'full':
@@ -463,9 +495,10 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
         }
     };
 
+    // ---------- JSX ----------
     return (
         <div className="min-h-screen colorful-background">
-            <Toaster richColors position="top-center" />
+            <Toaster richColors position="top-center"/>
             <div className="max-w-6xl mx-auto">
                 <div className="mb-6">
                     <Button variant="ghost" onClick={onBack} className="mb-4">
@@ -474,9 +507,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                     </Button>
                     <div className="flex items-center gap-3 mb-2">
                         <h1 className="text-2xl">任务自动化管理工具</h1>
-                        <Badge variant={isRunning ? "destructive" : "secondary"}>
-                            {isRunning ? "执行中" : "就绪"}
-                        </Badge>
+                        <Badge variant={isRunning ? 'destructive' : 'secondary'}>{isRunning ? '执行中' : '就绪'}</Badge>
                     </div>
                     <p className="text-muted-foreground">批量对多个手机号用户执行任务流程操作，支持报名、交付、结算确认等功能</p>
                 </div>
@@ -493,8 +524,12 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                         <TabsTrigger value="upload">文件上传</TabsTrigger>
                         <TabsTrigger value="mode" disabled={phoneNumbers.length === 0}>模式选择</TabsTrigger>
                         <TabsTrigger value="task" disabled={!mode}>任务执行</TabsTrigger>
-                        <TabsTrigger value="results"
-                                     disabled={executionResults.filter(p => p.status !== 'pending').length === 0}>执行结果</TabsTrigger>
+                        <TabsTrigger
+                            value="results"
+                            disabled={executionResults.filter(p => p.status !== 'pending').length === 0}
+                        >
+                            执行结果
+                        </TabsTrigger>
                     </TabsList>
 
                     {/* 文件上传页 */}
@@ -509,7 +544,12 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                         <Label htmlFor="file-upload">选择文件</Label>
                                         <div
                                             onClick={handleFileUploadClick}
-                                            className="mt-1 border-2 border-dashed border-gray-300 rounded-md p-4 text-center cursor-pointer hover:border-blue-500 transition-colors"
+                                            onDragOver={onDragOver}
+                                            onDragLeave={onDragLeave}
+                                            onDrop={onDrop}
+                                            className={`mt-1 border-2 border-dashed rounded-md p-4 text-center cursor-pointer transition-colors ${
+                                                dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-500'
+                                            }`}
                                         >
                                             <Upload className="w-6 h-6 mx-auto text-gray-400"/>
                                             <p className="mt-2 text-sm text-gray-600">点击或拖拽文件到此处上传</p>
@@ -526,10 +566,8 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                     </div>
 
                                     {selectedFile && (
-                                        <div className="space-y-3 animate-fadeIn">
-                                            <p className="text-sm text-muted-foreground">
-                                                已选择文件: {selectedFile.name}
-                                            </p>
+                                        <div className="space-y-3">
+                                            <p className="text-sm text-muted-foreground">已选择文件: {selectedFile.name}</p>
                                             <div className="grid grid-cols-2 gap-3">
                                                 <div>
                                                     <Label htmlFor="start-line">起始行数</Label>
@@ -539,7 +577,10 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                         value={startLine}
                                                         onChange={(e) => setStartLine(e.target.value)}
                                                         placeholder="请输入起始行"
-                                                        min="1"
+                                                        min={1}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' && endLine && !isLoading) fetchPhoneNumbers();
+                                                        }}
                                                     />
                                                 </div>
                                                 <div>
@@ -550,7 +591,10 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                         value={endLine}
                                                         onChange={(e) => setEndLine(e.target.value)}
                                                         placeholder="请输入结束行"
-                                                        min={startLine || 1}
+                                                        min={Number(startLine) || 1}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' && startLine && !isLoading) fetchPhoneNumbers();
+                                                        }}
                                                     />
                                                 </div>
                                             </div>
@@ -580,9 +624,12 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                             onChange={(e) => setManualInput(e.target.value)}
                                             placeholder="13800138001&#10;13800138002&#10;13800138003"
                                             rows={8}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleManualSubmit();
+                                            }}
                                         />
                                     </div>
-                                    <Button onClick={handleManualSubmit} className="w-full">
+                                    <Button onClick={handleManualSubmit} className="w-full" disabled={isLoading}>
                                         <Upload className="w-4 h-4 mr-2"/>
                                         提交手机号
                                     </Button>
@@ -597,7 +644,8 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                         <CardTitle>已提取手机号列表</CardTitle>
                                         <div className="flex gap-2">
                                             <Badge variant="outline">{phoneNumbers.length} 个手机号</Badge>
-                                            <Button variant="outline" size="sm" onClick={clearPhoneNumbers}>
+                                            <Button variant="outline" size="sm" onClick={clearPhoneNumbers}
+                                                    disabled={isLoading}>
                                                 <Trash2 className="w-4 h-4 mr-2"/>
                                                 清空列表
                                             </Button>
@@ -608,16 +656,14 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                     <div className="max-h-48 overflow-y-auto">
                                         <div className="grid grid-cols-4 gap-2">
                                             {phoneNumbers.map((phone, index) => (
-                                                <div key={index} className="text-sm p-2 bg-gray-100 rounded">
+                                                <div key={`${phone.phone}-${index}`}
+                                                     className="text-sm p-2 bg-gray-100 rounded">
                                                     {phone.phone}
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
-                                    <Button
-                                        onClick={() => setCurrentTab('mode')}
-                                        className="w-full mt-4"
-                                    >
+                                    <Button onClick={() => setCurrentTab('mode')} className="w-full mt-4">
                                         下一步：选择模式
                                     </Button>
                                 </CardContent>
@@ -645,14 +691,10 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                             <SelectItem value="3">登录+结算确认</SelectItem>
                                         </SelectContent>
                                     </Select>
-                                    {mode && (
-                                        <p className="text-sm text-muted-foreground mt-2">
-                                            {getModeDescription(mode)}
-                                        </p>
-                                    )}
+                                    {mode &&
+                                        <p className="text-sm text-muted-foreground mt-2">{getModeDescription(mode)}</p>}
                                 </div>
 
-                                {/* 新增环境配置选项 */}
                                 <div>
                                     <Label htmlFor="environment-select">运行环境</Label>
                                     <Select value={environment} onValueChange={setEnvironment}>
@@ -662,7 +704,6 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                         <SelectContent>
                                             <SelectItem value="test">Beta</SelectItem>
                                             <SelectItem value="prod">生产环境</SelectItem>
-                                            {/*<SelectItem value="local">本地环境</SelectItem>*/}
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -687,18 +728,14 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                             type="number"
                                             value={concurrency}
                                             onChange={(e) => setConcurrency(e.target.value)}
-                                            min="1"
-                                            max="200"
+                                            min={1}
+                                            max={200}
                                             disabled={executionType !== 'concurrent'}
                                         />
                                     </div>
                                 </div>
 
-                                <Button
-                                    onClick={goToTaskStep}
-                                    disabled={!mode}
-                                    className="w-full"
-                                >
+                                <Button onClick={goToTaskStep} disabled={!mode} className="w-full">
                                     下一步：执行任务
                                 </Button>
                             </CardContent>
@@ -719,6 +756,9 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                         value={taskId}
                                         onChange={(e) => setTaskId(e.target.value)}
                                         placeholder="输入任务ID"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && !isRunning && phoneNumbers.length > 0) startExecution();
+                                        }}
                                     />
                                 </div>
                                 <div className="flex gap-3">
@@ -749,29 +789,28 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                     </TableHeader>
                                     <TableBody>
                                         {(executionResults.length > 0 ? executionResults : phoneNumbers).map((phone, index) => (
-                                            <React.Fragment key={index}>
+                                            <React.Fragment key={`${phone.mobile}-${index}`}>
                                                 <TableRow>
                                                     <TableCell>{phone.phone}</TableCell>
                                                     <TableCell>
-                                                        {phone.status === 'pending' && (
-                                                            <Badge variant="outline">待执行</Badge>
-                                                        )}
+                                                        {phone.status === 'pending' &&
+                                                            <Badge variant="outline">待执行</Badge>}
                                                         {phone.status === 'success' && (
                                                             <Badge variant="secondary"
-                                                                   className="bg-green-100 text-green-800">成功</Badge>
+                                                                   className="bg-green-100 text-green-800">
+                                                                成功
+                                                            </Badge>
                                                         )}
-                                                        {phone.status === 'failed' && (
-                                                            <Badge variant="destructive">失败</Badge>
-                                                        )}
+                                                        {phone.status === 'failed' &&
+                                                            <Badge variant="destructive">失败</Badge>}
                                                     </TableCell>
                                                     <TableCell>
                                                         {phone.status === 'success' && '执行成功'}
-                                                        {phone.status === 'failed' && phone.error}
+                                                        {phone.status === 'failed' && (phone.error || '失败')}
                                                         {phone.status === 'pending' && '-'}
                                                     </TableCell>
                                                 </TableRow>
 
-                                                {/* 显示详细步骤信息 */}
                                                 {phone.status !== 'pending' && (
                                                     <TableRow>
                                                         <TableCell colSpan={3}>
@@ -801,22 +840,18 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                                         <div key={key}>
                                                                             <p className="font-medium">{label}步骤：</p>
 
-                                                                            {/* mode=3 结算单确认步骤特殊展示 */}
                                                                             {mode === '3' && key === 'get_balance_id' ? (
                                                                                 <>
                                                                                     <p>状态码：{getStepProperty(phone.steps[key], 'code')}</p>
                                                                                     <p>信息：{getStepProperty(phone.steps[key], 'msg') || '无信息'}</p>
-
                                                                                     <div className="mt-1">
                                                                                         <p className="font-medium">结算单数据：</p>
                                                                                         <pre
                                                                                             className="bg-gray-100 p-2 rounded overflow-x-auto text-xs">
-                                                      {formatStepData(phone.steps[key], key)}
-                                                    </pre>
+                                              {formatStepData(phone.steps[key], key)}
+                                            </pre>
                                                                                     </div>
-
-                                                                                    {/* 显示无可确认的结算单异常 */}
-                                                                                    {!phone.success && phone.error === "无可确认的结算单" && (
+                                                                                    {!phone.success && phone.error === '无可确认的结算单' && (
                                                                                         <div
                                                                                             className="mt-2 p-2 bg-red-50 text-red-600 rounded text-xs">
                                                                                             <AlertCircle
@@ -826,11 +861,10 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                                                     )}
                                                                                 </>
                                                                             ) : (
-                                                                                // 其他步骤统一JSON格式展示
                                                                                 <pre
                                                                                     className="bg-gray-100 p-2 rounded overflow-x-auto text-xs">
-                                                  {formatStepData(phone.steps[key], key)}
-                                                </pre>
+                                          {formatStepData(phone.steps[key], key)}
+                                        </pre>
                                                                             )}
                                                                         </div>
                                                                     ))}
@@ -901,17 +935,18 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                     </TableHeader>
                                     <TableBody>
                                         {executionResults.map((phone, index) => (
-                                            <React.Fragment key={index}>
+                                            <React.Fragment key={`${phone.mobile}-result-${index}`}>
                                                 <TableRow>
                                                     <TableCell>{phone.phone}</TableCell>
                                                     <TableCell>
                                                         {phone.status === 'success' && (
                                                             <Badge variant="secondary"
-                                                                   className="bg-green-100 text-green-800">执行成功</Badge>
+                                                                   className="bg-green-100 text-green-800">
+                                                                执行成功
+                                                            </Badge>
                                                         )}
-                                                        {phone.status === 'failed' && (
-                                                            <Badge variant="destructive">执行失败</Badge>
-                                                        )}
+                                                        {phone.status === 'failed' &&
+                                                            <Badge variant="destructive">执行失败</Badge>}
                                                     </TableCell>
                                                     <TableCell>
                                                         <Button
@@ -924,7 +959,6 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                     </TableCell>
                                                 </TableRow>
 
-                                                {/* 详细步骤信息 */}
                                                 {expandedPhone === phone.mobile && (
                                                     <TableRow>
                                                         <TableCell colSpan={3}>
@@ -932,25 +966,25 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                                 {getStepsForMode(mode).map(({key, label}) => (
                                                                     <div key={key}>
                                                                         <h4 className="font-medium mb-2">{label}信息</h4>
-
-                                                                        {/* mode=3 结算单确认步骤特殊展示 */}
                                                                         {mode === '3' && key === 'get_balance_id' ? (
                                                                             <div
                                                                                 className="bg-gray-100 p-3 rounded overflow-x-auto">
-                                                                                <p className="mb-1"><span
-                                                                                    className="font-medium">状态码：</span>{getStepProperty(phone.steps[key], 'code')}
+                                                                                <p className="mb-1">
+                                                                                    <span
+                                                                                        className="font-medium">状态码：</span>
+                                                                                    {getStepProperty(phone.steps[key], 'code')}
                                                                                 </p>
-                                                                                <p className="mb-1"><span
-                                                                                    className="font-medium">信息：</span>{getStepProperty(phone.steps[key], 'msg') || '无信息'}
+                                                                                <p className="mb-1">
+                                                                                    <span
+                                                                                        className="font-medium">信息：</span>
+                                                                                    {getStepProperty(phone.steps[key], 'msg') || '无信息'}
                                                                                 </p>
-
                                                                                 <div className="mt-2">
                                                                                     <p className="font-medium mb-1">结算单数据：</p>
                                                                                     <pre
                                                                                         className="text-xs">{formatStepData(phone.steps[key], key)}</pre>
                                                                                 </div>
-
-                                                                                {!phone.success && phone.error === "无可确认的结算单" && (
+                                                                                {!phone.success && phone.error === '无可确认的结算单' && (
                                                                                     <div
                                                                                         className="mt-2 p-2 bg-red-50 text-red-600 rounded text-xs">
                                                                                         <AlertCircle
@@ -960,11 +994,10 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                                                 )}
                                                                             </div>
                                                                         ) : (
-                                                                            // 其他步骤统一JSON格式展示
                                                                             <pre
                                                                                 className="bg-gray-100 p-2 rounded overflow-x-auto text-xs">
-                                              {formatStepData(phone.steps[key], key)}
-                                            </pre>
+                                        {formatStepData(phone.steps[key], key)}
+                                      </pre>
                                                                         )}
                                                                     </div>
                                                                 ))}
