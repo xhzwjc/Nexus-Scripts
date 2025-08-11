@@ -9,6 +9,7 @@ import {
     FileText,
     Calendar,
     Info,
+    X,
 } from 'lucide-react';
 
 // UI组件
@@ -112,6 +113,7 @@ const SkeletonRow = () => (
 export default function TaxReportManagement({onBack}: TaxReportManagementProps) {
     // 环境和基础状态
     const [environment, setEnvironment] = useState('prod');
+    const [activeTab, setActiveTab] = useState('query');
 
     // 加载状态
     const [isFetchingEnterprises, setIsFetchingEnterprises] = useState(false);
@@ -135,6 +137,9 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
 
     // 新增：服务费状态筛选
     const [servicePayStatusFilter, setServicePayStatusFilter] = useState<number | null>(null);
+
+    // 新增：下载确认弹窗状态
+    const [showDownloadConfirmDialog, setShowDownloadConfirmDialog] = useState(false);
 
     // 分页状态
     const [currentPage, setCurrentPage] = useState(1);
@@ -204,8 +209,8 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
         }
     };
 
-    // 生成并下载税务报表
-    const generateAndDownloadReport = async () => {
+    // 新增：触发下载确认弹窗的函数
+    const handleGenerateReportClick = () => {
         if (!yearMonth) {
             toast.error('请选择年月');
             return;
@@ -214,10 +219,13 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
             toast.error('没有查询到数据，无法生成报表');
             return;
         }
-        if (selectedEnterpriseIds.length === 0) {
-            toast.info('未选择企业，将为所有企业生成报表。');
-        }
+        setShowDownloadConfirmDialog(true);
+    };
 
+    // 新增：生成并下载税务报表（在确认弹窗后执行）
+    const handleConfirmDownload = async () => {
+        setShowDownloadConfirmDialog(false);
+        toast.info('报表生成中，请耐心等待...');
         setIsGenerating(true);
         try {
             const params: GenerateReportParams = {
@@ -389,9 +397,50 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
         }
     };
 
+    // 获取选中的企业名称
+    const selectedEnterpriseNames = useMemo(() => {
+        if (selectedEnterpriseIds.length === 0) {
+            return "所有企业";
+        }
+        return selectedEnterpriseIds.map(id => {
+            const enterprise = enterprises.find(e => e.id === id);
+            return enterprise ? enterprise.enterprise_name : `企业ID: ${id}`;
+        }).join('、');
+    }, [selectedEnterpriseIds, enterprises]);
+
     return (
         <div className="min-h-screen colorful-background p-6">
             <Toaster richColors position="top-center"/>
+
+            {/* 下载确认弹窗 */}
+            {showDownloadConfirmDialog && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-50/80 backdrop-blur-sm">
+                    <Card className="w-full max-w-lg p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <CardTitle>确认下载</CardTitle>
+                            <Button variant="ghost" size="icon" onClick={() => setShowDownloadConfirmDialog(false)}>
+                                <X size={20}/>
+                            </Button>
+                        </div>
+                        <p className="text-gray-700 mb-6">
+                            确定要为 **{selectedEnterpriseNames}**生成**{yearMonth}** 完税报表吗？此操作可能需要一段时间。
+                        </p>
+                        <div className="flex justify-end space-x-4">
+                            <Button variant="outline" onClick={() => setShowDownloadConfirmDialog(false)}>
+                                取消
+                            </Button>
+                            <Button onClick={handleConfirmDownload} disabled={isGenerating}>
+                                {isGenerating ? (
+                                    <><Loader2 className="mr-2 h-4 w-4 animate-spin"/>正在生成...</>
+                                ) : (
+                                    <><Download className="mr-2 h-4 w-4"/>确认下载</>
+                                )}
+                            </Button>
+                        </div>
+                    </Card>
+                </div>
+            )}
+
             <div className="max-w-6xl mx-auto px-4 py-6 colorful-background">
                 <div className="flex items-center justify-between mb-6">
                     <h1 className="text-2xl font-bold">税务报表管理</h1>
@@ -417,7 +466,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                     </div>
                 </div>
 
-                <Tabs defaultValue="query" className="w-full">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                     <TabsList className="mb-6 w-full max-w-md mx-auto grid grid-cols-2">
                         <TabsTrigger value="query" className="flex-1">获取税务数据</TabsTrigger>
                         <TabsTrigger value="generate" className="flex-1">生成报表（请先获取税务数据）</TabsTrigger>
@@ -716,6 +765,15 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                 </div>
 
                                 <Separator/>
+                                <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded">
+                                    <p className="font-bold">即将生成报表预览：</p>
+                                    <p className="mt-1 text-sm">
+                                        年月: <span className="font-semibold">{yearMonth || "未选择"}</span>
+                                    </p>
+                                    <p className="text-sm">
+                                        企业: <span className="font-semibold">{selectedEnterpriseNames}</span>
+                                    </p>
+                                </div>
 
                                 <div className="space-y-2">
                                     <Label>已选择的企业</Label>
@@ -744,11 +802,9 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                 </div>
 
                                 <div className="flex justify-center pt-2">
-                                    <Button onClick={generateAndDownloadReport}
+                                    <Button onClick={handleGenerateReportClick}
                                             disabled={isGenerating || filteredTaxData.length === 0} className="mt-4">
-                                        {isGenerating ? (<><Loader2
-                                            className="mr-2 h-4 w-4 animate-spin"/>生成中...</>) : (<><Download
-                                            className="mr-2 h-4 w-4"/>下载税务报表</>)}
+                                        <Download className="mr-2 h-4 w-4"/>下载税务报表
                                     </Button>
                                 </div>
 
