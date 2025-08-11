@@ -27,7 +27,7 @@ import TaxReportReportManagement from "./components/TaxReportManagement";
 import './App.css';
 
 // 定义角色类型和权限映射
-type Role = 'admin' | 'operator' | 'custom';
+type Role = 'admin' | 'operator' | 'custom' | 'QA';
 
 interface Permission {
     [scriptId: string]: boolean;
@@ -70,16 +70,17 @@ const keyUserMap: Record<string, User> = {
         name: '运营人员'
     },
     // 自定义角色
-    'CUSTOM_KEY_789': {
-        role: 'custom',
+    '1': {
+        role: 'QA',
         permissions: {
             'settlement': true,
             'commission': true,
             'balance': true,
             'task-automation': true,
             'sms_operations_center': true,
+            'tax-reporting': true
         },
-        name: '财务人员'
+        name: 'JC'
     }
 };
 
