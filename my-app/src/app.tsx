@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useMemo, useCallback} from 'react';
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from './components/ui/card';
 import {Button} from './components/ui/button';
 import {Badge} from './components/ui/badge';
@@ -16,7 +16,19 @@ import {
     FileText,
     Lock,
     AlertCircle,
-    Loader2
+    Loader2,
+    Clock,
+    MapPin,
+    Thermometer,
+    Cloud,
+    Wind,
+    Droplets,
+    Sun,
+    CloudRain,
+    CloudSnow,
+    CloudFog,
+    CloudLightning,
+    User as UserIcon
 } from 'lucide-react';
 import SettlementScript from './components/SettlementScript';
 import CommissionScript from './components/CommissionScript';
@@ -26,7 +38,7 @@ import SmsManagementScript from "./components/BatchSmsScript";
 import TaxReportReportManagement from "./components/TaxReportManagement";
 import './App.css';
 
-// 定义角色类型和权限映射
+// 角色类型与权限映射
 type Role = 'admin' | 'operator' | 'custom' | 'QA';
 
 interface Permission {
@@ -155,7 +167,7 @@ const getEndOfDayTimestamp = () => {
     return now.getTime();
 };
 
-// 轻量通用确认弹窗（无需额外依赖）
+/* ============== 轻量通用确认弹窗（无需额外依赖） ============== */
 interface ConfirmDialogProps {
     open: boolean;
     title: string;
@@ -207,11 +219,195 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     );
 };
 
+/* ============== 统一高度的状态 Chip 组件 ============== */
+const StatusChip: React.FC<React.PropsWithChildren<{ className?: string }>> = ({children, className}) => (
+    <div
+        className={`h-9 px-3 inline-flex items-center gap-2 rounded-md border bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/40 shadow-sm text-sm leading-none ${className || ''}`}>
+        {children}
+    </div>
+);
+
+const StatusGroup: React.FC<React.PropsWithChildren> = ({children}) => (
+    <div className="flex items-center justify-end flex-wrap gap-2">
+        {children}
+    </div>
+);
+
+/* ============== 时间（北京时间）Chip（从父组件接收 now，避免重复定时器） ============== */
+const TimeChip: React.FC<{ name?: string; now: Date }> = ({name, now}) => {
+    const dtf = useMemo(() => new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        weekday: 'short',
+        month: '2-digit',
+        day: '2-digit',
+        hour12: false
+    }), []);
+
+    const parts = useMemo(() => {
+        const p = dtf.formatToParts(now);
+        const get = (type: string) => p.find(x => x.type === type)?.value || '';
+        const hour = parseInt(get('hour') || '0', 10);
+        const minute = get('minute');
+        const second = get('second');
+        const weekday = get('weekday'); // “周一”
+        const month = get('month');
+        const day = get('day');
+        return {hour, minute, second, weekday, month, day};
+    }, [dtf, now]);
+
+    const greeting =
+        parts.hour < 6 ? '自律' :
+            parts.hour < 12 ? '早安' :
+                parts.hour < 14 ? '午安' :
+                    parts.hour < 18 ? '下午好' : '晚上好';
+
+    return (
+        <StatusChip>
+            <Clock className="w-4 h-4 text-primary"/>
+            <span className="whitespace-nowrap tabular-nums font-mono">
+        {parts.hour.toString().padStart(2, '0')}:{parts.minute}:{parts.second}
+      </span>
+            <span className="text-muted-foreground hidden sm:inline">{parts.weekday}</span>
+            <span className="text-muted-foreground hidden md:inline">{parts.month}-{parts.day}</span>
+            <span className="text-muted-foreground hidden lg:inline">| {greeting}{name ? `, ${name}` : ''}</span>
+        </StatusChip>
+    );
+};
+
+const getWeatherClass = (code: string | undefined): string => {
+    if (!code) return '';
+    if (/^1\d{2}$/.test(code)) return 'weather-clear';     // 晴/多云类
+    if (/^3\d{2}$/.test(code) || /^4\d{2}$/.test(code)) return 'weather-rain';  // 雨
+    if (/^400|401|402|403|407/.test(code)) return 'weather-snow';  // 雪
+    if (/^302|303/.test(code)) return 'weather-thunder';   // 雷
+    if (/^5\d{2}$/.test(code)) return 'weather-fog';       // 雾霾类
+    return 'weather-default';
+};
+
+
+/* ============== 天气（北京）Chip（父组件提供数据与刷新，支持缓存与静默刷新） ============== */
+type WeatherData = {
+    temp: number;
+    desc: string;
+    wind: number;
+    humidity: number;
+    code: string;
+};
+type WeatherState = {
+    loading: boolean;
+    error?: string;
+    data?: WeatherData;
+};
+
+const WEATHER_CACHE_KEY = 'heweather_bj_cache';
+const WEATHER_TTL = 10 * 60 * 1000; // 10分钟
+
+const WeatherChip: React.FC<{
+    state: WeatherState;
+    refreshing: boolean;
+    label?: string;
+    onRefresh?: () => void;
+}> = ({state, refreshing, label = '北京', onRefresh}) => {
+    // 根据天气代码返回对应图标组件
+    const weatherIcon = (code?: string) => {
+        if (!code) return <Cloud className="w-4 h-4"/>;
+
+        const iconMap: Record<string, React.ReactNode> = {
+            "100": <Sun className="w-4 h-4"/>,          // 晴
+            "101": <Cloud className="w-4 h-4"/>,         // 多云
+            "102": <Cloud className="w-4 h-4"/>,         // 少云
+            "103": <Cloud className="w-4 h-4"/>,         // 晴间多云
+            "104": <Cloud className="w-4 h-4"/>,         // 阴
+            "300": <CloudRain className="w-4 h-4"/>,     // 阵雨
+            "301": <CloudRain className="w-4 h-4"/>,     // 强阵雨
+            "302": <CloudLightning className="w-4 h-4"/>, // 雷阵雨
+            "303": <CloudLightning className="w-4 h-4"/>, // 强雷阵雨
+            "304": <CloudRain className="w-4 h-4"/>,     // 冰雹
+            "305": <CloudRain className="w-4 h-4"/>,     // 小雨
+            "306": <CloudRain className="w-4 h-4"/>,     // 中雨
+            "307": <CloudRain className="w-4 h-4"/>,     // 大雨
+            "308": <CloudRain className="w-4 h-4"/>,     // 极端降雨
+            "309": <CloudRain className="w-4 h-4"/>,     // 毛毛雨
+            "310": <CloudRain className="w-4 h-4"/>,     // 暴雨
+            "311": <CloudRain className="w-4 h-4"/>,     // 大暴雨
+            "312": <CloudRain className="w-4 h-4"/>,     // 特大暴雨
+            "313": <CloudRain className="w-4 h-4"/>,     // 冻雨
+            "400": <CloudSnow className="w-4 h-4"/>,     // 小雪
+            "401": <CloudSnow className="w-4 h-4"/>,     // 中雪
+            "402": <CloudSnow className="w-4 h-4"/>,     // 大雪
+            "403": <CloudSnow className="w-4 h-4"/>,     // 暴雪
+            "404": <CloudRain className="w-4 h-4"/>,     // 雨夹雪
+            "405": <CloudRain className="w-4 h-4"/>,     // 雨雪天气
+            "406": <CloudSnow className="w-4 h-4"/>,     // 阵雨夹雪
+            "407": <CloudSnow className="w-4 h-4"/>,     // 阵雪
+            "500": <CloudFog className="w-4 h-4"/>,      // 薄雾
+            "501": <CloudFog className="w-4 h-4"/>,      // 雾
+            "502": <CloudFog className="w-4 h-4"/>,      // 霾
+            "503": <CloudFog className="w-4 h-4"/>,      // 扬沙
+            "504": <CloudFog className="w-4 h-4"/>,      // 浮尘
+            "507": <CloudFog className="w-4 h-4"/>,      // 沙尘暴
+            "508": <CloudFog className="w-4 h-4"/>,      // 强沙尘暴
+            "900": <Sun className="w-4 h-4"/>,           // 热
+            "901": <Thermometer className="w-4 h-4"/>,   // 冷
+            "999": <Cloud className="w-4 h-4"/>          // 未知
+        };
+
+        return iconMap[code] || <Cloud className="w-4 h-4"/>;
+    };
+
+    return (
+        <StatusChip>
+            <MapPin className="w-4 h-4 text-primary"/>
+            <span className="whitespace-nowrap">{label}</span>
+            <span className="text-muted-foreground">·</span>
+
+            {state.loading && !state.data ? (
+                <span className="text-muted-foreground">加载中...</span>
+            ) : state.error && !state.data ? (
+                <span className="text-muted-foreground">天气不可用</span>
+            ) : state.data ? (
+                <>
+                    {weatherIcon(state.data.code)}
+                    <span className="whitespace-nowrap tabular-nums font-mono">{state.data.temp}°C</span>
+                    <span className="hidden sm:inline">{state.data.desc}</span>
+                    <span className="text-muted-foreground hidden md:inline">·</span>
+                    <span className="text-muted-foreground hidden md:inline">
+            <Wind className="inline w-3 h-3 mr-1"/>
+                        {state.data.wind} km/h
+          </span>
+                    <span className="text-muted-foreground hidden lg:inline">
+            <Droplets className="inline w-3 h-3 mx-1"/>
+                        {state.data.humidity}%
+          </span>
+                    {refreshing &&
+                        <Loader2 className="w-3 h-3 ml-1 animate-spin text-muted-foreground" aria-label="刷新中"/>}
+                </>
+            ) : null}
+
+            {onRefresh && (
+                <button
+                    type="button"
+                    onClick={onRefresh}
+                    className="ml-1 text-xs text-primary hover:underline hidden md:inline"
+                    aria-label="刷新天气">
+                    刷新
+                </button>
+            )}
+        </StatusChip>
+    );
+};
+
+/* ============== 主应用 ============== */
 export default function App() {
-    // 状态管理
+    // 路由状态
     const [currentView, setCurrentView] = useState<'home' | 'system' | 'script'>('home');
     const [selectedSystem, setSelectedSystem] = useState<string>('');
     const [selectedScript, setSelectedScript] = useState<string>('');
+
+    // 用户状态
     const [userKey, setUserKey] = useState('');
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [errorMessage, setErrorMessage] = useState('');
@@ -220,38 +416,134 @@ export default function App() {
     const [isVerifying, setIsVerifying] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
+    // 全局时间（避免子页切换导致 TimeChip 重置）
+    const [now, setNow] = useState<Date>(new Date());
+    useEffect(() => {
+        const t = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(t);
+    }, []);
+
+    // 天气全局状态（避免子页切换导致 WeatherChip 重置）
+    const [weather, setWeather] = useState<WeatherState>(() => {
+        try {
+            const raw = localStorage.getItem(WEATHER_CACHE_KEY);
+            if (raw) {
+                const cached = JSON.parse(raw) as { ts: number; data: WeatherData };
+                const fresh = Date.now() - cached.ts < WEATHER_TTL;
+                if (fresh && cached.data) {
+                    return {loading: false, data: cached.data};
+                }
+            }
+        } catch { /* ignore */
+        }
+        return {loading: true};
+    });
+    const [weatherRefreshing, setWeatherRefreshing] = useState(false);
+
+    const refreshWeather = useCallback(async (options?: { background?: boolean }) => {
+        const background = !!options?.background;
+        const apiKey = process.env.NEXT_PUBLIC_HEWEATHER_API_KEY;
+        const apiHost = process.env.NEXT_PUBLIC_HEWEATHER_HOST;
+
+        if (!apiKey || !apiHost) {
+            // API 配置缺失：保留已显示的数据，仅标记错误
+            setWeather(prev => ({...prev, loading: false, error: 'api_config_missing'}));
+            return;
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+
+        if (!background) setWeatherRefreshing(true);
+
+        try {
+            const url = `https://${apiHost}/v7/weather/now?location=101010100&lang=zh`;
+            const response = await fetch(url, {
+                headers: {
+                    "X-QW-Api-Key": apiKey,
+                    "Accept-Encoding": "gzip"
+                },
+                signal: controller.signal
+            });
+
+            if (!response.ok) {
+                let message = `HTTP ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    if (errorData?.message) message = errorData.message;
+                } catch { /* ignore */
+                }
+                throw new Error(message);
+            }
+
+            const data = await response.json();
+            if (data.code !== "200") throw new Error(data.code);
+
+            const parsed: WeatherData = {
+                temp: parseInt(data.now.temp),
+                desc: data.now.text,
+                wind: parseFloat(data.now.windSpeed),
+                humidity: parseInt(data.now.humidity),
+                code: data.now.icon
+            };
+
+            setWeather({loading: false, data: parsed});
+            try {
+                localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ts: Date.now(), data: parsed}));
+            } catch { /* ignore quota */
+            }
+        } catch (error) {
+            // 如果已有数据，保持原样，只标记错误；如果没有，就降级
+            setWeather(prev => {
+                if (prev.data) return {...prev, loading: false, error: 'api_error'};
+                return {
+                    loading: false,
+                    error: 'api_error',
+                    data: {temp: 25, desc: "晴", wind: 10, humidity: 50, code: "100"}
+                };
+            });
+        } finally {
+            clearTimeout(timeout);
+            if (!background) setWeatherRefreshing(false);
+        }
+    }, []);
+
+    // 初次挂载：使用缓存立即渲染 + 静默刷新；并开启轮询
+    useEffect(() => {
+        const hasCached = !!weather.data;
+        refreshWeather({background: hasCached});
+
+        const interval = setInterval(() => refreshWeather({background: true}), WEATHER_TTL);
+        return () => clearInterval(interval);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // 初始化时检查本地存储的认证信息
     useEffect(() => {
-        const checkSavedAuth = () => {
-            const timer = setTimeout(() => {
-                const savedAuth = localStorage.getItem('scriptHubAuth');
-                if (savedAuth) {
-                    try {
-                        const authData: AuthData = JSON.parse(savedAuth);
-                        const now = new Date().getTime();
+        const timer = setTimeout(() => {
+            const savedAuth = localStorage.getItem('scriptHubAuth');
+            if (savedAuth) {
+                try {
+                    const authData: AuthData = JSON.parse(savedAuth);
+                    const nowTs = Date.now();
 
-                        if (now <= authData.expiresAt) {
-                            const user = keyUserMap[authData.key];
-                            if (user) {
-                                setCurrentUser(user);
-                                filterScriptsByPermission(user);
-                                setIsLoading(false);
-                                return;
-                            }
+                    if (nowTs <= authData.expiresAt) {
+                        const user = keyUserMap[authData.key];
+                        if (user) {
+                            setCurrentUser(user);
+                            filterScriptsByPermission(user);
+                            setIsLoading(false);
+                            return;
                         }
-                    } catch (error) {
-                        console.error('Failed to parse auth data:', error);
                     }
+                } catch {
+                    // ignore
                 }
-
-                localStorage.removeItem('scriptHubAuth');
-                setIsLoading(false);
-            }, 100);
-
-            return () => clearTimeout(timer);
-        };
-
-        checkSavedAuth();
+            }
+            localStorage.removeItem('scriptHubAuth');
+            setIsLoading(false);
+        }, 100);
+        return () => clearTimeout(timer);
     }, []);
 
     // 验证密钥并保存认证信息 - 添加500ms延迟
@@ -330,21 +622,18 @@ export default function App() {
     };
 
     const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'active':
-                return 'bg-green-100 text-green-800';
-            case 'beta':
-                return 'bg-yellow-100 text-yellow-800';
-            case 'stable':
-                return 'bg-blue-100 text-blue-800';
-            default:
-                return 'bg-gray-100 text-gray-800';
-        }
+        const map: Record<string, string> = {
+            active: 'bg-green-100 text-green-800',
+            beta: 'bg-yellow-100 text-yellow-800',
+            stable: 'bg-blue-100 text-blue-800'
+        };
+        return map[status] ?? 'bg-gray-100 text-gray-800';
     };
 
     if (isLoading) {
         return (
             <div className="min-h-screen colorful-background flex items-center justify-center p-6">
+                <Toaster richColors position="top-center"/>
                 <div className="flex flex-col items-center gap-4">
                     <Loader2 className="w-10 h-10 text-primary animate-spin"/>
                     <h2 className="text-lg font-medium">正在验证身份...</h2>
@@ -413,6 +702,7 @@ export default function App() {
     }
 
     if (currentView === 'script') {
+        // 子页保持沉浸，但天气/时间状态仍保存在 App（返回后不闪）
         return renderScript();
     }
 
@@ -424,19 +714,34 @@ export default function App() {
         return (
             <div className="min-h-screen colorful-background p-6">
                 <Toaster richColors position="top-center"/>
-                <div className="max-w-6xl mx-auto">
-                    <div className="flex justify-between items-center mb-6">
+                <div className="max-w-7xl mx-auto">
+                    {/* 顶部工具栏：左返回；右状态条（统一高度） */}
+                    <div className="flex items-center justify-between mb-6 gap-4">
                         <Button
                             variant="ghost"
                             onClick={() => setCurrentView('home')}
+                            className="h-9"
                         >
                             <ArrowLeft className="w-4 h-4 mr-2"/>
                             返回首页
                         </Button>
-                        <div className="flex items-center gap-2">
-                            <Badge variant="outline">{currentUser.name} ({currentUser.role})</Badge>
-                            <Button variant="ghost" size="sm" onClick={() => setShowLogoutConfirm(true)}>退出</Button>
-                        </div>
+
+                        <StatusGroup>
+                            <TimeChip name={currentUser?.name} now={now}/>
+                            <WeatherChip
+                                state={weather}
+                                refreshing={weatherRefreshing}
+                                label="北京"
+                                onRefresh={() => refreshWeather({background: false})}
+                            />
+                            <StatusChip>
+                                <UserIcon className="w-4 h-4 text-primary"/>
+                                <span className="whitespace-nowrap">{currentUser.name} ({currentUser.role})</span>
+                            </StatusChip>
+                            <Button variant="ghost" className="h-9 px-3" onClick={() => setShowLogoutConfirm(true)}>
+                                退出
+                            </Button>
+                        </StatusGroup>
                     </div>
 
                     <div className="mb-8">
@@ -513,15 +818,30 @@ export default function App() {
         );
     }
 
+    // 首页
     return (
         <div className="min-h-screen colorful-background p-6">
             <Toaster richColors position="top-center"/>
-            <div className="max-w-6xl mx-auto">
-                <div className="flex justify-end mb-6">
-                    <div className="flex items-center gap-2">
-                        <Badge variant="outline">{currentUser.name} ({currentUser.role})</Badge>
-                        <Button variant="ghost" size="sm" onClick={() => setShowLogoutConfirm(true)}>退出</Button>
-                    </div>
+            <div className="max-w-7xl mx-auto">
+                {/* 顶部状态条：右对齐，统一高度 */}
+                <div className="flex items-center justify-between mb-6 gap-4">
+                    <div/>
+                    <StatusGroup>
+                        <TimeChip name={currentUser?.name} now={now}/>
+                        <WeatherChip
+                            state={weather}
+                            refreshing={weatherRefreshing}
+                            label="北京"
+                            onRefresh={() => refreshWeather({background: false})}
+                        />
+                        <StatusChip>
+                            <UserIcon className="w-4 h-4 text-primary"/>
+                            <span className="whitespace-nowrap">{currentUser.name} ({currentUser.role})</span>
+                        </StatusChip>
+                        <Button variant="ghost" className="h-9 px-3" onClick={() => setShowLogoutConfirm(true)}>
+                            退出
+                        </Button>
+                    </StatusGroup>
                 </div>
 
                 <div className="text-center mb-12">
