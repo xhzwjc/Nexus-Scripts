@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useMemo, useCallback} from 'react';
+import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from './components/ui/card';
 import {Button} from './components/ui/button';
 import {Badge} from './components/ui/badge';
@@ -232,6 +232,71 @@ const StatusGroup: React.FC<React.PropsWithChildren> = ({children}) => (
         {children}
     </div>
 );
+
+/* ============== 首页卡片悬停“水气球”效果 ============== */
+const HoverFloatCard: React.FC<React.PropsWithChildren<{ className?: string }>> = ({children, className}) => {
+    const ref = useRef<HTMLDivElement>(null);
+
+    const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
+        const el = ref.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const rx = ((y / rect.height) - 0.5) * 6;   // 上下轻微倾斜
+        const ry = ((x / rect.width) - 0.5) * -6;   // 左右轻微倾斜
+        el.style.setProperty('--rx', `${rx}deg`);
+        el.style.setProperty('--ry', `${ry}deg`);
+        el.style.setProperty('--mx', `${x}px`);
+        el.style.setProperty('--my', `${y}px`);
+    };
+
+    const onLeave = () => {
+        const el = ref.current;
+        if (!el) return;
+        el.style.setProperty('--rx', '0deg');
+        el.style.setProperty('--ry', '0deg');
+    };
+
+    return (
+        <div
+            ref={ref}
+            onMouseMove={onMove}
+            onMouseLeave={onLeave}
+            className={`group relative [perspective:1000px] ${className || ''}`}
+        >
+            {/* 阴影/下坠感 */}
+            <div
+                className="pointer-events-none absolute -bottom-2 left-1/2 h-6 w-3/4 -translate-x-1/2 rounded-[50%] bg-sky-900/10 blur-md opacity-0 group-hover:opacity-100 transition duration-300"/>
+
+            {/* 3D 浮起主体 */}
+            <div
+                className="
+          relative rounded-xl
+          transition-all duration-300 ease-[cubic-bezier(.22,1,.36,1)]
+          [transform-style:preserve-3d]
+          [transform:rotateX(var(--rx,0))_rotateY(var(--ry,0))]
+          group-hover:-translate-y-2 group-hover:scale-[1.01]
+          group-hover:shadow-[0_20px_40px_rgba(56,189,248,0.18)]
+          bg-white/40 dark:bg-white/[0.06] backdrop-blur-md
+          ring-1 ring-white/40
+        "
+            >
+                {children}
+            </div>
+
+            {/* 跟随鼠标的“水光”高光 */}
+            <div
+                className="pointer-events-none absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                style={{
+                    background:
+                        'radial-gradient(240px 140px at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.35), rgba(255,255,255,0.12) 35%, transparent 60%)'
+                }}
+            />
+        </div>
+    );
+};
+
 
 /* ============== 时间（北京时间）Chip（从父组件接收 now，避免重复定时器） ============== */
 const TimeChip: React.FC<{ name?: string; now: Date }> = ({name, now}) => {
@@ -853,52 +918,59 @@ export default function App() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     {Object.entries(systems).map(([key, system]) => (
-                        <Card key={key} className="cursor-pointer hover:shadow-lg transition-shadow">
-                            <CardHeader>
-                                <div className="flex items-center justify-between">
-                                    <CardTitle className="text-xl">{system.name}</CardTitle>
-                                    <Badge variant="outline">
-                                        {system.scripts.length} 个脚本
-                                    </Badge>
-                                </div>
-                                <CardDescription>{system.description}</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="space-y-3">
-                                    {system.scripts.length > 0 ? (
-                                        <>
-                                            <div className="flex flex-wrap gap-2">
-                                                {system.scripts.slice(0, 3).map((script) => (
-                                                    <Badge key={script.id} variant="secondary" className="text-xs">
-                                                        {script.name}
-                                                    </Badge>
-                                                ))}
-                                                {system.scripts.length > 3 && (
-                                                    <Badge variant="secondary" className="text-xs">
-                                                        +{system.scripts.length - 3} 更多
-                                                    </Badge>
-                                                )}
+                        <HoverFloatCard key={key}>
+                            <Card
+                                className="
+                                cursor-pointer transition-shadow rounded-xl border-white/40 bg-transparent
+                                min-h-[280px] flex flex-col justify-between pt-6
+                              ">
+                                <CardHeader>
+                                    <div className="flex items-center justify-between">
+                                        <CardTitle className="text-xl">{system.name}</CardTitle>
+                                        <Badge variant="outline">
+                                            {system.scripts.length} 个脚本
+                                        </Badge>
+                                    </div>
+                                    <CardDescription>{system.description}</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="space-y-3">
+                                        {system.scripts.length > 0 ? (
+                                            <>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {system.scripts.slice(0, 3).map((script) => (
+                                                        <Badge key={script.id} variant="secondary" className="text-xs">
+                                                            {script.name}
+                                                        </Badge>
+                                                    ))}
+                                                    {system.scripts.length > 3 && (
+                                                        <Badge variant="secondary" className="text-xs">
+                                                            +{system.scripts.length - 3} 更多
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                                <Button
+                                                    className="w-full mt-4"
+                                                    onClick={() => {
+                                                        setSelectedSystem(key);
+                                                        setCurrentView('system');
+                                                    }}
+                                                >
+                                                    进入系统
+                                                </Button>
+                                            </>
+                                        ) : (
+                                            <div className="text-center py-8 text-muted-foreground">
+                                                <Database className="w-12 h-12 mx-auto mb-3 opacity-50"/>
+                                                <p>烹饪中！</p>
                                             </div>
-                                            <Button
-                                                className="w-full mt-4"
-                                                onClick={() => {
-                                                    setSelectedSystem(key);
-                                                    setCurrentView('system');
-                                                }}
-                                            >
-                                                进入系统
-                                            </Button>
-                                        </>
-                                    ) : (
-                                        <div className="text-center py-8 text-muted-foreground">
-                                            <Database className="w-12 h-12 mx-auto mb-3 opacity-50"/>
-                                            <p>烹饪中！</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </HoverFloatCard>
                     ))}
+
                 </div>
 
                 <div className="mt-16 text-center">

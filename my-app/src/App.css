@@ -1,5 +1,14 @@
 .colorful-background {
+
+    /*display: flex;*/
+    /*flex-direction: column;*/
+    /*!*justify-content: center; !* 垂直居中主内容 *!*!*/
+    /*min-height: 100vh; !* 填满整个视口 *!*/
+    padding-top: 5vh; /* 顶部留白 */
+    /*padding-bottom: 5vh; !* 底部留白 *!*/
+    /*box-sizing: border-box;*/
     /* 使用更少但更协调的渐变 */
+
     background: radial-gradient(
             circle at 30% 30%,
             rgba(166, 185, 255, 0.3),  /* 淡紫色，低饱和度 */
