@@ -22,6 +22,10 @@ services:
       - DB_PROD_DATABASE=${DB_PROD_DATABASE}
       # 关键修改：添加公司内网IP段（示例：192.168.1.0/24表示192.168.1.x所有地址）
       - CORS_ORIGINS=http://localhost,http://127.0.0.1,http://localhost:80,http://192.168.1.0/24,http://192.168.20.0/24
+      - TZ=Asia/Shanghai  # 设置时区为上海（东八区）
+    volumes:
+      - /etc/localtime:/etc/localtime:ro  # 挂载宿主机时区配置
+      - /etc/timezone:/etc/timezone:ro     # 挂载时区文件（适用于Debian/Ubuntu）
     networks:
       - app-network
 
@@ -35,6 +39,11 @@ services:
       - "8090:80"
     depends_on:
       - fastapi  # 确保后端启动后再启动前端
+    environment:
+      - TZ=Asia/Shanghai  # 前端容器同样设置时区
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     networks:
       - app-network
 

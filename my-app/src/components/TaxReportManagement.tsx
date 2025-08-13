@@ -879,7 +879,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                             id="platformCompany"
                                             value={platformCompany}
                                             onChange={(e) => setPlatformCompany(e.target.value)}
-                                            placeholder="不填则使用默认值"
+                                            placeholder="云策企服（驻马店）人力资源服务有限公司（可修改）"
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -888,7 +888,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                             id="creditCode"
                                             value={creditCode}
                                             onChange={(e) => setCreditCode(e.target.value)}
-                                            placeholder="不填则使用默认值"
+                                            placeholder="91411700MAEFDQ7P7T（可修改）"
                                         />
                                     </div>
                                 </div>
