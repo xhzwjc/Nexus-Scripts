@@ -18,10 +18,10 @@ from .models import (
     BalanceVerificationRequest, BalanceVerificationResponse, CommissionCalculationRequest,
     CommissionCalculationResponse, MobileTaskRequest, MobileTaskResponse, SMSResendResponse, SMSResendRequest,
     SMSSendResponse, SMSBatchSendRequest, SMSSendSingleRequest, SMSBaseRequest, SMSTemplateResponse,
-    MobileParseResponse, MobileParseRequest
+    MobileParseResponse, MobileParseRequest, TaxCalculationResponse, TaxCalculationRequest
 )
 from .services import EnterpriseSettlementService, AccountBalanceService, CommissionCalculationService, \
-    MobileTaskService, SMSService
+    MobileTaskService, SMSService, TaxCalculationService
 from .config import settings
 
 # 配置日志
@@ -606,6 +606,46 @@ async def generate_tax_report(
     except Exception as e:
         logger.error(f"生成税务报表失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# 4. 税额计算接口
+@app.post("/tax/calculate", response_model=TaxCalculationResponse, tags=["税务计算"])
+async def calculate_tax(
+        request: TaxCalculationRequest,
+):
+    try:
+        request_id = str(uuid.uuid4())
+        logger.info(f"计算税额，身份证号: {request.credential_num}, 请求ID: {request_id}")
+
+        # 获取数据库配置
+        db_config = get_db_config(request.environment)
+        calculator = TaxCalculationService(db_config)
+
+        # 调用计算方法
+        results = calculator.calculate_tax(
+            credential_num=request.credential_num,
+            income_type=request.income_type,
+            year=request.year,
+            realname=request.realname,
+            accumulated_special_deduction=request.accumulated_special_deduction,
+            use_mock_data=request.use_mock_data,
+            mock_records=request.mock_records
+        )
+
+        total_tax = sum(record['tax'] for record in results) if results else 0.0
+
+        return {
+            "success": True,
+            "message": "税额计算完成" if results else "未找到符合条件的记录",
+            "data": results,
+            "total_tax": total_tax,
+            "request_id": request_id
+        }
+
+    except Exception as e:
+        logger.error(f"税额计算失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/health", tags=["系统"])
 async def health_check():
