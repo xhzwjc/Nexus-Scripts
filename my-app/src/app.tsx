@@ -14,6 +14,7 @@ import {
     CheckCircle,
     Send,
     FileText,
+    Percent,
     Lock,
     AlertCircle,
     Loader2,
@@ -37,6 +38,7 @@ import TaskAutomationScript from './components/TaskAutomationScript';
 import SmsManagementScript from "./components/BatchSmsScript";
 import TaxReportReportManagement from "./components/TaxReportManagement";
 import './App.css';
+import TaxCalculationScript from "@/components/TaxCalculatorScript";
 
 // 角色类型与权限映射
 type Role = 'admin' | 'operator' | 'custom' | 'QA';
@@ -69,7 +71,8 @@ const keyUserMap: Record<string, User> = {
             'balance': true,
             'task-automation': true,
             'sms_operations_center': true,
-            'tax-reporting': true
+            'tax-reporting': true,
+            'tax-calculation': true
         },
         name: '系统管理员'
     },
@@ -90,7 +93,8 @@ const keyUserMap: Record<string, User> = {
             'balance': true,
             'task-automation': true,
             'sms_operations_center': true,
-            'tax-reporting': true
+            'tax-reporting': true,
+            'tax-calculation': true
         },
         name: 'JC'
     }
@@ -150,6 +154,13 @@ const allScripts = {
                 description: '按企业和月份生成完税数据报表并导出',
                 icon: <FileText className="w-5 h-5"/>,
                 status: 'beta' as const
+            },
+            {
+                id: 'tax-calculation',
+                name: '税额计算工具',
+                description: '计算个人所得税明细，支持模拟数据与跨年计算',
+                icon: <Percent className="w-5 h-5"/>,
+                status: 'stable' as const
             }
         ]
     },
@@ -681,6 +692,8 @@ export default function App() {
                 return <SmsManagementScript onBack={() => setCurrentView('system')}/>;
             case 'tax-reporting':
                 return <TaxReportReportManagement onBack={() => setCurrentView('system')}/>;
+            case 'tax-calculation':
+                return <TaxCalculationScript onBack={() => setCurrentView('system')}/>;
             default:
                 return null;
         }
