@@ -316,49 +316,57 @@ class TaxReportGenerateResponse(BaseModel):
     request_id: str = Field(..., description="请求ID")
 
 
-# 税额计算相关模型
+# 在文件末尾添加
 class TaxCalculationRequest(BaseModel):
     """税额计算请求模型"""
+    year: int = Field(..., ge=2000, le=2100, description="年份")
+    batch_no: Optional[str] = Field(None, description="批次号")
+    credential_num: Optional[str] = Field(None, description="身份证号")
+    realname: Optional[str] = Field(None, description="姓名")
+    income_type: int = Field(1, ge=1, le=2, description="收入类型: 1-劳务报酬, 2-工资薪金")
+    accumulated_special_deduction: float = Field(0.0, ge=0, description="累计专项扣除")
+    accumulated_additional_deduction: float = Field(0.0, ge=0, description="累计专项附加扣除")
+    accumulated_other_deduction: float = Field(0.0, ge=0, description="累计其他扣除")
+    accumulated_pension_deduction: float = Field(0.0, ge=0, description="累计个人养老金")
+    accumulated_donation_deduction: float = Field(0.0, ge=0, description="累计准予扣除的捐赠额")
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+    use_mock: bool = Field(False, description="是否使用模拟数据")
+    mock_data: Optional[List[Dict]] = Field(None, description="模拟数据（仅当use_mock=True时有效）")
+
+
+class TaxCalculationResultItem(BaseModel):
+    """税额计算结果项"""
+    batch_no: str = Field(..., description="批次号")
     credential_num: str = Field(..., description="身份证号")
-    income_type: Literal[1, 2] = Field(1, description="收入类型: 1-劳务报酬, 2-工资薪金")
-    year: Optional[int] = Field(None, description="计算年份，默认当前年份")
-    realname: Optional[str] = Field(None, description="真实姓名（可选）")
-    accumulated_special_deduction: float = Field(0.0, description="每月专项扣除金额")
-    use_mock_data: bool = Field(False, description="是否使用模拟数据")
-    mock_records: Optional[List[Dict[str, Any]]] = Field(None, description="模拟数据（use_mock_data为True时有效）")
-    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="运行环境")
-
-
-class TaxCalculationItem(BaseModel):
-    """单个月份税额计算结果"""
+    realname: str = Field(..., description="姓名")
     year_month: str = Field(..., description="年月")
     bill_amount: float = Field(..., description="账单金额")
     tax: float = Field(..., description="本次应缴税额")
     income_type: int = Field(..., description="收入类型")
     income_type_name: str = Field(..., description="收入类型名称")
     income_amount: float = Field(..., description="收入金额")
-    prev_accumulated_income: float = Field(..., description="之前累计收入额")
+    prev_accumulated_income: float = Field(..., description="上期累计收入额")
     accumulated_income: float = Field(..., description="累计收入额")
     accumulated_months: int = Field(..., description="累计月份数")
     accumulated_deduction: float = Field(..., description="累计减除费用")
     accumulated_taxable: float = Field(..., description="应纳税所得额")
     accumulated_special: float = Field(..., description="累计专项扣除")
-    accumulated_additional: float = Field(..., description="专项附加扣除")  # 新增：专项附加扣除
-    accumulated_other: float = Field(..., description="其他扣除")  # 新增：其他扣除
-    accumulated_pension: float = Field(..., description="其他扣除")  # 新增：其他扣除
-    accumulated_donation: float = Field(..., description="累计准予扣除的捐赠额")  # 新增：准予扣除的捐赠额
+    accumulated_additional: float = Field(..., description="累计专项附加扣除")
+    accumulated_other: float = Field(..., description="累计其他扣除")
+    accumulated_pension: float = Field(..., description="累计个人养老金")
+    accumulated_donation: float = Field(..., description="累计准予扣除的捐赠额")
     tax_rate: float = Field(..., description="税率")
     quick_deduction: float = Field(..., description="速算扣除数")
     accumulated_total_tax: float = Field(..., description="累计应纳税额")
-    prev_accumulated_tax: float = Field(..., description="之前累计已缴税额")
-    accumulated_tax: float = Field(..., description="更新后累计已缴税额")
-    calculation_steps: List[str] = Field(..., description="计算步骤明细")
+    prev_accumulated_tax: float = Field(..., description="上期累计已缴税额")
+    accumulated_tax: float = Field(..., description="累计已缴税额")
+    calculation_steps: List[str] = Field(..., description="计算步骤")
 
 
 class TaxCalculationResponse(BaseModel):
     """税额计算响应模型"""
     success: bool = Field(..., description="是否成功")
     message: str = Field(..., description="处理信息")
-    data: Optional[List[TaxCalculationItem]] = Field(None, description="计算结果")
-    total_tax: float = Field(0.0, description="年度预缴税款总额")
+    data: Optional[List[TaxCalculationResultItem]] = Field(None, description="计算结果")
     request_id: str = Field(..., description="请求ID")
+    total_tax: float = Field(..., description="总税额")

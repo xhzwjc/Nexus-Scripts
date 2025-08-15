@@ -21,7 +21,7 @@ from .models import (
     MobileParseResponse, MobileParseRequest, TaxCalculationResponse, TaxCalculationRequest
 )
 from .services import EnterpriseSettlementService, AccountBalanceService, CommissionCalculationService, \
-    MobileTaskService, SMSService, TaxCalculationService
+    MobileTaskService, SMSService
 from .config import settings
 
 # 配置日志
@@ -607,51 +607,77 @@ async def generate_tax_report(
         logger.error(f"生成税务报表失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# 在文件中添加必要的导入
+from .tax_calculator import TaxCalculator
+from .models import TaxCalculationRequest, TaxCalculationResponse
+import uuid
 
-# 4. 税额计算接口
+# 添加税额计算接口
 @app.post("/tax/calculate", response_model=TaxCalculationResponse, tags=["税务计算"])
 async def calculate_tax(
         request: TaxCalculationRequest,
 ):
     try:
         request_id = str(uuid.uuid4())
-        logger.info(f"计算税额，身份证号: {request.credential_num}, 请求ID: {request_id}")
+        logger.info(f"开始税额计算，请求ID: {request_id}, 参数: {request.dict()}")
+
+        # 验证参数合法性
+        # 模拟数据模式下放宽验证条件
+        print(request.use_mock)
+        if not request.use_mock:
+            if not request.batch_no and (not request.credential_num or request.credential_num.strip() == ""):
+                raise ValueError("必须提供批次号或身份证号")
+        else:
+            # 模拟数据模式下，允许不提供批次号和身份证号
+            # 自动生成一个临时身份证号用于计算
+            if not request.credential_num or request.credential_num.strip() == "":
+                request.credential_num = f"MOCK_{uuid.uuid4().hex[:10]}"
+                logger.info(f"模拟数据模式自动生成临时身份证号: {request.credential_num}")
 
         # 获取数据库配置
         db_config = get_db_config(request.environment)
-        calculator = TaxCalculationService(db_config)
 
-        # 调用计算方法
-        results = calculator.calculate_tax(
-            credential_num=request.credential_num,
-            income_type=request.income_type,
-            year=request.year,
-            realname=request.realname,
-            accumulated_special_deduction=request.accumulated_special_deduction,
-            use_mock_data=request.use_mock_data,
-            mock_records=request.mock_records
+        # 初始化计算器（支持模拟数据模式）
+        calculator = TaxCalculator(
+            db_config=db_config,
+            mock_data=request.mock_data if request.use_mock else None
         )
 
-        total_tax = sum(record['tax'] for record in results) if results else 0.0
+        # 准备计算参数
+        params = {
+            "year": request.year,
+            "batch_no": request.batch_no,
+            "credential_num": request.credential_num,
+            "realname": request.realname,
+            "income_type": request.income_type,
+            "accumulated_special_deduction": request.accumulated_special_deduction,
+            "accumulated_additional_deduction": request.accumulated_additional_deduction,
+            "accumulated_other_deduction": request.accumulated_other_deduction,
+            "accumulated_pension_deduction": request.accumulated_pension_deduction,
+            "accumulated_donation_deduction": request.accumulated_donation_deduction
+        }
+
+        # 执行计算
+        results = calculator.calculate_tax_by_batch(**params)
+
+        # 检查计算结果
+        if results is None:
+            raise ValueError("计算结果为空")
+
+        total_tax = sum(r.get('tax', 0) for r in results) if results else 0.0
 
         return {
             "success": True,
-            "message": "税额计算完成" if results else "未找到符合条件的记录",
+            "message": f"计算完成，共返回 {len(results)} 条记录",
             "data": results,
-            "total_tax": total_tax,
-            "request_id": request_id
+            "request_id": request_id,
+            "total_tax": round(total_tax, 2)
         }
 
+    except ValueError as e:
+        logger.warning(f"参数错误: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"税额计算失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/health", tags=["系统"])
-async def health_check():
-    return {
-        "status": "healthy",
-        "service": "chunmiao-settlement-api",
-        "version": settings.API_VERSION,
-        "environment": settings.ENVIRONMENT
-    }
+        logger.error(f"税额计算失败: {str(e)}", exc_info=True)  # 记录完整堆栈信息
+        # 生产环境中可以返回更通用的错误信息
+        raise HTTPException(status_code=500, detail=f"计算过程中发生错误: {str(e)}")
