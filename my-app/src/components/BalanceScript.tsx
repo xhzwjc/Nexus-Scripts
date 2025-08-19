@@ -1,4 +1,4 @@
-import React, {useMemo, useRef, useState} from 'react';
+import React, {useMemo, useRef, useState, useCallback, useEffect} from 'react';
 import axios from 'axios';
 import {Toaster, toast} from 'sonner';
 import {Card, CardContent, CardHeader, CardTitle} from './ui/card';
@@ -29,6 +29,12 @@ interface ApiResponse<T = unknown> {
     enterprise_id: number;
 }
 
+// 企业信息结构
+interface Enterprise {
+    tenant_id: number;
+    enterprise_name: string;
+}
+
 // 余额核对结果结构
 interface BalanceResult {
     tax_location_id: number;
@@ -57,10 +63,17 @@ const SkeletonRow = () => (
     </TableRow>
 );
 
+// 获取API基础URL
+const getApiBaseUrl = () => {
+    return process.env.NEXT_PUBLIC_API_BASE_URL;
+};
+
 export default function BalanceScript({onBack}: BalanceScriptProps) {
     const [environment, setEnvironment] = useState('test');
     const [tenantId, setTenantId] = useState('');
+    const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
     const [isQuerying, setIsQuerying] = useState(false);
+    const [isFetchingEnterprises, setIsFetchingEnterprises] = useState(false);
     const [results, setResults] = useState<BalanceResult[]>([]);
     const [queryCount, setQueryCount] = useState(0);
     const [errorCount, setErrorCount] = useState(0);
@@ -74,6 +87,38 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
 
     const tableTopRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
+    // 新增：下拉容器的引用
+    const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+    // 控制下拉框显示状态
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+// 搜索关键词
+    const [searchTerm, setSearchTerm] = useState('');
+// 选中的企业信息
+    const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | undefined>(undefined);
+
+    // 新增：点击空白处关闭下拉框的处理
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            // 如果下拉框是打开的，且点击的不是下拉框内部或输入框
+            if (
+                isDropdownOpen &&
+                dropdownRef.current &&
+                !dropdownRef.current.contains(event.target as Node) &&
+                inputRef.current &&
+                !inputRef.current.contains(event.target as Node)
+            ) {
+                setIsDropdownOpen(false);
+            }
+        };
+
+        // 监听全局点击事件
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            // 组件卸载时移除监听
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isDropdownOpen]);
 
     // 货币格式化
     const currency = useMemo(
@@ -116,6 +161,39 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
             requestAnimationFrame(scrollToTableTop);
         }
     };
+
+    // 获取企业列表
+    const fetchEnterprises = useCallback(async (signal?: AbortSignal) => {
+        const base = getApiBaseUrl();
+        if (!base) return;
+
+        setIsFetchingEnterprises(true);
+        try {
+            const response = await axios.get<ApiResponse<Enterprise[]>>(
+                `${base}/enterprises/list`,
+                {params: {environment}, signal}
+            );
+            if (response.data.success) {
+                setEnterprises(response.data.data as Enterprise[]);
+                toast.success(response.data.message || '企业列表已更新');
+            } else {
+                toast.error(response.data.message || '获取企业列表失败');
+            }
+        } catch (err) {
+            if (axios.isCancel(err)) return;
+            console.error('获取企业列表错误:', err);
+            toast.error(err instanceof Error ? err.message : '获取企业列表时发生错误，请重试');
+        } finally {
+            setIsFetchingEnterprises(false);
+        }
+    }, [environment]);
+
+    // 环境变更时重新获取企业列表
+    useEffect(() => {
+        const controller = new AbortController();
+        fetchEnterprises(controller.signal);
+        return () => controller.abort();
+    }, [fetchEnterprises]);
 
     // 查询
     const startQuery = async () => {
@@ -175,6 +253,8 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
         setTenantId('');
         setHasQueried(false);
         setCurrentPage(1);
+        setSearchTerm('');
+        setSelectedEnterprise(undefined);
         inputRef.current?.focus();
         toast.info('查询结果已重置');
     };
@@ -261,19 +341,120 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
 
                             <div>
                                 <Label htmlFor="tenant-id">企业租户ID</Label>
-                                <Input
-                                    id="tenant-id"
-                                    ref={inputRef}
-                                    value={tenantId}
-                                    onChange={(e) => setTenantId(e.target.value.replace(/[^\d]/g, ''))}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && !isQuerying) startQuery();
-                                    }}
-                                    placeholder="输入企业租户ID"
-                                    disabled={isQuerying}
-                                    inputMode="numeric"
-                                    pattern="\d*"
-                                />
+                                <div className="relative">
+                                    {/* 输入框 - 输入企业名称或ID */}
+                                    <Input
+                                        id="tenant-id"
+                                        ref={inputRef}
+                                        value={searchTerm}
+                                        onChange={(e) => {
+                                            const inputValue = e.target.value;
+                                            setSearchTerm(inputValue);
+                                            setIsDropdownOpen(true);
+
+                                            // 输入是纯数字 → 暂存 tenantId
+                                            if (/^\d+$/.test(inputValue)) {
+                                                setTenantId(inputValue);
+                                                setSelectedEnterprise(undefined);
+                                            } else {
+                                                setTenantId('');
+                                                setSelectedEnterprise(undefined);
+                                            }
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                // 如果输入的是数字，直接用 tenantId 查询
+                                                if (!isQuerying && tenantId) {
+                                                    startQuery();
+                                                    setIsDropdownOpen(false);
+                                                }
+                                                // 如果输入的是文字，尝试选第一个匹配项
+                                                else {
+                                                    const matched = enterprises.find(ent =>
+                                                        ent.enterprise_name.includes(searchTerm) ||
+                                                        ent.tenant_id.toString().includes(searchTerm)
+                                                    );
+                                                    if (matched) {
+                                                        setTenantId(matched.tenant_id.toString());
+                                                        setSelectedEnterprise(matched);
+                                                        setSearchTerm(matched.enterprise_name);
+                                                        startQuery();
+                                                        setIsDropdownOpen(false);
+                                                    }
+                                                }
+                                            }
+                                            // 新增：按ESC键关闭下拉框
+                                            if (e.key === 'Escape') {
+                                                setIsDropdownOpen(false);
+                                            }
+                                        }}
+                                        onClick={() => setIsDropdownOpen(true)}
+                                        placeholder="输入租户ID或企业名称"
+                                        disabled={isQuerying || isFetchingEnterprises}
+                                        className="pr-8"
+                                    />
+
+                                    {/* 清除按钮 */}
+                                    {searchTerm && (
+                                        <button
+                                            type="button"
+                                            className="absolute inset-y-0 right-2 flex items-center text-gray-400 hover:text-gray-600"
+                                            onClick={(e) => {
+                                                // 阻止事件冒泡，避免触发输入框的点击事件
+                                                e.stopPropagation();
+                                                setSearchTerm('');
+                                                setTenantId('');
+                                                setSelectedEnterprise(undefined);
+                                                setIsDropdownOpen(false);
+                                            }}
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+
+                                    {/* 下拉过滤列表 - 添加ref属性 */}
+                                    {isDropdownOpen && (
+                                        <div
+                                            ref={dropdownRef}
+                                            className="absolute z-10 mt-1 w-full rounded-md border bg-white shadow-lg max-h-60 overflow-auto"
+                                        >
+                                            {isFetchingEnterprises ? (
+                                                <div className="flex justify-center p-4">
+                                                    <Loader2 className="w-4 h-4 animate-spin"/>
+                                                    <span className="ml-2 text-sm">加载中...</span>
+                                                </div>
+                                            ) : enterprises.length === 0 ? (
+                                                <div className="p-4 text-center text-sm text-muted-foreground">
+                                                    未获取到企业数据
+                                                </div>
+                                            ) : (
+                                                enterprises
+                                                    .filter(ent => {
+                                                        const searchLower = searchTerm.toLowerCase();
+                                                        return (
+                                                            ent.tenant_id.toString().includes(searchLower) ||
+                                                            ent.enterprise_name.toLowerCase().includes(searchLower)
+                                                        );
+                                                    })
+                                                    .map(enterprise => (
+                                                        <div
+                                                            key={enterprise.tenant_id}
+                                                            className="cursor-pointer px-4 py-2 hover:bg-gray-100 text-sm"
+                                                            onClick={() => {
+                                                                setTenantId(enterprise.tenant_id.toString());
+                                                                setSelectedEnterprise(enterprise);
+                                                                setSearchTerm(enterprise.enterprise_name);
+                                                                setIsDropdownOpen(false);
+                                                            }}
+                                                        >
+                                                            {enterprise.enterprise_name}（{enterprise.tenant_id}）
+                                                        </div>
+                                                    ))
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
                             </div>
 
                             <div className="md:col-span-1 flex gap-3">
