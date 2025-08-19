@@ -61,11 +61,13 @@ interface TaxCalculationItem {
     income_type_name: string;
     income_amount: number;
     accumulated_deduction: number;
+    revenue_bills: number;
     accumulated_special: number;
     calculation_steps: string[];
     accumulated_taxable: number;
     tax_rate: number;
     accumulated_total_tax: number;
+    effective_tax_rate: number;
 }
 
 interface TaxCalculationResponse {
@@ -110,7 +112,8 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number) => {
         '应纳税所得额',
         '税率',
         '累计应纳税额',
-        '当月税额'
+        '当月税额',
+        '实际税负'
     ];
 
     const rows = data.map(item => [
@@ -830,11 +833,13 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                             <TableHead>账单金额</TableHead>
                                             <TableHead>收入金额</TableHead>
                                             <TableHead>累计减除费用</TableHead>
-                                            <TableHead>累计专项扣除</TableHead>
+                                            {/*<TableHead>累计专项扣除</TableHead>*/}
+                                            <TableHead>原始累计收入</TableHead>
                                             <TableHead>应纳税所得额</TableHead>
                                             <TableHead>税率</TableHead>
                                             <TableHead>累计应纳税额</TableHead>
                                             <TableHead>当月税额</TableHead>
+                                            <TableHead>实际税负</TableHead>
                                             <TableHead>详情</TableHead>
                                         </TableRow>
                                     </TableHeader>
@@ -845,11 +850,13 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                                 <TableCell>{item.bill_amount.toFixed(2)}</TableCell>
                                                 <TableCell>{item.income_amount.toFixed(2)}</TableCell>
                                                 <TableCell>{item.accumulated_deduction.toFixed(2)}</TableCell>
-                                                <TableCell>{item.accumulated_special.toFixed(2)}</TableCell>
+                                                {/*<TableCell>{item.accumulated_special.toFixed(2)}</TableCell>*/}
+                                                <TableCell>{item.revenue_bills.toFixed(2)}</TableCell>
                                                 <TableCell>{item.accumulated_taxable.toFixed(2)}</TableCell>
                                                 <TableCell>{(item.tax_rate * 100).toFixed(2)}%</TableCell>
                                                 <TableCell>{item.accumulated_total_tax.toFixed(2)}</TableCell>
                                                 <TableCell>{item.tax.toFixed(2)}</TableCell>
+                                                <TableCell>{item.effective_tax_rate.toFixed(2)}%</TableCell>
                                                 <TableCell>
                                                     <Button
                                                         variant="ghost"
