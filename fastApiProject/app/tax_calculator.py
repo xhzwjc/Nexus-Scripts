@@ -26,7 +26,7 @@ class TaxCalculator:
                     base_query = """
                                  SELECT 
                                     COALESCE(payment_over_time, create_time) as payment_time,
-                                    bill_amount,
+                                    bill_amount - ROUND(COALESCE(worker_service_amount,0), 2) AS bill_amount,
                                     DATE_FORMAT(COALESCE(payment_over_time, create_time), '%%Y-%%m') as year_months,
                                     batch_no,
                                     realname
@@ -37,6 +37,7 @@ class TaxCalculator:
                                       OR 
                                       (payment_over_time IS NULL AND YEAR(create_time) = %s)
                                       )
+                                   AND pay_status IN (0, 2, 3)
                                    AND credential_num = %s \
                                  """
                     params = [year, year, credential_num]
@@ -56,7 +57,7 @@ class TaxCalculator:
                             'bill_amount': float(row['bill_amount']) if row['bill_amount'] is not None else 0.0,
                             'year_month': row['year_months'],
                             'batch_no': row['batch_no'],
-                            'realname': row['realname']
+                            'realname': row['realname'],
                         }
                         for row in db_results
                     ]
@@ -276,6 +277,7 @@ class TaxCalculator:
             accumulated_income = 0.0
             accumulated_tax = 0.0
             accumulated_months = 0
+            revenue_bills = 0.0
             last_income_month = None
             monthly_accumulators = {}
             results = []
@@ -312,6 +314,7 @@ class TaxCalculator:
                     accumulated_income = 0.0
                     accumulated_tax = 0.0
                     accumulated_months = 0
+                    revenue_bills = 0.0
                     monthly_accumulators = {}
                     monthly_accumulators[month_key] = {
                         'records': [], 'total_amount': 0.0, 'paid_tax': 0.0,
@@ -324,6 +327,7 @@ class TaxCalculator:
                 accum['records'].append(record)
                 prev_month_total_amount = accum['total_amount']
                 accum['total_amount'] += record['bill_amount']
+                revenue_bills += record['bill_amount']
                 prev_annual_accumulated_income = accumulated_income
 
                 # 计算月度收入，避免出现负数
@@ -359,6 +363,7 @@ class TaxCalculator:
 
                 prev_total_paid_tax = accumulated_tax
                 current_tax = max(0.0, accumulated_total_tax - prev_total_paid_tax)
+                effective_tax_rate = round(current_tax / round(accum['total_amount'], 2) * 100, 2)
                 accum['paid_tax'] += current_tax
                 accumulated_tax = prev_total_paid_tax + current_tax
 
@@ -394,7 +399,8 @@ class TaxCalculator:
                     f"累计应纳税额: {accumulated_taxable:.2f} × {tax_rate:.2f} - {quick_deduction:.2f} = {accumulated_total_tax:.2f}",
                     f"累计已预缴税额（含当月前期已缴）: {prev_total_paid_tax:.2f}",
                     f"本次应缴税额: max(0, {accumulated_total_tax:.2f} - {prev_total_paid_tax:.2f}) = {current_tax:.2f}",
-                    f"当月已缴税额（含本次）: {accum['paid_tax']:.2f}"
+                    f"当月已缴税额（含本次）: {accum['paid_tax']:.2f}",
+                    f"实际税负: {effective_tax_rate}%"
                 ])
 
                 result = {
@@ -422,7 +428,9 @@ class TaxCalculator:
                     'accumulated_total_tax': round(accumulated_total_tax, 2),
                     'prev_accumulated_tax': round(prev_total_paid_tax, 2),
                     'accumulated_tax': round(accumulated_tax, 2),
-                    'calculation_steps': calculation_steps
+                    'calculation_steps': calculation_steps,
+                    'effective_tax_rate': effective_tax_rate,
+                    'revenue_bills': revenue_bills
                 }
                 results.append(result)
                 last_income_month = month_key
