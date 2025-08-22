@@ -1,13 +1,16 @@
 # app/tax_calculator.py
 import uuid
-
 import pymysql
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Any
 import logging
+from decimal import Decimal, getcontext, ROUND_HALF_UP
 from .utils import DatabaseManager
 
 logger = logging.getLogger(__name__)
+
+# 设置Decimal全局精度（20位有效数字）
+getcontext().prec = 20
 
 
 class TaxCalculator:
@@ -37,7 +40,7 @@ class TaxCalculator:
                                       OR 
                                       (payment_over_time IS NULL AND YEAR(create_time) = %s)
                                       )
-                                   AND pay_status IN (0, 2, 3)
+                                   AND pay_status IN (0, 3)
                                    AND credential_num = %s \
                                  """
                     params = [year, year, credential_num]
@@ -54,7 +57,9 @@ class TaxCalculator:
                     records = [
                         {
                             'payment_time': row['payment_time'],
-                            'bill_amount': float(row['bill_amount']) if row['bill_amount'] is not None else 0.0,
+                            'bill_amount': Decimal(str(row['bill_amount'])) if row[
+                                                                                   'bill_amount'] is not None else Decimal(
+                                '0.00'),
                             'year_month': row['year_months'],
                             'batch_no': row['batch_no'],
                             'realname': row['realname'],
@@ -72,31 +77,22 @@ class TaxCalculator:
         if not self.mock_data:
             return []
 
-        # 为模拟数据自动补充缺失的必要字段
         enriched_records = []
         for record in self.mock_data:
-            # 基础字段验证
             if 'year_month' not in record or 'bill_amount' not in record:
                 logger.warning(f"跳过无效模拟数据记录: {record}（缺少year_month或bill_amount）")
                 continue
 
-            # 自动补充必要字段
             enriched = {
-                # 从请求参数继承的字段
                 'credential_num': credential_num,
                 'realname': realname or '模拟用户',
                 'batch_no': record.get('batch_no', 'MOCK_BATCH'),
-
-                # 从原始记录获取的字段
                 'year_month': record['year_month'],
-                'bill_amount': float(record['bill_amount']),
-
-                # 自动生成的字段
+                'bill_amount': Decimal(str(record['bill_amount'])),
                 'payment_time': datetime.strptime(f"{record['year_month']}-01", "%Y-%m-%d")
             }
             enriched_records.append(enriched)
 
-        # 按条件筛选
         filtered = [
             r for r in enriched_records
             if r['credential_num'] == credential_num
@@ -127,29 +123,22 @@ class TaxCalculator:
 
                     cursor.execute(query, tuple(params))
                     people = []
-                    # 获取查询结果（兼容不同的游标返回格式）
                     db_results = cursor.fetchall()
 
-                    # 处理查询结果
                     for row in db_results:
-                        # 检查行数据是否有效
                         if not row:
                             continue
 
-                        # 支持列表和字典两种格式的行数据
                         if isinstance(row, dict):
-                            # 字典格式：使用列名访问
                             cred_num = row.get('credential_num')
                             name = row.get('realname', '')
                         else:
-                            # 列表格式：使用索引访问
                             if len(row) < 2:
                                 logger.warning(f"无效的行数据格式: {row}")
                                 continue
                             cred_num = row[0]
                             name = row[1] or ''
 
-                        # 确保身份证号有效
                         if cred_num is not None and cred_num != '':
                             people.append({
                                 'credential_num': cred_num,
@@ -179,15 +168,13 @@ class TaxCalculator:
 
     def calculate_tax_by_batch(self, year: int, batch_no: Optional[str] = None, **kwargs) -> List[Dict[str, Any]]:
         """主调用方法，支持按批次号、身份证号、姓名等方式计算税额"""
-        try:  # 添加try-except捕获整个批次计算过程中的错误
+        try:
             credential_num = kwargs.get('credential_num')
             realname = kwargs.get('realname')
-            use_mock = kwargs.get('use_mock', False)  # 获取是否为模拟模式
+            use_mock = kwargs.get('use_mock', False)
             people_to_process = []
 
-            # 模拟数据模式下的特殊处理
             if use_mock:
-                # 即使没有批次号和身份证号，也创建一个默认人员
                 if not batch_no and (not credential_num or credential_num.strip() == ""):
                     credential_num = f"MOCK_{uuid.uuid4().hex[:10]}"
                     people_to_process = [{'credential_num': credential_num, 'realname': realname or '模拟用户'}]
@@ -208,7 +195,6 @@ class TaxCalculator:
 
             all_results = []
             for person in people_to_process:
-                # 跳过身份证号为空的记录
                 if not person['credential_num']:
                     logger.warning("跳过身份证号为空的记录")
                     continue
@@ -231,41 +217,47 @@ class TaxCalculator:
             return all_results
         except Exception as e:
             logger.error(f"批次计算过程出错: {str(e)}", exc_info=True)
-            raise  # 重新抛出异常以便上层处理
+            raise
 
     def get_income_type_name(self, income_type: int) -> str:
         """获取收入类型名称"""
         return "劳务报酬" if income_type == 1 else "工资薪金"
 
-    def get_tax_rate_and_deduction(self, taxable_income: float) -> Tuple[float, float]:
+    def get_tax_rate_and_deduction(self, taxable_income: Decimal) -> Tuple[Decimal, Decimal]:
         """根据应纳税所得额确定税率和速算扣除数（七级超额累进税率）"""
-        # 确保taxable_income是有效数值
-        taxable_income = max(0.0, taxable_income)
+        taxable_income = max(Decimal('0.00'), taxable_income)
 
-        if taxable_income <= 36000:
-            return 0.03, 0.0
-        elif taxable_income <= 144000:
-            return 0.10, 2520.0
-        elif taxable_income <= 300000:
-            return 0.20, 16920.0
-        elif taxable_income <= 420000:
-            return 0.25, 31920.0
-        elif taxable_income <= 660000:
-            return 0.30, 52920.0
-        elif taxable_income <= 960000:
-            return 0.35, 85920.0
+        if taxable_income <= Decimal('36000'):
+            return Decimal('0.03'), Decimal('0.00')
+        elif taxable_income <= Decimal('144000'):
+            print('144000应纳税额额：',taxable_income)
+            return Decimal('0.10'), Decimal('2520.00')
+        elif taxable_income <= Decimal('300000'):
+            print('300000应纳税额额：',taxable_income)
+            return Decimal('0.20'), Decimal('16920.00')
+        elif taxable_income <= Decimal('420000'):
+            return Decimal('0.25'), Decimal('31920.00')
+        elif taxable_income <= Decimal('660000'):
+            return Decimal('0.30'), Decimal('52920.00')
+        elif taxable_income <= Decimal('960000'):
+            return Decimal('0.35'), Decimal('85920.00')
         else:
-            return 0.45, 181920.0
+            return Decimal('0.45'), Decimal('181920.00')
 
     def calculate_tax(self, credential_num: str, year: int, **kwargs) -> List[Dict[str, Any]]:
-        try:  # 添加try-except捕获单个计算过程中的错误
+        try:
             income_type = kwargs.get('income_type', 1)
             realname = kwargs.get('realname')
-            accumulated_special_deduction = max(0.0, kwargs.get('accumulated_special_deduction', 0.0))
-            accumulated_additional_deduction = max(0.0, kwargs.get('accumulated_additional_deduction', 0.0))
-            accumulated_other_deduction = max(0.0, kwargs.get('accumulated_other_deduction', 0.0))
-            accumulated_pension_deduction = max(0.0, kwargs.get('accumulated_pension_deduction', 0.0))
-            accumulated_donation_deduction = max(0.0, kwargs.get('accumulated_donation_deduction', 0.0))
+            accumulated_special_deduction = max(Decimal('0.00'),
+                                                Decimal(str(kwargs.get('accumulated_special_deduction', '0.00'))))
+            accumulated_additional_deduction = max(Decimal('0.00'),
+                                                   Decimal(str(kwargs.get('accumulated_additional_deduction', '0.00'))))
+            accumulated_other_deduction = max(Decimal('0.00'),
+                                              Decimal(str(kwargs.get('accumulated_other_deduction', '0.00'))))
+            accumulated_pension_deduction = max(Decimal('0.00'),
+                                                Decimal(str(kwargs.get('accumulated_pension_deduction', '0.00'))))
+            accumulated_donation_deduction = max(Decimal('0.00'),
+                                                 Decimal(str(kwargs.get('accumulated_donation_deduction', '0.00'))))
 
             income_type_name = self.get_income_type_name(income_type)
             logger.info(f"正在为 {credential_num} ({realname or 'N/A'}) 计算 {year} 年度税款...")
@@ -274,10 +266,10 @@ class TaxCalculator:
             if not records:
                 return []
 
-            accumulated_income = 0.0
-            accumulated_tax = 0.0
+            accumulated_income = Decimal('0.00')
+            accumulated_tax = Decimal('0.00')
             accumulated_months = 0
-            revenue_bills = 0.0
+            revenue_bills = Decimal('0.00')
             last_income_month = None
             monthly_accumulators = {}
             results = []
@@ -285,16 +277,15 @@ class TaxCalculator:
             sorted_records = sorted(records, key=lambda x: (x['year_month'], x.get('payment_time', x['year_month'])))
 
             for record in sorted_records:
-                # 确保账单金额是有效数值
-                if record['bill_amount'] is None or record['bill_amount'] < 0:
+                if record['bill_amount'] is None or record['bill_amount'] < Decimal('0.00'):
                     logger.warning(f"跳过无效金额记录: {record}")
                     continue
 
                 month_key = record['year_month']
                 if month_key not in monthly_accumulators:
                     monthly_accumulators[month_key] = {
-                        'records': [], 'total_amount': 0.0, 'paid_tax': 0.0,
-                        'monthly_income': 0.0, 'started': False, 'reset_reason': ""
+                        'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
+                        'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': ""
                     }
 
                 current_year, current_month = map(int, month_key.split('-'))
@@ -311,14 +302,14 @@ class TaxCalculator:
                             reset_reason = f"收入中断超过1个月 ({last_income_month} → {month_key})"
                 if reset_needed:
                     logger.info(f"{reset_reason}，重置累计值")
-                    accumulated_income = 0.0
-                    accumulated_tax = 0.0
+                    accumulated_income = Decimal('0.00')
+                    accumulated_tax = Decimal('0.00')
                     accumulated_months = 0
-                    revenue_bills = 0.0
+                    revenue_bills = Decimal('0.00')
                     monthly_accumulators = {}
                     monthly_accumulators[month_key] = {
-                        'records': [], 'total_amount': 0.0, 'paid_tax': 0.0,
-                        'monthly_income': 0.0, 'started': False, 'reset_reason': reset_reason
+                        'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
+                        'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason
                     }
 
                 accum = monthly_accumulators[month_key]
@@ -330,12 +321,11 @@ class TaxCalculator:
                 revenue_bills += record['bill_amount']
                 prev_annual_accumulated_income = accumulated_income
 
-                # 计算月度收入，避免出现负数
                 if income_type == 1:
-                    monthly_income = accum['total_amount'] * 0.8
+                    monthly_income = accum['total_amount'] * Decimal('0.8')
                 else:
                     monthly_income = accum['total_amount']
-                monthly_income = max(0.0, monthly_income)
+                monthly_income = max(Decimal('0.00'), monthly_income)
 
                 if not accum['started']:
                     accum['started'] = True
@@ -345,34 +335,40 @@ class TaxCalculator:
                     accumulated_income = prev_annual_accumulated_income - accum['monthly_income'] + monthly_income
                 accum['monthly_income'] = monthly_income
 
-                # 确保累计月份不为零
                 accumulated_months = max(1, accumulated_months)
 
-                accumulated_deduction = 5000 * accumulated_months
+                accumulated_deduction = Decimal('5000') * accumulated_months
                 accumulated_special = accumulated_special_deduction * accumulated_months
                 accumulated_additional = accumulated_additional_deduction * accumulated_months
                 accumulated_other = accumulated_other_deduction * accumulated_months
                 accumulated_pension = accumulated_pension_deduction * accumulated_months
                 accumulated_donation = accumulated_donation_deduction
 
-                accumulated_taxable = max(0, accumulated_income - accumulated_deduction - accumulated_special -
+                accumulated_taxable = max(Decimal('0.00'),
+                                          accumulated_income - accumulated_deduction - accumulated_special -
                                           accumulated_additional - accumulated_other - accumulated_pension - accumulated_donation)
 
                 tax_rate, quick_deduction = self.get_tax_rate_and_deduction(accumulated_taxable)
-                accumulated_total_tax = max(0.0, accumulated_taxable * tax_rate - quick_deduction)
+                accumulated_total_tax = max(Decimal('0.00'), accumulated_taxable * tax_rate - quick_deduction)
 
                 prev_total_paid_tax = accumulated_tax
-                current_tax = max(0.0, accumulated_total_tax - prev_total_paid_tax)
-                effective_tax_rate = round(current_tax / round(accum['total_amount'], 2) * 100, 2)
+                rounded_accumulated_tax = accumulated_total_tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                rounded_prev_paid_tax = prev_total_paid_tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                print(rounded_accumulated_tax)
+                print(rounded_prev_paid_tax)
+                current_tax = max(Decimal('0.00'), rounded_accumulated_tax - rounded_prev_paid_tax)
+                # print(current_tax)
+                # print(record['bill_amount'])
+                effective_tax_rate = (current_tax / record['bill_amount'] * Decimal('100')).quantize(Decimal('0.01'))
+                # print(effective_tax_rate)
                 accum['paid_tax'] += current_tax
                 accumulated_tax = prev_total_paid_tax + current_tax
 
-                # 构建计算步骤
                 calculation_steps = []
                 if accum['reset_reason']:
                     calculation_steps.append(f"重置原因: {accum['reset_reason']}")
                     accum['reset_reason'] = ""
-                if prev_month_total_amount > 0:
+                if prev_month_total_amount > Decimal('0.00'):
                     calculation_steps.append(
                         f"当月累计收入: {prev_month_total_amount:.2f} + {record['bill_amount']:.2f} → {accum['total_amount']:.2f}")
                 else:
@@ -395,10 +391,10 @@ class TaxCalculator:
                     f"累计个人养老金: {accumulated_pension_deduction:.2f} × {accumulated_months} = {accumulated_pension:.2f}",
                     f"累计准予扣除的捐赠额: {accumulated_donation:.2f}",
                     f"应纳税所得额: {accumulated_income:.2f} - {accumulated_deduction:.2f} - {accumulated_special:.2f} - {accumulated_additional:.2f} - {accumulated_other:.2f} - {accumulated_pension:.2f} - {accumulated_donation:.2f} = {accumulated_taxable:.2f}",
-                    f"税率: {tax_rate * 100:.0f}%, 速算扣除数: {quick_deduction:.2f}",
+                    f"税率: {tax_rate * Decimal('100'):.0f}%, 速算扣除数: {quick_deduction:.2f}",
                     f"累计应纳税额: {accumulated_taxable:.2f} × {tax_rate:.2f} - {quick_deduction:.2f} = {accumulated_total_tax:.2f}",
                     f"累计已预缴税额（含当月前期已缴）: {prev_total_paid_tax:.2f}",
-                    f"本次应缴税额: max(0, {accumulated_total_tax:.2f} - {prev_total_paid_tax:.2f}) = {current_tax:.2f}",
+                    f"本次应缴税额: max(0, {accumulated_total_tax:.2f} - {rounded_prev_paid_tax:.2f}) = {current_tax:.2f}",
                     f"当月已缴税额（含本次）: {accum['paid_tax']:.2f}",
                     f"实际税负: {effective_tax_rate}%"
                 ])
@@ -423,14 +419,14 @@ class TaxCalculator:
                     'accumulated_other': round(accumulated_other, 2),
                     'accumulated_pension': round(accumulated_pension, 2),
                     'accumulated_donation': round(accumulated_donation, 2),
-                    'tax_rate': round(tax_rate, 4),
+                    'tax_rate': float(round(tax_rate, 4)),
                     'quick_deduction': round(quick_deduction, 2),
-                    'accumulated_total_tax': round(accumulated_total_tax, 2),
+                    'accumulated_total_tax': max(rounded_accumulated_tax,rounded_prev_paid_tax),
                     'prev_accumulated_tax': round(prev_total_paid_tax, 2),
                     'accumulated_tax': round(accumulated_tax, 2),
                     'calculation_steps': calculation_steps,
-                    'effective_tax_rate': effective_tax_rate,
-                    'revenue_bills': revenue_bills
+                    'effective_tax_rate': float(effective_tax_rate),
+                    'revenue_bills': round(revenue_bills, 2)
                 }
                 results.append(result)
                 last_income_month = month_key
@@ -439,4 +435,4 @@ class TaxCalculator:
             return results
         except Exception as e:
             logger.error(f"计算 {credential_num} 的税额时出错: {str(e)}", exc_info=True)
-            return []  # 发生错误时返回空列表，避免影响批次中其他人员的计算
+            return []
