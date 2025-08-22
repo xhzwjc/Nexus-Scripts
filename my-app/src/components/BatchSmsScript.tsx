@@ -220,6 +220,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
     const [resendType, setResendType] = useState<ResendType>('mobile');
     const [resendMobile, setResendMobile] = useState('');
     const [resendBatchNo, setResendBatchNo] = useState('');
+    const [resendTaxId, setResendTaxId] = useState('');
     const [isResending, setIsResending] = useState(false);
     const [resendResult, setResendResult] = useState<ApiResponse | null>(null);
 
@@ -475,13 +476,20 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
         try {
             if (resendType === 'mobile') {
                 const m = resendMobile.trim();
+                const taxId = resendTaxId.trim();
                 if (!CN_MOBILE_REGEX.test(m)) throw new Error('请输入正确的手机号');
+                if (!taxId) throw new Error('请输入税地ID');
             } else {
                 if (!resendBatchNo.trim()) throw new Error('请输入批次号');
             }
 
             const params =
-                resendType === 'mobile' ? {mobiles: [resendMobile.trim()]} : {batch_no: resendBatchNo.trim()};
+                resendType === 'mobile'
+                ? {
+                mobiles: [resendMobile.trim()],
+                tax_id: resendTaxId.trim()
+                }
+                : {batch_no: resendBatchNo.trim()};
 
             const res = await api.post<ApiResponse>('/sms/resend', {
                 environment,
@@ -1226,17 +1234,32 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     </div>
 
                                     {resendType === 'mobile' ? (
-                                        <div>
-                                            <Label htmlFor="resend-mobile-input">手机号</Label>
-                                            <Input
-                                                id="resend-mobile-input"
-                                                value={resendMobile}
-                                                onChange={(e) => setResendMobile(e.target.value)}
-                                                placeholder="请输入需要补发的手机号"
-                                                maxLength={11}
-                                            />
-                                            <p className="text-xs text-muted-foreground mt-1">请输入正确的 11
-                                                位手机号码</p>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <Label htmlFor="resend-mobile-input">手机号</Label>
+                                                <Input
+                                                    id="resend-mobile-input"
+                                                    value={resendMobile}
+                                                    onChange={(e) => setResendMobile(e.target.value)}
+                                                    placeholder="请输入需要补发的手机号"
+                                                    maxLength={11}
+                                                    required
+                                                />
+                                                <p className="text-xs text-muted-foreground mt-1">请输入正确的 11
+                                                    位手机号码</p>
+                                            </div>
+                                            {/* 新增税地ID输入框 */}
+                                            <div>
+                                                <Label htmlFor="resend-tax-id-input">税地ID</Label>
+                                                <Input
+                                                    id="resend-tax-id-input"
+                                                    value={resendTaxId}
+                                                    onChange={(e) => setResendTaxId(e.target.value)}
+                                                    placeholder="请输入税地ID"
+                                                    required
+                                                />
+                                                <p className="text-xs text-muted-foreground mt-1">请输入对应的税地ID，不能为空</p>
+                                            </div>
                                         </div>
                                     ) : (
                                         <div>
@@ -1252,8 +1275,16 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     )}
                                 </div>
 
-                                <LoadingButton onClick={resendSignSms} isLoading={isResending} icon={Play}
-                                               className="w-full">
+                                <LoadingButton
+                                    onClick={resendSignSms}
+                                    isLoading={isResending}
+                                    icon={Play}
+                                    className="w-full"
+                                    disabled={
+                                        (resendType === 'mobile' && (!resendMobile || !resendTaxId)) ||
+                                        (resendType === 'batch' && !resendBatchNo)
+                                    }
+                                >
                                     补发签约短信
                                 </LoadingButton>
                             </CardContent>
