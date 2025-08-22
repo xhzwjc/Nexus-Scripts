@@ -428,7 +428,8 @@ async def resend_sms(
         # 2. 查询工人信息
         fetch_result = service.fetch_workers(
             batch_no=request.batch_no,
-            mobiles=request.mobiles
+            mobiles=request.mobiles,
+            tax_id=request.tax_id
         )
         if not fetch_result["success"]:
             raise HTTPException(status_code=500, detail=fetch_result["message"])

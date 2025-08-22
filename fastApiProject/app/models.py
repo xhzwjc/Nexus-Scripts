@@ -200,6 +200,7 @@ class SMSBatchSendRequest(SMSBaseRequest):
 class SMSResendRequest(SMSBaseRequest):
     batch_no: Optional[str] = Field(None, description="批次号")
     mobiles: Optional[List[str]] = Field(None, description="手机号列表，与batch_no二选一")
+    tax_id: int = Field(None, description="税地ID")
 
 class AllowedSMSTemplateItem(BaseModel):
     code: str = Field(..., description="模板编码")
@@ -244,6 +245,7 @@ class EnterpriseListItem(BaseModel):
     id: int = Field(..., description="企业ID")
     enterprise_name: str = Field(..., description="企业名称")
     channel_id: Optional[int] = Field(None, description="渠道ID，可能为None")
+    tenant_id: Optional[int] = Field(None, description="租户ID，可能为None")
     status: int = Field(..., description="企业状态")
     create_time: datetime = Field(..., description="创建时间")
     contact_person: Optional[str] = Field(None, description="联系人")
@@ -347,6 +349,7 @@ class TaxCalculationResultItem(BaseModel):
     income_amount: float = Field(..., description="收入金额")
     prev_accumulated_income: float = Field(..., description="上期累计收入额")
     accumulated_income: float = Field(..., description="累计收入额")
+    revenue_bills: float = Field(..., description="累计收入（原始累计）")
     accumulated_months: int = Field(..., description="累计月份数")
     accumulated_deduction: float = Field(..., description="累计减除费用")
     accumulated_taxable: float = Field(..., description="应纳税所得额")
@@ -361,6 +364,7 @@ class TaxCalculationResultItem(BaseModel):
     prev_accumulated_tax: float = Field(..., description="上期累计已缴税额")
     accumulated_tax: float = Field(..., description="累计已缴税额")
     calculation_steps: List[str] = Field(..., description="计算步骤")
+    effective_tax_rate: float = Field(..., description="实际税负")
 
 
 class TaxCalculationResponse(BaseModel):
