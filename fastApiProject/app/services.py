@@ -1366,7 +1366,7 @@ class SMSService:
             logger.error(f"批量发送失败: {str(e)}")
             return {"success": False, "message": f"批量发送失败: {str(e)}", "data": None}
 
-    def fetch_workers(self, batch_no=None, mobiles=None):
+    def fetch_workers(self, batch_no=None, mobiles=None, tax_id=None):
         """查询需要补发短信的工人信息"""
         if not batch_no and not mobiles:
             return {"success": False, "message": "批次号和手机号不能同时为空", "data": []}
@@ -1389,6 +1389,9 @@ class SMSService:
             where_clauses.append(f"t.mobile IN ({placeholders})")
             params.extend(mobiles)
 
+            where_clauses.append("t.tax_id = %s")
+            params.append(tax_id)
+
         where_clause = " AND ".join(where_clauses)
         sql = f"""
         SELECT
@@ -1399,15 +1402,16 @@ class SMSService:
             DATE_FORMAT(DATE_ADD(CURDATE(), INTERVAL 7 DAY), '%%Y-%%m-%%d') as deadline
         FROM
             biz_balance_worker t
-            LEFT JOIN biz_enterprise_sign t1 ON t1.worker_id = t.worker_id 
+            LEFT JOIN biz_enterprise_sign t1 ON t1.worker_id = t.worker_id AND t1.tax_id=t.tax_id
         WHERE
             {where_clause}
---             AND (t1.sign_status IS NULL OR t1.sign_status <> 0)
+            AND (t1.sign_status IS NULL OR t1.sign_status <> 0)
         GROUP BY t.worker_id
         """
         try:
             with DatabaseManager(db_config) as conn:
                 with conn.cursor(DictCursor) as cursor:
+                    print(sql)
                     a = cursor.execute(sql, params)
                     workers = cursor.fetchall()
 
