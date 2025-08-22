@@ -187,11 +187,12 @@ def get_enterprise_list(db_config: Dict[str, Any]) -> List[Dict[str, Any]]:
                         id, 
                         enterprise_name, 
                         channel_id, 
+                        tenant_id,
                         status,
                         create_time
                     FROM biz_enterprise_base 
                     WHERE deleted = 0 
-                      AND status IN (0, 2, 3, 4, 5, 7)
+                      AND status IN (0, 2, 5)
                       AND id <> 36
                     ORDER BY enterprise_name
                 """
