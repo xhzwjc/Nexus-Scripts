@@ -480,7 +480,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
 
                 const isEmpty = Array.isArray(response.data.data) && response.data.data.length === 0;
                 if (isEmpty) {
-                    toast.error('未查询到符合条件的记录，请核对查询条件（批次号/身份证号/姓名及年月范围）后重试。');
+                    toast.error('未查询到符合条件的记录，请核对查询条件（批次号/身份证号/姓名/金额及年月范围）后重试。');
                 } else {
                     toast.success(response.data.message || `计算成功，共返回 ${response.data.data.length} 条记录`);
                 }
