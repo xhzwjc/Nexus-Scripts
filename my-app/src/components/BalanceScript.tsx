@@ -175,7 +175,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
             );
             if (response.data.success) {
                 setEnterprises(response.data.data as Enterprise[]);
-                toast.success(response.data.message || '企业列表已更新');
+                // toast.success(response.data.message || '企业列表已更新');
             } else {
                 toast.error(response.data.message || '获取企业列表失败');
             }
