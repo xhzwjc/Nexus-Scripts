@@ -41,7 +41,7 @@ class TaxCalculator:
                                       OR 
                                       (payment_over_time IS NULL AND YEAR(create_time) = %s)
                                       )
-                                   AND pay_status IN (0, 3)
+                                   AND pay_status IN (0, 2, 3,4)
                                    AND credential_num = %s \
                                  """
                     params = [year, year, credential_num]
@@ -53,7 +53,6 @@ class TaxCalculator:
                     base_query += " ORDER BY COALESCE(payment_over_time, create_time)"
                     cursor.execute(base_query, tuple(params))
                     db_results = cursor.fetchall()
-                    print(db_results)
 
                     records = [
                         {
@@ -239,10 +238,8 @@ class TaxCalculator:
         if taxable_income <= Decimal('36000'):
             return Decimal('0.03'), Decimal('0.00')
         elif taxable_income <= Decimal('144000'):
-            print('144000应纳税额额：',taxable_income)
             return Decimal('0.10'), Decimal('2520.00')
         elif taxable_income <= Decimal('300000'):
-            print('300000应纳税额额：',taxable_income)
             return Decimal('0.20'), Decimal('16920.00')
         elif taxable_income <= Decimal('420000'):
             return Decimal('0.25'), Decimal('31920.00')
@@ -364,13 +361,8 @@ class TaxCalculator:
                 prev_total_paid_tax = accumulated_tax
                 rounded_accumulated_tax = accumulated_total_tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 rounded_prev_paid_tax = prev_total_paid_tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                print(rounded_accumulated_tax)
-                print(rounded_prev_paid_tax)
                 current_tax = max(Decimal('0.00'), rounded_accumulated_tax - rounded_prev_paid_tax)
-                # print(current_tax)
-                # print(record['bill_amount'])
                 effective_tax_rate = (current_tax / record['bill_amount'] * Decimal('100')).quantize(Decimal('0.01'))
-                # print(effective_tax_rate)
                 accum['paid_tax'] += current_tax
                 accumulated_tax = prev_total_paid_tax + current_tax
 
