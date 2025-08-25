@@ -341,6 +341,7 @@ class TaxCalculationResultItem(BaseModel):
     batch_no: str = Field(..., description="批次号")
     credential_num: str = Field(..., description="身份证号")
     realname: str = Field(..., description="姓名")
+    worker_id: int = Field(..., description="用户ID")
     year_month: str = Field(..., description="年月")
     bill_amount: float = Field(..., description="账单金额")
     tax: float = Field(..., description="本次应缴税额")

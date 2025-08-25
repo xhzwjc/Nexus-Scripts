@@ -32,7 +32,8 @@ class TaxCalculator:
                                     bill_amount - ROUND(COALESCE(worker_service_amount,0), 2) AS bill_amount,
                                     DATE_FORMAT(COALESCE(payment_over_time, create_time), '%%Y-%%m') as year_months,
                                     batch_no,
-                                    realname
+                                    realname,
+                                    worker_id
                                  FROM biz_balance_worker
                                  WHERE deleted = 0
                                      AND (
@@ -63,6 +64,7 @@ class TaxCalculator:
                             'year_month': row['year_months'],
                             'batch_no': row['batch_no'],
                             'realname': row['realname'],
+                            'worker_id': row['worker_id'],
                         }
                         for row in db_results
                     ]
@@ -72,7 +74,7 @@ class TaxCalculator:
             logger.error(f"数据库查询错误: {e}")
             return []
 
-    def _get_mock_records(self, credential_num: str, year: int, realname: Optional[str] = None) -> List[Dict]:
+    def _get_mock_records(self, credential_num: str, year: int, realname: Optional[str] = None, worker_id: Optional[int] = None) -> List[Dict]:
         """获取模拟数据记录，自动补充必要字段"""
         if not self.mock_data:
             return []
@@ -82,10 +84,11 @@ class TaxCalculator:
             if 'year_month' not in record or 'bill_amount' not in record:
                 logger.warning(f"跳过无效模拟数据记录: {record}（缺少year_month或bill_amount）")
                 continue
-
+            mock_worker_id = worker_id or record.get('worker_id', 0)
             enriched = {
                 'credential_num': credential_num,
                 'realname': realname or '模拟用户',
+                'worker_id': worker_id or 0,
                 'batch_no': record.get('batch_no', 'MOCK_BATCH'),
                 'year_month': record['year_month'],
                 'bill_amount': Decimal(str(record['bill_amount'])),
@@ -112,7 +115,7 @@ class TaxCalculator:
         try:
             with DatabaseManager(self.db_config) as conn:
                 with conn.cursor() as cursor:
-                    query = "SELECT DISTINCT credential_num, realname FROM biz_balance_worker WHERE batch_no = %s"
+                    query = "SELECT DISTINCT credential_num, realname, worker_id FROM biz_balance_worker WHERE batch_no = %s"
                     params = [batch_no]
                     if credential_num:
                         query += " AND credential_num = %s"
@@ -132,17 +135,20 @@ class TaxCalculator:
                         if isinstance(row, dict):
                             cred_num = row.get('credential_num')
                             name = row.get('realname', '')
+                            worker_id = row.get('worker_id', 0)
                         else:
-                            if len(row) < 2:
-                                logger.warning(f"无效的行数据格式: {row}")
+                            if len(row) < 3:
+                                logger.warning(f"无效的行数据格式: {row}（缺少 worker_id）")
                                 continue
                             cred_num = row[0]
                             name = row[1] or ''
+                            worker_id = row[2] or 0
 
                         if cred_num is not None and cred_num != '':
                             people.append({
                                 'credential_num': cred_num,
-                                'realname': name
+                                'realname': name,
+                                'worker_id': worker_id
                             })
 
                     logger.info(f"从批次号 {batch_no} 中识别出 {len(people)} 个需要计算的人员")
@@ -162,7 +168,8 @@ class TaxCalculator:
                     key = record.get('credential_num')
                     people[key] = {
                         'credential_num': record.get('credential_num'),
-                        'realname': record.get('realname')
+                        'realname': record.get('realname'),
+                        'worker_id': record.get('worker_id', 0)
                     }
         return list(people.values())
 
@@ -177,14 +184,14 @@ class TaxCalculator:
             if use_mock:
                 if not batch_no and (not credential_num or credential_num.strip() == ""):
                     credential_num = f"MOCK_{uuid.uuid4().hex[:10]}"
-                    people_to_process = [{'credential_num': credential_num, 'realname': realname or '模拟用户'}]
+                    people_to_process = [{'credential_num': credential_num, 'realname': realname or '模拟用户', 'worker_id': 0}]
                     logger.info(f"模拟数据模式: 使用默认人员 {credential_num} 进行计算")
                 elif credential_num:
-                    people_to_process = [{'credential_num': credential_num, 'realname': realname or '模拟用户'}]
+                    people_to_process = [{'credential_num': credential_num, 'realname': realname or '模拟用户', 'worker_id': 0}]
             elif batch_no:
                 people_to_process = self._get_people_from_batch(batch_no, credential_num, realname)
             elif credential_num and credential_num.strip() != "":
-                people_to_process = [{'credential_num': credential_num, 'realname': realname or ''}]
+                people_to_process = [{'credential_num': credential_num, 'realname': realname or '', 'worker_id': 0}]
             else:
                 logger.error("必须提供批次号或身份证号进行计算")
                 return []
@@ -202,10 +209,12 @@ class TaxCalculator:
                 call_kwargs = kwargs.copy()
                 call_kwargs.pop('credential_num', None)
                 call_kwargs.pop('realname', None)
+                worker_id = person.get('worker_id', 0)
 
                 person_yearly_results = self.calculate_tax(
                     credential_num=person['credential_num'],
                     realname=person['realname'],
+                    worker_id=worker_id,
                     year=year, **call_kwargs
                 )
                 all_results.extend(person_yearly_results)
@@ -246,6 +255,7 @@ class TaxCalculator:
 
     def calculate_tax(self, credential_num: str, year: int, **kwargs) -> List[Dict[str, Any]]:
         try:
+            worker_id = kwargs.get('worker_id', 0)
             income_type = kwargs.get('income_type', 1)
             realname = kwargs.get('realname')
             accumulated_special_deduction = max(Decimal('0.00'),
@@ -403,6 +413,7 @@ class TaxCalculator:
                     'batch_no': record['batch_no'],
                     'credential_num': credential_num,
                     'realname': record['realname'],
+                    'worker_id': record.get('worker_id', worker_id),
                     'year_month': month_key,
                     'bill_amount': record['bill_amount'],
                     'tax': round(current_tax, 2),

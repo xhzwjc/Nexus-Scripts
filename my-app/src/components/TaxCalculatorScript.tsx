@@ -56,6 +56,8 @@ type TaxCalculationParams = MockTaxParams | RealTaxParams;
 interface TaxCalculationItem {
     year_month: string;
     bill_amount: number;
+    realname: string;
+    worker_id: number;
     tax: number;
     income_type: number;
     income_type_name: string;
@@ -831,6 +833,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                         <TableRow>
                                             <TableHead>年月</TableHead>
                                             <TableHead>账单金额</TableHead>
+                                            <TableHead>姓名</TableHead>
                                             <TableHead>收入金额</TableHead>
                                             <TableHead>累计减除费用</TableHead>
                                             {/*<TableHead>累计专项扣除</TableHead>*/}
@@ -848,6 +851,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                             <TableRow key={item._rowId} className="odd:bg-muted/30">
                                                 <TableCell>{item.year_month}</TableCell>
                                                 <TableCell>{item.bill_amount.toFixed(2)}</TableCell>
+                                                <TableCell>{`${item.realname}（${item.worker_id}）`}</TableCell>
                                                 <TableCell>{item.income_amount.toFixed(2)}</TableCell>
                                                 <TableCell>{item.accumulated_deduction.toFixed(2)}</TableCell>
                                                 {/*<TableCell>{item.accumulated_special.toFixed(2)}</TableCell>*/}
