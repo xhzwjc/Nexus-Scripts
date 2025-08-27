@@ -27,30 +27,43 @@ class TaxCalculator:
         try:
             with DatabaseManager(self.db_config) as conn:
                 with conn.cursor() as cursor:
+                    # 构建日期范围
+                    start_date = f"{year}-01-01"
+                    end_date = f"{year + 1}-01-01"
+
                     base_query = """
-                                 SELECT
-                                     COALESCE(payment_over_time, create_time) as payment_time,
-                                     bill_amount - ROUND(COALESCE(worker_service_amount,0), 2) AS bill_amount,
-                                     DATE_FORMAT(COALESCE(payment_over_time, create_time), '%%Y-%%m') as year_months,
-                                     batch_no,
-                                     realname,
-                                     worker_id
-                                 FROM biz_balance_worker
-                                 WHERE deleted = 0
-                                     AND (
-                                           (payment_over_time IS NOT NULL AND YEAR(payment_over_time) = %s)
-                                    OR
-                                     (payment_over_time IS NULL AND YEAR(create_time) = %s)
-                          )
-                          AND pay_status IN (0, 3)
-                          AND credential_num = %s \
+                                 SELECT COALESCE(w.payment_over_time, w.create_time)                   as payment_time,
+                                        w.bill_amount - ROUND(COALESCE(w.worker_service_amount, 0), 2) AS bill_amount,
+                                        DATE_FORMAT(COALESCE(w.payment_over_time, w.create_time),
+                                                    '%%Y-%%m')                                         as year_months,
+                                        w.batch_no,
+                                        w.realname,
+                                        w.worker_id,
+                                        w.credential_num,
+                                        t.business_type,
+                                        t.report_type
+                                 FROM biz_balance_worker w
+                                          INNER JOIN biz_task t ON w.task_id = t.id
+                                 WHERE w.deleted = 0
+                                   AND w.pay_status IN (0, 3)
+                                   AND w.credential_num = %s
+                                   AND t.business_type = 2
+                                   AND t.report_type = 0
+                                   AND (
+                                     (w.payment_over_time >= %s AND w.payment_over_time < %s)
+                                         OR
+                                     (w.payment_over_time IS NULL AND w.create_time >= %s AND w.create_time < %s)
+                                     ) \
                                  """
-                    params = [year, year, credential_num]
+
+                    params = [credential_num, start_date, end_date, start_date, end_date]
+
                     if realname:
-                        base_query += " AND realname = %s"
+                        base_query += " AND w.realname = %s"
                         params.append(realname)
 
-                    base_query += " ORDER BY COALESCE(payment_over_time, create_time)"
+                    base_query += " ORDER BY COALESCE(w.payment_over_time, w.create_time)"
+
                     cursor.execute(base_query, tuple(params))
                     db_results = cursor.fetchall()
 
@@ -64,7 +77,9 @@ class TaxCalculator:
                             'batch_no': row['batch_no'],
                             'realname': row['realname'],
                             'worker_id': row['worker_id'],
-                            'credential_num': row['credential_num']
+                            'credential_num': row['credential_num'],
+                            'business_type': row['business_type'],
+                            'report_type': row['report_type']
                         }
                         for row in db_results
                     ]
@@ -119,32 +134,42 @@ class TaxCalculator:
         """
         if not credential_nums:
             return []
+
         try:
             with DatabaseManager(self.db_config) as conn:
                 with conn.cursor() as cursor:
+                    # 构建日期范围
+                    start_date = f"{year}-01-01"
+                    end_date = f"{year + 1}-01-01"
+
                     # 使用 IN 子句进行批量查询
                     format_strings = ','.join(['%s'] * len(credential_nums))
                     query = f"""
                         SELECT 
-                            COALESCE(payment_over_time, create_time) as payment_time,
-                            bill_amount - ROUND(COALESCE(worker_service_amount,0), 2) AS bill_amount,
-                            DATE_FORMAT(COALESCE(payment_over_time, create_time), '%%Y-%%m') as year_months,
-                            batch_no,
-                            realname,
-                            worker_id,
-                            credential_num
-                         FROM biz_balance_worker
-                        WHERE deleted = 0
+                            COALESCE(w.payment_over_time, w.create_time) as payment_time,
+                            w.bill_amount - ROUND(COALESCE(w.worker_service_amount, 0), 2) AS bill_amount,
+                            DATE_FORMAT(COALESCE(w.payment_over_time, w.create_time), '%%Y-%%m') as year_months,
+                            w.batch_no,
+                            w.realname,
+                            w.worker_id,
+                            w.credential_num,
+                            t.business_type,
+                            t.report_type
+                        FROM biz_balance_worker w
+                        INNER JOIN biz_task t ON w.task_id = t.id
+                        WHERE w.deleted = 0
+                          AND w.pay_status IN (0, 3)
+                          AND w.credential_num IN ({format_strings})
+                          AND t.business_type = 2
+                          AND t.report_type = 0
                           AND (
-                              (payment_over_time IS NOT NULL AND YEAR(payment_over_time) = %s)
+                              (w.payment_over_time >= %s AND w.payment_over_time < %s)
                               OR 
-                              (payment_over_time IS NULL AND YEAR(create_time) = %s)
+                              (w.payment_over_time IS NULL AND w.create_time >= %s AND w.create_time < %s)
                           )
-                          AND pay_status IN (0, 3)
-                          AND credential_num IN ({format_strings})
-                        ORDER BY credential_num, COALESCE(payment_over_time, create_time)
+                        ORDER BY w.credential_num, COALESCE(w.payment_over_time, w.create_time)
                     """
-                    params = [year, year] + credential_nums
+                    params = credential_nums + [start_date, end_date, start_date, end_date]
                     cursor.execute(query, tuple(params))
                     db_results = cursor.fetchall()
 
@@ -158,7 +183,9 @@ class TaxCalculator:
                             'batch_no': row['batch_no'],
                             'realname': row['realname'],
                             'worker_id': row['worker_id'],
-                            'credential_num': row['credential_num']
+                            'credential_num': row['credential_num'],
+                            'business_type': row['business_type'],
+                            'report_type': row['report_type']
                         }
                         for row in db_results
                     ]
@@ -544,4 +571,3 @@ class TaxCalculator:
             return Decimal('0.35'), Decimal('85920.00')
         else:
             return Decimal('0.45'), Decimal('181920.00')
-
