@@ -326,9 +326,9 @@ class TaxCalculator:
             monthly_accumulators = {}
             results = []
 
-            sorted_records = sorted(records, key=lambda x: (x['year_month'], x.get('payment_time', x['year_month'])))
+            # sorted_records = sorted(records, key=lambda x: (x['year_month'], x.get('payment_time', x['year_month']))) 暂时移除，因为批量的SQL中处理的排序
 
-            for record in sorted_records:
+            for record in records:
                 if record['bill_amount'] is None or record['bill_amount'] < Decimal('0.00'):
                     logger.warning(f"跳过无效金额记录: {record}")
                     continue
