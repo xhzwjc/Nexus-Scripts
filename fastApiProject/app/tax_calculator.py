@@ -31,11 +31,11 @@ class TaxCalculator:
                     start_date = f"{year}-01-01"
                     end_date = f"{year + 1}-01-01"
 
-                    base_query = """
-                                 SELECT COALESCE(w.payment_over_time, w.create_time)                   as payment_time,
+                    base_query = f"""
+                                 SELECT COALESCE(w.payment_over_time, w.create_time) as payment_time,
                                         w.bill_amount - ROUND(COALESCE(w.worker_service_amount, 0), 2) AS bill_amount,
                                         DATE_FORMAT(COALESCE(w.payment_over_time, w.create_time),
-                                                    '%%Y-%%m')                                         as year_months,
+                                                    '%%Y-%%m') as year_months,
                                         w.batch_no,
                                         w.realname,
                                         w.worker_id,
@@ -53,7 +53,7 @@ class TaxCalculator:
                                      (w.payment_over_time >= %s AND w.payment_over_time < %s)
                                          OR
                                      (w.payment_over_time IS NULL AND w.create_time >= %s AND w.create_time < %s)
-                                     ) \
+                                     )
                                  """
 
                     params = [credential_num, start_date, end_date, start_date, end_date]
@@ -67,22 +67,7 @@ class TaxCalculator:
                     cursor.execute(base_query, tuple(params))
                     db_results = cursor.fetchall()
 
-                    records = [
-                        {
-                            'payment_time': row['payment_time'],
-                            'bill_amount': Decimal(str(row['bill_amount'])) if row[
-                                                                                   'bill_amount'] is not None else Decimal(
-                                '0.00'),
-                            'year_month': row['year_months'],
-                            'batch_no': row['batch_no'],
-                            'realname': row['realname'],
-                            'worker_id': row['worker_id'],
-                            'credential_num': row['credential_num'],
-                            'business_type': row['business_type'],
-                            'report_type': row['report_type']
-                        }
-                        for row in db_results
-                    ]
+                    records = [self._create_record_dict(row) for row in db_results]
                     logger.info(f"为 {credential_num} 获取到 {len(records)} 条记录")
                     return records
         except pymysql.Error as e:
@@ -173,22 +158,7 @@ class TaxCalculator:
                     cursor.execute(query, tuple(params))
                     db_results = cursor.fetchall()
 
-                    records = [
-                        {
-                            'payment_time': row['payment_time'],
-                            'bill_amount': Decimal(str(row['bill_amount'])) if row[
-                                                                                   'bill_amount'] is not None else Decimal(
-                                '0.00'),
-                            'year_month': row['year_months'],
-                            'batch_no': row['batch_no'],
-                            'realname': row['realname'],
-                            'worker_id': row['worker_id'],
-                            'credential_num': row['credential_num'],
-                            'business_type': row['business_type'],
-                            'report_type': row['report_type']
-                        }
-                        for row in db_results
-                    ]
+                    records = [self._create_record_dict(row) for row in db_results]
                     logger.info(f"为 {len(credential_nums)} 人一次性获取到 {len(records)} 条全年记录")
                     return records
         except pymysql.Error as e:
@@ -212,11 +182,21 @@ class TaxCalculator:
                     # 如果没提供身份证号，为模拟计算生成一个临时的
                     credential_num = f"MOCK_{uuid.uuid4().hex[:10]}"
                     people_to_process = [
-                        {'credential_num': credential_num, 'realname': realname or '模拟用户', 'worker_id': 0}]
+                        {
+                            'credential_num': credential_num,
+                            'realname': realname or '模拟用户',
+                            'worker_id': 0
+                        }
+                    ]
                     logger.info(f"模拟数据模式: 使用默认人员 {credential_num} 进行计算")
                 elif credential_num:
                     people_to_process = [
-                        {'credential_num': credential_num, 'realname': realname or '模拟用户', 'worker_id': 0}]
+                        {
+                            'credential_num': credential_num,
+                            'realname': realname or '模拟用户',
+                            'worker_id': 0
+                        }
+                    ]
 
             elif batch_no:
                 # 优化的批处理路径
@@ -266,7 +246,13 @@ class TaxCalculator:
 
             elif credential_num and credential_num.strip() != "":
                 # 无批次号的单个用户路径
-                people_to_process = [{'credential_num': credential_num, 'realname': realname or '', 'worker_id': 0}]
+                people_to_process = [
+                    {
+                        'credential_num': credential_num,
+                        'realname': realname or '模拟用户',
+                        'worker_id': 0
+                    }
+                ]
 
             else:
                 logger.error("必须提供批次号或身份证号进行计算")
@@ -511,7 +497,6 @@ class TaxCalculator:
             if 'year_month' not in record or 'bill_amount' not in record:
                 logger.warning(f"跳过无效模拟数据记录: {record}（缺少year_month或bill_amount）")
                 continue
-            mock_worker_id = worker_id or record.get('worker_id', 0)
             enriched = {
                 'credential_num': credential_num,
                 'realname': realname or '模拟用户',
@@ -549,11 +534,13 @@ class TaxCalculator:
                     }
         return list(people.values())
 
-    def get_income_type_name(self, income_type: int) -> str:
+    @staticmethod
+    def get_income_type_name(income_type: int) -> str:
         """获取收入类型名称"""
         return "劳务报酬" if income_type == 1 else "工资薪金"
 
-    def get_tax_rate_and_deduction(self, taxable_income: Decimal) -> Tuple[Decimal, Decimal]:
+    @staticmethod
+    def get_tax_rate_and_deduction(taxable_income: Decimal) -> Tuple[Decimal, Decimal]:
         """根据应纳税所得额确定税率和速算扣除数（七级超额累进税率）"""
         taxable_income = max(Decimal('0.00'), taxable_income)
 
@@ -571,3 +558,18 @@ class TaxCalculator:
             return Decimal('0.35'), Decimal('85920.00')
         else:
             return Decimal('0.45'), Decimal('181920.00')
+
+    @staticmethod
+    def _create_record_dict(row: Dict) -> Dict:
+        """创建统一的记录字典"""
+        return {
+            'payment_time': row['payment_time'],
+            'bill_amount': Decimal(str(row['bill_amount'])) if row['bill_amount'] is not None else Decimal('0.00'),
+            'year_month': row['year_months'],
+            'batch_no': row['batch_no'],
+            'realname': row['realname'],
+            'worker_id': row['worker_id'],
+            'credential_num': row['credential_num'],
+            'business_type': row['business_type'],
+            'report_type': row['report_type']
+        }
