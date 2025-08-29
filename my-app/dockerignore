@@ -32,3 +32,11 @@ Thumbs.db
 .env.local
 .env.development
 .env.production
+
+node_modules
+.pnpm
+dist
+.git
+.gitignore
+.env
+.env.*

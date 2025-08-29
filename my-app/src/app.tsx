@@ -80,7 +80,8 @@ const keyUserMap: Record<string, User> = {
     'pE7#tV4^Rk!2zF1&B@8cU5*mO~yW6%LxJ3dQ0nHa': {
         role: 'operator',
         permissions: {
-            'tax-reporting': true
+            'tax-reporting': true,
+            'tax-calculation': true
         },
         name: '运营人员'
     },
