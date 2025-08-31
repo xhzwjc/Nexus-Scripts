@@ -9,7 +9,7 @@ services:
       - "8091:8091"
     # 关键：传递.env中的所有数据库环境变量（和你的config.py对应）
     environment:
-      - ENVIRONMENT=${ENVIRONMENT}  # 从.env读取环境（test/prod）
+      - ENVIRONMENT=${ENVIRONMENT:-development}  # 从.env读取环境（test/prod）
       - DB_TEST_HOST=${DB_TEST_HOST}
       - DB_TEST_PORT=${DB_TEST_PORT}
       - DB_TEST_USER=${DB_TEST_USER}

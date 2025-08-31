@@ -1,0 +1,30 @@
+# 忽略 Node.js 依赖目录和日志
+# 这是解决您原始构建错误的关键
+node_modules
+.pnpm
+npm-debug.log
+yarn-error.log
+
+# 忽略构建输出和缓存目录
+dist
+.next
+
+# 忽略 Git 版本控制目录
+.git
+.gitignore
+
+# 忽略本地环境变量文件 (非常重要，避免敏感信息泄露)
+.env
+!.env.example
+
+# 忽略编辑器和IDE的配置文件
+.vscode
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# 忽略操作系统生成的文件
+.DS_Store
+Thumbs.db
