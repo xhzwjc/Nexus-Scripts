@@ -86,7 +86,7 @@ const keyUserMap: Record<string, User> = {
         name: '运营人员'
     },
     // 自定义角色
-    '1': {
+    'wjc': {
         role: 'QA',
         permissions: {
             'settlement': true,
