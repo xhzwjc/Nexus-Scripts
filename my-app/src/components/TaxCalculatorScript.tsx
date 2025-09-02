@@ -202,6 +202,21 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
     const [tempMonthValues, setTempMonthValues] = useState<Record<string, string>>({});
     const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({});
 
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [jumpPageInput, setJumpPageInput] = useState('');
+
+    // 计算分页数据
+    const paginatedResults = useMemo(() => {
+        const start = (currentPage - 1) * pageSize;
+        const end = start + pageSize;
+        return results.slice(start, end);
+    }, [results, currentPage, pageSize]);
+
+
+
+    const totalPages = Math.ceil(results.length / pageSize);
+
     // 当切换到模拟模式时初始化临时年月值
     useEffect(() => {
         if (activeMode !== 'mock') return;
@@ -211,6 +226,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
             initialValues[record.id] = record.year_month;
         });
         setTempMonthValues(initialValues);
+        setCurrentPage(1);
     }, [activeMode, mockParams.mock_data]);
 
     // 当模拟模式下的年份变化时更新记录年月（用函数式更新避免闭包陈旧）
@@ -242,6 +258,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
     useEffect(() => {
         setResults([]);
         setTotalTax(0);
+        setCurrentPage(1);
         setHasCalculated(false);
     }, [activeMode]);
 
@@ -391,6 +408,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
         setTotalTax(0);
         setHasCalculated(false);
         setValidationErrors({});
+        setCurrentPage(1);
     }, [activeMode]);
 
     const applyBatchAmount = useCallback(() => {
@@ -530,6 +548,22 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
         if (!Number.isFinite(y)) return new Date().getFullYear();
         return Math.min(2100, Math.max(1900, Math.floor(y)));
     };
+
+    const handleJumpPage = () => {
+        const page = Number(jumpPageInput);
+        if (!isNaN(page) && page >= 1 && page <= totalPages) {
+            setCurrentPage(page);
+        } else {
+            toast.error(`请输入 1 到 ${totalPages} 之间的页码`);
+        }
+        setJumpPageInput('');
+    };
+
+    useEffect(() => {
+        if (results.length > 0) {
+            setCurrentPage(1);
+        }
+    }, [results]);
 
     return (
         <div className="min-h-screen p-6">
@@ -847,7 +881,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {results.map((item, idx) => (
+                                        {paginatedResults.map((item, idx) => (
                                             <TableRow key={item._rowId} className="odd:bg-muted/30">
                                                 <TableCell>{item.year_month}</TableCell>
                                                 <TableCell>{item.bill_amount.toFixed(2)}</TableCell>
@@ -874,6 +908,60 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                         ))}
                                     </TableBody>
                                 </Table>
+                                {/* 分页控件 */}
+                                <div className="flex items-center justify-between mt-4">
+                                    <div className="flex items-center gap-2">
+                                        <span>每页显示:</span>
+                                        <Select value={String(pageSize)} onValueChange={(v) => {
+                                            setPageSize(Number(v));
+                                            setCurrentPage(1);
+                                        }}>
+                                            <SelectTrigger className="w-[100px]">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {[10, 50, 100, 500, 1000].map(size => (
+                                                    <SelectItem key={size} value={String(size)}>
+                                                        {size}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={currentPage === 1}
+                                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        >
+                                            上一页
+                                        </Button>
+                                        <span>
+                                            {currentPage} / {totalPages || 1}
+                                        </span>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            disabled={currentPage === totalPages || totalPages === 0}
+                                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        >
+                                            下一页
+                                        </Button>
+                                        <div className="flex items-center gap-2 ml-4">
+                                            <Input
+                                                type="number"
+                                                value={jumpPageInput}
+                                                onChange={e => setJumpPageInput(e.target.value)}
+                                                placeholder="页码"
+                                                className="w-20"
+                                            />
+                                            <Button size="sm" onClick={handleJumpPage}>
+                                                跳转
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         ) : (
                             <div className="flex flex-col items-center justify-center py-12 text-center">
