@@ -1,4 +1,4 @@
-import React, {useState, useCallback, useEffect, useMemo} from 'react';
+import React, {useState, useCallback, useEffect, useMemo, useRef} from 'react';
 import axios from 'axios';
 import {Toaster, toast} from 'sonner';
 import {
@@ -103,14 +103,16 @@ const generateDefaultMockRecords = (year: number): MockRecord[] => {
     }));
 };
 
-// 导出CSV功能（BOM + 安全文件名）
+// 导出CSV功能（BOM + 安全文件名 + 释放URL）
 const exportToCSV = (data: TaxCalculationItem[], totalTax: number) => {
     const headers = [
         '年月',
         '账单金额',
+        '姓名',
         '收入金额',
         '累计减除费用',
         '累计专项扣除',
+        '原始累计收入',
         '应纳税所得额',
         '税率',
         '累计应纳税额',
@@ -121,16 +123,19 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number) => {
     const rows = data.map(item => [
         item.year_month,
         item.bill_amount.toFixed(2),
+        `${item.realname?.trim() ? item.realname : '-'}（${item.worker_id}）`,
         item.income_amount.toFixed(2),
         item.accumulated_deduction.toFixed(2),
         item.accumulated_special.toFixed(2),
+        item.revenue_bills.toFixed(2),
         item.accumulated_taxable.toFixed(2),
         `${(item.tax_rate * 100).toFixed(2)}%`,
         item.accumulated_total_tax.toFixed(2),
-        item.tax.toFixed(2)
+        item.tax.toFixed(2),
+        `${item.effective_tax_rate.toFixed(2)}%`
     ]);
 
-    rows.push(['', '', '', '', '', '', '', '总税额', totalTax.toFixed(2)]);
+    rows.push(['', '', '', '', '', '', '', '', '', '总税额', totalTax.toFixed(2), '']);
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
 
@@ -146,7 +151,9 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number) => {
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    link.remove();
+    // 释放 URL，避免内存泄漏
+    setTimeout(() => URL.revokeObjectURL(url), 0);
 };
 
 // 验证年月格式是否为YYYY-MM
@@ -206,14 +213,15 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
     const [pageSize, setPageSize] = useState(10);
     const [jumpPageInput, setJumpPageInput] = useState('');
 
+    // 请求控制：避免竞态与内存泄漏
+    const abortRef = useRef<AbortController | null>(null);
+
     // 计算分页数据
     const paginatedResults = useMemo(() => {
         const start = (currentPage - 1) * pageSize;
         const end = start + pageSize;
         return results.slice(start, end);
     }, [results, currentPage, pageSize]);
-
-
 
     const totalPages = Math.ceil(results.length / pageSize);
 
@@ -229,7 +237,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
         setCurrentPage(1);
     }, [activeMode, mockParams.mock_data]);
 
-    // 当模拟模式下的年份变化时更新记录年月（用函数式更新避免闭包陈旧）
+    // 当模拟模式下的年份变化时更新记录年月
     useEffect(() => {
         if (activeMode !== 'mock') return;
 
@@ -262,6 +270,16 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
         setHasCalculated(false);
     }, [activeMode]);
 
+    // 组件卸载时中断未完成请求
+    useEffect(() => {
+        return () => {
+            if (abortRef.current) {
+                abortRef.current.abort();
+                abortRef.current = null;
+            }
+        };
+    }, []);
+
     // 共享参数设置（两种模式都存在的字段）
     const setSharedParam = useCallback(
         <K extends keyof BaseTaxParams>(key: K, value: BaseTaxParams[K]) => {
@@ -274,13 +292,10 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
         [activeMode]
     );
 
-    // 真实模式独有参数设置（解决 TS 联合类型索引爆红）
-    const setRealParam = useCallback(
-        <K extends keyof RealTaxParams>(key: K, value: RealTaxParams[K]) => {
-            setRealParams(prev => ({...prev, [key]: value}));
-        },
-        []
-    );
+    // 真实模式独有参数设置
+    const setRealParam = useCallback(<K extends keyof RealTaxParams>(key: K, value: RealTaxParams[K]) => {
+        setRealParams(prev => ({...prev, [key]: value}));
+    }, []);
 
     // 切换模式处理
     const handleModeChange = useCallback((checked: boolean) => {
@@ -293,7 +308,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
         setValidationErrors(prev => ({...prev, [recordId]: false}));
     }, []);
 
-    // 将“提交年月”逻辑从 blur 和 Enter 中解耦，避免事件类型冲突与爆红
+    // 提交年月
     const commitMonthValue = useCallback(
         (index: number, record: MockRecord) => {
             const value = tempMonthValues[record.id] ?? '';
@@ -312,7 +327,8 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
     );
 
     const handleBillAmountChange = useCallback((index: number, value: string) => {
-        const num = Math.max(0, Number(value));
+        const parsed = Number(value);
+        const num = Math.max(0, parsed);
         setMockParams(prev => {
             const newRecords = [...prev.mock_data];
             newRecords[index] = {...newRecords[index], bill_amount: Number.isFinite(num) ? num : 0};
@@ -453,19 +469,17 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
             return allValidFormat && !anyMonthError;
         }
 
-        // 真实模式验证（与 calculateTax 保持一致）
         if (!realValid) return false;
         if (credentialFormatError) return false;
         return true;
     }, [isCalculating, activeMode, mockParams.mock_data, validationErrors, realValid, credentialFormatError]);
 
-    // 计算税额处理
+    // 计算税额处理（带取消控制，避免竞态）
     const calculateTax = useCallback(async () => {
         const baseUrl = getApiBaseUrl();
         if (!baseUrl) return;
 
         if (activeMode === 'real') {
-            // 真实数据模式验证
             if (!realValid) {
                 toast.error('请至少填写批次号或身份证号；若填写姓名则需同时填写身份证号');
                 return;
@@ -475,7 +489,6 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                 return;
             }
         } else {
-            // 模拟数据模式验证
             if (mockParams.mock_data.length === 0) {
                 toast.error('请添加至少一条模拟记录');
                 return;
@@ -486,9 +499,21 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
             }
         }
 
+        // 取消上一个未完成请求
+        if (abortRef.current) {
+            abortRef.current.abort();
+        }
+        const controller = new AbortController();
+        abortRef.current = controller;
+
         setIsCalculating(true);
         try {
-            const response = await axios.post<TaxCalculationResponse>(`${baseUrl}/tax/calculate`, params);
+            const response = await axios.post<TaxCalculationResponse>(
+                `${baseUrl}/tax/calculate`,
+                params,
+                {signal: controller.signal}
+            );
+
             if (response.data.success) {
                 const rowsWithId: TaxCalculationItemWithId[] = response.data.data.map((item, idx) => ({
                     ...item,
@@ -510,13 +535,16 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                 setTotalTax(0);
                 setHasCalculated(false);
             }
-        } catch (err) {
-            // 使用 axios 类型守卫，避免 any/unknown 爆红
+        } catch (err: unknown) {
+            if (axios.isAxiosError(err) && err.code === 'ERR_CANCELED') {
+                // 请求已取消，不提示错误
+                return;
+            }
             let errorMsg = '税额计算错误，请重试';
             if (axios.isAxiosError<{ message?: string }>(err)) {
                 errorMsg = err.response?.data?.message || err.message || errorMsg;
             } else if (err instanceof Error) {
-                errorMsg = err.message;
+                errorMsg = err.message || errorMsg;
             }
             toast.error(errorMsg);
             setResults([]);
@@ -524,6 +552,10 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
             setHasCalculated(false);
         } finally {
             setIsCalculating(false);
+            // 清空当前的 controller
+            if (abortRef.current === controller) {
+                abortRef.current = null;
+            }
         }
     }, [params, activeMode, mockParams, realValid, credentialFormatError]);
 
@@ -917,7 +949,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                             setCurrentPage(1);
                                         }}>
                                             <SelectTrigger className="w-[100px]">
-                                                <SelectValue />
+                                                <SelectValue/>
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {[10, 50, 100, 500, 1000].map(size => (
