@@ -407,7 +407,10 @@ class TaxCalculator:
                 rounded_accumulated_tax = accumulated_total_tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 rounded_prev_paid_tax = prev_total_paid_tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 current_tax = max(Decimal('0.00'), rounded_accumulated_tax - rounded_prev_paid_tax)
-                effective_tax_rate = (current_tax / record['bill_amount'] * Decimal('100')).quantize(Decimal('0.01'))
+                if record['bill_amount'] == 0:
+                    effective_tax_rate = Decimal('0.00')
+                else:
+                    effective_tax_rate = (current_tax / record['bill_amount'] * Decimal('100')).quantize(Decimal('0.01'))
                 accum['paid_tax'] += current_tax
                 accumulated_tax = prev_total_paid_tax + current_tax
 
