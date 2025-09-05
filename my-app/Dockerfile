@@ -12,7 +12,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build
 
-FROM nginx:alpine
+FROM nginx:1.25.2-alpine
 
 RUN rm -rf /usr/share/nginx/html/*
 
