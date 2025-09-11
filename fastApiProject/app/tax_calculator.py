@@ -320,6 +320,7 @@ class TaxCalculator:
 
             accumulated_income = Decimal('0.00')
             accumulated_tax = Decimal('0.00')
+            precise_accumulated_tax = Decimal('0.00')
             accumulated_months = 0
             revenue_bills = Decimal('0.00')
             last_income_month = None
@@ -356,6 +357,7 @@ class TaxCalculator:
                     logger.info(f"{reset_reason}，重置累计值")
                     accumulated_income = Decimal('0.00')
                     accumulated_tax = Decimal('0.00')
+                    precise_accumulated_tax = Decimal('0.00')
                     accumulated_months = 0
                     revenue_bills = Decimal('0.00')
                     monthly_accumulators = {}
@@ -401,12 +403,15 @@ class TaxCalculator:
                                           accumulated_additional - accumulated_other - accumulated_pension - accumulated_donation)
 
                 tax_rate, quick_deduction = self.get_tax_rate_and_deduction(accumulated_taxable)
-                accumulated_total_tax = max(Decimal('0.00'), accumulated_taxable * tax_rate - quick_deduction)
+                accumulated_total_tax_unrounded = max(Decimal('0.00'), accumulated_taxable * tax_rate - quick_deduction)
 
                 prev_total_paid_tax = accumulated_tax
-                rounded_accumulated_tax = accumulated_total_tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                rounded_prev_paid_tax = prev_total_paid_tax.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                current_tax = max(Decimal('0.00'), rounded_accumulated_tax - rounded_prev_paid_tax)
+                current_tax = (accumulated_total_tax_unrounded - precise_accumulated_tax).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                current_tax = max(Decimal('0.00'), current_tax)
+
+                precise_accumulated_tax = accumulated_total_tax_unrounded
+
+                accumulated_tax = prev_total_paid_tax + current_tax
                 if record['bill_amount'] == 0:
                     effective_tax_rate = Decimal('0.00')
                 else:
@@ -442,9 +447,9 @@ class TaxCalculator:
                     f"累计准予扣除的捐赠额: {accumulated_donation:.2f}",
                     f"应纳税所得额: {accumulated_income:.2f} - {accumulated_deduction:.2f} - {accumulated_special:.2f} - {accumulated_additional:.2f} - {accumulated_other:.2f} - {accumulated_pension:.2f} - {accumulated_donation:.2f} = {accumulated_taxable:.2f}",
                     f"税率: {tax_rate * Decimal('100'):.0f}%, 速算扣除数: {quick_deduction:.2f}",
-                    f"累计应纳税额: {accumulated_taxable:.2f} × {tax_rate:.2f} - {quick_deduction:.2f} = {accumulated_total_tax:.2f}",
+                    f"累计应纳税额(理论): {accumulated_taxable:.2f} × {tax_rate:.2f} - {quick_deduction:.2f} = {accumulated_total_tax_unrounded:.4f}",
                     f"累计已预缴税额（含当月前期已缴）: {prev_total_paid_tax:.2f}",
-                    f"本次应缴税额: max(0, {accumulated_total_tax:.2f} - {rounded_prev_paid_tax:.2f}) = {current_tax:.2f}",
+                    f"本次应缴税额: round({accumulated_total_tax_unrounded:.4f} - {precise_accumulated_tax - current_tax:.4f}) = {current_tax:.2f}",
                     f"当月已缴税额（含本次）: {accum['paid_tax']:.2f}",
                     f"实际税负: {effective_tax_rate}%"
                 ])
@@ -472,7 +477,7 @@ class TaxCalculator:
                     'accumulated_donation': round(accumulated_donation, 2),
                     'tax_rate': float(round(tax_rate, 4)),
                     'quick_deduction': round(quick_deduction, 2),
-                    'accumulated_total_tax': max(rounded_accumulated_tax, rounded_prev_paid_tax),
+                    'accumulated_total_tax': round(accumulated_tax, 2),
                     'prev_accumulated_tax': round(prev_total_paid_tax, 2),
                     'accumulated_tax': round(accumulated_tax, 2),
                     'calculation_steps': calculation_steps,
