@@ -1102,7 +1102,27 @@ class SMSService:
             "open_tax_user_notice": "开通税局账号通知模板",
             "batch_remind_notice": "批量提醒上传资料",
             "import_staff_notice": "上传人员后发送通知",
-            # ... 其他模板
+            "settled_remind": "合作者事后打款完成发短信",
+            "settled_task_remind": "结算成功定时提醒上传材料",
+            "user_add": "新增员工账号通知",
+            "enterprise_expire": "企业续签通知",
+            "enterprise_reopen": "企业重新开通通知",
+            "reset_client_user_pwd": "企业用户重置密码",
+            "pay_fail_notice": "账单支付失败通知",
+            "recharge_notice": "充值失败通知",
+            "amount_chg_notice": "余额变动通知",
+            "stop_ent": "关停企业通知",
+            "task_pass": "任务审核通过通知",
+            "task_fail": "任务审核驳回通知",
+            "invoice_apply_pass": "发票审核通过通知",
+            "invoice_apply_fail": "发票审核驳回通知",
+            "recharge_success": "充值成功通知",
+            "recharge_fail": "充值失败通知",
+            "balance_change": "账户余额通知",
+            "pay_fail": "账单支付失败通知",
+            "compliance_fail": "合规材料审核通知",
+            "sign_notice": "电子签约通知",
+            "open_notice": "开通企业通知模板"
         }
         self.default_params = {
             "eName": "默认企业名称",
