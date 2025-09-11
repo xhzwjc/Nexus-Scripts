@@ -320,7 +320,6 @@ class TaxCalculator:
 
             accumulated_income = Decimal('0.00')
             accumulated_tax = Decimal('0.00')
-            precise_accumulated_tax = Decimal('0.00')
             accumulated_months = 0
             revenue_bills = Decimal('0.00')
             last_income_month = None
@@ -329,12 +328,19 @@ class TaxCalculator:
 
             # sorted_records = sorted(records, key=lambda x: (x['year_month'], x.get('payment_time', x['year_month']))) 暂时移除，因为批量的SQL中处理了排序
 
+            precise_tax_at_month_end = Decimal('0.00')
+            last_record_unrounded_tax = Decimal('0.00')
+
             for record in records:
                 if record['bill_amount'] is None or record['bill_amount'] < Decimal('0.00'):
                     logger.warning(f"跳过无效金额记录: {record}")
                     continue
 
                 month_key = record['year_month']
+
+                if last_income_month and month_key != last_income_month:
+                    precise_tax_at_month_end = last_record_unrounded_tax
+
                 if month_key not in monthly_accumulators:
                     monthly_accumulators[month_key] = {
                         'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
@@ -347,20 +353,17 @@ class TaxCalculator:
                 if last_income_month:
                     last_year, last_month = map(int, last_income_month.split('-'))
                     if current_year != last_year:
-                        reset_needed = True
-                        reset_reason = f"跨年重置 ({last_income_month} → {month_key})"
-                    else:
-                        if (current_month - last_month) > 1:
-                            reset_needed = True
-                            reset_reason = f"收入中断超过1个月 ({last_income_month} → {month_key})"
+                        reset_needed = True; reset_reason = f"跨年重置 ({last_income_month} → {month_key})"
+                    elif (current_month - last_month) > 1:
+                        reset_needed = True; reset_reason = f"收入中断超过1个月 ({last_income_month} → {month_key})"
                 if reset_needed:
                     logger.info(f"{reset_reason}，重置累计值")
                     accumulated_income = Decimal('0.00')
                     accumulated_tax = Decimal('0.00')
-                    precise_accumulated_tax = Decimal('0.00')
                     accumulated_months = 0
                     revenue_bills = Decimal('0.00')
                     monthly_accumulators = {}
+                    precise_tax_at_month_end=Decimal('0.00')
                     monthly_accumulators[month_key] = {
                         'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
                         'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason
@@ -405,19 +408,19 @@ class TaxCalculator:
                 tax_rate, quick_deduction = self.get_tax_rate_and_deduction(accumulated_taxable)
                 accumulated_total_tax_unrounded = max(Decimal('0.00'), accumulated_taxable * tax_rate - quick_deduction)
 
+                total_tax_for_month_unrounded = accumulated_total_tax_unrounded - precise_tax_at_month_end
+
+                total_tax_for_month_rounded = total_tax_for_month_unrounded.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                paid_tax_this_month_previously = accum['paid_tax']
+                current_tax = max(Decimal('0.00'), total_tax_for_month_rounded - paid_tax_this_month_previously)
                 prev_total_paid_tax = accumulated_tax
-                current_tax = (accumulated_total_tax_unrounded - precise_accumulated_tax).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                current_tax = max(Decimal('0.00'), current_tax)
+                accum['paid_tax'] += current_tax
+                accumulated_tax = (accumulated_tax - paid_tax_this_month_previously) + accum['paid_tax']
 
-                precise_accumulated_tax = accumulated_total_tax_unrounded
-
-                accumulated_tax = prev_total_paid_tax + current_tax
                 if record['bill_amount'] == 0:
                     effective_tax_rate = Decimal('0.00')
                 else:
                     effective_tax_rate = (current_tax / record['bill_amount'] * Decimal('100')).quantize(Decimal('0.01'))
-                accum['paid_tax'] += current_tax
-                accumulated_tax = prev_total_paid_tax + current_tax
 
                 calculation_steps = []
                 if accum['reset_reason']:
@@ -447,9 +450,10 @@ class TaxCalculator:
                     f"累计准予扣除的捐赠额: {accumulated_donation:.2f}",
                     f"应纳税所得额: {accumulated_income:.2f} - {accumulated_deduction:.2f} - {accumulated_special:.2f} - {accumulated_additional:.2f} - {accumulated_other:.2f} - {accumulated_pension:.2f} - {accumulated_donation:.2f} = {accumulated_taxable:.2f}",
                     f"税率: {tax_rate * Decimal('100'):.0f}%, 速算扣除数: {quick_deduction:.2f}",
-                    f"累计应纳税额(理论): {accumulated_taxable:.2f} × {tax_rate:.2f} - {quick_deduction:.2f} = {accumulated_total_tax_unrounded:.4f}",
-                    f"累计已预缴税额（含当月前期已缴）: {prev_total_paid_tax:.2f}",
-                    f"本次应缴税额: round({accumulated_total_tax_unrounded:.4f} - {precise_accumulated_tax - current_tax:.4f}) = {current_tax:.2f}",
+                    f"年度累计应纳税额(理论): {accumulated_taxable:.2f} × {tax_rate:.2f} - {quick_deduction:.2f} = {accumulated_total_tax_unrounded:.4f}",
+                    # f"本月截止当前应缴总税额: {total_tax_due_this_month:.2f}",
+                    f"本月此前已缴税额: {paid_tax_this_month_previously:.2f}",
+                    f"本次应缴税额: {accumulated_total_tax_unrounded:.4f} - {prev_total_paid_tax:.4f} = {current_tax:.2f}",
                     f"当月已缴税额（含本次）: {accum['paid_tax']:.2f}",
                     f"实际税负: {effective_tax_rate}%"
                 ])
@@ -486,6 +490,7 @@ class TaxCalculator:
                 }
                 results.append(result)
                 last_income_month = month_key
+                last_record_unrounded_tax = accumulated_total_tax_unrounded
                 logger.info(f"金额={record['bill_amount']:.2f} 税额={current_tax:.2f}")
 
             return results
