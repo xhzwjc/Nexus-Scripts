@@ -453,7 +453,7 @@ class TaxCalculator:
                     f"年度累计应纳税额(理论): {accumulated_taxable:.2f} × {tax_rate:.2f} - {quick_deduction:.2f} = {accumulated_total_tax_unrounded:.4f}",
                     # f"本月截止当前应缴总税额: {total_tax_due_this_month:.2f}",
                     f"本月此前已缴税额: {paid_tax_this_month_previously:.2f}",
-                    f"本次应缴税额: {accumulated_total_tax_unrounded:.4f} - {prev_total_paid_tax:.4f} = {current_tax:.2f}",
+                    f"本次应缴税额: {accumulated_total_tax_unrounded:.4f} - {prev_total_paid_tax:.4f} ≈ {current_tax:.2f}",
                     f"当月已缴税额（含本次）: {accum['paid_tax']:.2f}",
                     f"实际税负: {effective_tax_rate}%"
                 ])
