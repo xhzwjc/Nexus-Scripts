@@ -161,7 +161,7 @@ const isValidYearMonthFormat = (value: string): boolean => {
     const regex = /^\d{4}-\d{2}$/;
     if (!regex.test(value)) return false;
     const [year, month] = value.split('-').map(Number);
-    return month >= 1 && month <= 12 && year >= 1900 && year <= 2100;
+    return month >= 1 && month <= 12 && year >= 2000 && year <= 2100;
 };
 
 type TaxCalculationItemWithId = TaxCalculationItem & { _rowId: string };
@@ -578,7 +578,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
     // 年份输入范围控制
     const clampYear = (y: number) => {
         if (!Number.isFinite(y)) return new Date().getFullYear();
-        return Math.min(2100, Math.max(1900, Math.floor(y)));
+        return Math.min(2100, Math.max(2000, Math.floor(y)));
     };
 
     const handleJumpPage = () => {
@@ -718,7 +718,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                     disabled={isCalculating}
                                     placeholder="主要计算的年份"
                                 />
-                                <p className="text-xs text-muted-foreground">建议范围：1900 - 2100</p>
+                                <p className="text-xs text-muted-foreground">建议范围：2000 - 2100</p>
                             </div>
 
                             {/* Special deduction */}
@@ -898,12 +898,12 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                     <TableHeader className="sticky top-0 bg-background z-10">
                                         <TableRow>
                                             <TableHead>年月</TableHead>
-                                            <TableHead>账单金额</TableHead>
+                                            <TableHead>税前</TableHead>
                                             <TableHead>姓名</TableHead>
-                                            <TableHead>收入金额</TableHead>
+                                            <TableHead>税后</TableHead>
                                             <TableHead>累计减除费用</TableHead>
                                             {/*<TableHead>累计专项扣除</TableHead>*/}
-                                            <TableHead>原始累计收入</TableHead>
+                                            <TableHead>累计税前收入</TableHead>
                                             <TableHead>应纳税所得额</TableHead>
                                             <TableHead>税率</TableHead>
                                             <TableHead>累计应纳税额</TableHead>
@@ -916,9 +916,9 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                         {paginatedResults.map((item, idx) => (
                                             <TableRow key={item._rowId} className="odd:bg-muted/30">
                                                 <TableCell>{item.year_month}</TableCell>
-                                                <TableCell>{item.bill_amount.toFixed(2)}</TableCell>
+                                                <TableCell>{item.bill_amount}</TableCell>
                                                 <TableCell>{`${item.realname}（${item.worker_id}）`}</TableCell>
-                                                <TableCell>{item.income_amount.toFixed(2)}</TableCell>
+                                                <TableCell>{item.income_amount - item.tax}</TableCell>
                                                 <TableCell>{item.accumulated_deduction.toFixed(2)}</TableCell>
                                                 {/*<TableCell>{item.accumulated_special.toFixed(2)}</TableCell>*/}
                                                 <TableCell>{item.revenue_bills.toFixed(2)}</TableCell>
