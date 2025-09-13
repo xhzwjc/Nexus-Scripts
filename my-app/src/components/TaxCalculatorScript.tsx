@@ -713,8 +713,17 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                 <Input
                                     id="year"
                                     type="number"
-                                    value={String(params.year)}
-                                    onChange={e => setSharedParam('year', clampYear(Number(e.target.value)))}
+                                    // Display an empty string if the year is 0 to allow the field to be cleared
+                                    value={params.year > 0 ? String(params.year) : ''}
+                                    onChange={e => {
+                                        // Parse the input, defaulting to 0 if empty or invalid
+                                        const year = parseInt(e.target.value, 10);
+                                        setSharedParam('year', isNaN(year) ? 0 : year);
+                                    }}
+                                    onBlur={() => {
+                                        // On losing focus, clamp the value to the valid range [2000, 2100]
+                                        setSharedParam('year', clampYear(params.year));
+                                    }}
                                     disabled={isCalculating}
                                     placeholder="主要计算的年份"
                                 />
