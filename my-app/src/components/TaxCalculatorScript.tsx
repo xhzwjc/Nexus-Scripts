@@ -210,7 +210,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
     const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({});
 
     const [currentPage, setCurrentPage] = useState(1);
-    const [pageSize, setPageSize] = useState(10);
+    const [pageSize, setPageSize] = useState(12);
     const [jumpPageInput, setJumpPageInput] = useState('');
 
     // 请求控制：避免竞态与内存泄漏
@@ -952,7 +952,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                                 <SelectValue/>
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {[10, 50, 100, 500, 1000].map(size => (
+                                                {[12, 50, 100, 500, 1000].map(size => (
                                                     <SelectItem key={size} value={String(size)}>
                                                         {size}
                                                     </SelectItem>
