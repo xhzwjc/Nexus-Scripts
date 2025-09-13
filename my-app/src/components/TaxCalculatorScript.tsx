@@ -107,30 +107,30 @@ const generateDefaultMockRecords = (year: number): MockRecord[] => {
 const exportToCSV = (data: TaxCalculationItem[], totalTax: number) => {
     const headers = [
         '年月',
-        '账单金额',
         '姓名',
-        '收入金额',
         '累计减除费用',
         '累计专项扣除',
         '原始累计收入',
         '应纳税所得额',
-        '税率',
         '累计应纳税额',
+        '税率',
+        '税前',
+        '税后',
         '当月税额',
         '实际税负'
     ];
 
     const rows = data.map(item => [
         item.year_month,
-        item.bill_amount.toFixed(2),
         `${item.realname?.trim() ? item.realname : '-'}（${item.worker_id}）`,
-        item.income_amount.toFixed(2),
         item.accumulated_deduction.toFixed(2),
         item.accumulated_special.toFixed(2),
         item.revenue_bills.toFixed(2),
         item.accumulated_taxable.toFixed(2),
-        `${(item.tax_rate * 100).toFixed(2)}%`,
         item.accumulated_total_tax.toFixed(2),
+         `${(item.tax_rate * 100)}%`,
+        item.bill_amount,
+        item.bill_amount - item.tax,
         item.tax.toFixed(2),
         `${item.effective_tax_rate.toFixed(2)}%`
     ]);
@@ -907,15 +907,15 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                     <TableHeader className="sticky top-0 bg-background z-10">
                                         <TableRow>
                                             <TableHead>年月</TableHead>
-                                            <TableHead>税前</TableHead>
                                             <TableHead>姓名</TableHead>
-                                            <TableHead>税后</TableHead>
                                             <TableHead>累计减除费用</TableHead>
                                             {/*<TableHead>累计专项扣除</TableHead>*/}
                                             <TableHead>累计税前收入</TableHead>
                                             <TableHead>应纳税所得额</TableHead>
-                                            <TableHead>税率</TableHead>
                                             <TableHead>累计应纳税额</TableHead>
+                                            <TableHead>税率</TableHead>
+                                            <TableHead>税前</TableHead>
+                                            <TableHead>税后</TableHead>
                                             <TableHead>当月税额</TableHead>
                                             <TableHead>实际税负</TableHead>
                                             <TableHead>详情</TableHead>
@@ -925,15 +925,15 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                         {paginatedResults.map((item, idx) => (
                                             <TableRow key={item._rowId} className="odd:bg-muted/30">
                                                 <TableCell>{item.year_month}</TableCell>
-                                                <TableCell>{item.bill_amount}</TableCell>
                                                 <TableCell>{`${item.realname}（${item.worker_id}）`}</TableCell>
-                                                <TableCell>{item.income_amount - item.tax}</TableCell>
-                                                <TableCell>{item.accumulated_deduction.toFixed(2)}</TableCell>
+                                                <TableCell>{item.accumulated_deduction}</TableCell>
                                                 {/*<TableCell>{item.accumulated_special.toFixed(2)}</TableCell>*/}
-                                                <TableCell>{item.revenue_bills.toFixed(2)}</TableCell>
+                                                <TableCell>{item.revenue_bills}</TableCell>
                                                 <TableCell>{item.accumulated_taxable.toFixed(2)}</TableCell>
-                                                <TableCell>{(item.tax_rate * 100).toFixed(2)}%</TableCell>
                                                 <TableCell>{item.accumulated_total_tax.toFixed(2)}</TableCell>
+                                                <TableCell>{(item.tax_rate * 100)}%</TableCell>
+                                                <TableCell>{item.bill_amount}</TableCell>
+                                                <TableCell>{item.income_amount - item.tax}</TableCell>
                                                 <TableCell>{item.tax.toFixed(2)}</TableCell>
                                                 <TableCell>{item.effective_tax_rate.toFixed(2)}%</TableCell>
                                                 <TableCell>
