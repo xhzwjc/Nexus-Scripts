@@ -525,7 +525,7 @@ class TaxCalculator:
             r for r in enriched_records
             if r['credential_num'] == credential_num
                and (not realname or r['realname'] == realname)
-               and r['year_month'].startswith(str(year))
+               # and r['year_month'].startswith(str(year)) # 移除模拟数据过滤年份代码
         ]
 
         logger.info(f"模拟数据模式: 为 {credential_num} 返回 {len(filtered)} 条记录")
