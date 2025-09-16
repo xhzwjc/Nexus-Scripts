@@ -103,14 +103,14 @@ const generateDefaultMockRecords = (year: number): MockRecord[] => {
     }));
 };
 
-// 导出CSV功能（BOM + 安全文件名 + 释放URL）
-const exportToCSV = (data: TaxCalculationItem[], totalTax: number) => {
-    const headers = [
+// 导出CSV功能（BOM + 安全文件名 + 释放URL + 模式适配）
+const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: boolean) => {
+    // 根据模式动态生成表头（模拟模式不含姓名列）
+    const baseHeaders = [
         '年月',
-        '姓名',
         '累计减除费用',
         '累计专项扣除',
-        '原始累计收入',
+        '累计税前收入',
         '应纳税所得额',
         '累计应纳税额',
         '税率',
@@ -120,22 +120,36 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number) => {
         '实际税负'
     ];
 
-    const rows = data.map(item => [
-        item.year_month,
-        `${item.realname?.trim() ? item.realname : '-'}（${item.worker_id}）`,
-        item.accumulated_deduction.toFixed(2),
-        item.accumulated_special.toFixed(2),
-        item.revenue_bills.toFixed(2),
-        item.accumulated_taxable.toFixed(2),
-        item.accumulated_total_tax.toFixed(2),
-         `${(item.tax_rate * 100)}%`,
-        item.bill_amount,
-        item.bill_amount - item.tax,
-        item.tax.toFixed(2),
-        `${item.effective_tax_rate.toFixed(2)}%`
-    ]);
+    const headers = isMockMode
+        ? baseHeaders
+        : [baseHeaders[0], '姓名', ...baseHeaders.slice(1)];
 
-    rows.push(['', '', '', '', '', '', '', '', '', '总税额', totalTax.toFixed(2), '']);
+    const rows = data.map(item => {
+        const baseRow = [
+            item.year_month,
+            item.accumulated_deduction.toFixed(2),
+            item.accumulated_special.toFixed(2),
+            item.revenue_bills.toFixed(2),
+            item.accumulated_taxable.toFixed(2),
+            item.accumulated_total_tax.toFixed(2),
+            `${(item.tax_rate * 100)}%`,
+            item.bill_amount,
+            (item.bill_amount - item.tax).toFixed(2), // 确保税后金额保留两位小数
+            item.tax.toFixed(2),
+            `${item.effective_tax_rate.toFixed(2)}%`
+        ];
+
+        return isMockMode
+            ? baseRow
+            : [baseRow[0], `${item.realname?.trim() || '-'}（${item.worker_id}）`, ...baseRow.slice(1)];
+    });
+
+    // 处理总计行（根据模式调整空列数量）
+    const totalColumns = isMockMode ? 11 : 12;
+    const totalRow = Array(totalColumns).fill('');
+    totalRow[totalColumns - 2] = '总税额'; // 倒数第二列
+    totalRow[totalColumns - 1] = totalTax.toFixed(2); // 最后一列
+    rows.push(totalRow);
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
 
@@ -907,7 +921,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                     <TableHeader className="sticky top-0 bg-background z-10">
                                         <TableRow>
                                             <TableHead>年月</TableHead>
-                                            <TableHead>姓名</TableHead>
+                                            {activeMode !== 'mock' && <TableHead>姓名</TableHead>}
                                             <TableHead>累计减除费用</TableHead>
                                             {/*<TableHead>累计专项扣除</TableHead>*/}
                                             <TableHead>累计税前收入</TableHead>
@@ -925,7 +939,9 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                         {paginatedResults.map((item, idx) => (
                                             <TableRow key={item._rowId} className="odd:bg-muted/30">
                                                 <TableCell>{item.year_month}</TableCell>
-                                                <TableCell>{`${item.realname}（${item.worker_id}）`}</TableCell>
+                                                {activeMode !== 'mock' && (
+                                                    <TableCell>{`${item.realname}（${item.worker_id}）`}</TableCell>
+                                                )}
                                                 <TableCell>{item.accumulated_deduction}</TableCell>
                                                 {/*<TableCell>{item.accumulated_special.toFixed(2)}</TableCell>*/}
                                                 <TableCell>{item.revenue_bills}</TableCell>
@@ -1025,7 +1041,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => exportToCSV(results, totalTax)}
+                                    onClick={() => exportToCSV(results, totalTax, activeMode === 'mock')}
                                     disabled={!hasCalculated}
                                 >
                                     <Download className="w-4 h-4 mr-1"/>
