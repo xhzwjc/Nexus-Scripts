@@ -443,6 +443,9 @@ CHANNEL_ACCOUNTS = {
         "djkMiP3jo+dmc4Ehbxe+YDKkD7/D2JafIGMSgcQoJb4vz86Osp68JBEfyFv3wzdyi3vDSoiqMTXFeJB+l/rhhqOZ7xktIZcfLa1ferGyzuVPM4V4FWWOByl+dkUSV2XtHyRjVB10A/3rc9ReURVIqdOQsmfVM1vaJ5PXzn+nyc4="),
     8: ("17274802000",
         "zUt3KARp2k92rLwRPwaqwlI9+g9jkhQv76rlRcv8FRerZ0vFecRaRnfNOFqXMCF0RPOxPWVss7BwkCMIIS58IbH/kWQp4gvEtpVY4/JxFlzqytAn4HLmT2tfRtuztvN2sTl0nZoZpAZfr7RVH7mNjanqEqeBuzoipLvZi0nzCwk="),
+    # 个人生成客户渠道信息
+    13: ("13207555558",
+         "Xy2fFfjTA4XqhHSs/2PKJWAgVlWw7uHV/or+bgeQoCeNpOOvk3i5W2eY8XzZ/ie2CvN4MaqqNHvvVVcVdpTkfagmPkQ7mVSXiU8G0LgQeJ9Jtr66Tp5RSZMV55nrgPFOeqx9OtYrlHuyCV0laXmQJJRWNYB3u27m9WnWk7t6WuU="),
 }
 
 
