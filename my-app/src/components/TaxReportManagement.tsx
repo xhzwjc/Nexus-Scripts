@@ -191,7 +191,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
     // 税务数据相关状态
     const [taxData, setTaxData] = useState<TaxData[]>([]);
     const [yearMonth, setYearMonth] = useState('');
-    const [amountType, setAmountType] = useState<AmountType>(2);
+    const [amountType, setAmountType] = useState<AmountType>(1);
     const [amountDetails, setAmountDetails] = useState<AmountDetails>({grandTotal: 0, breakdown: []});
     const [platformCompany, setPlatformCompany] = useState('');
     const [creditCode, setCreditCode] = useState('');
