@@ -111,6 +111,8 @@ const SkeletonRow = () => (
         <TableCell><Skeleton className="h-5"/></TableCell>
         <TableCell><Skeleton className="h-5"/></TableCell>
         <TableCell><Skeleton className="h-5"/></TableCell>
+        <TableCell><Skeleton className="h-5"/></TableCell>
+        <TableCell><Skeleton className="h-5"/></TableCell>
     </TableRow>
 );
 
@@ -437,7 +439,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
     const totalPages = totalPagesRaw > 0 ? totalPagesRaw : 1;
 
     // 当前页数据
-    const currentTaxData = useMemo(() => {
+    const currentTaxData: TaxData[] = useMemo(() => {
         if (!filteredTaxData.length) return [];
         const start = (currentPage - 1) * rowsPerPage;
         const end = currentPage * rowsPerPage;
@@ -727,13 +729,13 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                 <TableRow>
                                                     <TableHead className="w-[80px]">序号</TableHead>
                                                     <TableHead>纳税人姓名</TableHead>
-                                                    <TableHead>身份证号</TableHead>
+                                                    <TableHead>证件号</TableHead>
                                                     <TableHead>企业名称</TableHead>
                                                     <TableHead>税地名称</TableHead>
                                                     <TableHead>营业额(元)</TableHead>
                                                     <TableHead>税额(元)</TableHead>
-                                                    <TableHead>增值税(元)</TableHead>
-                                                    <TableHead>个人经营所得税(元)</TableHead>
+                                                    {/*<TableHead>增值税(元)</TableHead>*/}
+                                                    {/*<TableHead>个人经营所得税(元)</TableHead>*/}
                                                     <TableHead>服务费扣除状态</TableHead>
                                                     <TableHead>税金扣除状态</TableHead>
                                                 </TableRow>
@@ -753,18 +755,23 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                             <TableCell>{item['税地名称']}</TableCell>
                                                             <TableCell>{formatCurrency(item['营业额_元'])}</TableCell>
                                                             <TableCell>{formatCurrency(item['tax_amount'])}</TableCell>
-                                                            <TableCell>{formatCurrency(item['增值税_元'])}</TableCell>
-                                                            <TableCell>{formatCurrency(item['应纳个人经营所得税_元'])}</TableCell>
+                                                            {/*<TableCell>{formatCurrency(item['增值税_元'])}</TableCell>*/}
+                                                            {/*<TableCell>{formatCurrency(item['应纳个人经营所得税_元'])}</TableCell>*/}
                                                             <TableCell>
-                                <span style={{color: item.service_pay_status === 1 ? 'red' : 'inherit'}}>
-                                  {item.service_pay_status === 0 ? '成功' : '失败'}
-                                </span>
+                                                                <span style={{color: item.service_pay_status === 1 ? 'red' : 'inherit'}}>
+                                                                  {item.service_pay_status === 0 ? '成功' : '失败'}
+                                                                </span>
                                                             </TableCell>
                                                             <TableCell>
-                                <span style={{color: item.tax_pay_status === 1 ? 'red' : 'inherit'}}>
-                                  {item.tax_pay_status === 0 ? '成功' : '失败'}
-                                </span>
+                                                                {Number(item.tax_amount) > 0 ? (
+                                                                    <span style={{ color: item.tax_pay_status === 1 ? 'red' : 'inherit' }}>
+                                                                      {item.tax_pay_status === 0 ? '成功' : '失败'}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span style={{ color: '#999' }}>无需扣税</span>
+                                                                )}
                                                             </TableCell>
+
                                                         </TableRow>
                                                     ))
                                                 ) : (
