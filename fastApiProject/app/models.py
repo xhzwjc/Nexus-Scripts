@@ -277,6 +277,7 @@ class TaxDataItem(BaseModel):
     营业额_元: float = Field(..., description="营业额(元)")
     enterprise_name: str = Field(..., description="企业名称")
     enterprise_id: int = Field(..., description="企业ID")
+    tax_amount: Optional[float] = Field(None, description="税额，可能为None")
     增值税_元: float = Field(..., description="增值税(元)")
     教育费附加_元: float = Field(..., description="教育费附加(元)")
     地方教育附加_元: float = Field(..., description="地方教育附加(元)")
@@ -286,6 +287,7 @@ class TaxDataItem(BaseModel):
     税地ID: int = Field(..., description="税地ID")
     税地名称: str = Field(..., description="税地名称")
     service_pay_status: int = Field(..., description="服务费收取状态")
+    tax_pay_status: int = Field(..., description="税金结算状态")
     备注: str = Field(..., description="备注")
 
 

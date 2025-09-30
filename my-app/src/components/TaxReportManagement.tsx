@@ -57,9 +57,11 @@ interface TaxData {
     纳税人姓名: string;
     身份证号: string;
     营业额_元: number | string;
+    tax_amount: number | string;
     enterprise_name: string;
     enterprise_id: number;
     service_pay_status: number;
+    tax_pay_status: number;
     增值税_元: number | string;
     教育费附加_元: number | string;
     地方教育附加_元: number | string;
@@ -729,9 +731,11 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                     <TableHead>企业名称</TableHead>
                                                     <TableHead>税地名称</TableHead>
                                                     <TableHead>营业额(元)</TableHead>
+                                                    <TableHead>税额(元)</TableHead>
                                                     <TableHead>增值税(元)</TableHead>
                                                     <TableHead>个人经营所得税(元)</TableHead>
                                                     <TableHead>服务费扣除状态</TableHead>
+                                                    <TableHead>税金扣除状态</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
@@ -748,11 +752,17 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                             <TableCell>{item.enterprise_name}</TableCell>
                                                             <TableCell>{item['税地名称']}</TableCell>
                                                             <TableCell>{formatCurrency(item['营业额_元'])}</TableCell>
+                                                            <TableCell>{formatCurrency(item['tax_amount'])}</TableCell>
                                                             <TableCell>{formatCurrency(item['增值税_元'])}</TableCell>
                                                             <TableCell>{formatCurrency(item['应纳个人经营所得税_元'])}</TableCell>
                                                             <TableCell>
                                 <span style={{color: item.service_pay_status === 1 ? 'red' : 'inherit'}}>
                                   {item.service_pay_status === 0 ? '成功' : '失败'}
+                                </span>
+                                                            </TableCell>
+                                                            <TableCell>
+                                <span style={{color: item.tax_pay_status === 1 ? 'red' : 'inherit'}}>
+                                  {item.tax_pay_status === 0 ? '成功' : '失败'}
                                 </span>
                                                             </TableCell>
                                                         </TableRow>
