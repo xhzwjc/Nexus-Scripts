@@ -949,7 +949,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                                 <TableCell>{item.accumulated_total_tax.toFixed(2)}</TableCell>
                                                 <TableCell>{(item.tax_rate * 100)}%</TableCell>
                                                 <TableCell>{item.bill_amount}</TableCell>
-                                                <TableCell>{item.income_amount - item.tax}</TableCell>
+                                                <TableCell>{(item.income_amount - item.tax).toFixed(2)}</TableCell>
                                                 <TableCell>{item.tax.toFixed(2)}</TableCell>
                                                 <TableCell>{item.effective_tax_rate.toFixed(2)}%</TableCell>
                                                 <TableCell>
