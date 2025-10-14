@@ -35,3 +35,5 @@ venv/
 
 # 忽略 report 文件夹中的所有内容
 results/report/
+
+data/resend_data.json
