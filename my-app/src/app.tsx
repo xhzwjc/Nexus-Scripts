@@ -109,7 +109,7 @@ interface Script {
     status: 'active' | 'beta' | 'stable';
 }
 
-const allScripts = {
+const allScripts: Record<string, { name: string; description: string; scripts: Script[] }> = {
     chunmiao: {
         name: 'CM系统',
         description: '一个用于管理企业和渠道业务流程的综合系统',
@@ -354,17 +354,6 @@ const TimeChip: React.FC<{ name?: string; now: Date }> = ({name, now}) => {
     );
 };
 
-const getWeatherClass = (code: string | undefined): string => {
-    if (!code) return '';
-    if (/^1\d{2}$/.test(code)) return 'weather-clear';     // 晴/多云类
-    if (/^3\d{2}$/.test(code) || /^4\d{2}$/.test(code)) return 'weather-rain';  // 雨
-    if (/^400|401|402|403|407/.test(code)) return 'weather-snow';  // 雪
-    if (/^302|303/.test(code)) return 'weather-thunder';   // 雷
-    if (/^5\d{2}$/.test(code)) return 'weather-fog';       // 雾霾类
-    return 'weather-default';
-};
-
-
 /* ============== 天气（北京）Chip（父组件提供数据与刷新，支持缓存与静默刷新） ============== */
 type WeatherData = {
     temp: number;
@@ -477,6 +466,48 @@ const WeatherChip: React.FC<{
     );
 };
 
+interface StatusToolbarProps {
+    leftSlot?: React.ReactNode;
+    user: User;
+    now: Date;
+    weather: WeatherState;
+    weatherRefreshing: boolean;
+    onRefreshWeather: () => void;
+    onLogoutClick: () => void;
+}
+
+const StatusToolbar: React.FC<StatusToolbarProps> = ({
+                                                        leftSlot,
+                                                        user,
+                                                        now,
+                                                        weather,
+                                                        weatherRefreshing,
+                                                        onRefreshWeather,
+                                                        onLogoutClick
+                                                    }) => (
+    <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex-1 min-w-[160px] flex items-center justify-start">
+            {leftSlot ?? <span className="text-sm text-transparent">占位</span>}
+        </div>
+        <StatusGroup>
+            <TimeChip name={user?.name} now={now}/>
+            <WeatherChip
+                state={weather}
+                refreshing={weatherRefreshing}
+                label="北京"
+                onRefresh={onRefreshWeather}
+            />
+            <StatusChip>
+                <UserIcon className="w-4 h-4 text-primary"/>
+                <span className="whitespace-nowrap">{user.name} ({user.role})</span>
+            </StatusChip>
+            <Button variant="ghost" className="h-9 px-3" onClick={onLogoutClick}>
+                退出
+            </Button>
+        </StatusGroup>
+    </div>
+);
+
 /* ============== 主应用 ============== */
 export default function App() {
     // 路由状态
@@ -492,6 +523,7 @@ export default function App() {
     const [isLoading, setIsLoading] = useState(true);
     const [isVerifying, setIsVerifying] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+    const [scriptQuery, setScriptQuery] = useState('');
 
     // 全局时间（避免子页切换导致 TimeChip 重置）
     const [now, setNow] = useState<Date>(new Date());
@@ -569,7 +601,7 @@ export default function App() {
                 localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ts: Date.now(), data: parsed}));
             } catch { /* ignore quota */
             }
-        } catch (error) {
+        } catch {
             // 如果已有数据，保持原样，只标记错误；如果没有，就降级
             setWeather(prev => {
                 if (prev.data) return {...prev, loading: false, error: 'api_error'};
@@ -679,6 +711,27 @@ export default function App() {
         localStorage.removeItem('scriptHubAuth');
     };
 
+    useEffect(() => {
+        setScriptQuery('');
+    }, [currentView, selectedSystem]);
+
+    const totalScripts = useMemo(() => (
+        Object.values(systems).reduce((total, system) => total + system.scripts.length, 0)
+    ), [systems]);
+
+    const system = systems[selectedSystem as keyof typeof systems];
+    const scripts = system?.scripts ?? [];
+    const trimmedQuery = scriptQuery.trim().toLowerCase();
+    const filteredScripts = useMemo(() => {
+        if (!system) return [] as typeof scripts;
+        if (!trimmedQuery) return system.scripts;
+        return system.scripts.filter((script) => (
+            `${script.name} ${script.description}`.toLowerCase().includes(trimmedQuery)
+        ));
+    }, [system, trimmedQuery]);
+    const hasFewScripts = filteredScripts.length > 0 && filteredScripts.length <= 2;
+    const noResults = !filteredScripts.length && Boolean(trimmedQuery);
+
     const renderScript = () => {
         switch (selectedScript) {
             case 'settlement':
@@ -786,49 +839,53 @@ export default function App() {
     }
 
     if (currentView === 'system') {
-        const system = systems[selectedSystem as keyof typeof systems];
-        const {scripts} = system || {scripts: []};
-        const hasFewScripts = scripts.length > 0 && scripts.length <= 2;
 
         return (
             <div className="min-h-screen colorful-background p-6">
                 <Toaster richColors position="top-center"/>
                 <div className="max-w-7xl mx-auto">
-                    {/* 顶部工具栏：左返回；右状态条（统一高度） */}
-                    <div className="flex items-center justify-between mb-6 gap-4">
-                        <Button
-                            variant="ghost"
-                            onClick={() => setCurrentView('home')}
-                            className="h-9"
-                        >
-                            <ArrowLeft className="w-4 h-4 mr-2"/>
-                            返回首页
-                        </Button>
-
-                        <StatusGroup>
-                            <TimeChip name={currentUser?.name} now={now}/>
-                            <WeatherChip
-                                state={weather}
-                                refreshing={weatherRefreshing}
-                                label="北京"
-                                onRefresh={() => refreshWeather({background: false})}
-                            />
-                            <StatusChip>
-                                <UserIcon className="w-4 h-4 text-primary"/>
-                                <span className="whitespace-nowrap">{currentUser.name} ({currentUser.role})</span>
-                            </StatusChip>
-                            <Button variant="ghost" className="h-9 px-3" onClick={() => setShowLogoutConfirm(true)}>
-                                退出
+                    <StatusToolbar
+                        leftSlot={(
+                            <Button
+                                variant="ghost"
+                                onClick={() => setCurrentView('home')}
+                                className="h-9"
+                            >
+                                <ArrowLeft className="w-4 h-4 mr-2"/>
+                                返回首页
                             </Button>
-                        </StatusGroup>
-                    </div>
+                        )}
+                        user={currentUser}
+                        now={now}
+                        weather={weather}
+                        weatherRefreshing={weatherRefreshing}
+                        onRefreshWeather={() => refreshWeather({background: false})}
+                        onLogoutClick={() => setShowLogoutConfirm(true)}
+                    />
 
                     <div className="mb-8">
                         <div className="flex items-center gap-3 mb-2">
                             <h1 className="text-2xl">{system?.name}</h1>
-                            <Badge variant="outline">{system?.scripts.length} 个脚本</Badge>
+                            <Badge variant="outline">
+                                {filteredScripts.length} / {scripts.length} 个脚本
+                            </Badge>
                         </div>
                         <p className="text-muted-foreground">{system?.description}</p>
+                    </div>
+
+                    <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <p className="text-sm text-muted-foreground">
+                            {scripts.length > 0 ? '通过关键字快速查找需要运行的脚本。' : '当前系统暂未开放脚本。'}
+                        </p>
+                        {scripts.length > 0 && (
+                            <Input
+                                value={scriptQuery}
+                                onChange={(event) => setScriptQuery(event.target.value)}
+                                placeholder="搜索脚本名称或描述"
+                                aria-label="搜索脚本"
+                                className="md:max-w-sm"
+                            />
+                        )}
                     </div>
 
                     <div className={`
@@ -837,7 +894,7 @@ export default function App() {
                         : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
                     }
           `}>
-                        {scripts.map((script) => (
+                        {filteredScripts.map((script) => (
                             <Card
                                 key={script.id}
                                 className={`
@@ -877,6 +934,26 @@ export default function App() {
                                 </CardContent>
                             </Card>
                         ))}
+                        {noResults && (
+                            <Card className="col-span-full">
+                                <CardHeader>
+                                    <CardTitle>未找到匹配的脚本</CardTitle>
+                                    <CardDescription>
+                                        请尝试调整关键字或清空搜索条件。
+                                    </CardDescription>
+                                </CardHeader>
+                            </Card>
+                        )}
+                        {!filteredScripts.length && !noResults && (
+                            <Card className="col-span-full">
+                                <CardHeader>
+                                    <CardTitle>暂无可执行脚本</CardTitle>
+                                    <CardDescription>
+                                        请联系管理员为您开通该系统的脚本权限。
+                                    </CardDescription>
+                                </CardHeader>
+                            </Card>
+                        )}
                     </div>
                 </div>
 
@@ -902,26 +979,14 @@ export default function App() {
         <div className="min-h-screen colorful-background p-6">
             <Toaster richColors position="top-center"/>
             <div className="max-w-7xl mx-auto">
-                {/* 顶部状态条：右对齐，统一高度 */}
-                <div className="flex items-center justify-between mb-6 gap-4">
-                    <div/>
-                    <StatusGroup>
-                        <TimeChip name={currentUser?.name} now={now}/>
-                        <WeatherChip
-                            state={weather}
-                            refreshing={weatherRefreshing}
-                            label="北京"
-                            onRefresh={() => refreshWeather({background: false})}
-                        />
-                        <StatusChip>
-                            <UserIcon className="w-4 h-4 text-primary"/>
-                            <span className="whitespace-nowrap">{currentUser.name} ({currentUser.role})</span>
-                        </StatusChip>
-                        <Button variant="ghost" className="h-9 px-3" onClick={() => setShowLogoutConfirm(true)}>
-                            退出
-                        </Button>
-                    </StatusGroup>
-                </div>
+                <StatusToolbar
+                    user={currentUser}
+                    now={now}
+                    weather={weather}
+                    weatherRefreshing={weatherRefreshing}
+                    onRefreshWeather={() => refreshWeather({background: false})}
+                    onLogoutClick={() => setShowLogoutConfirm(true)}
+                />
 
                 <div className="text-center mb-12">
                     <h1 className="text-3xl mb-4">ScriptHub 脚本管理平台</h1>
@@ -991,9 +1056,7 @@ export default function App() {
                     <Card className="inline-block p-6">
                         <div className="flex items-center gap-3 text-muted-foreground">
                             <CheckCircle className="w-5 h-5"/>
-                            <span>系统运行正常，目前共有 {
-                                Object.values(systems).reduce((total, system) => total + system.scripts.length, 0)
-                            } 个可用的自动化脚本</span>
+                            <span>系统运行正常，目前共有 {totalScripts} 个可用的自动化脚本</span>
                         </div>
                     </Card>
                 </div>

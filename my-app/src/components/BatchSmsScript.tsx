@@ -21,8 +21,9 @@ import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from './u
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/select';
 import {Textarea} from './ui/textarea';
 import {Checkbox} from './ui/checkbox';
-import axios, {AxiosError} from 'axios';
+import axios, {AxiosError, AxiosInstance} from 'axios';
 import {Toaster, toast} from 'sonner';
+import {getApiBaseUrl} from '../lib/api';
 
 // ===== Types =====
 interface Template {
@@ -61,10 +62,18 @@ interface TemplateParam {
 type ResendType = 'mobile' | 'batch';
 
 // ===== Helpers =====
-const api = axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_BASE_URL,
-    timeout: 20000,
-});
+let smsApiInstance: AxiosInstance | null = null;
+const getSmsApi = (): AxiosInstance | null => {
+    const base = getApiBaseUrl();
+    if (!base) return null;
+    if (!smsApiInstance) {
+        smsApiInstance = axios.create({
+            baseURL: base,
+            timeout: 20000,
+        });
+    }
+    return smsApiInstance;
+};
 
 function getErrorMessage(err: unknown, fallback = '请求失败，请重试'): string {
     if (axios.isAxiosError(err)) {
@@ -268,6 +277,8 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
 
     // ===== Actions =====
     const fetchAllowedTemplates = async () => {
+        const api = getSmsApi();
+        if (!api) return;
         setIsFetchingAllowed(true);
         try {
             const res = await api.post<ApiResponse<Template[]>>('/sms/templates/allowed', {
@@ -285,6 +296,8 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
     };
 
     const fetchAllTemplates = async () => {
+        const api = getSmsApi();
+        if (!api) return;
         setIsFetchingAll(true);
         try {
             const res = await api.post<ApiResponse<Template[]>>('/sms/templates', {
@@ -310,6 +323,8 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
     };
 
     const updateTemplateConfig = async () => {
+        const api = getSmsApi();
+        if (!api) return;
         setIsUpdatingConfig(true);
         try {
             const res = await api.post<ApiResponse>('/sms/templates/update', {
@@ -405,6 +420,8 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
             return toast.error('没有可用的有效手机号');
         }
 
+        const api = getSmsApi();
+        if (!api) return;
         setIsSending(true);
         try {
             const paramsObj: Record<string, string> = {};
@@ -445,6 +462,8 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
             return toast.error('没有可用的有效手机号');
         }
 
+        const api = getSmsApi();
+        if (!api) return;
         setIsSending(true);
         try {
             const res = await api.post<ApiResponse<SendResult[]>>('/sms/send/batch', {
@@ -472,6 +491,8 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
     };
 
     const resendSignSms = async () => {
+        const api = getSmsApi();
+        if (!api) return;
         setIsResending(true);
         try {
             if (resendType === 'mobile') {
