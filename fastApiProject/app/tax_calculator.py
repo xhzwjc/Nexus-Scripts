@@ -32,37 +32,36 @@ class TaxCalculator:
                     end_date = f"{year + 1}-01-01"
 
                     base_query = f"""
-                                 SELECT COALESCE(w.payment_over_time, w.create_time) as payment_time,
-                                        w.bill_amount - ROUND(COALESCE(w.worker_service_amount, 0), 2) AS bill_amount,
-                                        DATE_FORMAT(COALESCE(w.payment_over_time, w.create_time),
+                                 SELECT COALESCE(payment_over_time, create_time) as payment_time,
+                                        bill_amount - ROUND(COALESCE(worker_service_amount, 0), 2) AS bill_amount,
+                                        DATE_FORMAT(COALESCE(payment_over_time, create_time),
                                                     '%%Y-%%m') as year_months,
-                                        w.batch_no,
-                                        w.realname,
-                                        w.worker_id,
-                                        w.credential_num,
-                                        t.business_type,
-                                        t.report_type
-                                 FROM biz_balance_worker w
-                                          INNER JOIN biz_task t ON w.task_id = t.id
-                                 WHERE w.deleted = 0
-                                   AND w.pay_status IN (0, 3)
-                                   AND w.credential_num = %s
-                                   AND t.business_type = 2
-                                   AND t.report_type = 0
+                                        batch_no,
+                                        realname,
+                                        worker_id,
+                                        credential_num,
+                                        business_type,
+                                        report_type
+                                 FROM biz_balance_worker
+                                 WHERE deleted = 0
+                                   AND pay_status IN (0, 3)
+                                   AND credential_num = %s
+                                   AND business_type = 2
+                                   AND report_type = 0
                                    AND (
-                                     (w.payment_over_time >= %s AND w.payment_over_time < %s)
+                                     (payment_over_time >= %s AND payment_over_time < %s)
                                          OR
-                                     (w.payment_over_time IS NULL AND w.create_time >= %s AND w.create_time < %s)
+                                     (payment_over_time IS NULL AND create_time >= %s AND create_time < %s)
                                      )
                                  """
 
                     params = [credential_num, start_date, end_date, start_date, end_date]
 
                     if realname:
-                        base_query += " AND w.realname = %s"
+                        base_query += " AND realname = %s"
                         params.append(realname)
 
-                    base_query += " ORDER BY COALESCE(w.payment_over_time, w.create_time)"
+                    base_query += " ORDER BY COALESCE(payment_over_time, create_time)"
 
                     cursor.execute(base_query, tuple(params))
                     db_results = cursor.fetchall()
@@ -131,28 +130,27 @@ class TaxCalculator:
                     format_strings = ','.join(['%s'] * len(credential_nums))
                     query = f"""
                         SELECT 
-                            COALESCE(w.payment_over_time, w.create_time) as payment_time,
-                            w.bill_amount - ROUND(COALESCE(w.worker_service_amount, 0), 2) AS bill_amount,
-                            DATE_FORMAT(COALESCE(w.payment_over_time, w.create_time), '%%Y-%%m') as year_months,
-                            w.batch_no,
-                            w.realname,
-                            w.worker_id,
-                            w.credential_num,
-                            t.business_type,
-                            t.report_type
-                        FROM biz_balance_worker w
-                        INNER JOIN biz_task t ON w.task_id = t.id
-                        WHERE w.deleted = 0
-                          AND w.pay_status IN (0, 3)
-                          AND w.credential_num IN ({format_strings})
-                          AND t.business_type = 2
-                          AND t.report_type = 0
+                            COALESCE(payment_over_time, create_time) as payment_time,
+                            bill_amount - ROUND(COALESCE(worker_service_amount, 0), 2) AS bill_amount,
+                            DATE_FORMAT(COALESCE(payment_over_time, create_time), '%%Y-%%m') as year_months,
+                            batch_no,
+                            realname,
+                            worker_id,
+                            credential_num,
+                            business_type,
+                            report_type
+                        FROM biz_balance_worker
+                        WHERE deleted = 0
+                          AND pay_status IN (0, 3)
+                          AND credential_num IN ({format_strings})
+                          AND business_type = 2
+                          AND report_type = 0
                           AND (
-                              (w.payment_over_time >= %s AND w.payment_over_time < %s)
+                              (payment_over_time >= %s AND payment_over_time < %s)
                               OR 
-                              (w.payment_over_time IS NULL AND w.create_time >= %s AND w.create_time < %s)
+                              (payment_over_time IS NULL AND create_time >= %s AND create_time < %s)
                           )
-                        ORDER BY w.credential_num, COALESCE(w.payment_over_time, w.create_time)
+                        ORDER BY credential_num, COALESCE(payment_over_time, create_time)
                     """
                     params = credential_nums + [start_date, end_date, start_date, end_date]
                     cursor.execute(query, tuple(params))

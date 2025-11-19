@@ -1095,6 +1095,8 @@ class SMSService:
         self.template_dir = os.path.join(os.path.dirname(__file__), "..", "data")
         os.makedirs(self.template_dir, exist_ok=True)
         self.allowed_templates = {
+            "biz_confirm_notice": "业务确认单通知",
+            "biz_balance_notice": "业务结算单通知",
             "channel_open_notice": "渠道账户开通通知",
             "reset_worker_sign": "补发共享协议签约短信通知",
             "worker_sign_notice": "共享协议签约短信通知(dev)",

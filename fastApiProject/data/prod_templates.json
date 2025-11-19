@@ -3,23 +3,39 @@
   "data": {
     "list": [
       {
+        "id": 49,
+        "type": 2,
+        "status": 0,
+        "code": "biz_confirm_notice",
+        "name": " 业务确认单通知",
+        "content": "尊敬的${entName}您好， 为确保 ${taskName} 顺利开展，需您上传业务确认单。操作指引：登录灵零猴灵工服务平台进入风控合规-业务确认单页面，选择对应项目点击下载文件，线下盖章并在平台上进行上传文件，如有疑问请联系平台客服。",
+        "params": [
+          "entName",
+          "taskName"
+        ],
+        "remark": "",
+        "apiTemplateId": "SMS_498085232",
+        "channelId": 2,
+        "channelCode": "ALIYUN",
+        "createTime": 1762485441000
+      },
+      {
         "id": 48,
         "type": 2,
         "status": 0,
-        "code": "channel_open_notice",
-        "name": "渠道开通通知",
-        "content": "尊敬的${name}，您好! 您的灵零后灵工${role}渠道平台已成功开通,您可以通过https://chl.seedlingintl.com/ 账号:${username}，密码:${password}登录平台。如有疑问，请联系客服，祝您生活愉快!\n",
+        "code": "biz_balance_notice",
+        "name": "业务结算单通知",
+        "content": "\n${entName}您好，${taskName}业务结算单上传截止至${date} 18:00，逾期可能影响后续流程。操作指引：登录灵零猴灵工服务平台进入风控合规-业务结算单页面，选择对应项目点击下载文件，线下盖章并在平台上进行上传文件，如有疑问请联系平台客服。",
         "params": [
-          "name",
-          "role",
-          "username",
-          "password"
+          "entName",
+          "taskName",
+          "date"
         ],
         "remark": "",
-        "apiTemplateId": "SMS_490960138",
+        "apiTemplateId": "SMS_498075225",
         "channelId": 2,
         "channelCode": "ALIYUN",
-        "createTime": 1752569513000
+        "createTime": 1762483498000
       },
       {
         "id": 47,
@@ -499,7 +515,7 @@
         "createTime": 1717382377000
       }
     ],
-    "total": 29
+    "total": 30
   },
   "msg": "",
   "open": false
