@@ -2,6 +2,7 @@ import pymysql
 import openpyxl
 from openpyxl.styles import Border, Side, Alignment, Font
 from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.utils.cell import range_boundaries
 import datetime
 from cn2an import an2cn
 from typing import List, Dict, Optional, Union
@@ -202,12 +203,26 @@ class TaxReportGenerator:
         total_row_idx = start_row + data_length
         ws.row_dimensions[total_row_idx].height = 25
 
+    def _clear_data_region_merges(self, ws: Worksheet, data_start_row: int = 49):
+        """清理模板中数据区域的合并单元格，避免导出的Excel被修复"""
+        ranges_to_clear = []
+        for merge_range in list(ws.merged_cells.ranges):
+            min_col, min_row, max_col, max_row = range_boundaries(str(merge_range))
+            if min_row >= data_start_row:
+                ranges_to_clear.append(str(merge_range))
+
+        for merge_range in ranges_to_clear:
+            ws.unmerge_cells(merge_range)
+
     def _populate_sheet(self, ws: Worksheet, data: List[Dict], year_month: str,
                         platform_company: Optional[str] = None,
                         credit_code: Optional[str] = None):
         """用给定数据填充单个工作表"""
         if not data:
             return
+
+        # 清理模板在数据区域遗留的合并，避免不同Excel软件解析不一致
+        self._clear_data_region_merges(ws)
 
         company = platform_company or self.DEFAULT_COMPANY
         code = credit_code or self.DEFAULT_CREDIT_CODE
@@ -242,7 +257,6 @@ class TaxReportGenerator:
             ws[f'J{row_idx}'].value = record['个人经营所得税税率']
             ws[f'K{row_idx}'].value = record['应纳个人经营所得税_元']
             ws[f'L{row_idx}'].value = record['备注']
-            ws[f'M{row_idx}'].value = ''  # 预留列
 
             # 设置格式
             ws[f'C{row_idx}'].number_format = '@'
@@ -259,6 +273,15 @@ class TaxReportGenerator:
                 cell = ws[f'{col}{row_idx}']
                 cell.font = self.DATA_FONT
                 cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+            # 恢复身份证号 (C/D) 与备注 (L/M) 列的合并展示
+            id_merge_range = f'C{row_idx}:D{row_idx}'
+            remark_merge_range = f'L{row_idx}:M{row_idx}'
+            for merge_range in (id_merge_range, remark_merge_range):
+                if self.is_merged(ws, merge_range):
+                    ws.unmerge_cells(merge_range)
+            ws.merge_cells(id_merge_range)
+            ws.merge_cells(remark_merge_range)
 
             total_amount += float(record['营业额_元'])
 
@@ -312,10 +335,6 @@ class TaxReportGenerator:
             template_ws = output_wb.active
             template_sheet_name = template_ws.title
 
-            # 移除默认创建的第一个sheet，后续将根据数据创建
-            if template_sheet_name in output_wb.sheetnames:
-                del output_wb[template_sheet_name]
-
             for enterprise_name, records in grouped_data.items():
                 ws = output_wb.copy_worksheet(template_ws)
                 # 确保工作表名称合法
@@ -326,6 +345,10 @@ class TaxReportGenerator:
                     record['序号'] = i
 
                 self._populate_sheet(ws, records, year_month, platform_company, credit_code)
+
+            # 所有企业复制完成后再删除模板，避免复制过程中缺失基础格式
+            if template_sheet_name in output_wb.sheetnames:
+                del output_wb[template_sheet_name]
 
             output_wb.save(output_path)
             logger.info(f"报表已生成: {output_path}")
