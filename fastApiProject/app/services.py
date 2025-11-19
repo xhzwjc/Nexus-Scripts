@@ -187,15 +187,8 @@ class EnterpriseSettlementService:
         self.interval = request.interval_seconds
 
         # 根据请求中的环境设置基础URL
-        base_url = settings.base_url
-        if request.environment:
-            if request.environment == "prod":
-                base_url = settings.BASE_URL_PROD
-            elif request.environment == "local":
-                base_url = settings.BASE_URL_LOCAL
-            else:
-                base_url = settings.BASE_URL_TEST
-            self.base_url = base_url
+        base_url = settings.get_base_url(request.environment)
+        self.base_url = base_url
 
         request_id = str(uuid.uuid4())
         logger.info(f"开始处理结算请求，请求ID: {request_id}，企业数量: {len(request.enterprises)}")
@@ -229,23 +222,9 @@ class EnterpriseSettlementService:
 # 账户余额核对服务（原脚本核心逻辑在此处）
 class AccountBalanceService:
     def __init__(self, environment: str = None):
-        self.environment = environment or settings.ENVIRONMENT
-
-        # 2. 临时保存原始环境配置
-        original_env = settings.ENVIRONMENT
-
-        try:
-            # 3. 根据传入的环境更新配置（关键修复）
-            if self.environment:
-                settings.ENVIRONMENT = self.environment
-
-            # 4. 获取对应环境的数据库配置
-            self.db_config = settings.get_db_config()
-            self.engine = self._init_db_connection()
-
-        finally:
-            # 5. 无论是否成功，恢复原始环境配置（避免影响全局）
-            settings.ENVIRONMENT = original_env
+        self.environment = settings.resolve_environment(environment)
+        self.db_config = settings.get_db_config(self.environment)
+        self.engine = self._init_db_connection()
 
     def _init_db_connection(self):
         """初始化数据库连接（原脚本连接逻辑）"""
@@ -358,24 +337,12 @@ class CommissionCalculationService:
     """佣金计算服务类，处理佣金计算相关业务逻辑"""
 
     def __init__(self, environment: str = None):
-        self.environment = environment or settings.ENVIRONMENT
+        self.environment = settings.resolve_environment(environment)
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"初始化佣金计算服务，环境: {self.environment}")
 
-        # 保存原始环境配置
-        self.original_env = settings.ENVIRONMENT
-
-        try:
-            # 根据传入的环境更新配置
-            if self.environment:
-                settings.ENVIRONMENT = self.environment
-
-            # 获取数据库配置
-            self.db_config = settings.get_db_config()
-
-        finally:
-            # 恢复原始环境配置
-            settings.ENVIRONMENT = self.original_env
+        # 获取数据库配置
+        self.db_config = settings.get_db_config(self.environment)
 
     def _get_db_env(self) -> Environment:
         """转换环境标识"""
@@ -700,7 +667,7 @@ class MobileTaskService:
     """手机号任务服务类，处理手机号相关自动化任务"""
 
     def __init__(self, environment: str = None):
-        self.environment = environment or settings.ENVIRONMENT
+        self.environment = settings.resolve_environment(environment)
         self.base_url = self._get_base_url()
         logger.info(f"初始化手机号任务服务，环境: {self.environment}，基础URL: {self.base_url}")
 
@@ -1091,7 +1058,7 @@ class TaskAutomation:
 
 class SMSService:
     def __init__(self, environment: str = None):
-        self.environment = environment or settings.ENVIRONMENT
+        self.environment = settings.resolve_environment(environment)
         self.template_dir = os.path.join(os.path.dirname(__file__), "..", "data")
         os.makedirs(self.template_dir, exist_ok=True)
         self.allowed_templates = {
@@ -1172,9 +1139,9 @@ class SMSService:
         try:
             # 获取环境配置
             env_settings = self._get_env_settings()
-            url = f"{env_settings.sms_api_base_url}/page?pageNo=1&pageSize=50&type=2&code=&content=&apiTemplateId=&channelId=2"
+            url = f"{env_settings['sms_api_base_url']}/page?pageNo=1&pageSize=50&type=2&code=&content=&apiTemplateId=&channelId=2"
 
-            response = requests.get(url, headers=env_settings.sms_headers, timeout=10)
+            response = requests.get(url, headers=env_settings['sms_headers'], timeout=10)
             response.raise_for_status()
             data = response.json()
 
@@ -1262,8 +1229,8 @@ class SMSService:
 
             # 发送请求
             env_settings = self._get_env_settings()
-            url = f"{env_settings.sms_api_base_url}/send-sms"
-            headers = {**env_settings.sms_headers, 'Content-Type': 'application/json'}
+            url = f"{env_settings['sms_api_base_url']}/send-sms"
+            headers = {**env_settings['sms_headers'], 'Content-Type': 'application/json'}
 
             results = []
             for mobile in mobiles:
@@ -1349,8 +1316,8 @@ class SMSService:
 
                 # 发送请求
                 env_settings = self._get_env_settings()
-                url = f"{env_settings.sms_api_base_url}/send-sms"
-                headers = {**env_settings.sms_headers, 'Content-Type': 'application/json'}
+                url = f"{env_settings['sms_api_base_url']}/send-sms"
+                headers = {**env_settings['sms_headers'], 'Content-Type': 'application/json'}
 
                 for mobile in target_mobiles:
                     payload = {
@@ -1394,9 +1361,7 @@ class SMSService:
             return {"success": False, "message": "批次号和手机号不能同时为空", "data": []}
 
         # 数据库配置
-        if self.environment:
-            settings.ENVIRONMENT = self.environment
-        db_config = settings.get_db_config()
+        db_config = settings.get_db_config(self.environment)
 
         # 构建SQL
         where_clauses = ["t.deleted = 0"]
@@ -1468,9 +1433,9 @@ class SMSService:
                 return {"success": False, "message": f"模板 {template_code} 不存在，请更新数据", "data": None}
 
             # 发送请求
-            env_settings = settings
-            url = f"{env_settings.sms_api_base_url}/send-sms"
-            headers = {**env_settings.sms_headers, 'Content-Type': 'application/json'}
+            env_settings = settings.get_sms_config(self.environment)
+            url = f"{env_settings['api_base_url']}/send-sms"
+            headers = {**env_settings["headers"], 'Content-Type': 'application/json'}
 
             results = []
             for worker in workers:
@@ -1522,46 +1487,8 @@ class SMSService:
 
     def _get_env_settings(self):
         """获取当前环境对应的配置"""
-
-        class EnvSettings:
-            def __init__(self, env):
-                self.env = env
-
-            @property
-            def sms_api_base_url(self):
-                if self.env == "prod":
-                    return settings.SMS_API_BASE_PROD
-                return settings.SMS_API_BASE_TEST
-
-            @property
-            def sms_auth_token(self):
-                if self.env == "prod":
-                    return settings.SMS_AUTH_TOKEN_PROD
-                return settings.SMS_AUTH_TOKEN_TEST
-
-            @property
-            def sms_origin(self):
-                if self.env == "prod":
-                    return settings.SMS_ORIGIN_PROD
-                return settings.SMS_ORIGIN_TEST
-
-            @property
-            def sms_referer(self):
-                if self.env == "prod":
-                    return settings.SMS_REFERER_PROD
-                return settings.SMS_REFERER_TEST
-
-            @property
-            def sms_headers(self):
-                return {
-                    'Accept': 'application/json, text/plain, */*',
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                    'Authorization': self.sms_auth_token,
-                    'Connection': 'keep-alive',
-                    'Origin': self.sms_origin,
-                    'Referer': self.sms_referer,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
-                    'tenant-id': settings.SMS_TENANT_ID  # 固定值复用
-                }
-
-        return EnvSettings(self.environment)
+        config = settings.get_sms_config(self.environment)
+        return {
+            "sms_api_base_url": config["api_base_url"],
+            "sms_headers": config["headers"]
+        }

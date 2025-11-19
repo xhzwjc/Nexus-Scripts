@@ -1,5 +1,7 @@
 import json
 import os
+from typing import Optional
+
 from dotenv import load_dotenv
 
 # 加载环境变量
@@ -11,6 +13,8 @@ class Settings:
     API_TITLE = "春苗系统结算API"
     API_VERSION = "1.0.0"
     DESCRIPTION = "春苗系统自动结算接口服务（含账户余额核对功能）"
+
+    VALID_ENVIRONMENTS = {"test", "prod", "local"}
 
     # 服务基础URL配置
     BASE_URL_TEST = os.getenv("BASE_URL_TEST")
@@ -42,27 +46,36 @@ class Settings:
     DB_LOCAL_PASSWORD = os.getenv("DB_LOCAL_PASSWORD", DB_TEST_PASSWORD)
     DB_LOCAL_DATABASE = os.getenv("DB_LOCAL_DATABASE", DB_TEST_DATABASE)
 
+    def resolve_environment(self, environment: Optional[str] = None) -> str:
+        """返回一个有效的环境标识，默认为全局配置"""
+        if environment in self.VALID_ENVIRONMENTS:
+            return environment  # type: ignore[return-value]
+        return self.ENVIRONMENT
+
     # 新增：允许临时设置环境的方法（核心修改）
     def set_environment(self, environment: str):
         """根据前端传入的环境参数临时覆盖当前环境"""
-        if environment in ["test", "prod", "local"]:
-            self.ENVIRONMENT = environment
-        else:
+        if environment not in self.VALID_ENVIRONMENTS:
             raise ValueError(f"不支持的环境：{environment}，仅支持 test/prod/local")
+        self.ENVIRONMENT = environment
 
-    # 以下属性和方法保持不变，但会使用动态更新后的 self.ENVIRONMENT
-    @property
-    def base_url(self):
-        """根据环境获取基础URL"""
-        if self.ENVIRONMENT == "prod":
+    def get_base_url(self, environment: Optional[str] = None) -> str:
+        env = self.resolve_environment(environment)
+        if env == "prod":
             return self.BASE_URL_PROD
-        elif self.ENVIRONMENT == "local":
+        if env == "local":
             return self.BASE_URL_LOCAL
         return self.BASE_URL_TEST
 
-    def get_db_config(self):
+    @property
+    def base_url(self):
+        """根据环境获取基础URL"""
+        return self.get_base_url()
+
+    def get_db_config(self, environment: Optional[str] = None):
         """根据当前环境获取数据库配置（供账户余额核对使用）"""
-        if self.ENVIRONMENT == "prod":
+        env = self.resolve_environment(environment)
+        if env == "prod":
             return {
                 "host": self.DB_PROD_HOST,
                 "port": self.DB_PROD_PORT,
@@ -70,7 +83,7 @@ class Settings:
                 "password": self.DB_PROD_PASSWORD,
                 "database": self.DB_PROD_DATABASE
             }
-        elif self.ENVIRONMENT == "local":
+        if env == "local":
             return {
                 "host": self.DB_LOCAL_HOST,
                 "port": self.DB_LOCAL_PORT,
@@ -105,42 +118,58 @@ class Settings:
     else:
         PRESET_MOBILES = []
 
-    @property
-    def sms_api_base_url(self):
-        if self.ENVIRONMENT == "prod":
-            return self.SMS_API_BASE_PROD
-        return self.SMS_API_BASE_TEST
+    def get_sms_config(self, environment: Optional[str] = None) -> dict:
+        env = self.resolve_environment(environment)
+        if env == "prod":
+            api_base = self.SMS_API_BASE_PROD
+            token = self.SMS_AUTH_TOKEN_PROD
+            origin = self.SMS_ORIGIN_PROD
+            referer = self.SMS_REFERER_PROD
+        else:
+            api_base = self.SMS_API_BASE_TEST
+            token = self.SMS_AUTH_TOKEN_TEST
+            origin = self.SMS_ORIGIN_TEST
+            referer = self.SMS_REFERER_TEST
 
-    @property
-    def sms_auth_token(self):
-        if self.ENVIRONMENT == "prod":
-            return self.SMS_AUTH_TOKEN_PROD
-        return self.SMS_AUTH_TOKEN_TEST
-
-    @property
-    def sms_origin(self):
-        if self.ENVIRONMENT == "prod":
-            return self.SMS_ORIGIN_PROD
-        return self.SMS_ORIGIN_TEST
-
-    @property
-    def sms_referer(self):
-        if self.ENVIRONMENT == "prod":
-            return self.SMS_REFERER_PROD
-        return self.SMS_REFERER_TEST
-
-    @property
-    def sms_headers(self):
-        return {
+        headers = {
             'Accept': 'application/json, text/plain, */*',
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Authorization': self.sms_auth_token,
+            'Authorization': token,
             'Connection': 'keep-alive',
-            'Origin': self.sms_origin,
-            'Referer': self.sms_referer,
+            'Origin': origin,
+            'Referer': referer,
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
             'tenant-id': self.SMS_TENANT_ID
         }
+
+        return {
+            "environment": env,
+            "api_base_url": api_base,
+            "auth_token": token,
+            "origin": origin,
+            "referer": referer,
+            "headers": headers
+        }
+
+    @property
+    def sms_api_base_url(self):
+        return self.get_sms_config()["api_base_url"]
+
+    @property
+    def sms_auth_token(self):
+        return self.get_sms_config()["auth_token"]
+
+    @property
+    def sms_origin(self):
+        return self.get_sms_config()["origin"]
+
+    @property
+    def sms_referer(self):
+        return self.get_sms_config()["referer"]
+
+    @property
+    def sms_headers(self):
+        return self.get_sms_config()["headers"]
 
 
 # 创建配置实例
