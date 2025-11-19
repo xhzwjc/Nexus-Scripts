@@ -257,7 +257,6 @@ class TaxReportGenerator:
             ws[f'J{row_idx}'].value = record['个人经营所得税税率']
             ws[f'K{row_idx}'].value = record['应纳个人经营所得税_元']
             ws[f'L{row_idx}'].value = record['备注']
-            ws[f'M{row_idx}'].value = ''  # 预留列
 
             # 设置格式
             ws[f'C{row_idx}'].number_format = '@'
@@ -274,6 +273,15 @@ class TaxReportGenerator:
                 cell = ws[f'{col}{row_idx}']
                 cell.font = self.DATA_FONT
                 cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+            # 恢复身份证号 (C/D) 与备注 (L/M) 列的合并展示
+            id_merge_range = f'C{row_idx}:D{row_idx}'
+            remark_merge_range = f'L{row_idx}:M{row_idx}'
+            for merge_range in (id_merge_range, remark_merge_range):
+                if self.is_merged(ws, merge_range):
+                    ws.unmerge_cells(merge_range)
+            ws.merge_cells(id_merge_range)
+            ws.merge_cells(remark_merge_range)
 
             total_amount += float(record['营业额_元'])
 
