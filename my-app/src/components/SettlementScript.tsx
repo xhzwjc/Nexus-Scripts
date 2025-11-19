@@ -11,6 +11,7 @@ import {ScrollArea} from './ui/scroll-area';
 import {Separator} from './ui/separator';
 import {ArrowLeft, Plus, Trash2, Play, Square, RefreshCw, Clock, Info, Loader2, Copy, Trash} from 'lucide-react';
 import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from './ui/tooltip';
+import {getApiBaseUrl} from '../lib/api';
 
 interface Enterprise {
     id: string;
@@ -49,15 +50,6 @@ const parseItems3 = (input: string): Record<string, string[]> => {
         }
     });
     return result;
-};
-
-const getApiBaseUrl = () => {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL;
-    if (!base) {
-        toast.error('缺少环境变量 NEXT_PUBLIC_API_BASE_URL，请配置后重试');
-        return null;
-    }
-    return base;
 };
 
 const nowTime = () => new Date().toLocaleTimeString();

@@ -25,6 +25,7 @@ import {Checkbox} from './ui/checkbox';
 import {Separator} from './ui/separator';
 import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from './ui/tooltip';
 import {Skeleton} from './ui/skeleton';
+import {getApiBaseUrl} from '../lib/api';
 
 // 定义接口响应类型
 interface ApiResponse<T = unknown> {
@@ -115,16 +116,6 @@ const SkeletonRow = () => (
         <TableCell><Skeleton className="h-5"/></TableCell>
     </TableRow>
 );
-
-// 工具：获取 API Base URL
-const getApiBaseUrl = () => {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL;
-    if (!base) {
-        toast.error('缺少环境变量 NEXT_PUBLIC_API_BASE_URL，请配置后重试');
-        return null;
-    }
-    return base;
-};
 
 // 工具：格式化金额
 const formatCurrency = (amount: number | string) => {
