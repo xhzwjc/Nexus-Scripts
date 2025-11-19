@@ -39,6 +39,7 @@ import {
     ArrowUpDown, // 新增：用于可排序表头图标
 } from 'lucide-react';
 import {Skeleton} from './ui/skeleton';
+import {getApiBaseUrl} from '../lib/api';
 
 // ---------- 类型 ----------
 interface CommissionDetail {
@@ -268,8 +269,11 @@ export default function CommissionScript({onBack}: { onBack: () => void }) {
         setAnalysisPageInput('1');
 
         try {
+            const base = getApiBaseUrl();
+            if (!base) return;
+
             const response = await axios.post<ApiResponse>(
-                process.env.NEXT_PUBLIC_API_BASE_URL + '/commission/calculate',
+                `${base}/commission/calculate`,
                 {
                     channel_id: Number(channelId),
                     environment,

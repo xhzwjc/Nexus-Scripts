@@ -24,6 +24,7 @@ import {Badge} from './ui/badge';
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from './ui/table';
 import {Checkbox} from './ui/checkbox';
 import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter} from './ui/dialog';
+import {getApiBaseUrl} from '../lib/api';
 
 // Types
 interface MockRecord {
@@ -83,16 +84,6 @@ interface TaxCalculationResponse {
 // 常量：身份证号简单校验（18位二代身份证）
 const CN_ID_REGEX =
     /^[1-9]\d{5}(18|19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[\dXx]$/;
-
-// API Base URL Helper
-const getApiBaseUrl = (): string | null => {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL;
-    if (!base) {
-        toast.error('缺少环境变量 NEXT_PUBLIC_API_BASE_URL，请配置后重试');
-        return null;
-    }
-    return base;
-};
 
 // Generate default mock records for a given year with unique IDs
 const generateDefaultMockRecords = (year: number): MockRecord[] => {

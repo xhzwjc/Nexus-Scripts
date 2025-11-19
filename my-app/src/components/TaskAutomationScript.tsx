@@ -10,6 +10,7 @@ import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from './u
 import {Tabs, TabsContent, TabsList, TabsTrigger} from './ui/tabs';
 import {AlertCircle, ArrowLeft, ChevronDown, ChevronRight, Download, Play, Trash2, Upload} from 'lucide-react';
 import {Toaster, toast} from 'sonner';
+import {getApiBaseUrl} from '../lib/api';
 
 // ---------- 类型定义 ----------
 interface StepInfo {
@@ -79,16 +80,6 @@ interface TaskProcessResponse {
 }
 
 // ---------- 工具函数（无 any） ----------
-// API 基地址
-const getApiBaseUrl = (): string | null => {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL;
-    if (!base) {
-        toast.error('缺少环境变量 NEXT_PUBLIC_API_BASE_URL，请配置后重试');
-        return null;
-    }
-    return base;
-};
-
 // 统一安全 JSON 解析
 async function parseJson<T>(resp: Response): Promise<T | null> {
     try {

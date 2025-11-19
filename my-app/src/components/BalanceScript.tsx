@@ -19,6 +19,7 @@ import {
     Info
 } from 'lucide-react';
 import {Skeleton} from './ui/skeleton';
+import {getApiBaseUrl} from '../lib/api';
 
 // API响应数据结构
 interface ApiResponse<T = unknown> {
@@ -62,11 +63,6 @@ const SkeletonRow = () => (
         ))}
     </TableRow>
 );
-
-// 获取API基础URL
-const getApiBaseUrl = () => {
-    return process.env.NEXT_PUBLIC_API_BASE_URL;
-};
 
 export default function BalanceScript({onBack}: BalanceScriptProps) {
     const [environment, setEnvironment] = useState('test');
@@ -203,6 +199,9 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
             return;
         }
 
+        const base = getApiBaseUrl();
+        if (!base) return;
+
         setIsQuerying(true);
         setHasQueried(true);
         setResults([]);
@@ -210,7 +209,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
 
         try {
             const response = await axios.post<ApiResponse<BalanceResult[]>>(
-                `${process.env.NEXT_PUBLIC_API_BASE_URL}/balance/verify`,
+                `${base}/balance/verify`,
                 {
                     tenant_id: Number(tenantId),
                     environment: environment,
