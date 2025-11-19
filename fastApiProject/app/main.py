@@ -483,13 +483,7 @@ from fastapi import HTTPException, Depends
 
 # 依赖项：获取数据库配置（与现有保持一致）
 def get_db_config(environment: Optional[str] = None):
-    env = environment or settings.ENVIRONMENT
-    original_env = settings.ENVIRONMENT
-    try:
-        settings.ENVIRONMENT = env
-        return settings.get_db_config()
-    finally:
-        settings.ENVIRONMENT = original_env
+    return settings.get_db_config(environment)
 
 
 # 1. 获取企业列表接口（已存在，保持不变）
