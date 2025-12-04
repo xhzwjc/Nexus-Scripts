@@ -676,3 +676,42 @@ async def calculate_tax(
         logger.error(f"税额计算失败: {str(e)}", exc_info=True)  # 记录完整堆栈信息
         # 生产环境中可以返回更通用的错误信息
         raise HTTPException(status_code=500, detail=f"计算过程中发生错误: {str(e)}")
+
+
+# ================= OCR处理接口 =================
+from .ocr_service import run_ocr_process
+from .models import OCRProcessRequest, OCRProcessResponse
+
+
+@app.post("/ocr/process", response_model=OCRProcessResponse, tags=["OCR处理"])
+async def process_ocr(request: OCRProcessRequest):
+    """
+    个人信息OCR比对处理
+
+    支持两种运行模式：
+    - mode=1：按 Excel 顺序匹配附件（默认）
+    - mode=2：按 附件识别 → 反查匹配 Excel
+    """
+    try:
+        logger.info(f"收到OCR处理请求: excel_path={request.excel_path}, mode={request.mode}")
+
+        success, logs, message = run_ocr_process(
+            excel_path=request.excel_path,
+            source_folder=request.source_folder,
+            target_excel_path=request.target_excel_path,
+            mode=request.mode
+        )
+
+        return OCRProcessResponse(
+            success=success,
+            message=message,
+            logs=logs
+        )
+    except Exception as e:
+        logger.error(f"OCR处理出错: {str(e)}", exc_info=True)
+        return OCRProcessResponse(
+            success=False,
+            message=f"处理出错: {str(e)}",
+            logs=[f"❌ 处理出错: {str(e)}"]
+        )
+

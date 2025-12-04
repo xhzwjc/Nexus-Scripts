@@ -1,9 +1,9 @@
-import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
-import {Card, CardContent, CardDescription, CardHeader, CardTitle} from './components/ui/card';
-import {Button} from './components/ui/button';
-import {Badge} from './components/ui/badge';
-import {Input} from './components/ui/input';
-import {Toaster, toast} from 'sonner';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
+import { Button } from './components/ui/button';
+import { Badge } from './components/ui/badge';
+import { Input } from './components/ui/input';
+import { Toaster, toast } from 'sonner';
 import {
     ArrowLeft,
     Settings,
@@ -38,7 +38,9 @@ import TaskAutomationScript from './components/TaskAutomationScript';
 import SmsManagementScript from "./components/BatchSmsScript";
 import TaxReportReportManagement from "./components/TaxReportManagement";
 import './App.css';
+import './App.css';
 import TaxCalculationScript from "@/components/TaxCalculatorScript";
+import OCRScript from "@/components/OCRScript";
 
 // 角色类型与权限映射
 type Role = 'admin' | 'operator' | 'custom' | 'QA';
@@ -118,49 +120,49 @@ const allScripts: Record<string, { name: string; description: string; scripts: S
                 id: 'settlement',
                 name: '结算处理脚本',
                 description: '批量处理企业结算任务，支持并发执行',
-                icon: <Settings className="w-5 h-5"/>,
+                icon: <Settings className="w-5 h-5" />,
                 status: 'stable' as const
             },
             {
                 id: 'commission',
                 name: '渠道佣金计算与验证',
                 description: '计算渠道佣金并进行数据校验',
-                icon: <Calculator className="w-5 h-5"/>,
+                icon: <Calculator className="w-5 h-5" />,
                 status: 'stable' as const
             },
             {
                 id: 'balance',
                 name: '企业账户余额核对',
                 description: '核对企业账户余额的准确性',
-                icon: <Database className="w-5 h-5"/>,
+                icon: <Database className="w-5 h-5" />,
                 status: 'active' as const
             },
             {
                 id: 'task-automation',
                 name: '任务自动化管理工具',
                 description: '批量执行用户任务流程操作',
-                icon: <Users className="w-5 h-5"/>,
+                icon: <Users className="w-5 h-5" />,
                 status: 'beta' as const
             },
             {
                 id: 'sms_operations_center',
                 name: '短信运营中心',
                 description: '模板管理与批量发送、补发综合工具',
-                icon: <Send className="w-5 h-5"/>,
+                icon: <Send className="w-5 h-5" />,
                 status: 'beta' as const
             },
             {
                 id: 'tax-reporting',
                 name: '税务报表生成',
                 description: '按企业和月份生成完税数据报表并导出',
-                icon: <FileText className="w-5 h-5"/>,
+                icon: <FileText className="w-5 h-5" />,
                 status: 'beta' as const
             },
             {
                 id: 'tax-calculation',
                 name: '税额计算工具',
                 description: '计算个人所得税明细，支持模拟数据与跨年计算',
-                icon: <Percent className="w-5 h-5"/>,
+                icon: <Percent className="w-5 h-5" />,
                 status: 'stable' as const
             }
         ]
@@ -191,14 +193,14 @@ interface ConfirmDialogProps {
 }
 
 const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
-                                                         open,
-                                                         title,
-                                                         description,
-                                                         confirmText = '确认',
-                                                         cancelText = '取消',
-                                                         onConfirm,
-                                                         onCancel
-                                                     }) => {
+    open,
+    title,
+    description,
+    confirmText = '确认',
+    cancelText = '取消',
+    onConfirm,
+    onCancel
+}) => {
     useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {
@@ -212,7 +214,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/50" onClick={onCancel}/>
+            <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
             <div className="relative w-full max-w-sm p-4">
                 <Card className="animate-fadeIn">
                     <CardHeader>
@@ -232,21 +234,21 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 };
 
 /* ============== 统一高度的状态 Chip 组件 ============== */
-const StatusChip: React.FC<React.PropsWithChildren<{ className?: string }>> = ({children, className}) => (
+const StatusChip: React.FC<React.PropsWithChildren<{ className?: string }>> = ({ children, className }) => (
     <div
         className={`h-9 px-3 inline-flex items-center gap-2 rounded-md border bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/40 shadow-sm text-sm leading-none ${className || ''}`}>
         {children}
     </div>
 );
 
-const StatusGroup: React.FC<React.PropsWithChildren> = ({children}) => (
+const StatusGroup: React.FC<React.PropsWithChildren> = ({ children }) => (
     <div className="flex items-center justify-end flex-wrap gap-2">
         {children}
     </div>
 );
 
 /* ============== 首页卡片悬停“水气球”效果 ============== */
-const HoverFloatCard: React.FC<React.PropsWithChildren<{ className?: string }>> = ({children, className}) => {
+const HoverFloatCard: React.FC<React.PropsWithChildren<{ className?: string }>> = ({ children, className }) => {
     const ref = useRef<HTMLDivElement>(null);
 
     const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -279,7 +281,7 @@ const HoverFloatCard: React.FC<React.PropsWithChildren<{ className?: string }>> 
         >
             {/* 阴影/下坠感 */}
             <div
-                className="pointer-events-none absolute -bottom-2 left-1/2 h-6 w-3/4 -translate-x-1/2 rounded-[50%] bg-sky-900/10 blur-md opacity-0 group-hover:opacity-100 transition duration-300"/>
+                className="pointer-events-none absolute -bottom-2 left-1/2 h-6 w-3/4 -translate-x-1/2 rounded-[50%] bg-sky-900/10 blur-md opacity-0 group-hover:opacity-100 transition duration-300" />
 
             {/* 3D 浮起主体 */}
             <div
@@ -311,7 +313,7 @@ const HoverFloatCard: React.FC<React.PropsWithChildren<{ className?: string }>> 
 
 
 /* ============== 时间（北京时间）Chip（从父组件接收 now，避免重复定时器） ============== */
-const TimeChip: React.FC<{ name?: string; now: Date }> = ({name, now}) => {
+const TimeChip: React.FC<{ name?: string; now: Date }> = ({ name, now }) => {
     const dtf = useMemo(() => new Intl.DateTimeFormat('zh-CN', {
         timeZone: 'Asia/Shanghai',
         hour: '2-digit',
@@ -332,7 +334,7 @@ const TimeChip: React.FC<{ name?: string; now: Date }> = ({name, now}) => {
         const weekday = get('weekday'); // “周一”
         const month = get('month');
         const day = get('day');
-        return {hour, minute, second, weekday, month, day};
+        return { hour, minute, second, weekday, month, day };
     }, [dtf, now]);
 
     const greeting =
@@ -343,10 +345,10 @@ const TimeChip: React.FC<{ name?: string; now: Date }> = ({name, now}) => {
 
     return (
         <StatusChip>
-            <Clock className="w-4 h-4 text-primary"/>
+            <Clock className="w-4 h-4 text-primary" />
             <span className="whitespace-nowrap tabular-nums font-mono">
-        {parts.hour.toString().padStart(2, '0')}:{parts.minute}:{parts.second}
-      </span>
+                {parts.hour.toString().padStart(2, '0')}:{parts.minute}:{parts.second}
+            </span>
             <span className="text-muted-foreground hidden sm:inline">{parts.weekday}</span>
             <span className="text-muted-foreground hidden md:inline">{parts.month}-{parts.day}</span>
             <span className="text-muted-foreground hidden lg:inline">| {greeting}{name ? `, ${name}` : ''}</span>
@@ -376,57 +378,57 @@ const WeatherChip: React.FC<{
     refreshing: boolean;
     label?: string;
     onRefresh?: () => void;
-}> = ({state, refreshing, label = '北京', onRefresh}) => {
+}> = ({ state, refreshing, label = '北京', onRefresh }) => {
     // 根据天气代码返回对应图标组件
     const weatherIcon = (code?: string) => {
-        if (!code) return <Cloud className="w-4 h-4"/>;
+        if (!code) return <Cloud className="w-4 h-4" />;
 
         const iconMap: Record<string, React.ReactNode> = {
-            "100": <Sun className="w-4 h-4"/>,          // 晴
-            "101": <Cloud className="w-4 h-4"/>,         // 多云
-            "102": <Cloud className="w-4 h-4"/>,         // 少云
-            "103": <Cloud className="w-4 h-4"/>,         // 晴间多云
-            "104": <Cloud className="w-4 h-4"/>,         // 阴
-            "300": <CloudRain className="w-4 h-4"/>,     // 阵雨
-            "301": <CloudRain className="w-4 h-4"/>,     // 强阵雨
-            "302": <CloudLightning className="w-4 h-4"/>, // 雷阵雨
-            "303": <CloudLightning className="w-4 h-4"/>, // 强雷阵雨
-            "304": <CloudRain className="w-4 h-4"/>,     // 冰雹
-            "305": <CloudRain className="w-4 h-4"/>,     // 小雨
-            "306": <CloudRain className="w-4 h-4"/>,     // 中雨
-            "307": <CloudRain className="w-4 h-4"/>,     // 大雨
-            "308": <CloudRain className="w-4 h-4"/>,     // 极端降雨
-            "309": <CloudRain className="w-4 h-4"/>,     // 毛毛雨
-            "310": <CloudRain className="w-4 h-4"/>,     // 暴雨
-            "311": <CloudRain className="w-4 h-4"/>,     // 大暴雨
-            "312": <CloudRain className="w-4 h-4"/>,     // 特大暴雨
-            "313": <CloudRain className="w-4 h-4"/>,     // 冻雨
-            "400": <CloudSnow className="w-4 h-4"/>,     // 小雪
-            "401": <CloudSnow className="w-4 h-4"/>,     // 中雪
-            "402": <CloudSnow className="w-4 h-4"/>,     // 大雪
-            "403": <CloudSnow className="w-4 h-4"/>,     // 暴雪
-            "404": <CloudRain className="w-4 h-4"/>,     // 雨夹雪
-            "405": <CloudRain className="w-4 h-4"/>,     // 雨雪天气
-            "406": <CloudSnow className="w-4 h-4"/>,     // 阵雨夹雪
-            "407": <CloudSnow className="w-4 h-4"/>,     // 阵雪
-            "500": <CloudFog className="w-4 h-4"/>,      // 薄雾
-            "501": <CloudFog className="w-4 h-4"/>,      // 雾
-            "502": <CloudFog className="w-4 h-4"/>,      // 霾
-            "503": <CloudFog className="w-4 h-4"/>,      // 扬沙
-            "504": <CloudFog className="w-4 h-4"/>,      // 浮尘
-            "507": <CloudFog className="w-4 h-4"/>,      // 沙尘暴
-            "508": <CloudFog className="w-4 h-4"/>,      // 强沙尘暴
-            "900": <Sun className="w-4 h-4"/>,           // 热
-            "901": <Thermometer className="w-4 h-4"/>,   // 冷
-            "999": <Cloud className="w-4 h-4"/>          // 未知
+            "100": <Sun className="w-4 h-4" />,          // 晴
+            "101": <Cloud className="w-4 h-4" />,         // 多云
+            "102": <Cloud className="w-4 h-4" />,         // 少云
+            "103": <Cloud className="w-4 h-4" />,         // 晴间多云
+            "104": <Cloud className="w-4 h-4" />,         // 阴
+            "300": <CloudRain className="w-4 h-4" />,     // 阵雨
+            "301": <CloudRain className="w-4 h-4" />,     // 强阵雨
+            "302": <CloudLightning className="w-4 h-4" />, // 雷阵雨
+            "303": <CloudLightning className="w-4 h-4" />, // 强雷阵雨
+            "304": <CloudRain className="w-4 h-4" />,     // 冰雹
+            "305": <CloudRain className="w-4 h-4" />,     // 小雨
+            "306": <CloudRain className="w-4 h-4" />,     // 中雨
+            "307": <CloudRain className="w-4 h-4" />,     // 大雨
+            "308": <CloudRain className="w-4 h-4" />,     // 极端降雨
+            "309": <CloudRain className="w-4 h-4" />,     // 毛毛雨
+            "310": <CloudRain className="w-4 h-4" />,     // 暴雨
+            "311": <CloudRain className="w-4 h-4" />,     // 大暴雨
+            "312": <CloudRain className="w-4 h-4" />,     // 特大暴雨
+            "313": <CloudRain className="w-4 h-4" />,     // 冻雨
+            "400": <CloudSnow className="w-4 h-4" />,     // 小雪
+            "401": <CloudSnow className="w-4 h-4" />,     // 中雪
+            "402": <CloudSnow className="w-4 h-4" />,     // 大雪
+            "403": <CloudSnow className="w-4 h-4" />,     // 暴雪
+            "404": <CloudRain className="w-4 h-4" />,     // 雨夹雪
+            "405": <CloudRain className="w-4 h-4" />,     // 雨雪天气
+            "406": <CloudSnow className="w-4 h-4" />,     // 阵雨夹雪
+            "407": <CloudSnow className="w-4 h-4" />,     // 阵雪
+            "500": <CloudFog className="w-4 h-4" />,      // 薄雾
+            "501": <CloudFog className="w-4 h-4" />,      // 雾
+            "502": <CloudFog className="w-4 h-4" />,      // 霾
+            "503": <CloudFog className="w-4 h-4" />,      // 扬沙
+            "504": <CloudFog className="w-4 h-4" />,      // 浮尘
+            "507": <CloudFog className="w-4 h-4" />,      // 沙尘暴
+            "508": <CloudFog className="w-4 h-4" />,      // 强沙尘暴
+            "900": <Sun className="w-4 h-4" />,           // 热
+            "901": <Thermometer className="w-4 h-4" />,   // 冷
+            "999": <Cloud className="w-4 h-4" />          // 未知
         };
 
-        return iconMap[code] || <Cloud className="w-4 h-4"/>;
+        return iconMap[code] || <Cloud className="w-4 h-4" />;
     };
 
     return (
         <StatusChip>
-            <MapPin className="w-4 h-4 text-primary"/>
+            <MapPin className="w-4 h-4 text-primary" />
             <span className="whitespace-nowrap">{label}</span>
             <span className="text-muted-foreground">·</span>
 
@@ -441,15 +443,15 @@ const WeatherChip: React.FC<{
                     <span className="hidden sm:inline">{state.data.desc}</span>
                     <span className="text-muted-foreground hidden md:inline">·</span>
                     <span className="text-muted-foreground hidden md:inline">
-            <Wind className="inline w-3 h-3 mr-1"/>
+                        <Wind className="inline w-3 h-3 mr-1" />
                         {state.data.wind} km/h
-          </span>
+                    </span>
                     <span className="text-muted-foreground hidden lg:inline">
-            <Droplets className="inline w-3 h-3 mx-1"/>
+                        <Droplets className="inline w-3 h-3 mx-1" />
                         {state.data.humidity}%
-          </span>
+                    </span>
                     {refreshing &&
-                        <Loader2 className="w-3 h-3 ml-1 animate-spin text-muted-foreground" aria-label="刷新中"/>}
+                        <Loader2 className="w-3 h-3 ml-1 animate-spin text-muted-foreground" aria-label="刷新中" />}
                 </>
             ) : null}
 
@@ -477,20 +479,20 @@ interface StatusToolbarProps {
 }
 
 const StatusToolbar: React.FC<StatusToolbarProps> = ({
-                                                        leftSlot,
-                                                        user,
-                                                        now,
-                                                        weather,
-                                                        weatherRefreshing,
-                                                        onRefreshWeather,
-                                                        onLogoutClick
-                                                    }) => (
+    leftSlot,
+    user,
+    now,
+    weather,
+    weatherRefreshing,
+    onRefreshWeather,
+    onLogoutClick
+}) => (
     <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div className="flex-1 min-w-[160px] flex items-center justify-start">
             {leftSlot ?? <span className="text-sm text-transparent">占位</span>}
         </div>
         <StatusGroup>
-            <TimeChip name={user?.name} now={now}/>
+            <TimeChip name={user?.name} now={now} />
             <WeatherChip
                 state={weather}
                 refreshing={weatherRefreshing}
@@ -498,7 +500,7 @@ const StatusToolbar: React.FC<StatusToolbarProps> = ({
                 onRefresh={onRefreshWeather}
             />
             <StatusChip>
-                <UserIcon className="w-4 h-4 text-primary"/>
+                <UserIcon className="w-4 h-4 text-primary" />
                 <span className="whitespace-nowrap">{user.name} ({user.role})</span>
             </StatusChip>
             <Button variant="ghost" className="h-9 px-3" onClick={onLogoutClick}>
@@ -511,7 +513,7 @@ const StatusToolbar: React.FC<StatusToolbarProps> = ({
 /* ============== 主应用 ============== */
 export default function App() {
     // 路由状态
-    const [currentView, setCurrentView] = useState<'home' | 'system' | 'script'>('home');
+    const [currentView, setCurrentView] = useState<'home' | 'system' | 'script' | 'ocr-tool'>('home');
     const [selectedSystem, setSelectedSystem] = useState<string>('');
     const [selectedScript, setSelectedScript] = useState<string>('');
 
@@ -540,12 +542,12 @@ export default function App() {
                 const cached = JSON.parse(raw) as { ts: number; data: WeatherData };
                 const fresh = Date.now() - cached.ts < WEATHER_TTL;
                 if (fresh && cached.data) {
-                    return {loading: false, data: cached.data};
+                    return { loading: false, data: cached.data };
                 }
             }
         } catch { /* ignore */
         }
-        return {loading: true};
+        return { loading: true };
     });
     const [weatherRefreshing, setWeatherRefreshing] = useState(false);
 
@@ -556,7 +558,7 @@ export default function App() {
 
         if (!apiKey || !apiHost) {
             // API 配置缺失：保留已显示的数据，仅标记错误
-            setWeather(prev => ({...prev, loading: false, error: 'api_config_missing'}));
+            setWeather(prev => ({ ...prev, loading: false, error: 'api_config_missing' }));
             return;
         }
 
@@ -596,19 +598,19 @@ export default function App() {
                 code: data.now.icon
             };
 
-            setWeather({loading: false, data: parsed});
+            setWeather({ loading: false, data: parsed });
             try {
-                localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ts: Date.now(), data: parsed}));
+                localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: parsed }));
             } catch { /* ignore quota */
             }
         } catch {
             // 如果已有数据，保持原样，只标记错误；如果没有，就降级
             setWeather(prev => {
-                if (prev.data) return {...prev, loading: false, error: 'api_error'};
+                if (prev.data) return { ...prev, loading: false, error: 'api_error' };
                 return {
                     loading: false,
                     error: 'api_error',
-                    data: {temp: 25, desc: "晴", wind: 10, humidity: 50, code: "100"}
+                    data: { temp: 25, desc: "晴", wind: 10, humidity: 50, code: "100" }
                 };
             });
         } finally {
@@ -620,9 +622,9 @@ export default function App() {
     // 初次挂载：使用缓存立即渲染 + 静默刷新；并开启轮询
     useEffect(() => {
         const hasCached = !!weather.data;
-        refreshWeather({background: hasCached});
+        refreshWeather({ background: hasCached });
 
-        const interval = setInterval(() => refreshWeather({background: true}), WEATHER_TTL);
+        const interval = setInterval(() => refreshWeather({ background: true }), WEATHER_TTL);
         return () => clearInterval(interval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -693,7 +695,7 @@ export default function App() {
                 const filteredScripts = system.scripts.filter(script =>
                     user.permissions[script.id]
                 );
-                return [systemKey, {...system, scripts: filteredScripts}];
+                return [systemKey, { ...system, scripts: filteredScripts }];
             })
         ) as typeof allScripts;
 
@@ -733,21 +735,24 @@ export default function App() {
     const noResults = !filteredScripts.length && Boolean(trimmedQuery);
 
     const renderScript = () => {
+        if (currentView === 'ocr-tool') {
+            return <OCRScript onBack={() => setCurrentView('home')} />;
+        }
         switch (selectedScript) {
             case 'settlement':
-                return <SettlementScript onBack={() => setCurrentView('system')}/>;
+                return <SettlementScript onBack={() => setCurrentView('system')} />;
             case 'commission':
-                return <CommissionScript onBack={() => setCurrentView('system')}/>;
+                return <CommissionScript onBack={() => setCurrentView('system')} />;
             case 'balance':
-                return <BalanceScript onBack={() => setCurrentView('system')}/>;
+                return <BalanceScript onBack={() => setCurrentView('system')} />;
             case 'task-automation':
-                return <TaskAutomationScript onBack={() => setCurrentView('system')}/>;
+                return <TaskAutomationScript onBack={() => setCurrentView('system')} />;
             case 'sms_operations_center':
-                return <SmsManagementScript onBack={() => setCurrentView('system')}/>;
+                return <SmsManagementScript onBack={() => setCurrentView('system')} />;
             case 'tax-reporting':
-                return <TaxReportReportManagement onBack={() => setCurrentView('system')}/>;
+                return <TaxReportReportManagement onBack={() => setCurrentView('system')} />;
             case 'tax-calculation':
-                return <TaxCalculationScript onBack={() => setCurrentView('system')}/>;
+                return <TaxCalculationScript onBack={() => setCurrentView('system')} />;
             default:
                 return null;
         }
@@ -765,9 +770,9 @@ export default function App() {
     if (isLoading) {
         return (
             <div className="min-h-screen colorful-background flex items-center justify-center p-6">
-                <Toaster richColors position="top-center"/>
+                <Toaster richColors position="top-center" />
                 <div className="flex flex-col items-center gap-4">
-                    <Loader2 className="w-10 h-10 text-primary animate-spin"/>
+                    <Loader2 className="w-10 h-10 text-primary animate-spin" />
                     <h2 className="text-lg font-medium">正在验证身份...</h2>
                     <p className="text-muted-foreground">请稍候</p>
                 </div>
@@ -779,11 +784,11 @@ export default function App() {
     if (!currentUser) {
         return (
             <div className="min-h-screen colorful-background flex items-center justify-center p-6">
-                <Toaster richColors position="top-center"/>
+                <Toaster richColors position="top-center" />
                 <Card className="w-full max-w-md animate-fadeIn">
                     <CardHeader className="space-y-1">
                         <CardTitle className="text-2xl flex items-center justify-center gap-2">
-                            <Lock className="w-5 h-5"/>
+                            <Lock className="w-5 h-5" />
                             访问授权
                         </CardTitle>
                         <CardDescription className="text-center">
@@ -793,7 +798,7 @@ export default function App() {
                     <CardContent className="space-y-4">
                         {errorMessage && (
                             <div className="flex items-center gap-2 p-3 bg-red-50 text-red-600 rounded-md">
-                                <AlertCircle className="w-4 h-4"/>
+                                <AlertCircle className="w-4 h-4" />
                                 <span>{errorMessage}</span>
                             </div>
                         )}
@@ -820,7 +825,7 @@ export default function App() {
                         >
                             {isVerifying ? (
                                 <>
-                                    <Loader2 className="w-4 h-4 mr-2 animate-spin"/>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                                     验证中...
                                 </>
                             ) : (
@@ -833,7 +838,7 @@ export default function App() {
         );
     }
 
-    if (currentView === 'script') {
+    if (currentView === 'script' || currentView === 'ocr-tool') {
         // 子页保持沉浸，但天气/时间状态仍保存在 App（返回后不闪）
         return renderScript();
     }
@@ -842,7 +847,7 @@ export default function App() {
 
         return (
             <div className="min-h-screen colorful-background p-6">
-                <Toaster richColors position="top-center"/>
+                <Toaster richColors position="top-center" />
                 <div className="max-w-7xl mx-auto">
                     <StatusToolbar
                         leftSlot={(
@@ -851,7 +856,7 @@ export default function App() {
                                 onClick={() => setCurrentView('home')}
                                 className="h-9"
                             >
-                                <ArrowLeft className="w-4 h-4 mr-2"/>
+                                <ArrowLeft className="w-4 h-4 mr-2" />
                                 返回首页
                             </Button>
                         )}
@@ -859,7 +864,7 @@ export default function App() {
                         now={now}
                         weather={weather}
                         weatherRefreshing={weatherRefreshing}
-                        onRefreshWeather={() => refreshWeather({background: false})}
+                        onRefreshWeather={() => refreshWeather({ background: false })}
                         onLogoutClick={() => setShowLogoutConfirm(true)}
                     />
 
@@ -890,9 +895,9 @@ export default function App() {
 
                     <div className={`
             ${hasFewScripts
-                        ? 'flex flex-col items-center justify-center min-h-[300px]'
-                        : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
-                    }
+                            ? 'flex flex-col items-center justify-center min-h-[300px]'
+                            : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
+                        }
           `}>
                         {filteredScripts.map((script) => (
                             <Card
@@ -928,7 +933,7 @@ export default function App() {
                                             setCurrentView('script');
                                         }}
                                     >
-                                        <Play className="w-4 h-4 mr-2"/>
+                                        <Play className="w-4 h-4 mr-2" />
                                         启动脚本
                                     </Button>
                                 </CardContent>
@@ -977,14 +982,14 @@ export default function App() {
     // 首页
     return (
         <div className="min-h-screen colorful-background p-6">
-            <Toaster richColors position="top-center"/>
+            <Toaster richColors position="top-center" />
             <div className="max-w-7xl mx-auto">
                 <StatusToolbar
                     user={currentUser}
                     now={now}
                     weather={weather}
                     weatherRefreshing={weatherRefreshing}
-                    onRefreshWeather={() => refreshWeather({background: false})}
+                    onRefreshWeather={() => refreshWeather({ background: false })}
                     onLogoutClick={() => setShowLogoutConfirm(true)}
                 />
 
@@ -1040,7 +1045,7 @@ export default function App() {
                                             </>
                                         ) : (
                                             <div className="text-center py-8 text-muted-foreground">
-                                                <Database className="w-12 h-12 mx-auto mb-3 opacity-50"/>
+                                                <Database className="w-12 h-12 mx-auto mb-3 opacity-50" />
                                                 <p>烹饪中！</p>
                                             </div>
                                         )}
@@ -1052,10 +1057,19 @@ export default function App() {
 
                 </div>
 
+                <div className="mt-8 text-center">
+                    <button
+                        onClick={() => setCurrentView('ocr-tool')}
+                        className="text-sm text-muted-foreground hover:text-primary transition-colors underline underline-offset-4"
+                    >
+                        个人工具
+                    </button>
+                </div>
+
                 <div className="mt-16 text-center">
                     <Card className="inline-block p-6">
                         <div className="flex items-center gap-3 text-muted-foreground">
-                            <CheckCircle className="w-5 h-5"/>
+                            <CheckCircle className="w-5 h-5" />
                             <span>系统运行正常，目前共有 {totalScripts} 个可用的自动化脚本</span>
                         </div>
                     </Card>
