@@ -680,38 +680,37 @@ async def calculate_tax(
 
 # ================= OCR处理接口 =================
 from .ocr_service import run_ocr_process
-from .models import OCRProcessRequest, OCRProcessResponse
+from .models import OCRProcessRequest
+from fastapi.responses import StreamingResponse
 
 
-@app.post("/ocr/process", response_model=OCRProcessResponse, tags=["OCR处理"])
+@app.post("/ocr/process", tags=["OCR处理"])
 async def process_ocr(request: OCRProcessRequest):
     """
-    个人信息OCR比对处理
+    个人信息OCR比对处理 (流式响应)
 
     支持两种运行模式：
     - mode=1：按 Excel 顺序匹配附件（默认）
     - mode=2：按 附件识别 → 反查匹配 Excel
+    
+    返回: NDJSON 流 (Newline Delimited JSON)
+    {"type": "log", "content": "..."}
+    {"type": "result", "success": true, "message": "..."}
     """
     try:
         logger.info(f"收到OCR处理请求: excel_path={request.excel_path}, mode={request.mode}")
 
-        success, logs, message = run_ocr_process(
-            excel_path=request.excel_path,
-            source_folder=request.source_folder,
-            target_excel_path=request.target_excel_path,
-            mode=request.mode
-        )
-
-        return OCRProcessResponse(
-            success=success,
-            message=message,
-            logs=logs
+        return StreamingResponse(
+            run_ocr_process(
+                excel_path=request.excel_path,
+                source_folder=request.source_folder,
+                target_excel_path=request.target_excel_path,
+                mode=request.mode
+            ),
+            media_type="application/x-ndjson"
         )
     except Exception as e:
-        logger.error(f"OCR处理出错: {str(e)}", exc_info=True)
-        return OCRProcessResponse(
-            success=False,
-            message=f"处理出错: {str(e)}",
-            logs=[f"❌ 处理出错: {str(e)}"]
-        )
+        logger.error(f"OCR处理启动出错: {str(e)}", exc_info=True)
+        # 启动失败直接返回错误（非流式）
+        raise HTTPException(status_code=500, detail=f"启动失败: {str(e)}")
 

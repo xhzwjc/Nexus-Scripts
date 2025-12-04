@@ -29,24 +29,81 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
 
         setIsRunning(true);
         setLogs([]);
-        
+
         try {
-            const response = await axios.post('http://localhost:8000/ocr/process', {
-                excel_path: excelPath,
-                source_folder: sourceFolder,
-                target_excel_path: targetExcelPath,
-                mode: parseInt(mode)
+            const response = await fetch('http://localhost:8000/ocr/process', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    excel_path: excelPath,
+                    source_folder: sourceFolder,
+                    target_excel_path: targetExcelPath,
+                    mode: parseInt(mode)
+                }),
             });
 
-            if (response.data.success) {
-                toast.success('OCR处理完成');
-                setLogs(response.data.logs || []);
-            } else {
-                toast.error('OCR处理失败: ' + response.data.message);
-                setLogs(response.data.logs || []);
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || response.statusText);
             }
+
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error('无法读取响应流');
+
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                
+                // 处理完整的行，保留最后可能不完整的行在buffer中
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const data = JSON.parse(line);
+                        if (data.type === 'log') {
+                            setLogs(prev => [...prev, data.content]);
+                        } else if (data.type === 'result') {
+                            if (data.success) {
+                                toast.success(data.message);
+                            } else {
+                                toast.error(data.message);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('解析日志行失败:', line, e);
+                    }
+                }
+            }
+            
+            // 处理剩余的buffer
+            if (buffer.trim()) {
+                 try {
+                    const data = JSON.parse(buffer);
+                    if (data.type === 'log') {
+                        setLogs(prev => [...prev, data.content]);
+                    } else if (data.type === 'result') {
+                        if (data.success) {
+                            toast.success(data.message);
+                        } else {
+                            toast.error(data.message);
+                        }
+                    }
+                } catch (e) {
+                    // 忽略最后可能的不完整数据
+                }
+            }
+
         } catch (error: any) {
-            toast.error('请求失败: ' + (error.response?.data?.detail || error.message));
+            toast.error('请求失败: ' + error.message);
             setLogs(prev => [...prev, `❌ 请求出错: ${error.message}`]);
         } finally {
             setIsRunning(false);

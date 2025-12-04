@@ -2,15 +2,15 @@
 OCR Service - 个人信息OCR比对服务
 
 将用户提供的OCR脚本封装为服务模块，保持核心逻辑不变。
-捕获所有print()输出到logs列表返回给前端。
+改为生成器模式，支持流式输出日志。
 """
 import os
 import re
 import sys
+import json
 import logging
 import traceback
-from io import StringIO
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Iterator, Any
 
 import cv2
 import numpy as np
@@ -26,29 +26,6 @@ MAX_SIDE = 960
 FOLDER_KEY_COLUMN = "姓名"
 ENABLE_ID_CROP = False
 DEBUG = True
-
-
-class LogCapture:
-    """捕获print输出到日志列表"""
-    def __init__(self):
-        self.logs: List[str] = []
-        self._original_stdout = sys.stdout
-        self._buffer = StringIO()
-
-    def __enter__(self):
-        sys.stdout = self._buffer
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        sys.stdout = self._original_stdout
-        self._buffer.seek(0)
-        for line in self._buffer.getvalue().split('\n'):
-            if line.strip():
-                self.logs.append(line)
-        self._buffer.close()
-
-    def get_logs(self) -> List[str]:
-        return self.logs
 
 
 def cv2_imread_chinese(path: str):
@@ -81,20 +58,20 @@ def crop_for_idcard(img):
         return img
 
     if not ENABLE_ID_CROP:
-        if DEBUG:
-            print("    [裁剪] 身份证裁剪关闭 → 使用整图")
+        # if DEBUG:
+        #     print("    [裁剪] 身份证裁剪关闭 → 使用整图")
         return img
 
     aspect = w / h
     if 1.3 <= aspect <= 2.2:
         y0, y1 = 0, int(0.5 * h)
         x0, x1 = 0, int(0.7 * w)
-        if DEBUG:
-            print(f"    [裁剪] 身份证布局 → 左上区域 ({x0}:{x1}, {y0}:{y1})")
+        # if DEBUG:
+        #     print(f"    [裁剪] 身份证布局 → 左上区域 ({x0}:{x1}, {y0}:{y1})")
         return img[y0:y1, x0:x1]
     else:
-        if DEBUG:
-            print(f"    [裁剪] 宽高比={aspect:.2f} 不像身份证 → 不裁剪")
+        # if DEBUG:
+        #     print(f"    [裁剪] 宽高比={aspect:.2f} 不像身份证 → 不裁剪")
         return img
 
 
@@ -260,18 +237,21 @@ def is_ratio_id_candidate(img) -> bool:
     return 1.5 <= aspect <= 1.7
 
 
-def ocr_id_from_image(ocr: PaddleOCR, img_path: str, crop_mode: str = "id"):
+def emit_log(msg: str):
+    """构造日志消息"""
+    return json.dumps({"type": "log", "content": msg}, ensure_ascii=False) + "\n"
+
+
+def ocr_id_from_image(ocr: PaddleOCR, img_path: str, crop_mode: str = "id") -> Iterator[Any]:
     """
     对单张图片做 OCR，尝试抽取姓名 & 身份证号。
-    crop_mode:
-        - "id"   → 按身份证裁剪左上角
-        - "none" → 不裁剪，整图识别
-    返回：(ocr_name, ocr_id, full_text)
+    Yields: log strings
+    Returns: (ocr_name, ocr_id, full_text) via StopIteration value
     """
     file = os.path.basename(img_path)
     img = cv2_imread_chinese(img_path)
     if img is None:
-        print(f"    ❌ 无法读取图片：{file}")
+        yield emit_log(f"    ❌ 无法读取图片：{file}")
         return None, None, ""
 
     img = resize_for_ocr(img)
@@ -285,8 +265,8 @@ def ocr_id_from_image(ocr: PaddleOCR, img_path: str, crop_mode: str = "id"):
         try:
             result = ocr.ocr(img)
         except Exception as e:
-            print(f"    ❌ OCR 调用出错：{e}")
-            traceback.print_exc()
+            yield emit_log(f"    ❌ OCR 调用出错：{e}")
+            # traceback.print_exc()
             return None, None, ""
 
     full_text, fragments = parse_ocr_result(result)
@@ -295,29 +275,26 @@ def ocr_id_from_image(ocr: PaddleOCR, img_path: str, crop_mode: str = "id"):
     # 日志：全文 + 分段
     if full_text:
         preview = full_text if len(full_text) <= 150 else (full_text[:150] + " ...")
-        print(f"    [OCR识别全文] {preview}")
+        yield emit_log(f"    [OCR识别全文] {preview}")
     else:
-        print("    [OCR识别全文] （空，未识别到文字）")
+        yield emit_log("    [OCR识别全文] （空，未识别到文字）")
 
     if DEBUG and fragments:
-        print(f"    [OCR分段结果] 共 {len(fragments)} 段：")
+        yield emit_log(f"    [OCR分段结果] 共 {len(fragments)} 段：")
         for i, frag in enumerate(fragments, 1):
             frag_preview = frag if len(frag) <= 80 else (frag[:80] + " ...")
-            print(f"       [{i}] {frag_preview}")
+            yield emit_log(f"       [{i}] {frag_preview}")
 
     ocr_id = extract_id_number(full_text)
     ocr_name = extract_name_from_text(full_text)
 
-    print(f"    [提取结果] 姓名={ocr_name or 'None'}，身份证号={ocr_id or 'None'}")
+    yield emit_log(f"    [提取结果] 姓名={ocr_name or 'None'}，身份证号={ocr_id or 'None'}")
     return ocr_name, ocr_id, full_text
 
 
 def find_matching_row_index(df, ocr_name, ocr_id, id_col, matched_indices):
     """
     附件优先模式下：根据 OCR 的姓名+身份证号，去 Excel 里找对应的行。
-    优先规则：
-      1）身份证号完全一致（id_col 必须有），未被用过
-      2）否则：姓名完全一致，未被用过
     """
     ocr_name_norm = normalize_name(ocr_name)
     ocr_id_norm = normalize_id(ocr_id)
@@ -345,23 +322,23 @@ def find_matching_row_index(df, ocr_name, ocr_id, id_col, matched_indices):
     return None
 
 
-def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str) -> bool:
+def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str) -> Iterator[str]:
     """模式1：按 Excel → 附件"""
-    print("=" * 60)
-    print("【模式1】按 Excel 顺序匹配附件 开始...")
+    yield emit_log("=" * 60)
+    yield emit_log("【模式1】按 Excel 顺序匹配附件 开始...")
 
     # 1. 读取 Excel
     try:
         df = pd.read_excel(excel_path)
     except Exception as e:
-        print(f"❌ 读取 Excel 失败: {e}")
+        yield emit_log(f"❌ 读取 Excel 失败: {e}")
         return False
 
     if "姓名" not in df.columns:
-        print("❌ Excel 中未找到『姓名』列，请检查表头。")
+        yield emit_log("❌ Excel 中未找到『姓名』列，请检查表头。")
         return False
     if FOLDER_KEY_COLUMN not in df.columns:
-        print(f"❌ Excel 中未找到文件夹关联列：{FOLDER_KEY_COLUMN}")
+        yield emit_log(f"❌ Excel 中未找到文件夹关联列：{FOLDER_KEY_COLUMN}")
         return False
 
     # 自动检测身份证号列
@@ -372,7 +349,7 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
             id_col = col
             break
     if id_col is None:
-        print("⚠️ 未检测到身份证号列（列名包含 '身份证' 或 '证件号'），比对时身份证部分会是空。")
+        yield emit_log("⚠️ 未检测到身份证号列（列名包含 '身份证' 或 '证件号'），比对时身份证部分会是空。")
 
     # 新增输出列
     for col in ["OCR_姓名", "OCR_身份证号", "OCR_比对结果"]:
@@ -380,14 +357,14 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
             df[col] = ""
 
     # 2. 初始化 OCR 引擎
-    print("正在初始化 PaddleOCR 引擎...")
+    yield emit_log("正在初始化 PaddleOCR 引擎...")
     ocr = PaddleOCR(
         lang="ch",
         use_doc_orientation_classify=False,
         use_doc_unwarping=False,
         use_textline_orientation=False,
     )
-    print("PaddleOCR 初始化完成！\n")
+    yield emit_log("PaddleOCR 初始化完成！\n")
 
     # 3. 按行（每个人）处理
     total_rows = len(df)
@@ -396,17 +373,17 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
         name_excel = str(row["姓名"]).strip()
         folder_key = str(row[FOLDER_KEY_COLUMN]).strip()
 
-        print("-" * 60)
-        print(f"[{person_index}/{total_rows}] 处理人员：{name_excel} (文件夹 key={folder_key})")
+        yield emit_log("-" * 60)
+        yield emit_log(f"[{person_index}/{total_rows}] 处理人员：{name_excel} (文件夹 key={folder_key})")
 
         if not folder_key:
-            print("  ⚠️ 此行没有文件夹 key，标记为未识别")
+            yield emit_log("  ⚠️ 此行没有文件夹 key，标记为未识别")
             df.at[idx, "OCR_比对结果"] = "未识别"
             continue
 
         person_folder = os.path.join(source_folder, folder_key)
         if not os.path.isdir(person_folder):
-            print(f"  ⚠️ 未找到附件文件夹：{person_folder}，标记为未识别")
+            yield emit_log(f"  ⚠️ 未找到附件文件夹：{person_folder}，标记为未识别")
             df.at[idx, "OCR_比对结果"] = "未识别"
             continue
 
@@ -416,7 +393,7 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
             if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"))
         ]
         if not files:
-            print("  ⚠️ 附件文件夹中没有图片，标记为未识别")
+            yield emit_log("  ⚠️ 附件文件夹中没有图片，标记为未识别")
             df.at[idx, "OCR_比对结果"] = "未识别"
             continue
 
@@ -433,11 +410,14 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
         other_files = [f for f in files if f not in priority_files]
 
         if priority_files:
-            print(f"  [阶段1] 文件名包含身份证/证件的优先图片: {priority_files}")
+            yield emit_log(f"  [阶段1] 文件名包含身份证/证件的优先图片: {priority_files}")
         for f in priority_files:
             img_path = os.path.join(person_folder, f)
-            print(f"  -> 阶段1识别：{f}")
-            ocr_name, ocr_id, full_text = ocr_id_from_image(ocr, img_path, crop_mode="id")
+            yield emit_log(f"  -> 阶段1识别：{f}")
+            
+            # 调用 generator 并获取返回值
+            gen = ocr_id_from_image(ocr, img_path, crop_mode="id")
+            ocr_name, ocr_id, full_text = yield from gen
 
             if ocr_name and ocr_id:
                 df.at[idx, "OCR_姓名"] = ocr_name
@@ -445,13 +425,13 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
                 result_str = compare_result(name_excel, excel_id, ocr_name, ocr_id)
                 df.at[idx, "OCR_比对结果"] = result_str
 
-                print(f"  ✔ 阶段1成功：姓名={ocr_name}，身份证号={ocr_id}")
-                print(f"  ✔ 与 Excel 比对结果：{result_str}")
-                print("  ✔ 停止该人员后续附件识别，继续下一个人。\n")
+                yield emit_log(f"  ✔ 阶段1成功：姓名={ocr_name}，身份证号={ocr_id}")
+                yield emit_log(f"  ✔ 与 Excel 比对结果：{result_str}")
+                yield emit_log("  ✔ 停止该人员后续附件识别，继续下一个人。\n")
                 found = True
                 break
 
-            print("    ✖ 阶段1未提取到完整姓名 + 身份证号，尝试后续阶段...\n")
+            yield emit_log("    ✖ 阶段1未提取到完整姓名 + 身份证号，尝试后续阶段...\n")
 
         if found:
             continue
@@ -467,14 +447,16 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
                 ratio_candidates.append(f)
 
         if ratio_candidates:
-            print(f"  [阶段2] 尺寸疑似身份证的图片: {ratio_candidates}")
+            yield emit_log(f"  [阶段2] 尺寸疑似身份证的图片: {ratio_candidates}")
 
         processed_files = set(priority_files)
 
         for f in ratio_candidates:
             img_path = os.path.join(person_folder, f)
-            print(f"  -> 阶段2识别：{f}")
-            ocr_name, ocr_id, full_text = ocr_id_from_image(ocr, img_path, crop_mode="id")
+            yield emit_log(f"  -> 阶段2识别：{f}")
+            
+            gen = ocr_id_from_image(ocr, img_path, crop_mode="id")
+            ocr_name, ocr_id, full_text = yield from gen
 
             processed_files.add(f)
 
@@ -484,13 +466,13 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
                 result_str = compare_result(name_excel, excel_id, ocr_name, ocr_id)
                 df.at[idx, "OCR_比对结果"] = result_str
 
-                print(f"  ✔ 阶段2成功：姓名={ocr_name}，身份证号={ocr_id}")
-                print(f"  ✔ 与 Excel 比对结果：{result_str}")
-                print("  ✔ 停止该人员后续附件识别，继续下一个人。\n")
+                yield emit_log(f"  ✔ 阶段2成功：姓名={ocr_name}，身份证号={ocr_id}")
+                yield emit_log(f"  ✔ 与 Excel 比对结果：{result_str}")
+                yield emit_log("  ✔ 停止该人员后续附件识别，继续下一个人。\n")
                 found = True
                 break
 
-            print("    ✖ 阶段2未提取到完整姓名 + 身份证号，继续...\n")
+            yield emit_log("    ✖ 阶段2未提取到完整姓名 + 身份证号，继续...\n")
 
         if found:
             continue
@@ -498,15 +480,17 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
         # ---------- 阶段 3：全量顺序识别剩余图片 ----------
         rest_files = [f for f in files if f not in processed_files]
         if rest_files:
-            print(f"  [阶段3] 全量兜底识别剩余图片: {rest_files}")
+            yield emit_log(f"  [阶段3] 全量兜底识别剩余图片: {rest_files}")
 
         for f in rest_files:
             img_path = os.path.join(person_folder, f)
-            print(f"  -> 阶段3识别：{f}")
-            ocr_name, ocr_id, full_text = ocr_id_from_image(ocr, img_path, crop_mode="none")
+            yield emit_log(f"  -> 阶段3识别：{f}")
+            
+            gen = ocr_id_from_image(ocr, img_path, crop_mode="none")
+            ocr_name, ocr_id, full_text = yield from gen
 
             if "毕业" in (full_text or ""):
-                print("    ⚠️ 检测到 '毕业' 关键字，判定为毕业证相关，终止该人员后续识别。")
+                yield emit_log("    ⚠️ 检测到 '毕业' 关键字，判定为毕业证相关，终止该人员后续识别。")
                 stop_due_to_grad = True
                 break
 
@@ -516,47 +500,47 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
                 result_str = compare_result(name_excel, excel_id, ocr_name, ocr_id)
                 df.at[idx, "OCR_比对结果"] = result_str
 
-                print(f"  ✔ 阶段3成功：姓名={ocr_name}，身份证号={ocr_id}")
-                print(f"  ✔ 与 Excel 比对结果：{result_str}")
-                print("  ✔ 停止该人员后续附件识别，继续下一个人。\n")
+                yield emit_log(f"  ✔ 阶段3成功：姓名={ocr_name}，身份证号={ocr_id}")
+                yield emit_log(f"  ✔ 与 Excel 比对结果：{result_str}")
+                yield emit_log("  ✔ 停止该人员后续附件识别，继续下一个人。\n")
                 found = True
                 break
 
-            print("    ✖ 阶段3未提取到完整姓名 + 身份证号，继续...\n")
+            yield emit_log("    ✖ 阶段3未提取到完整姓名 + 身份证号，继续...\n")
 
         if not found:
             if stop_due_to_grad:
-                print("  ✖ 遇到毕业证相关图片，已提前终止识别，本人结果标记为 未识别")
+                yield emit_log("  ✖ 遇到毕业证相关图片，已提前终止识别，本人结果标记为 未识别")
             else:
-                print("  ✖ 已遍历该人员所有附件，未识别到完整身份证信息，标记为 未识别")
+                yield emit_log("  ✖ 已遍历该人员所有附件，未识别到完整身份证信息，标记为 未识别")
             df.at[idx, "OCR_比对结果"] = "未识别"
 
     # 4. 保存结果
     try:
         df.to_excel(target_excel_path, index=False)
-        print("=" * 60)
-        print(f"✅ 所有人员处理完成，结果已保存到：{target_excel_path}")
-        print("   新增列：OCR_姓名 / OCR_身份证号 / OCR_比对结果")
+        yield emit_log("=" * 60)
+        yield emit_log(f"✅ 所有人员处理完成，结果已保存到：{target_excel_path}")
+        yield emit_log("   新增列：OCR_姓名 / OCR_身份证号 / OCR_比对结果")
         return True
     except Exception as e:
-        print(f"❌ 保存结果失败: {e}")
+        yield emit_log(f"❌ 保存结果失败: {e}")
         return False
 
 
-def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path: str) -> bool:
+def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path: str) -> Iterator[str]:
     """模式2：按 附件 → Excel 匹配"""
-    print("=" * 60)
-    print("【模式2】按 附件 → 反查匹配 Excel 开始...")
+    yield emit_log("=" * 60)
+    yield emit_log("【模式2】按 附件 → 反查匹配 Excel 开始...")
 
     # 1. 读取 Excel
     try:
         df = pd.read_excel(excel_path)
     except Exception as e:
-        print(f"❌ 读取 Excel 失败: {e}")
+        yield emit_log(f"❌ 读取 Excel 失败: {e}")
         return False
 
     if "姓名" not in df.columns:
-        print("❌ Excel 中未找到『姓名』列，请检查表头。")
+        yield emit_log("❌ Excel 中未找到『姓名』列，请检查表头。")
         return False
 
     # 自动检测身份证号列
@@ -567,7 +551,7 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
             id_col = col
             break
     if id_col is None:
-        print("⚠️ 未检测到身份证号列（列名包含 '身份证' 或 '证件号'），比对时身份证部分会是空。")
+        yield emit_log("⚠️ 未检测到身份证号列（列名包含 '身份证' 或 '证件号'），比对时身份证部分会是空。")
 
     # 新增输出列
     for col in ["OCR_姓名", "OCR_身份证号", "OCR_比对结果"]:
@@ -577,39 +561,39 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
     df["OCR_比对结果"] = df["OCR_比对结果"].replace("", "未识别")
 
     # 2. 初始化 OCR 引擎
-    print("正在初始化 PaddleOCR 引擎...")
+    yield emit_log("正在初始化 PaddleOCR 引擎...")
     ocr = PaddleOCR(
         lang="ch",
         use_doc_orientation_classify=False,
         use_doc_unwarping=False,
         use_textline_orientation=False,
     )
-    print("PaddleOCR 初始化完成！\n")
+    yield emit_log("PaddleOCR 初始化完成！\n")
 
     matched_indices = set()
 
     # 3. 遍历附件根目录下的每一个子文件夹
     if not os.path.isdir(source_folder):
-        print(f"❌ 附件根目录不存在：{source_folder}")
+        yield emit_log(f"❌ 附件根目录不存在：{source_folder}")
         return False
 
     subfolders = [
         d for d in os.listdir(source_folder)
         if os.path.isdir(os.path.join(source_folder, d))
     ]
-    print(f"在附件根目录下发现 {len(subfolders)} 个子文件夹：{subfolders}")
+    yield emit_log(f"在附件根目录下发现 {len(subfolders)} 个子文件夹：{subfolders}")
 
     for folder_name in subfolders:
         folder_path = os.path.join(source_folder, folder_name)
-        print("-" * 60)
-        print(f"处理附件文件夹：{folder_name}")
+        yield emit_log("-" * 60)
+        yield emit_log(f"处理附件文件夹：{folder_name}")
 
         files = [
             f for f in os.listdir(folder_path)
             if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"))
         ]
         if not files:
-            print("  ⚠️ 该文件夹内没有图片，跳过")
+            yield emit_log("  ⚠️ 该文件夹内没有图片，跳过")
             continue
 
         found_for_folder = False
@@ -620,28 +604,30 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
         other_files = [f for f in files if f not in priority_files]
 
         if priority_files:
-            print(f"  [阶段1] 文件名包含身份证/证件的优先图片: {priority_files}")
+            yield emit_log(f"  [阶段1] 文件名包含身份证/证件的优先图片: {priority_files}")
 
         processed_files = set()
 
         for f in priority_files:
             img_path = os.path.join(folder_path, f)
-            print(f"  -> 阶段1识别：{f}")
-            ocr_name, ocr_id, full_text = ocr_id_from_image(ocr, img_path, crop_mode="id")
+            yield emit_log(f"  -> 阶段1识别：{f}")
+            
+            gen = ocr_id_from_image(ocr, img_path, crop_mode="id")
+            ocr_name, ocr_id, full_text = yield from gen
 
             processed_files.add(f)
 
             if "毕业" in (full_text or ""):
-                print("    ⚠️ 检测到 '毕业' 关键字，判定为毕业证相关，跳过该图片。")
+                yield emit_log("    ⚠️ 检测到 '毕业' 关键字，判定为毕业证相关，跳过该图片。")
                 continue
 
             if not (ocr_name and ocr_id):
-                print("    ✖ 阶段1未提取到完整姓名 + 身份证号，继续下一张...")
+                yield emit_log("    ✖ 阶段1未提取到完整姓名 + 身份证号，继续下一张...")
                 continue
 
             match_idx = find_matching_row_index(df, ocr_name, ocr_id, id_col, matched_indices)
             if match_idx is None:
-                print("    ✖ 在 Excel 中未找到匹配行（根据身份证号 / 姓名），继续下一张...")
+                yield emit_log("    ✖ 在 Excel 中未找到匹配行（根据身份证号 / 姓名），继续下一张...")
                 continue
 
             excel_name = df.at[match_idx, "姓名"]
@@ -658,9 +644,9 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
             matched_indices.add(match_idx)
             found_for_folder = True
 
-            print(f"  ✔ 阶段1成功匹配 Excel 行 {match_idx + 1}：姓名={ocr_name}，身份证号={ocr_id}")
-            print(f"  ✔ 与 Excel 比对结果：{result_str}")
-            print("  ✔ 停止该文件夹后续附件识别，继续下一个文件夹。\n")
+            yield emit_log(f"  ✔ 阶段1成功匹配 Excel 行 {match_idx + 1}：姓名={ocr_name}，身份证号={ocr_id}")
+            yield emit_log(f"  ✔ 与 Excel 比对结果：{result_str}")
+            yield emit_log("  ✔ 停止该文件夹后续附件识别，继续下一个文件夹。\n")
             break
 
         if found_for_folder:
@@ -677,26 +663,28 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
                 ratio_candidates.append(f)
 
         if ratio_candidates:
-            print(f"  [阶段2] 尺寸疑似身份证的图片: {ratio_candidates}")
+            yield emit_log(f"  [阶段2] 尺寸疑似身份证的图片: {ratio_candidates}")
 
         for f in ratio_candidates:
             img_path = os.path.join(folder_path, f)
-            print(f"  -> 阶段2识别：{f}")
-            ocr_name, ocr_id, full_text = ocr_id_from_image(ocr, img_path, crop_mode="id")
+            yield emit_log(f"  -> 阶段2识别：{f}")
+            
+            gen = ocr_id_from_image(ocr, img_path, crop_mode="id")
+            ocr_name, ocr_id, full_text = yield from gen
 
             processed_files.add(f)
 
             if "毕业" in (full_text or ""):
-                print("    ⚠️ 检测到 '毕业' 关键字，判定为毕业证相关，跳过该图片。")
+                yield emit_log("    ⚠️ 检测到 '毕业' 关键字，判定为毕业证相关，跳过该图片。")
                 continue
 
             if not (ocr_name and ocr_id):
-                print("    ✖ 阶段2未提取到完整姓名 + 身份证号，继续下一张...")
+                yield emit_log("    ✖ 阶段2未提取到完整姓名 + 身份证号，继续下一张...")
                 continue
 
             match_idx = find_matching_row_index(df, ocr_name, ocr_id, id_col, matched_indices)
             if match_idx is None:
-                print("    ✖ 在 Excel 中未找到匹配行（根据身份证号 / 姓名），继续下一张...")
+                yield emit_log("    ✖ 在 Excel 中未找到匹配行（根据身份证号 / 姓名），继续下一张...")
                 continue
 
             excel_name = df.at[match_idx, "姓名"]
@@ -713,9 +701,9 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
             matched_indices.add(match_idx)
             found_for_folder = True
 
-            print(f"  ✔ 阶段2成功匹配 Excel 行 {match_idx + 1}：姓名={ocr_name}，身份证号={ocr_id}")
-            print(f"  ✔ 与 Excel 比对结果：{result_str}")
-            print("  ✔ 停止该文件夹后续附件识别，继续下一个文件夹。\n")
+            yield emit_log(f"  ✔ 阶段2成功匹配 Excel 行 {match_idx + 1}：姓名={ocr_name}，身份证号={ocr_id}")
+            yield emit_log(f"  ✔ 与 Excel 比对结果：{result_str}")
+            yield emit_log("  ✔ 停止该文件夹后续附件识别，继续下一个文件夹。\n")
             break
 
         if found_for_folder:
@@ -724,25 +712,27 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
         # ===== 阶段 3：全量兜底识别剩余图片 =====
         rest_files = [f for f in files if f not in processed_files]
         if rest_files:
-            print(f"  [阶段3] 全量兜底识别剩余图片: {rest_files}")
+            yield emit_log(f"  [阶段3] 全量兜底识别剩余图片: {rest_files}")
 
         for f in rest_files:
             img_path = os.path.join(folder_path, f)
-            print(f"  -> 阶段3识别：{f}")
-            ocr_name, ocr_id, full_text = ocr_id_from_image(ocr, img_path, crop_mode="none")
+            yield emit_log(f"  -> 阶段3识别：{f}")
+            
+            gen = ocr_id_from_image(ocr, img_path, crop_mode="none")
+            ocr_name, ocr_id, full_text = yield from gen
 
             if "毕业" in (full_text or ""):
-                print("    ⚠️ 检测到 '毕业' 关键字，判定为毕业证相关，终止该文件夹后续识别。")
+                yield emit_log("    ⚠️ 检测到 '毕业' 关键字，判定为毕业证相关，终止该文件夹后续识别。")
                 stop_due_to_grad = True
                 break
 
             if not (ocr_name and ocr_id):
-                print("    ✖ 阶段3未提取到完整姓名 + 身份证号，继续下一张...")
+                yield emit_log("    ✖ 阶段3未提取到完整姓名 + 身份证号，继续下一张...")
                 continue
 
             match_idx = find_matching_row_index(df, ocr_name, ocr_id, id_col, matched_indices)
             if match_idx is None:
-                print("    ✖ 在 Excel 中未找到匹配行（根据身份证号 / 姓名），继续下一张...")
+                yield emit_log("    ✖ 在 Excel 中未找到匹配行（根据身份证号 / 姓名），继续下一张...")
                 continue
 
             excel_name = df.at[match_idx, "姓名"]
@@ -759,16 +749,16 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
             matched_indices.add(match_idx)
             found_for_folder = True
 
-            print(f"  ✔ 阶段3成功匹配 Excel 行 {match_idx + 1}：姓名={ocr_name}，身份证号={ocr_id}")
-            print(f"  ✔ 与 Excel 比对结果：{result_str}")
-            print("  ✔ 停止该文件夹后续附件识别，继续下一个文件夹。\n")
+            yield emit_log(f"  ✔ 阶段3成功匹配 Excel 行 {match_idx + 1}：姓名={ocr_name}，身份证号={ocr_id}")
+            yield emit_log(f"  ✔ 与 Excel 比对结果：{result_str}")
+            yield emit_log("  ✔ 停止该文件夹后续附件识别，继续下一个文件夹。\n")
             break
 
         if not found_for_folder:
             if stop_due_to_grad:
-                print("  ✖ 遇到毕业证相关图片，已提前终止该文件夹识别（未成功匹配到任何 Excel 行）。")
+                yield emit_log("  ✖ 遇到毕业证相关图片，已提前终止该文件夹识别（未成功匹配到任何 Excel 行）。")
             else:
-                print("  ✖ 该文件夹所有图片均未成功匹配到 Excel 中的人员记录。")
+                yield emit_log("  ✖ 该文件夹所有图片均未成功匹配到 Excel 中的人员记录。")
 
     # 4. 再兜一遍：仍为空的 OCR_比对结果统一置为"未识别"
     df["OCR_比对结果"] = df["OCR_比对结果"].replace("", "未识别")
@@ -776,12 +766,12 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
     # 5. 保存结果
     try:
         df.to_excel(target_excel_path, index=False)
-        print("=" * 60)
-        print(f"✅ 附件优先模式处理完成，结果已保存到：{target_excel_path}")
-        print("   新增列：OCR_姓名 / OCR_身份证号 / OCR_比对结果")
+        yield emit_log("=" * 60)
+        yield emit_log(f"✅ 附件优先模式处理完成，结果已保存到：{target_excel_path}")
+        yield emit_log("   新增列：OCR_姓名 / OCR_身份证号 / OCR_比对结果")
         return True
     except Exception as e:
-        print(f"❌ 保存结果失败: {e}")
+        yield emit_log(f"❌ 保存结果失败: {e}")
         return False
 
 
@@ -790,35 +780,26 @@ def run_ocr_process(
     source_folder: str,
     target_excel_path: str,
     mode: int = 1
-) -> Tuple[bool, List[str], str]:
+) -> Iterator[str]:
     """
-    OCR处理主入口函数
-
-    Args:
-        excel_path: 个人信息表Excel文件路径
-        source_folder: 附件文件夹路径
-        target_excel_path: 结果输出Excel文件路径
-        mode: 运行模式 (1=按Excel顺序, 2=按附件识别)
-
-    Returns:
-        Tuple[bool, List[str], str]: (是否成功, 日志列表, 消息)
+    OCR处理主入口函数 - 生成器模式
+    Yields: JSON string {"type": "log", "content": "..."} or {"type": "result", ...}
     """
-    with LogCapture() as log_capture:
-        try:
-            if mode == 2:
-                success = _run_attachment_first(excel_path, source_folder, target_excel_path)
-            else:
-                success = _run_excel_first(excel_path, source_folder, target_excel_path)
+    try:
+        if mode == 2:
+            gen = _run_attachment_first(excel_path, source_folder, target_excel_path)
+        else:
+            gen = _run_excel_first(excel_path, source_folder, target_excel_path)
 
-            if success:
-                message = "OCR处理完成"
-            else:
-                message = "OCR处理失败，请查看日志"
+        # 迭代生成器，传递日志
+        success = yield from gen
 
-        except Exception as e:
-            print(f"❌ 处理过程出错: {e}")
-            traceback.print_exc()
-            success = False
-            message = f"处理出错: {str(e)}"
+        if success:
+            yield json.dumps({"type": "result", "success": True, "message": "OCR处理完成"}, ensure_ascii=False) + "\n"
+        else:
+            yield json.dumps({"type": "result", "success": False, "message": "OCR处理失败，请查看日志"}, ensure_ascii=False) + "\n"
 
-    return success, log_capture.get_logs(), message
+    except Exception as e:
+        yield emit_log(f"❌ 处理过程出错: {e}")
+        traceback.print_exc()
+        yield json.dumps({"type": "result", "success": False, "message": f"处理出错: {str(e)}"}, ensure_ascii=False) + "\n"
