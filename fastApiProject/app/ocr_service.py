@@ -19,6 +19,8 @@ from paddleocr import PaddleOCR
 
 # 环境变量设置
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""  # 强制隐藏 GPU，使用 CPU
+os.environ["FLAGS_enable_mkldnn"] = "1"  # 尝试通过环境变量启用 MKLDNN
 logging.getLogger("ppocr").setLevel(logging.ERROR)
 
 # 配置常量
@@ -322,6 +324,23 @@ def find_matching_row_index(df, ocr_name, ocr_id, id_col, matched_indices):
     return None
 
 
+# ================= 全局 OCR 实例 (单例模式) =================
+_GLOBAL_OCR = None
+
+def get_ocr_engine():
+    """获取或初始化全局 OCR 引擎"""
+    global _GLOBAL_OCR
+    if _GLOBAL_OCR is None:
+        # 参考用户本地代码配置，保持完全一致
+        _GLOBAL_OCR = PaddleOCR(
+            lang="ch",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+        )
+    return _GLOBAL_OCR
+
+
 def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str) -> Iterator[str]:
     """模式1：按 Excel → 附件"""
     yield emit_log("=" * 60)
@@ -356,15 +375,14 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
         if col not in df.columns:
             df[col] = ""
 
-    # 2. 初始化 OCR 引擎
-    yield emit_log("正在初始化 PaddleOCR 引擎...")
-    ocr = PaddleOCR(
-        lang="ch",
-        use_doc_orientation_classify=False,
-        use_doc_unwarping=False,
-        use_textline_orientation=False,
-    )
-    yield emit_log("PaddleOCR 初始化完成！\n")
+    # 2. 获取全局 OCR 引擎
+    yield emit_log("正在获取 PaddleOCR 引擎 (MKLDNN 加速)...")
+    try:
+        ocr = get_ocr_engine()
+        yield emit_log("PaddleOCR 引擎就绪！\n")
+    except Exception as e:
+        yield emit_log(f"❌ 初始化 OCR 引擎失败: {e}")
+        return False
 
     # 3. 按行（每个人）处理
     total_rows = len(df)
@@ -415,7 +433,6 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
             img_path = os.path.join(person_folder, f)
             yield emit_log(f"  -> 阶段1识别：{f}")
             
-            # 调用 generator 并获取返回值
             gen = ocr_id_from_image(ocr, img_path, crop_mode="id")
             ocr_name, ocr_id, full_text = yield from gen
 
@@ -560,15 +577,14 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
 
     df["OCR_比对结果"] = df["OCR_比对结果"].replace("", "未识别")
 
-    # 2. 初始化 OCR 引擎
-    yield emit_log("正在初始化 PaddleOCR 引擎...")
-    ocr = PaddleOCR(
-        lang="ch",
-        use_doc_orientation_classify=False,
-        use_doc_unwarping=False,
-        use_textline_orientation=False,
-    )
-    yield emit_log("PaddleOCR 初始化完成！\n")
+    # 2. 获取全局 OCR 引擎
+    yield emit_log("正在获取 PaddleOCR 引擎 (MKLDNN 加速)...")
+    try:
+        ocr = get_ocr_engine()
+        yield emit_log("PaddleOCR 引擎就绪！\n")
+    except Exception as e:
+        yield emit_log(f"❌ 初始化 OCR 引擎失败: {e}")
+        return False
 
     matched_indices = set()
 
