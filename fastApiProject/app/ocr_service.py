@@ -30,8 +30,8 @@ os.environ["PADDLEX_DEVICE"] = "cpu"
 # 开启 MKLDNN（oneDNN）加速
 os.environ["FLAGS_use_mkldnn"] = "1"
 os.environ["FLAGS_enable_mkldnn"] = "1"
-# 线程数你也可以按需调大/调小
-os.environ.setdefault("OMP_NUM_THREADS", "4")
+# 线程数：设为物理核心数的 80% 左右效果最佳
+os.environ.setdefault("OMP_NUM_THREADS", "10")
 
 # 关闭 PaddleOCR 自己的日志
 logging.getLogger("ppocr").setLevel(logging.ERROR)
