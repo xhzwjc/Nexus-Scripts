@@ -1,8 +1,9 @@
+import json
 import os
 from io import BytesIO
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, HTTPException, Request, Query
+from fastapi import FastAPI, Depends, HTTPException, Request, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
@@ -687,94 +688,140 @@ from fastapi.responses import StreamingResponse
 @app.post("/ocr/process", tags=["OCR处理"])
 async def process_ocr(request: OCRProcessRequest):
     """
-    个人信息OCR比对处理 (流式响应)
-
-    支持两种运行模式：
-    - mode=1：按 Excel 顺序匹配附件（默认）
-    - mode=2：按 附件识别 → 反查匹配 Excel
-    
-    返回: NDJSON 流 (Newline Delimited JSON)
-    {"type": "log", "content": "..."}
-    {"type": "result", "success": true, "message": "..."}
+    本地路径模式（仅限本地运行，Docker中无法使用）
     """
-    try:
-        logger.info(f"收到OCR处理请求: excel_path={request.excel_path}, mode={request.mode}")
-
-        return StreamingResponse(
-            run_ocr_process(
-                excel_path=request.excel_path,
-                source_folder=request.source_folder,
-                target_excel_path=request.target_excel_path,
-                mode=request.mode
-            ),
-            media_type="application/x-ndjson"
-        )
-    except Exception as e:
-        logger.error(f"OCR处理启动出错: {str(e)}", exc_info=True)
-        # 启动失败直接返回错误（非流式）
-        raise HTTPException(status_code=500, detail=f"启动失败: {str(e)}")
+    return StreamingResponse(
+        run_ocr_process(
+            excel_path=request.excel_path,
+            source_folder=request.source_folder,
+            target_excel_path=request.target_excel_path,
+            mode=request.mode
+        ),
+        media_type="application/x-ndjson"
+    )
 
 
-# ================= 系统原生文件选择接口 =================
-import tkinter as tk
-from tkinter import filedialog
+# ================= OCR 文件上传模式（Docker专用）=================
+import shutil
+import tempfile
 
-def _open_file_dialog(dialog_type: str, **kwargs):
+# 输出目录（持久化，用于下载结果）
+OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
+if not os.path.exists(OUTPUTS_DIR):
+    os.makedirs(OUTPUTS_DIR)
+app.mount("/outputs", StaticFiles(directory=OUTPUTS_DIR), name="outputs")
+
+
+@app.post("/ocr/process-upload", tags=["OCR处理"])
+async def process_ocr_upload(
+    mode: int = Form(1),
+    excel_file: UploadFile = File(...),
+    image_files: List[UploadFile] = File(...)
+):
     """
-    在服务端打开原生文件对话框
-    注意：这只能在服务端和浏览器在同一台机器时使用
+    上传模式：接收 Excel 和图片文件，处理后返回结果下载链接
+    适用于 Docker 部署环境
     """
-    try:
-        # 初始化隐藏的主窗口
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)  # 确保窗口在最上层
-
-        if dialog_type == 'file':
-            result = filedialog.askopenfilename(**kwargs)
-        elif dialog_type == 'folder':
-            result = filedialog.askdirectory(**kwargs)
-        elif dialog_type == 'save':
-            result = filedialog.asksaveasfilename(**kwargs)
-        else:
-            result = ""
-        
-        root.destroy()
-        return result
-    except Exception as e:
-        logger.error(f"打开文件对话框失败: {e}")
-        return ""
-
-@app.get("/system/select-file", tags=["系统工具"])
-def select_file(file_types: str = "Excel Files|*.xlsx;*.xls"):
-    """打开原生文件选择框"""
-    # 解析文件类型过滤
-    types = []
-    if file_types:
-        parts = file_types.split('|')
-        if len(parts) == 2:
-            types.append((parts[0], parts[1]))
-    types.append(("All Files", "*.*"))
+    logger.info(f"OCR上传模式: mode={mode}, excel={excel_file.filename}, images={len(image_files)}个")
     
-    path = _open_file_dialog('file', title="请选择文件", filetypes=types)
-    return {"path": path}
-
-@app.get("/system/select-folder", tags=["系统工具"])
-def select_folder():
-    """打开原生文件夹选择框"""
-    path = _open_file_dialog('folder', title="请选择文件夹")
-    return {"path": path}
-
-@app.get("/system/save-file", tags=["系统工具"])
-def save_file(file_types: str = "Excel Files|*.xlsx"):
-    """打开原生保存文件框"""
-    types = []
-    if file_types:
-        parts = file_types.split('|')
-        if len(parts) == 2:
-            types.append((parts[0], parts[1]))
-    types.append(("All Files", "*.*"))
+    # 关键：在 generator 开始前读取所有文件内容到内存
+    # 避免 "I/O operation on closed file" 错误
+    excel_content = await excel_file.read()
+    excel_filename = excel_file.filename or "upload.xlsx"
     
-    path = _open_file_dialog('save', title="保存文件", filetypes=types, defaultextension=".xlsx")
-    return {"path": path}
+    # 读取所有图片文件
+    image_data_list = []
+    for img in image_files:
+        if img.filename:
+            content = await img.read()
+            # webkitRelativePath 会被浏览器作为 filename 传递
+            image_data_list.append({
+                "filename": img.filename,
+                "content": content
+            })
+    
+    # 打印第一个文件名看看目录结构
+    if image_data_list:
+        logger.info(f"图片文件示例: {image_data_list[0]['filename']}")
+    
+    def process_generator():
+        # 创建临时目录
+        temp_dir = tempfile.mkdtemp()
+        try:
+            temp_path = Path(temp_dir)
+            source_folder = temp_path / "source_images"
+            source_folder.mkdir()
+            
+            # 保存 Excel
+            excel_path = temp_path / excel_filename
+            with open(excel_path, "wb") as f:
+                f.write(excel_content)
+            
+            yield json.dumps({"type": "log", "content": f"已接收 Excel: {excel_filename}"}, ensure_ascii=False) + "\n"
+            yield json.dumps({"type": "log", "content": f"mode 参数值: {mode}"}, ensure_ascii=False) + "\n"
+            
+            # 保存图片（去掉第一层文件夹名，保持子目录结构）
+            # webkitdirectory 上传时：附件信息/张三/photo.jpg
+            # OCR 期望的结构：张三/photo.jpg
+            count = 0
+            first_folder_logged = False
+            for img_data in image_data_list:
+                original_path = img_data["filename"]
+                # 去掉第一层文件夹（用户选择的文件夹名）
+                parts = original_path.replace("\\", "/").split("/")
+                if len(parts) > 1:
+                    # 去掉第一个部分（如 "附件信息"）
+                    new_path = "/".join(parts[1:])
+                else:
+                    new_path = original_path
+                
+                if not first_folder_logged:
+                    yield json.dumps({"type": "log", "content": f"原始路径: {original_path} → 映射为: {new_path}"}, ensure_ascii=False) + "\n"
+                    first_folder_logged = True
+                
+                target_path = source_folder / new_path
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(target_path, "wb") as f:
+                    f.write(img_data["content"])
+                count += 1
+            
+            yield json.dumps({"type": "log", "content": f"已接收图片文件: {count} 个"}, ensure_ascii=False) + "\n"
 
+            # 准备输出路径
+            output_filename = f"ocr_result_{uuid.uuid4().hex[:8]}.xlsx"
+            target_excel_path = os.path.join(OUTPUTS_DIR, output_filename)
+            
+            # 调用 OCR
+            ocr_gen = run_ocr_process(
+                excel_path=str(excel_path),
+                source_folder=str(source_folder),
+                target_excel_path=target_excel_path,
+                mode=mode
+            )
+            
+            # 转发 OCR 日志
+            for item in ocr_gen:
+                yield item
+            
+            # 返回下载链接
+            if os.path.exists(target_excel_path):
+                yield json.dumps({
+                    "type": "result", 
+                    "success": True, 
+                    "message": "处理完成", 
+                    "download_url": f"outputs/{output_filename}"
+                }, ensure_ascii=False) + "\n"
+            else:
+                yield json.dumps({
+                    "type": "result", 
+                    "success": False, 
+                    "message": "未生成结果文件"
+                }, ensure_ascii=False) + "\n"
+        finally:
+            # 清理临时目录
+            try:
+                shutil.rmtree(temp_dir)
+            except Exception:
+                pass
+
+    return StreamingResponse(process_generator(), media_type="application/x-ndjson")

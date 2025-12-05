@@ -1,13 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
-import { ScrollArea } from './ui/scroll-area';
-import { ArrowLeft, Play, FileText, Folder, FileOutput, Loader2 } from 'lucide-react';
+import { ArrowLeft, Play, FileText, Folder, Loader2, Download } from 'lucide-react';
 import { toast } from 'sonner';
-import axios from 'axios';
 import { getApiBaseUrl } from '../lib/api';
 
 interface OCRScriptProps {
@@ -15,80 +13,73 @@ interface OCRScriptProps {
 }
 
 export default function OCRScript({ onBack }: OCRScriptProps) {
-    const [excelPath, setExcelPath] = useState('');
-    const [sourceFolder, setSourceFolder] = useState('');
-    const [targetExcelPath, setTargetExcelPath] = useState('');
+    // 文件选择
+    const [excelFile, setExcelFile] = useState<File | null>(null);
+    const [imageFiles, setImageFiles] = useState<File[]>([]);
     const [mode, setMode] = useState('1');
     const [isRunning, setIsRunning] = useState(false);
     const [logs, setLogs] = useState<string[]>([]);
+    const [downloadUrl, setDownloadUrl] = useState('');
 
-    // 滚动控制相关
-    const scrollRef = React.useRef<HTMLDivElement>(null);
+    // 滚动控制
+    const scrollRef = useRef<HTMLDivElement>(null);
     const [autoScroll, setAutoScroll] = useState(true);
+    const folderInputRef = useRef<HTMLInputElement>(null);
 
-    // 监听日志更新，自动滚动
-    React.useEffect(() => {
+    useEffect(() => {
         if (autoScroll && scrollRef.current) {
-            const div = scrollRef.current;
-            div.scrollTop = div.scrollHeight;
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
     }, [logs, autoScroll]);
 
-    // 监听用户手动滚动
+    // 设置 webkitdirectory 属性
+    useEffect(() => {
+        if (folderInputRef.current) {
+            folderInputRef.current.setAttribute('webkitdirectory', '');
+            folderInputRef.current.setAttribute('directory', '');
+        }
+    }, []);
+
     const handleScroll = () => {
         if (scrollRef.current) {
             const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-            // 如果距离底部小于 50px，则认为是“在底部”，开启自动滚动
-            // 否则认为是用户向上滚动了，关闭自动滚动
             const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
             setAutoScroll(isAtBottom);
         }
     };
 
-    const handleSelectFile = async () => {
-        try {
-            const base = getApiBaseUrl();
-            if (!base) return;
-            const res = await fetch(`${base}/system/select-file`);
-            const data = await res.json();
-            if (data.path) setExcelPath(data.path);
-        } catch (e) {
-            toast.error('选择文件失败');
+    const handleExcelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setExcelFile(file);
         }
     };
 
-    const handleSelectFolder = async () => {
-        try {
-            const base = getApiBaseUrl();
-            if (!base) return;
-            const res = await fetch(`${base}/system/select-folder`);
-            const data = await res.json();
-            if (data.path) setSourceFolder(data.path);
-        } catch (e) {
-            toast.error('选择文件夹失败');
-        }
-    };
-
-    const handleSaveFile = async () => {
-        try {
-            const base = getApiBaseUrl();
-            if (!base) return;
-            const res = await fetch(`${base}/system/save-file`);
-            const data = await res.json();
-            if (data.path) setTargetExcelPath(data.path);
-        } catch (e) {
-            toast.error('选择保存路径失败');
+    const handleFolderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            // 转换 FileList 为 File 数组
+            const fileArray: File[] = [];
+            for (let i = 0; i < files.length; i++) {
+                fileArray.push(files[i]);
+            }
+            setImageFiles(fileArray);
         }
     };
 
     const handleRun = async () => {
-        if (!excelPath || !sourceFolder || !targetExcelPath) {
-            toast.error('请填写所有路径');
+        if (!excelFile) {
+            toast.error('请选择 Excel 文件');
+            return;
+        }
+        if (imageFiles.length === 0) {
+            toast.error('请选择附件文件夹');
             return;
         }
 
         setIsRunning(true);
         setLogs([]);
+        setDownloadUrl('');
 
         try {
             const base = getApiBaseUrl();
@@ -97,17 +88,22 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                 return;
             }
 
-            const response = await fetch(`${base}/ocr/process`, {
+            // 构建 FormData
+            const formData = new FormData();
+            formData.append('mode', mode);
+            formData.append('excel_file', excelFile);
+
+            // 添加所有图片，使用 webkitRelativePath 保持目录结构
+            for (const file of imageFiles) {
+                const relativePath = (file as any).webkitRelativePath || file.name;
+                formData.append('image_files', file, relativePath);
+            }
+
+            setLogs(prev => [...prev, `📤 上传中: Excel(${excelFile.name}), 图片(${imageFiles.length}个)`]);
+
+            const response = await fetch(`${base}/ocr/process-upload`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    excel_path: excelPath,
-                    source_folder: sourceFolder,
-                    target_excel_path: targetExcelPath,
-                    mode: parseInt(mode)
-                }),
+                body: formData,
             });
 
             if (!response.ok) {
@@ -127,8 +123,6 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
 
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
-
-                // 处理完整的行，保留最后可能不完整的行在buffer中
                 buffer = lines.pop() || '';
 
                 for (const line of lines) {
@@ -140,17 +134,22 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                         } else if (data.type === 'result') {
                             if (data.success) {
                                 toast.success(data.message);
+                                setLogs(prev => [...prev, `✅ ${data.message}`]);
+                                if (data.download_url) {
+                                    setDownloadUrl(`${base}/${data.download_url}`);
+                                }
                             } else {
                                 toast.error(data.message);
+                                setLogs(prev => [...prev, `❌ ${data.message}`]);
                             }
                         }
                     } catch (e) {
-                        console.error('解析日志行失败:', line, e);
+                        console.error('解析日志失败:', line, e);
                     }
                 }
             }
 
-            // 处理剩余的buffer
+            // 处理剩余buffer
             if (buffer.trim()) {
                 try {
                     const data = JSON.parse(buffer);
@@ -159,12 +158,15 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                     } else if (data.type === 'result') {
                         if (data.success) {
                             toast.success(data.message);
+                            if (data.download_url) {
+                                setDownloadUrl(`${base}/${data.download_url}`);
+                            }
                         } else {
                             toast.error(data.message);
                         }
                     }
                 } catch (e) {
-                    // 忽略最后可能的不完整数据
+                    // ignore
                 }
             }
 
@@ -184,66 +186,50 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                 </Button>
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">个人信息OCR比对工具</h1>
-                    <p className="text-muted-foreground">自动识别身份证信息并与Excel表进行比对</p>
+                    <p className="text-muted-foreground">上传 Excel 和附件文件夹，自动识别并比对</p>
                 </div>
             </div>
 
             <div className="grid gap-6 md:grid-cols-2">
                 <Card className="md:col-span-2">
                     <CardHeader>
-                        <CardTitle>配置参数</CardTitle>
-                        <CardDescription>设置输入输出路径及运行模式</CardDescription>
+                        <CardTitle>上传文件</CardTitle>
+                        <CardDescription>选择 Excel 文件和包含图片的文件夹</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="space-y-2">
-                            <Label htmlFor="excel-path">个人信息表路径 (Excel)</Label>
-                            <div className="flex gap-2">
-                                <div className="relative flex-1">
-                                    <FileText className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        id="excel-path"
-                                        placeholder="C:\Users\...\个人信息表.xlsx"
-                                        className="pl-9"
-                                        value={excelPath}
-                                        onChange={(e) => setExcelPath(e.target.value)}
-                                    />
-                                </div>
-                                <Button variant="outline" onClick={handleSelectFile}>选择文件</Button>
+                            <Label htmlFor="excel-file">个人信息表 (Excel)</Label>
+                            <div className="relative">
+                                <FileText className="absolute left-3 top-3 h-4 w-4 text-muted-foreground pointer-events-none" />
+                                <Input
+                                    id="excel-file"
+                                    type="file"
+                                    accept=".xlsx,.xls"
+                                    className="pl-9 cursor-pointer"
+                                    onChange={handleExcelChange}
+                                />
                             </div>
+                            {excelFile && (
+                                <p className="text-sm text-green-600">✓ 已选择: {excelFile.name}</p>
+                            )}
                         </div>
 
                         <div className="space-y-2">
-                            <Label htmlFor="source-folder">附件文件夹路径</Label>
-                            <div className="flex gap-2">
-                                <div className="relative flex-1">
-                                    <Folder className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        id="source-folder"
-                                        placeholder="C:\Users\...\附件信息"
-                                        className="pl-9"
-                                        value={sourceFolder}
-                                        onChange={(e) => setSourceFolder(e.target.value)}
-                                    />
-                                </div>
-                                <Button variant="outline" onClick={handleSelectFolder}>选择文件夹</Button>
+                            <Label htmlFor="folder-input">附件文件夹（包含图片）</Label>
+                            <div className="relative">
+                                <Folder className="absolute left-3 top-3 h-4 w-4 text-muted-foreground pointer-events-none" />
+                                <input
+                                    id="folder-input"
+                                    ref={folderInputRef}
+                                    type="file"
+                                    multiple
+                                    className="flex h-10 w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm cursor-pointer file:border-0 file:bg-transparent file:text-sm file:font-medium"
+                                    onChange={handleFolderChange}
+                                />
                             </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label htmlFor="target-path">结果输出路径 (Excel)</Label>
-                            <div className="flex gap-2">
-                                <div className="relative flex-1">
-                                    <FileOutput className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        id="target-path"
-                                        placeholder="C:\Users\...\个人信息表_OCR对比结果.xlsx"
-                                        className="pl-9"
-                                        value={targetExcelPath}
-                                        onChange={(e) => setTargetExcelPath(e.target.value)}
-                                    />
-                                </div>
-                                <Button variant="outline" onClick={handleSaveFile}>选择保存位置</Button>
-                            </div>
+                            {imageFiles.length > 0 && (
+                                <p className="text-sm text-green-600">✓ 已选择: {imageFiles.length} 个文件</p>
+                            )}
                         </div>
 
                         <div className="space-y-3 pt-2">
@@ -260,12 +246,12 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                             </RadioGroup>
                         </div>
 
-                        <div className="pt-4">
-                            <Button className="w-full" onClick={handleRun} disabled={isRunning}>
+                        <div className="pt-4 flex gap-3">
+                            <Button className="flex-1" onClick={handleRun} disabled={isRunning || !excelFile || imageFiles.length === 0}>
                                 {isRunning ? (
                                     <>
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        正在处理中...
+                                        处理中...
                                     </>
                                 ) : (
                                     <>
@@ -274,6 +260,12 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                     </>
                                 )}
                             </Button>
+                            {downloadUrl && (
+                                <Button variant="outline" onClick={() => window.open(downloadUrl, '_blank')}>
+                                    <Download className="mr-2 h-4 w-4" />
+                                    下载结果
+                                </Button>
+                            )}
                         </div>
                     </CardContent>
                 </Card>
@@ -281,7 +273,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                 <Card className="md:col-span-2">
                     <CardHeader>
                         <CardTitle>执行日志</CardTitle>
-                        <CardDescription>实时显示处理进度和结果</CardDescription>
+                        <CardDescription>实时显示处理进度</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div
