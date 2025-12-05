@@ -8,6 +8,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { ArrowLeft, Play, FileText, Folder, FileOutput, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import axios from 'axios';
+import { getApiBaseUrl } from '../lib/api';
 
 interface OCRScriptProps {
     onBack: () => void;
@@ -46,7 +47,9 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
 
     const handleSelectFile = async () => {
         try {
-            const res = await fetch('http://localhost:8000/system/select-file');
+            const base = getApiBaseUrl();
+            if (!base) return;
+            const res = await fetch(`${base}/system/select-file`);
             const data = await res.json();
             if (data.path) setExcelPath(data.path);
         } catch (e) {
@@ -56,7 +59,9 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
 
     const handleSelectFolder = async () => {
         try {
-            const res = await fetch('http://localhost:8000/system/select-folder');
+            const base = getApiBaseUrl();
+            if (!base) return;
+            const res = await fetch(`${base}/system/select-folder`);
             const data = await res.json();
             if (data.path) setSourceFolder(data.path);
         } catch (e) {
@@ -66,7 +71,9 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
 
     const handleSaveFile = async () => {
         try {
-            const res = await fetch('http://localhost:8000/system/save-file');
+            const base = getApiBaseUrl();
+            if (!base) return;
+            const res = await fetch(`${base}/system/save-file`);
             const data = await res.json();
             if (data.path) setTargetExcelPath(data.path);
         } catch (e) {
@@ -84,7 +91,13 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
         setLogs([]);
 
         try {
-            const response = await fetch('http://localhost:8000/ocr/process', {
+            const base = getApiBaseUrl();
+            if (!base) {
+                setIsRunning(false);
+                return;
+            }
+
+            const response = await fetch(`${base}/ocr/process`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
