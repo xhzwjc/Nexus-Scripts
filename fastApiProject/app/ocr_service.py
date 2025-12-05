@@ -6,30 +6,44 @@ OCR Service - 个人信息OCR比对服务
 """
 import os
 import re
-import sys
 import json
 import logging
 import traceback
-from typing import List, Tuple, Optional, Iterator, Any
+from typing import Iterator, Any
 
 import cv2
 import numpy as np
 import pandas as pd
 from paddleocr import PaddleOCR
 
-# 环境变量设置
+# ===================== 环境变量：强制 CPU + MKLDNN =====================
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-os.environ["CUDA_VISIBLE_DEVICES"] = ""  # 强制隐藏 GPU，使用 CPU
-os.environ["FLAGS_enable_mkldnn"] = "1"  # 尝试通过环境变量启用 MKLDNN
+
+# 完全屏蔽各种 GPU 设备，让 Paddle / Paddlex 不再尝试 GPU
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["GPU_VISIBLE_DEVICES"] = ""
+os.environ["XPU_VISIBLE_DEVICES"] = ""
+os.environ["NPU_VISIBLE_DEVICES"] = ""
+# Paddlex 显式指定设备为 CPU
+os.environ["PADDLEX_DEVICE"] = "cpu"
+
+# 开启 MKLDNN（oneDNN）加速
+os.environ["FLAGS_use_mkldnn"] = "1"
+os.environ["FLAGS_enable_mkldnn"] = "1"
+# 线程数你也可以按需调大/调小
+os.environ.setdefault("OMP_NUM_THREADS", "4")
+
+# 关闭 PaddleOCR 自己的日志
 logging.getLogger("ppocr").setLevel(logging.ERROR)
 
-# 配置常量
-MAX_SIDE = 960
-FOLDER_KEY_COLUMN = "姓名"
-ENABLE_ID_CROP = False
-DEBUG = True
+# ===================== 配置常量 =====================
+MAX_SIDE = 960              # 图片最长边统一压到 960 像素
+FOLDER_KEY_COLUMN = "姓名"   # 每个人附件文件夹名，对应 Excel 的哪一列
+ENABLE_ID_CROP = False      # 是否对身份证裁剪左上区域
+DEBUG = True                # 是否输出详细 OCR 分段日志
 
 
+# ===================== 工具函数 =====================
 def cv2_imread_chinese(path: str):
     """支持中文路径读图"""
     try:
@@ -60,20 +74,16 @@ def crop_for_idcard(img):
         return img
 
     if not ENABLE_ID_CROP:
-        # if DEBUG:
-        #     print("    [裁剪] 身份证裁剪关闭 → 使用整图")
+        # 不裁剪，直接用整图
         return img
 
+    # 身份证一般 1.3~2.2，宽大于高
     aspect = w / h
     if 1.3 <= aspect <= 2.2:
         y0, y1 = 0, int(0.5 * h)
         x0, x1 = 0, int(0.7 * w)
-        # if DEBUG:
-        #     print(f"    [裁剪] 身份证布局 → 左上区域 ({x0}:{x1}, {y0}:{y1})")
         return img[y0:y1, x0:x1]
     else:
-        # if DEBUG:
-        #     print(f"    [裁剪] 宽高比={aspect:.2f} 不像身份证 → 不裁剪")
         return img
 
 
@@ -240,10 +250,11 @@ def is_ratio_id_candidate(img) -> bool:
 
 
 def emit_log(msg: str):
-    """构造日志消息"""
+    """构造日志消息（流式返回到前端）"""
     return json.dumps({"type": "log", "content": msg}, ensure_ascii=False) + "\n"
 
 
+# ===================== 单张图片 OCR（生成器） =====================
 def ocr_id_from_image(ocr: PaddleOCR, img_path: str, crop_mode: str = "id") -> Iterator[Any]:
     """
     对单张图片做 OCR，尝试抽取姓名 & 身份证号。
@@ -268,7 +279,6 @@ def ocr_id_from_image(ocr: PaddleOCR, img_path: str, crop_mode: str = "id") -> I
             result = ocr.ocr(img)
         except Exception as e:
             yield emit_log(f"    ❌ OCR 调用出错：{e}")
-            # traceback.print_exc()
             return None, None, ""
 
     full_text, fragments = parse_ocr_result(result)
@@ -324,14 +334,18 @@ def find_matching_row_index(df, ocr_name, ocr_id, id_col, matched_indices):
     return None
 
 
-# ================= 全局 OCR 实例 (单例模式) =================
-_GLOBAL_OCR = None
+# ===================== 全局 OCR 单例 =====================
+_GLOBAL_OCR: PaddleOCR | None = None
 
-def get_ocr_engine():
-    """获取或初始化全局 OCR 引擎"""
+
+def get_ocr_engine() -> PaddleOCR:
+    """
+    获取或初始化全局 OCR 引擎。
+    整个 FastAPI 进程里只初始化一次，后续所有请求复用。
+    """
     global _GLOBAL_OCR
     if _GLOBAL_OCR is None:
-        # 参考用户本地代码配置，保持完全一致
+        # 和你本地脚本完全一致的初始化参数
         _GLOBAL_OCR = PaddleOCR(
             lang="ch",
             use_doc_orientation_classify=False,
@@ -341,6 +355,7 @@ def get_ocr_engine():
     return _GLOBAL_OCR
 
 
+# ===================== 模式1：Excel → 附件 =====================
 def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str) -> Iterator[str]:
     """模式1：按 Excel → 附件"""
     yield emit_log("=" * 60)
@@ -376,7 +391,7 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
             df[col] = ""
 
     # 2. 获取全局 OCR 引擎
-    yield emit_log("正在获取 PaddleOCR 引擎 (MKLDNN 加速)...")
+    yield emit_log("正在获取 PaddleOCR 引擎 (CPU + oneDNN)...")
     try:
         ocr = get_ocr_engine()
         yield emit_log("PaddleOCR 引擎就绪！\n")
@@ -432,7 +447,7 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
         for f in priority_files:
             img_path = os.path.join(person_folder, f)
             yield emit_log(f"  -> 阶段1识别：{f}")
-            
+
             gen = ocr_id_from_image(ocr, img_path, crop_mode="id")
             ocr_name, ocr_id, full_text = yield from gen
 
@@ -471,7 +486,7 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
         for f in ratio_candidates:
             img_path = os.path.join(person_folder, f)
             yield emit_log(f"  -> 阶段2识别：{f}")
-            
+
             gen = ocr_id_from_image(ocr, img_path, crop_mode="id")
             ocr_name, ocr_id, full_text = yield from gen
 
@@ -502,10 +517,11 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
         for f in rest_files:
             img_path = os.path.join(person_folder, f)
             yield emit_log(f"  -> 阶段3识别：{f}")
-            
+
             gen = ocr_id_from_image(ocr, img_path, crop_mode="none")
             ocr_name, ocr_id, full_text = yield from gen
 
+            # 如果识别到“毕业”，直接中断该人员识别
             if "毕业" in (full_text or ""):
                 yield emit_log("    ⚠️ 检测到 '毕业' 关键字，判定为毕业证相关，终止该人员后续识别。")
                 stop_due_to_grad = True
@@ -544,6 +560,7 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
         return False
 
 
+# ===================== 模式2：附件 → Excel =====================
 def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path: str) -> Iterator[str]:
     """模式2：按 附件 → Excel 匹配"""
     yield emit_log("=" * 60)
@@ -578,7 +595,7 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
     df["OCR_比对结果"] = df["OCR_比对结果"].replace("", "未识别")
 
     # 2. 获取全局 OCR 引擎
-    yield emit_log("正在获取 PaddleOCR 引擎 (MKLDNN 加速)...")
+    yield emit_log("正在获取 PaddleOCR 引擎 (CPU + oneDNN)...")
     try:
         ocr = get_ocr_engine()
         yield emit_log("PaddleOCR 引擎就绪！\n")
@@ -627,7 +644,7 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
         for f in priority_files:
             img_path = os.path.join(folder_path, f)
             yield emit_log(f"  -> 阶段1识别：{f}")
-            
+
             gen = ocr_id_from_image(ocr, img_path, crop_mode="id")
             ocr_name, ocr_id, full_text = yield from gen
 
@@ -684,7 +701,7 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
         for f in ratio_candidates:
             img_path = os.path.join(folder_path, f)
             yield emit_log(f"  -> 阶段2识别：{f}")
-            
+
             gen = ocr_id_from_image(ocr, img_path, crop_mode="id")
             ocr_name, ocr_id, full_text = yield from gen
 
@@ -733,7 +750,7 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
         for f in rest_files:
             img_path = os.path.join(folder_path, f)
             yield emit_log(f"  -> 阶段3识别：{f}")
-            
+
             gen = ocr_id_from_image(ocr, img_path, crop_mode="none")
             ocr_name, ocr_id, full_text = yield from gen
 
@@ -791,15 +808,19 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
         return False
 
 
+# ===================== 对外主入口（给 FastAPI 调用） =====================
 def run_ocr_process(
-    excel_path: str,
-    source_folder: str,
-    target_excel_path: str,
-    mode: int = 1
+        excel_path: str,
+        source_folder: str,
+        target_excel_path: str,
+        mode: int = 1
 ) -> Iterator[str]:
     """
     OCR处理主入口函数 - 生成器模式
     Yields: JSON string {"type": "log", "content": "..."} or {"type": "result", ...}
+    mode:
+        1 -> 按 Excel 顺序匹配附件
+        2 -> 按 附件 → 反查匹配 Excel
     """
     try:
         if mode == 2:
@@ -807,15 +828,23 @@ def run_ocr_process(
         else:
             gen = _run_excel_first(excel_path, source_folder, target_excel_path)
 
-        # 迭代生成器，传递日志
         success = yield from gen
 
         if success:
-            yield json.dumps({"type": "result", "success": True, "message": "OCR处理完成"}, ensure_ascii=False) + "\n"
+            yield json.dumps(
+                {"type": "result", "success": True, "message": "OCR处理完成"},
+                ensure_ascii=False
+            ) + "\n"
         else:
-            yield json.dumps({"type": "result", "success": False, "message": "OCR处理失败，请查看日志"}, ensure_ascii=False) + "\n"
+            yield json.dumps(
+                {"type": "result", "success": False, "message": "OCR处理失败，请查看日志"},
+                ensure_ascii=False
+            ) + "\n"
 
     except Exception as e:
         yield emit_log(f"❌ 处理过程出错: {e}")
         traceback.print_exc()
-        yield json.dumps({"type": "result", "success": False, "message": f"处理出错: {str(e)}"}, ensure_ascii=False) + "\n"
+        yield json.dumps(
+            {"type": "result", "success": False, "message": f"处理出错: {str(e)}"},
+            ensure_ascii=False
+        ) + "\n"
