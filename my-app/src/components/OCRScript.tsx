@@ -21,6 +21,29 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
     const [isRunning, setIsRunning] = useState(false);
     const [logs, setLogs] = useState<string[]>([]);
 
+    // 滚动控制相关
+    const scrollRef = React.useRef<HTMLDivElement>(null);
+    const [autoScroll, setAutoScroll] = useState(true);
+
+    // 监听日志更新，自动滚动
+    React.useEffect(() => {
+        if (autoScroll && scrollRef.current) {
+            const div = scrollRef.current;
+            div.scrollTop = div.scrollHeight;
+        }
+    }, [logs, autoScroll]);
+
+    // 监听用户手动滚动
+    const handleScroll = () => {
+        if (scrollRef.current) {
+            const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+            // 如果距离底部小于 50px，则认为是“在底部”，开启自动滚动
+            // 否则认为是用户向上滚动了，关闭自动滚动
+            const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+            setAutoScroll(isAtBottom);
+        }
+    };
+
     const handleSelectFile = async () => {
         try {
             const res = await fetch('http://localhost:8000/system/select-file');
@@ -248,7 +271,11 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                         <CardDescription>实时显示处理进度和结果</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <ScrollArea className="h-[300px] w-full rounded-md border p-4 bg-slate-950 text-slate-50 font-mono text-sm">
+                        <div
+                            ref={scrollRef}
+                            onScroll={handleScroll}
+                            className="h-[300px] w-full rounded-md border p-4 bg-slate-950 text-slate-50 font-mono text-sm overflow-y-auto"
+                        >
                             {logs.length === 0 ? (
                                 <div className="text-slate-500 italic">等待执行...</div>
                             ) : (
@@ -258,7 +285,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                     </div>
                                 ))
                             )}
-                        </ScrollArea>
+                        </div>
                     </CardContent>
                 </Card>
             </div>
