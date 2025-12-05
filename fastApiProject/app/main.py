@@ -714,3 +714,67 @@ async def process_ocr(request: OCRProcessRequest):
         # 启动失败直接返回错误（非流式）
         raise HTTPException(status_code=500, detail=f"启动失败: {str(e)}")
 
+
+# ================= 系统原生文件选择接口 =================
+import tkinter as tk
+from tkinter import filedialog
+
+def _open_file_dialog(dialog_type: str, **kwargs):
+    """
+    在服务端打开原生文件对话框
+    注意：这只能在服务端和浏览器在同一台机器时使用
+    """
+    try:
+        # 初始化隐藏的主窗口
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)  # 确保窗口在最上层
+
+        if dialog_type == 'file':
+            result = filedialog.askopenfilename(**kwargs)
+        elif dialog_type == 'folder':
+            result = filedialog.askdirectory(**kwargs)
+        elif dialog_type == 'save':
+            result = filedialog.asksaveasfilename(**kwargs)
+        else:
+            result = ""
+        
+        root.destroy()
+        return result
+    except Exception as e:
+        logger.error(f"打开文件对话框失败: {e}")
+        return ""
+
+@app.get("/system/select-file", tags=["系统工具"])
+def select_file(file_types: str = "Excel Files|*.xlsx;*.xls"):
+    """打开原生文件选择框"""
+    # 解析文件类型过滤
+    types = []
+    if file_types:
+        parts = file_types.split('|')
+        if len(parts) == 2:
+            types.append((parts[0], parts[1]))
+    types.append(("All Files", "*.*"))
+    
+    path = _open_file_dialog('file', title="请选择文件", filetypes=types)
+    return {"path": path}
+
+@app.get("/system/select-folder", tags=["系统工具"])
+def select_folder():
+    """打开原生文件夹选择框"""
+    path = _open_file_dialog('folder', title="请选择文件夹")
+    return {"path": path}
+
+@app.get("/system/save-file", tags=["系统工具"])
+def save_file(file_types: str = "Excel Files|*.xlsx"):
+    """打开原生保存文件框"""
+    types = []
+    if file_types:
+        parts = file_types.split('|')
+        if len(parts) == 2:
+            types.append((parts[0], parts[1]))
+    types.append(("All Files", "*.*"))
+    
+    path = _open_file_dialog('save', title="保存文件", filetypes=types, defaultextension=".xlsx")
+    return {"path": path}
+

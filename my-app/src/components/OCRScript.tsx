@@ -21,6 +21,36 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
     const [isRunning, setIsRunning] = useState(false);
     const [logs, setLogs] = useState<string[]>([]);
 
+    const handleSelectFile = async () => {
+        try {
+            const res = await fetch('http://localhost:8000/system/select-file');
+            const data = await res.json();
+            if (data.path) setExcelPath(data.path);
+        } catch (e) {
+            toast.error('选择文件失败');
+        }
+    };
+
+    const handleSelectFolder = async () => {
+        try {
+            const res = await fetch('http://localhost:8000/system/select-folder');
+            const data = await res.json();
+            if (data.path) setSourceFolder(data.path);
+        } catch (e) {
+            toast.error('选择文件夹失败');
+        }
+    };
+
+    const handleSaveFile = async () => {
+        try {
+            const res = await fetch('http://localhost:8000/system/save-file');
+            const data = await res.json();
+            if (data.path) setTargetExcelPath(data.path);
+        } catch (e) {
+            toast.error('选择保存路径失败');
+        }
+    };
+
     const handleRun = async () => {
         if (!excelPath || !sourceFolder || !targetExcelPath) {
             toast.error('请填写所有路径');
@@ -61,7 +91,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
 
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
-                
+
                 // 处理完整的行，保留最后可能不完整的行在buffer中
                 buffer = lines.pop() || '';
 
@@ -83,10 +113,10 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                     }
                 }
             }
-            
+
             // 处理剩余的buffer
             if (buffer.trim()) {
-                 try {
+                try {
                     const data = JSON.parse(buffer);
                     if (data.type === 'log') {
                         setLogs(prev => [...prev, data.content]);
@@ -131,43 +161,52 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                     <CardContent className="space-y-4">
                         <div className="space-y-2">
                             <Label htmlFor="excel-path">个人信息表路径 (Excel)</Label>
-                            <div className="relative">
-                                <FileText className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                                <Input 
-                                    id="excel-path" 
-                                    placeholder="C:\Users\...\个人信息表.xlsx" 
-                                    className="pl-9"
-                                    value={excelPath}
-                                    onChange={(e) => setExcelPath(e.target.value)}
-                                />
+                            <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                    <FileText className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        id="excel-path"
+                                        placeholder="C:\Users\...\个人信息表.xlsx"
+                                        className="pl-9"
+                                        value={excelPath}
+                                        onChange={(e) => setExcelPath(e.target.value)}
+                                    />
+                                </div>
+                                <Button variant="outline" onClick={handleSelectFile}>选择文件</Button>
                             </div>
                         </div>
 
                         <div className="space-y-2">
                             <Label htmlFor="source-folder">附件文件夹路径</Label>
-                            <div className="relative">
-                                <Folder className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                                <Input 
-                                    id="source-folder" 
-                                    placeholder="C:\Users\...\附件信息" 
-                                    className="pl-9"
-                                    value={sourceFolder}
-                                    onChange={(e) => setSourceFolder(e.target.value)}
-                                />
+                            <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                    <Folder className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        id="source-folder"
+                                        placeholder="C:\Users\...\附件信息"
+                                        className="pl-9"
+                                        value={sourceFolder}
+                                        onChange={(e) => setSourceFolder(e.target.value)}
+                                    />
+                                </div>
+                                <Button variant="outline" onClick={handleSelectFolder}>选择文件夹</Button>
                             </div>
                         </div>
 
                         <div className="space-y-2">
                             <Label htmlFor="target-path">结果输出路径 (Excel)</Label>
-                            <div className="relative">
-                                <FileOutput className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                                <Input 
-                                    id="target-path" 
-                                    placeholder="C:\Users\...\个人信息表_OCR对比结果.xlsx" 
-                                    className="pl-9"
-                                    value={targetExcelPath}
-                                    onChange={(e) => setTargetExcelPath(e.target.value)}
-                                />
+                            <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                    <FileOutput className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        id="target-path"
+                                        placeholder="C:\Users\...\个人信息表_OCR对比结果.xlsx"
+                                        className="pl-9"
+                                        value={targetExcelPath}
+                                        onChange={(e) => setTargetExcelPath(e.target.value)}
+                                    />
+                                </div>
+                                <Button variant="outline" onClick={handleSaveFile}>选择保存位置</Button>
                             </div>
                         </div>
 
