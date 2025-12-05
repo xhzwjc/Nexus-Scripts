@@ -247,11 +247,12 @@ def is_ratio_id_candidate(img) -> bool:
         return False
     aspect = w / h
     return 1.5 <= aspect <= 1.7
-
+from datetime import datetime
 
 def emit_log(msg: str):
-    """构造日志消息（流式返回到前端）"""
-    return json.dumps({"type": "log", "content": msg}, ensure_ascii=False) + "\n"
+    """构造日志消息（流式返回到前端），带时间戳"""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    return json.dumps({"type": "log", "content": f"[{timestamp}] {msg}"}, ensure_ascii=False) + "\n"
 
 
 # ===================== 单张图片 OCR（生成器） =====================
