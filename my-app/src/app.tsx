@@ -43,7 +43,7 @@ import TaxCalculationScript from "@/components/TaxCalculatorScript";
 import OCRScript from "@/components/OCRScript";
 
 // 角色类型与权限映射
-type Role = 'admin' | 'operator' | 'custom' | 'QA';
+type Role = 'admin' | 'operator' | 'custom' | 'QA' | 'PM';
 
 interface Permission {
     [scriptId: string]: boolean;
@@ -100,7 +100,21 @@ const keyUserMap: Record<string, User> = {
             'tax-calculation': true
         },
         name: 'JC'
-    }
+    },
+    // 经理
+    'U5*mO~yW6%LxJ3dQ0nHaD8~L0bV&cXoM9uA2j': {
+        role: 'PM',
+        permissions: {
+            'settlement': true,
+            'commission': true,
+            'balance': true,
+            'task-automation': true,
+            'sms_operations_center': true,
+            'tax-reporting': true,
+            'tax-calculation': true
+        },
+        name: '**'
+    },
 };
 
 interface Script {
