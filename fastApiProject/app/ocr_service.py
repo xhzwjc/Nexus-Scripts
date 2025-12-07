@@ -415,9 +415,18 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
             df.at[idx, "OCR_比对结果"] = "未识别"
             continue
 
-        person_folder = os.path.join(source_folder, folder_key)
-        if not os.path.isdir(person_folder):
-            yield emit_log(f"  ⚠️ 未找到附件文件夹：{person_folder}，标记为未识别")
+        # 递归查找匹配的文件夹
+        person_folder = None
+        for root, dirs, files in os.walk(source_folder):
+            for dir_name in dirs:
+                if dir_name == folder_key:
+                    person_folder = os.path.join(root, dir_name)
+                    break
+            if person_folder:
+                break
+        
+        if not person_folder or not os.path.isdir(person_folder):
+            yield emit_log(f"  ⚠️ 未找到附件文件夹：{folder_key}，标记为未识别")
             df.at[idx, "OCR_比对结果"] = "未识别"
             continue
 
@@ -606,22 +615,31 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
 
     matched_indices = set()
 
-    # 3. 遍历附件根目录下的每一个子文件夹
+    # 3. 递归遍历附件根目录下的所有子文件夹
     if not os.path.isdir(source_folder):
         yield emit_log(f"❌ 附件根目录不存在：{source_folder}")
         return False
 
-    subfolders = [
-        d for d in os.listdir(source_folder)
-        if os.path.isdir(os.path.join(source_folder, d))
-    ]
-    yield emit_log(f"在附件根目录下发现 {len(subfolders)} 个子文件夹：{subfolders}")
+    # 获取所有子文件夹（递归查找）
+    all_subfolders = []
+    for root, dirs, files in os.walk(source_folder):
+        for dir_name in dirs:
+            # 计算相对路径，避免显示完整的临时目录
+            relative_path = os.path.relpath(os.path.join(root, dir_name), source_folder)
+            all_subfolders.append({
+                "name": relative_path,
+                "path": os.path.join(root, dir_name)
+            })
+    
+    yield emit_log(f"在附件根目录下发现 {len(all_subfolders)} 个子文件夹（递归）")
 
-    for folder_name in subfolders:
-        folder_path = os.path.join(source_folder, folder_name)
+    for folder in all_subfolders:
+        folder_name = folder["name"]
+        folder_path = folder["path"]
         yield emit_log("-" * 60)
         yield emit_log(f"处理附件文件夹：{folder_name}")
 
+        # 查找当前文件夹下的所有图片
         files = [
             f for f in os.listdir(folder_path)
             if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"))

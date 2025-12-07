@@ -760,20 +760,19 @@ async def process_ocr_upload(
             yield json.dumps({"type": "log", "content": f"已接收 Excel: {excel_filename}"}, ensure_ascii=False) + "\n"
             yield json.dumps({"type": "log", "content": f"mode 参数值: {mode}"}, ensure_ascii=False) + "\n"
             
-            # 保存图片（去掉第一层文件夹名，保持子目录结构）
+            # 保存图片（保持完整的子目录结构）
             # webkitdirectory 上传时：附件信息/张三/photo.jpg
-            # OCR 期望的结构：张三/photo.jpg
             count = 0
             first_folder_logged = False
             for img_data in image_data_list:
                 original_path = img_data["filename"]
-                # 去掉第一层文件夹（用户选择的文件夹名）
+                # 解析完整的路径结构
                 parts = original_path.replace("\\", "/").split("/")
-                if len(parts) > 1:
-                    # 去掉第一个部分（如 "附件信息"）
-                    new_path = "/".join(parts[1:])
-                else:
-                    new_path = original_path
+                
+                # 处理路径结构：
+                # - 如果路径包含多层，直接使用完整结构（保留所有子目录）
+                # - 例如：附件信息/附件信息/王京川/111111.jpg → 保持完整结构
+                new_path = "/".join(parts)
                 
                 if not first_folder_logged:
                     yield json.dumps({"type": "log", "content": f"原始路径: {original_path} → 映射为: {new_path}"}, ensure_ascii=False) + "\n"
