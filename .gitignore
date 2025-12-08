@@ -13,3 +13,5 @@ docker-compose.local.yml
 
 .idea
 *.iml
+
+**/ven/
