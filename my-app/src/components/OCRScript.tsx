@@ -8,6 +8,11 @@ import { ArrowLeft, Play, FileText, Folder, Loader2, Download, AlertTriangle } f
 import { toast } from 'sonner';
 import { getApiBaseUrl } from '../lib/api';
 
+// Extend File interface to include webkitRelativePath (used by directory upload)
+interface FileWithPath extends File {
+    readonly webkitRelativePath: string;
+}
+
 interface OCRScriptProps {
     onBack: () => void;
 }
@@ -93,7 +98,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
             formData.append('excel_file', excelFile);
 
             for (const file of imageFiles) {
-                const relativePath = (file as any).webkitRelativePath || file.name;
+                const relativePath = (file as FileWithPath).webkitRelativePath || file.name;
                 formData.append('image_files', file, relativePath);
             }
 
@@ -158,9 +163,10 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                 } catch (e) { }
             }
 
-        } catch (error: any) {
-            toast.error('请求失败: ' + error.message);
-            setLogs(prev => [...prev, `❌ 错误: ${error.message}`]);
+        } catch (error: unknown) {
+            const errMsg = error instanceof Error ? error.message : String(error);
+            toast.error('请求失败: ' + errMsg);
+            setLogs(prev => [...prev, `❌ 错误: ${errMsg}`]);
         } finally {
             setIsRunning(false);
         }
