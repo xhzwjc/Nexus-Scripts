@@ -248,11 +248,33 @@ def is_ratio_id_candidate(img) -> bool:
     aspect = w / h
     return 1.5 <= aspect <= 1.7
 from datetime import datetime
+import sys
+
+# 创建 OCR 专用 logger，确保立即输出
+ocr_logger = logging.getLogger("ocr_service")
+ocr_logger.setLevel(logging.INFO)
+ocr_logger.propagate = False  # 禁止传播到父logger，避免重复输出
+
+# 确保有handler
+if not ocr_logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.INFO)
+    handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    ocr_logger.addHandler(handler)
 
 def emit_log(msg: str):
-    """构造日志消息（流式返回到前端），带时间戳"""
+    """
+    构造日志消息（流式返回到前端），带时间戳
+    同时写入后端日志，保证 Docker logs 可查看
+    """
     timestamp = datetime.now().strftime("%H:%M:%S")
-    return json.dumps({"type": "log", "content": f"[{timestamp}] {msg}"}, ensure_ascii=False) + "\n"
+    formatted_msg = f"[{timestamp}] {msg}"
+    
+    # 同时写入后端日志并立即刷新
+    ocr_logger.info(f"[OCR] {msg}")
+    sys.stdout.flush()
+    
+    return json.dumps({"type": "log", "content": formatted_msg}, ensure_ascii=False) + "\n"
 
 
 # ===================== 单张图片 OCR（生成器） =====================

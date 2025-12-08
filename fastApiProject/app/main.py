@@ -87,6 +87,8 @@ def get_balance_service(request: BalanceVerificationRequest):
     """根据请求中的environment创建AccountBalanceService实例"""
     return AccountBalanceService(environment=request.environment)
 
+import time as _time
+
 @app.post("/settlement/process", response_model=SettlementResponse, tags=["结算处理"])
 async def process_settlement(
         request: SettlementRequest,
@@ -94,45 +96,63 @@ async def process_settlement(
 ):
     """
     处理企业结算任务
-
-    支持并发或顺序处理多个企业的结算任务，包括：
-    - 发起结算
-    - 重新发起结算
-    - 批次下结算单单独发起
     """
+    request_id = str(uuid.uuid4())
+    start_time = _time.time()
+    logger.info(f"[结算处理] 开始 | 请求ID: {request_id}")
+    logger.info(f"[结算处理] 参数: 企业数量={len(request.enterprises)}, 并发={request.concurrent}")
+    
     try:
-        logger.info(f"收到结算请求: {request.dict(exclude={'enterprises': {'__all__': ['token']}})}")  # 不打印token
         result = service.process_settlement(request)
+        elapsed = round(_time.time() - start_time, 2)
+        logger.info(f"[结算处理] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 成功: {result.success}")
         return result
     except Exception as e:
-        logger.error(f"结算API处理出错: {str(e)}", exc_info=True)
+        elapsed = round(_time.time() - start_time, 2)
+        logger.error(f"[结算处理] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"处理结算请求时发生错误: {str(e)}")
 
 # 账户核对接口（新增）
 @app.post("/balance/verify", response_model=BalanceVerificationResponse, tags=["账户核对"])
 async def verify_balance(
     request: BalanceVerificationRequest,
-    # Use the helper function as dependency
     service: AccountBalanceService = Depends(get_balance_service)
 ):
+    request_id = str(uuid.uuid4())
+    start_time = _time.time()
+    logger.info(f"[余额核对] 开始 | 请求ID: {request_id}")
+    logger.info(f"[余额核对] 参数: 企业ID={request.tenant_id}, 环境={request.environment}, 超时={request.timeout}秒")
+    
     try:
-        logger.info(f"收到余额核对请求: 企业ID={request.tenant_id}, 环境={request.environment}, 超时={request.timeout}秒")
-        # 调用服务时传入租户ID和超时时间
         result = service.verify_balances_with_timeout(
             tenant_id=request.tenant_id,
             timeout=request.timeout
         )
+        elapsed = round(_time.time() - start_time, 2)
+        data_count = len(result) if result else 0
+        logger.info(f"[余额核对] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 数据条数: {data_count}")
+        
+        # 记录响应数据摘要
+        if result:
+            for item in result[:3]:  # 最多记录前3条
+                logger.info(f"[余额核对] 响应数据: 账户={item.get('enterprise_name', 'N/A') + '_' + item.get('tax_address', 'N/A')}, 余额={item.get('actual_balance', 'N/A')}")
+            if len(result) > 3:
+                logger.info(f"[余额核对] ... 共 {len(result)} 条数据")
+        
         return {
             "success": True,
             "message": "核对完成" if result else "未找到企业数据",
             "data": result,
-            "request_id": str(uuid.uuid4()),
+            "request_id": request_id,
             "enterprise_id": request.tenant_id
         }
     except TimeoutError as e:
+        elapsed = round(_time.time() - start_time, 2)
+        logger.warning(f"[余额核对] 超时 | 请求ID: {request_id} | 耗时: {elapsed}秒")
         raise HTTPException(status_code=408, detail=str(e))
     except Exception as e:
-        logger.error(f"余额核对出错: {str(e)}", exc_info=True)
+        elapsed = round(_time.time() - start_time, 2)
+        logger.error(f"[余额核对] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -149,18 +169,19 @@ async def calculate_commission(
         request: CommissionCalculationRequest,
         service: CommissionCalculationService = Depends(get_commission_service)
 ):
+    request_id = str(uuid.uuid4())
+    start_time = _time.time()
+    logger.info(f"[佣金计算] 开始 | 请求ID: {request_id}")
+    logger.info(f"[佣金计算] 参数: 渠道ID={request.channel_id}, 环境={request.environment}, 超时={request.timeout}秒")
+    
     try:
-        request_id = str(uuid.uuid4())
-        logger.info(
-            f"收到佣金计算请求: 渠道ID={request.channel_id}, 环境={request.environment}, "
-            f"请求ID={request_id}"
-        )
-
-        # 传递分页参数到服务层
         result = service.calculate_commission(
             channel_id=request.channel_id,
             timeout=request.timeout,
         )
+        elapsed = round(_time.time() - start_time, 2)
+        data_count = len(result) if result else 0
+        logger.info(f"[佣金计算] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 结果条数: {data_count}")
         return {
             "success": True,
             "message": "佣金计算完成",
@@ -169,9 +190,12 @@ async def calculate_commission(
             "channel_id": request.channel_id
         }
     except TimeoutError as e:
+        elapsed = round(_time.time() - start_time, 2)
+        logger.warning(f"[佣金计算] 超时 | 请求ID: {request_id} | 耗时: {elapsed}秒")
         raise HTTPException(status_code=408, detail=str(e))
     except Exception as e:
-        logger.error(f"佣金计算出错: {str(e)}", exc_info=True)
+        elapsed = round(_time.time() - start_time, 2)
+        logger.error(f"[佣金计算] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -237,26 +261,22 @@ async def process_mobile_tasks(
         request: MobileTaskRequest,
         service: MobileTaskService = Depends(get_mobile_task_service)
 ):
-    """
-    处理手机号批量任务
-
-    支持两种输入模式：
-    - 文件上传模式：通过file_content传递base64编码的TXT内容，可通过range指定处理范围
-    - 手动输入模式：通过mobiles参数传递手机号列表
-
-    操作模式：
-    - None：完整流程（登录→报名→提交交付物）
-    - 1：登录→报名
-    - 2：登录→提交交付物
-    - 3：登录→确认结算
-    """
+    """处理手机号批量任务"""
+    request_id = str(uuid.uuid4())
+    start_time = _time.time()
+    mobile_count = len(request.mobiles) if request.mobiles else 0
+    logger.info(f"[手机号任务] 开始 | 请求ID: {request_id}")
+    logger.info(f"[手机号任务] 参数: 模式={request.mode}, 手机号数量={mobile_count}, 有文件={bool(request.file_content)}, 范围={request.range}")
+    
     try:
-        logger.info(f"收到手机号任务请求: 模式={request.mode}, 手机号数量={len(request.mobiles)}, "
-                    f"是否有文件={bool(request.file_content)}, 范围={request.range}")
         result = service.process_mobile_tasks(request)
+        elapsed = round(_time.time() - start_time, 2)
+        success_count = result.success_count if hasattr(result, 'success_count') else 0
+        logger.info(f"[手机号任务] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 成功: {success_count}")
         return result
     except Exception as e:
-        logger.error(f"手机号任务API处理出错: {str(e)}", exc_info=True)
+        elapsed = round(_time.time() - start_time, 2)
+        logger.error(f"[手机号任务] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"处理手机号任务时发生错误: {str(e)}")
 
 
@@ -487,18 +507,26 @@ def get_db_config(environment: Optional[str] = None):
     return settings.get_db_config(environment)
 
 
-# 1. 获取企业列表接口（已存在，保持不变）
+# 1. 获取企业列表接口
 @app.get("/enterprises/list", response_model=EnterpriseListResponse, tags=["企业管理"])
 async def list_enterprises(
         environment: Optional[str] = Query(None, description="环境: test-测试, prod-生产, local-本地"),
 ):
+    request_id = str(uuid.uuid4())
+    start_time = _time.time()
+    logger.info(f"[企业列表] 开始 | 请求ID: {request_id} | 环境: {environment or 'default'}")
+    
     try:
-        request_id = str(uuid.uuid4())
-        logger.info(f"获取企业列表，请求ID: {request_id}")
-
         db_config = get_db_config(environment)
         enterprises = get_enterprise_list(db_config)
-
+        elapsed = round(_time.time() - start_time, 2)
+        logger.info(f"[企业列表] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 企业数量: {len(enterprises)}")
+        
+        # 记录前几个企业名称
+        if enterprises:
+            names = [e.get('name', e.get('enterprise_name', 'N/A')) for e in enterprises[:5]]
+            logger.info(f"[企业列表] 响应数据预览: {names}{'...' if len(enterprises) > 5 else ''}")
+        
         return {
             "success": True,
             "message": "已加载企业信息！",
@@ -507,7 +535,8 @@ async def list_enterprises(
             "total": len(enterprises)
         }
     except Exception as e:
-        logger.error(f"获取企业列表失败: {str(e)}")
+        elapsed = round(_time.time() - start_time, 2)
+        logger.error(f"[企业列表] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # 2. 获取完税数据接口
@@ -515,10 +544,13 @@ async def list_enterprises(
 async def get_tax_data(
         request: TaxDataRequest,
 ):
+    request_id = str(uuid.uuid4())
+    start_time = _time.time()
+    enterprise_count = len(request.enterprise_ids) if request.enterprise_ids else 0
+    logger.info(f"[完税数据] 开始 | 请求ID: {request_id}")
+    logger.info(f"[完税数据] 参数: 年月={request.year_month}, 企业数={enterprise_count}, 金额类型={request.amount_type}")
+    
     try:
-        request_id = str(uuid.uuid4())
-        logger.info(f"获取完税数据，年月: {request.year_month}, 请求ID: {request_id}")
-
         db_config = get_db_config(request.environment)
         generator = TaxReportGenerator(db_config)
         tax_data = generator.query_tax_data(
@@ -526,7 +558,13 @@ async def get_tax_data(
             enterprise_ids=request.enterprise_ids,
             amount_type=request.amount_type
         )
-
+        elapsed = round(_time.time() - start_time, 2)
+        logger.info(f"[完税数据] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 数据条数: {len(tax_data)}")
+        
+        # 记录数据摘要
+        if tax_data:
+            total_amount = sum(float(d.get('营业额_元', 0) or 0) for d in tax_data)
+            logger.info(f"[完税数据] 响应汇总: 总金额={total_amount:.2f}, 记录数={len(tax_data)}")
 
         return {
             "success": True,
@@ -536,7 +574,8 @@ async def get_tax_data(
             "total": len(tax_data)
         }
     except Exception as e:
-        logger.error(f"获取完税数据失败: {str(e)}")
+        elapsed = round(_time.time() - start_time, 2)
+        logger.error(f"[完税数据] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 from urllib.parse import quote
@@ -545,19 +584,19 @@ from urllib.parse import quote
 async def generate_tax_report(
     request: TaxReportGenerateRequest,
 ):
+    request_id = str(uuid.uuid4())
+    start_time = _time.time()
+    enterprise_count = len(request.enterprise_ids) if request.enterprise_ids else 0
+    logger.info(f"[税务报表] 开始 | 请求ID: {request_id}")
+    logger.info(f"[税务报表] 参数: 年月={request.year_month}, 企业数={enterprise_count}, 金额类型={request.amount_type}")
+    
     try:
-        request_id = str(uuid.uuid4())
-        logger.info(f"生成税务报表，年月: {request.year_month}, 请求ID: {request_id}")
-
-        # 使用统一的环境配置获取方式
         db_config = get_db_config(request.environment)
         generator = TaxReportGenerator(db_config)
 
-        # 生成临时文件路径
         temp_file_name = f"tax_report_{request.year_month.replace('-', '_')}_{request_id}.xlsx"
-        temp_output_path = Path("/tmp") / temp_file_name  # 使用系统临时目录
+        temp_output_path = Path("/tmp") / temp_file_name
 
-        # 调用生成报表方法
         file_path = generator.generate_tax_report(
             year_month=request.year_month,
             output_path=temp_output_path,
@@ -567,26 +606,22 @@ async def generate_tax_report(
             credit_code=request.credit_code
         )
 
-        # 读取文件内容为字节流
         with open(file_path, "rb") as f:
             file_content = f.read()
 
-        # 创建字节流缓冲区
         buffer = BytesIO(file_content)
-
-        # 构建文件名
         filename = f"完税报表_{request.year_month.replace('-', '_')}.xlsx"
-
-        # 关键修改：对中文文件名进行UTF-8编码并URL转义
         encoded_filename = quote(filename.encode('utf-8'))
 
-        # 删除临时文件
         try:
             os.remove(file_path)
         except Exception as e:
-            logger.warning(f"删除临时文件失败: {str(e)}")
+            logger.warning(f"[税务报表] 删除临时文件失败: {str(e)}")
 
-        # 返回文件流响应
+        elapsed = round(_time.time() - start_time, 2)
+        file_size_kb = round(len(file_content) / 1024, 2)
+        logger.info(f"[税务报表] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 文件大小: {file_size_kb}KB")
+
         return StreamingResponse(
             buffer,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -597,10 +632,12 @@ async def generate_tax_report(
         )
 
     except ValueError as e:
-        logger.warning(f"生成税务报表警告: {str(e)}")
+        elapsed = round(_time.time() - start_time, 2)
+        logger.warning(f"[税务报表] 参数错误 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"生成税务报表失败: {str(e)}")
+        elapsed = round(_time.time() - start_time, 2)
+        logger.error(f"[税务报表] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # 在文件中添加必要的导入
@@ -613,33 +650,26 @@ import uuid
 async def calculate_tax(
         request: TaxCalculationRequest,
 ):
+    request_id = str(uuid.uuid4())
+    start_time = _time.time()
+    logger.info(f"[税额计算] 开始 | 请求ID: {request_id}")
+    logger.info(f"[税额计算] 参数: 年份={request.year}, 批次号={request.batch_no}, 身份证={request.credential_num[:6]}***, 模拟={request.use_mock}")
+    
     try:
-        request_id = str(uuid.uuid4())
-        logger.info(f"开始税额计算，请求ID: {request_id}, 参数: {request.dict()}")
-
-        # 验证参数合法性
-        # 模拟数据模式下放宽验证条件
-        print(request.use_mock)
         if not request.use_mock:
             if not request.batch_no and (not request.credential_num or request.credential_num.strip() == ""):
                 raise ValueError("必须提供批次号或身份证号")
         else:
-            # 模拟数据模式下，允许不提供批次号和身份证号
-            # 自动生成一个临时身份证号用于计算
             if not request.credential_num or request.credential_num.strip() == "":
                 request.credential_num = f"MOCK_{uuid.uuid4().hex[:10]}"
-                logger.info(f"模拟数据模式自动生成临时身份证号: {request.credential_num}")
+                logger.info(f"[税额计算] 模拟模式自动生成身份证号: {request.credential_num}")
 
-        # 获取数据库配置
         db_config = get_db_config(request.environment)
-
-        # 初始化计算器（支持模拟数据模式）
         calculator = TaxCalculator(
             db_config=db_config,
             mock_data=request.mock_data if request.use_mock else None
         )
 
-        # 准备计算参数
         params = {
             "year": request.year,
             "batch_no": request.batch_no,
@@ -653,14 +683,14 @@ async def calculate_tax(
             "accumulated_donation_deduction": request.accumulated_donation_deduction
         }
 
-        # 执行计算
         results = calculator.calculate_tax_by_batch(**params)
 
-        # 检查计算结果
         if results is None:
             raise ValueError("计算结果为空")
 
         total_tax = sum(r.get('tax', 0) for r in results) if results else 0.0
+        elapsed = round(_time.time() - start_time, 2)
+        logger.info(f"[税额计算] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 记录数: {len(results)} | 总税额: {round(total_tax, 2)}")
 
         return {
             "success": True,
@@ -671,11 +701,12 @@ async def calculate_tax(
         }
 
     except ValueError as e:
-        logger.warning(f"参数错误: {str(e)}")
+        elapsed = round(_time.time() - start_time, 2)
+        logger.warning(f"[税额计算] 参数错误 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"税额计算失败: {str(e)}", exc_info=True)  # 记录完整堆栈信息
-        # 生产环境中可以返回更通用的错误信息
+        elapsed = round(_time.time() - start_time, 2)
+        logger.error(f"[税额计算] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"计算过程中发生错误: {str(e)}")
 
 
@@ -687,9 +718,11 @@ from fastapi.responses import StreamingResponse
 
 @app.post("/ocr/process", tags=["OCR处理"])
 async def process_ocr(request: OCRProcessRequest):
-    """
-    本地路径模式（仅限本地运行，Docker中无法使用）
-    """
+    """本地路径模式（仅限本地运行，Docker中无法使用）"""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[OCR本地模式] 开始 | 请求ID: {request_id}")
+    logger.info(f"[OCR本地模式] 参数: Excel={request.excel_path}, 附件={request.source_folder}, 模式={request.mode}")
+    
     return StreamingResponse(
         run_ocr_process(
             excel_path=request.excel_path,
@@ -718,14 +751,15 @@ async def process_ocr_upload(
     excel_file: UploadFile = File(...),
     image_files: List[UploadFile] = File(...)
 ):
-    """
-    上传模式：接收 Excel 和图片文件，处理后返回结果下载链接
-    适用于 Docker 部署环境
-    """
-    logger.info(f"OCR上传模式: mode={mode}, excel={excel_file.filename}, images={len(image_files)}个")
+    """上传模式：接收 Excel 和图片文件，处理后返回结果下载链接"""
+    request_id = str(uuid.uuid4())
+    start_time = _time.time()
+    total_size_mb = round(sum(len(await img.read()) for img in image_files) / 1024 / 1024, 2) if False else 0
+    
+    logger.info(f"[OCR上传模式] 开始 | 请求ID: {request_id}")
+    logger.info(f"[OCR上传模式] 参数: Excel={excel_file.filename}, 图片数={len(image_files)}, 模式={mode}")
     
     # 关键：在 generator 开始前读取所有文件内容到内存
-    # 避免 "I/O operation on closed file" 错误
     excel_content = await excel_file.read()
     excel_filename = excel_file.filename or "upload.xlsx"
     
@@ -734,15 +768,17 @@ async def process_ocr_upload(
     for img in image_files:
         if img.filename:
             content = await img.read()
-            # webkitRelativePath 会被浏览器作为 filename 传递
             image_data_list.append({
                 "filename": img.filename,
                 "content": content
             })
     
+    total_size_mb = round(sum(len(d["content"]) for d in image_data_list) / 1024 / 1024, 2)
+    logger.info(f"[OCR上传模式] 文件接收完成 | 请求ID: {request_id} | 图片总大小: {total_size_mb}MB")
+    
     # 打印第一个文件名看看目录结构
     if image_data_list:
-        logger.info(f"图片文件示例: {image_data_list[0]['filename']}")
+        logger.info(f"[OCR上传模式] 图片路径示例: {image_data_list[0]['filename']}")
     
     def process_generator():
         # 创建临时目录
