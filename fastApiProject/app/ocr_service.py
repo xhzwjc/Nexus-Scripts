@@ -43,6 +43,41 @@ ENABLE_ID_CROP = False      # 是否对身份证裁剪左上区域
 DEBUG = True                # 是否输出详细 OCR 分段日志
 
 
+# ===================== 中止信号管理 =====================
+# 全局字典: request_id -> bool (是否请求中止)
+_ABORT_SIGNALS: dict[str, bool] = {}
+
+
+def set_abort_signal(request_id: str) -> None:
+    """设置中止信号"""
+    _ABORT_SIGNALS[request_id] = True
+
+
+def check_abort_signal(request_id: str) -> bool:
+    """检查是否需要中止"""
+    return _ABORT_SIGNALS.get(request_id, False)
+
+
+def clear_abort_signal(request_id: str) -> None:
+    """清除中止信号"""
+    _ABORT_SIGNALS.pop(request_id, None)
+
+
+def emit_progress(current: int, total: int, mode: int) -> str:
+    """
+    发送进度消息到前端
+    current: 当前处理的序号 (1-indexed)
+    total: 总数
+    mode: 1=Excel优先, 2=附件优先
+    """
+    return json.dumps({
+        "type": "progress",
+        "current": current,
+        "total": total,
+        "mode": mode
+    }, ensure_ascii=False) + "\n"
+
+
 # ===================== 工具函数 =====================
 def cv2_imread_chinese(path: str):
     """支持中文路径读图"""
@@ -379,7 +414,7 @@ def get_ocr_engine() -> PaddleOCR:
 
 
 # ===================== 模式1：Excel → 附件 =====================
-def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str) -> Iterator[str]:
+def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str, request_id: str = "") -> Iterator[str]:
     """模式1：按 Excel → 附件"""
     yield emit_log("=" * 60)
     yield emit_log("【模式1】按 Excel 顺序匹配附件 开始...")
@@ -424,8 +459,19 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
 
     # 3. 按行（每个人）处理
     total_rows = len(df)
+    yield emit_log(f"📊 共需处理 {total_rows} 人")
+    
     for idx, row in df.iterrows():
         person_index = idx + 1
+        
+        # 检查中止信号
+        if request_id and check_abort_signal(request_id):
+            yield emit_log("⚠️ 收到中止请求，正在保存已处理的数据...")
+            break
+        
+        # 发送进度
+        yield emit_progress(person_index, total_rows, mode=1)
+        
         name_excel = str(row["姓名"]).strip()
         folder_key = str(row[FOLDER_KEY_COLUMN]).strip()
 
@@ -593,7 +639,7 @@ def _run_excel_first(excel_path: str, source_folder: str, target_excel_path: str
 
 
 # ===================== 模式2：附件 → Excel =====================
-def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path: str) -> Iterator[str]:
+def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path: str, request_id: str = "") -> Iterator[str]:
     """模式2：按 附件 → Excel 匹配"""
     yield emit_log("=" * 60)
     yield emit_log("【模式2】按 附件 → 反查匹配 Excel 开始...")
@@ -653,13 +699,22 @@ def _run_attachment_first(excel_path: str, source_folder: str, target_excel_path
                 "path": os.path.join(root, dir_name)
             })
     
-    yield emit_log(f"在附件根目录下发现 {len(all_subfolders)} 个子文件夹（递归）")
-
-    for folder in all_subfolders:
+    yield emit_log(f"📊 共需处理 {len(all_subfolders)} 个人员文件夹")
+    
+    total_folders = len(all_subfolders)
+    for folder_idx, folder in enumerate(all_subfolders, 1):
+        # 检查中止信号
+        if request_id and check_abort_signal(request_id):
+            yield emit_log("⚠️ 收到中止请求，正在保存已处理的数据...")
+            break
+        
+        # 发送进度
+        yield emit_progress(folder_idx, total_folders, mode=2)
+        
         folder_name = folder["name"]
         folder_path = folder["path"]
         yield emit_log("-" * 60)
-        yield emit_log(f"处理附件文件夹：{folder_name}")
+        yield emit_log(f"[{folder_idx}/{total_folders}] 处理附件文件夹：{folder_name}")
 
         # 查找当前文件夹下的所有图片
         files = [
@@ -854,7 +909,8 @@ def run_ocr_process(
         excel_path: str,
         source_folder: str,
         target_excel_path: str,
-        mode: int = 1
+        mode: int = 1,
+        request_id: str = ""
 ) -> Iterator[str]:
     """
     OCR处理主入口函数 - 生成器模式
@@ -862,16 +918,32 @@ def run_ocr_process(
     mode:
         1 -> 按 Excel 顺序匹配附件
         2 -> 按 附件 → 反查匹配 Excel
+    request_id: 用于支持中止功能
     """
     try:
+        # 发送 request_id 给前端（用于中止请求）
+        if request_id:
+            yield json.dumps({
+                "type": "init",
+                "request_id": request_id
+            }, ensure_ascii=False) + "\n"
+        
         if mode == 2:
-            gen = _run_attachment_first(excel_path, source_folder, target_excel_path)
+            gen = _run_attachment_first(excel_path, source_folder, target_excel_path, request_id)
         else:
-            gen = _run_excel_first(excel_path, source_folder, target_excel_path)
+            gen = _run_excel_first(excel_path, source_folder, target_excel_path, request_id)
 
         success = yield from gen
+        
+        # 检查是否被中止
+        was_aborted = request_id and check_abort_signal(request_id)
 
-        if success:
+        if was_aborted:
+            yield json.dumps(
+                {"type": "result", "success": True, "message": "处理已中止，已保存部分结果", "aborted": True},
+                ensure_ascii=False
+            ) + "\n"
+        elif success:
             yield json.dumps(
                 {"type": "result", "success": True, "message": "OCR处理完成"},
                 ensure_ascii=False
@@ -889,3 +961,7 @@ def run_ocr_process(
             {"type": "result", "success": False, "message": f"处理出错: {str(e)}"},
             ensure_ascii=False
         ) + "\n"
+    finally:
+        # 清理中止信号
+        if request_id:
+            clear_abort_signal(request_id)

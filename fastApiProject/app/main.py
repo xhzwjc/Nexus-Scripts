@@ -711,7 +711,7 @@ async def calculate_tax(
 
 
 # ================= OCR处理接口 =================
-from .ocr_service import run_ocr_process
+from .ocr_service import run_ocr_process, set_abort_signal
 from .models import OCRProcessRequest
 from fastapi.responses import StreamingResponse
 
@@ -831,7 +831,8 @@ async def process_ocr_upload(
                 excel_path=str(excel_path),
                 source_folder=str(source_folder),
                 target_excel_path=target_excel_path,
-                mode=mode
+                mode=mode,
+                request_id=request_id
             )
             
             # 转发 OCR 日志
@@ -860,3 +861,18 @@ async def process_ocr_upload(
                 pass
 
     return StreamingResponse(process_generator(), media_type="application/x-ndjson")
+
+
+# ================= OCR 中止接口 =================
+@app.post("/ocr/abort/{request_id}", tags=["OCR处理"])
+async def abort_ocr(request_id: str):
+    """
+    中止指定的 OCR 处理任务
+    
+    前端在收到 init 消息中的 request_id 后，可调用此接口发送中止请求。
+    后端会在处理下一个人员/文件夹前检查该信号并提前结束。
+    """
+    logger.info(f"[OCR中止] 收到中止请求 | 请求ID: {request_id}")
+    set_abort_signal(request_id)
+    return {"success": True, "message": f"已发送中止信号: {request_id}"}
+

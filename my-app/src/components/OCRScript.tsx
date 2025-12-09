@@ -26,6 +26,12 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
     const [downloadUrl, setDownloadUrl] = useState('');
     const [uploadProgress, setUploadProgress] = useState(0);
 
+    // 进度跟踪
+    const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+    const [requestId, setRequestId] = useState<string>('');
+    const [isAborting, setIsAborting] = useState(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
+
     const scrollRef = useRef<HTMLDivElement>(null);
     const [autoScroll, setAutoScroll] = useState(true);
     const folderInputRef = useRef<HTMLInputElement>(null);
@@ -85,6 +91,13 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
         setLogs([]);
         setDownloadUrl('');
         setUploadProgress(0);
+        setProgress(null);
+        setRequestId('');
+        setIsAborting(false);
+
+        // 创建 AbortController 用于中止请求
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
 
         try {
             const base = getApiBaseUrl();
@@ -109,6 +122,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
             const response = await fetch(`${base}/ocr/process-upload`, {
                 method: 'POST',
                 body: formData,
+                signal: controller.signal,
             });
 
             if (!response.ok) {
@@ -136,11 +150,21 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                     if (!line.trim()) continue;
                     try {
                         const data = JSON.parse(line);
-                        if (data.type === 'log') {
+                        if (data.type === 'init' && data.request_id) {
+                            // 保存 request_id 用于中止请求
+                            setRequestId(data.request_id);
+                        } else if (data.type === 'progress') {
+                            // 更新进度
+                            setProgress({ current: data.current, total: data.total });
+                        } else if (data.type === 'log') {
                             setLogs(prev => [...prev, data.content]);
                         } else if (data.type === 'result') {
                             if (data.success) {
-                                toast.success(data.message);
+                                if (data.aborted) {
+                                    toast.warning(data.message);
+                                } else {
+                                    toast.success(data.message);
+                                }
                                 setLogs(prev => [...prev, `✅ ${data.message}`]);
                                 if (data.download_url) {
                                     setDownloadUrl(`${base}/${data.download_url}`);
@@ -150,7 +174,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                 setLogs(prev => [...prev, `❌ ${data.message}`]);
                             }
                         }
-                    } catch (e) { }
+                    } catch { }
                 }
             }
 
@@ -160,15 +184,44 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                     if (data.type === 'result' && data.success && data.download_url) {
                         setDownloadUrl(`${base}/${data.download_url}`);
                     }
-                } catch (e) { }
+                } catch { }
             }
 
         } catch (error: unknown) {
-            const errMsg = error instanceof Error ? error.message : String(error);
-            toast.error('请求失败: ' + errMsg);
-            setLogs(prev => [...prev, `❌ 错误: ${errMsg}`]);
+            // 检查是否为用户中止
+            if (error instanceof Error && error.name === 'AbortError') {
+                setLogs(prev => [...prev, `⚠️ 请求已被用户中止`]);
+            } else {
+                const errMsg = error instanceof Error ? error.message : String(error);
+                toast.error('请求失败: ' + errMsg);
+                setLogs(prev => [...prev, `❌ 错误: ${errMsg}`]);
+            }
         } finally {
             setIsRunning(false);
+            setIsAborting(false);
+            setProgress(null);
+            abortControllerRef.current = null;
+        }
+    };
+
+    // 中止处理函数
+    const handleAbort = async () => {
+        if (!requestId || isAborting) return;
+
+        setIsAborting(true);
+        setLogs(prev => [...prev, `⚠️ 正在发送中止请求...`]);
+
+        try {
+            const base = getApiBaseUrl();
+            if (base && requestId) {
+                await fetch(`${base}/ocr/abort/${requestId}`, { method: 'POST' });
+            }
+            // 同时中止 fetch 流
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+        } catch (err) {
+            console.error('中止请求失败:', err);
         }
     };
 
@@ -194,11 +247,35 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                         </p>
                     </div>
                 </div>
-                {/* 状态指示器 */}
+                {/* 状态指示器 & 中止按钮 */}
                 {isRunning && (
-                    <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-full text-sm font-medium animate-pulse">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        正在处理任务...
+                    <div className="flex items-center gap-3">
+                        {/* 进度显示 */}
+                        <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-full text-sm font-medium">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            {progress ? (
+                                <span>处理中: {progress.current} / {progress.total}</span>
+                            ) : (
+                                <span>正在初始化...</span>
+                            )}
+                        </div>
+                        {/* 中止按钮 */}
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={handleAbort}
+                            disabled={isAborting || !requestId}
+                            className="rounded-full"
+                        >
+                            {isAborting ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                                    中止中...
+                                </>
+                            ) : (
+                                '终止处理'
+                            )}
+                        </Button>
                     </div>
                 )}
             </div>
@@ -381,6 +458,27 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                     </>
                                 )}
                             </Button>
+
+                            {/* 进度条区域 */}
+                            {isRunning && progress && (
+                                <div className="space-y-2 pt-2">
+                                    <div className="flex justify-between text-sm text-slate-600">
+                                        <span>处理进度</span>
+                                        <span className="font-mono font-medium">
+                                            {progress.current} / {progress.total}
+                                        </span>
+                                    </div>
+                                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300 ease-out"
+                                            style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-xs text-slate-500 text-center">
+                                        预计剩余 {progress.total - progress.current} 人待处理
+                                    </p>
+                                </div>
+                            )}
                         </CardContent>
                     </Card>
                 </div>
