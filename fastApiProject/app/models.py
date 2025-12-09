@@ -588,3 +588,24 @@ class OCRProcessResponse(BaseModel):
     success: bool = Field(..., description="是否处理成功")
     message: str = Field(..., description="处理信息")
     logs: List[str] = Field(default_factory=list, description="执行日志")
+
+
+# 支付统计相关模型
+class PaymentStatsRequest(BaseModel):
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+    enterprise_ids: List[int] = Field(default_factory=list, description="参与统计的企业ID列表")
+    timeout: int = Field(30, description="超时时间(秒)")
+
+
+class TaxAddressStatItem(BaseModel):
+    tax_address: str = Field(..., description="税地名称")
+    invoiced_amount: float = Field(..., description="已开票金额")
+    uninvoiced_amount: float = Field(..., description="未开票金额")
+    total_amount: float = Field(..., description="总金额")
+
+
+class PaymentStatsResponse(BaseModel):
+    success: bool
+    message: str
+    data: Optional[Dict[str, Any]] = None  # 包含 total_settlement, tax_address_stats, etc.
+    request_id: str

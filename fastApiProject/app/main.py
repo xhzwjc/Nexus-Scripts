@@ -19,10 +19,11 @@ from .models import (
     BalanceVerificationRequest, BalanceVerificationResponse, CommissionCalculationRequest,
     CommissionCalculationResponse, MobileTaskRequest, MobileTaskResponse, SMSResendResponse, SMSResendRequest,
     SMSSendResponse, SMSBatchSendRequest, SMSSendSingleRequest, SMSBaseRequest, SMSTemplateResponse,
-    MobileParseResponse, MobileParseRequest, TaxCalculationResponse, TaxCalculationRequest
+    MobileParseResponse, MobileParseRequest, TaxCalculationResponse, TaxCalculationRequest,
+    PaymentStatsRequest, PaymentStatsResponse
 )
 from .services import EnterpriseSettlementService, AccountBalanceService, CommissionCalculationService, \
-    MobileTaskService, SMSService
+    MobileTaskService, SMSService, PaymentStatsService
 from .config import settings
 
 # 配置日志
@@ -876,3 +877,46 @@ async def abort_ocr(request_id: str):
     set_abort_signal(request_id)
     return {"success": True, "message": f"已发送中止信号: {request_id}"}
 
+# 支付统计相关接口
+@app.post("/stats/payment/enterprises", response_model=PaymentStatsResponse, tags=["支付统计"])
+async def get_payment_enterprises(request: PaymentStatsRequest):
+    """获取用于支付统计的正常企业列表"""
+    request_id = str(uuid.uuid4())
+    try:
+        service = PaymentStatsService(environment=request.environment)
+        enterprises = service.get_normal_enterprises()
+        return {
+            "success": True,
+            "message": "获取成功",
+            "data": {"enterprises": enterprises},
+            "request_id": request_id
+        }
+    except Exception as e:
+        logger.error(f"获取企业列表失败: {e}")
+        return {
+            "success": False,
+            "message": str(e),
+            "request_id": request_id
+        }
+
+
+@app.post("/stats/payment/calculate", response_model=PaymentStatsResponse, tags=["支付统计"])
+async def calculate_payment_stats(request: PaymentStatsRequest):
+    """计算支付统计数据"""
+    request_id = str(uuid.uuid4())
+    try:
+        service = PaymentStatsService(environment=request.environment)
+        stats = service.calculate_stats(enterprise_ids=request.enterprise_ids)
+        return {
+            "success": True, 
+            "message": "计算成功", 
+            "data": stats, 
+            "request_id": request_id
+        }
+    except Exception as e:
+        logger.error(f"计算统计失败: {e}")
+        return {
+            "success": False, 
+            "message": str(e), 
+            "request_id": request_id
+        }

@@ -29,6 +29,7 @@ import {
     CloudSnow,
     CloudFog,
     CloudLightning,
+    BarChart3,
     User as UserIcon
 } from 'lucide-react';
 import SettlementScript from './components/SettlementScript';
@@ -40,6 +41,7 @@ import TaxReportReportManagement from "./components/TaxReportManagement";
 import './App.css';
 import './App.css';
 import TaxCalculationScript from "@/components/TaxCalculatorScript";
+import PaymentStatsScript from '@/components/PaymentStatsScript';
 import OCRScript from "@/components/OCRScript";
 
 // 角色类型与权限映射
@@ -74,7 +76,8 @@ const keyUserMap: Record<string, User> = {
             'task-automation': true,
             'sms_operations_center': true,
             'tax-reporting': true,
-            'tax-calculation': true
+            'tax-calculation': true,
+            'payment-stats': true
         },
         name: '系统管理员'
     },
@@ -97,7 +100,8 @@ const keyUserMap: Record<string, User> = {
             'task-automation': true,
             'sms_operations_center': true,
             'tax-reporting': true,
-            'tax-calculation': true
+            'tax-calculation': true,
+            'payment-stats': true
         },
         name: 'JC'
     },
@@ -178,6 +182,13 @@ const allScripts: Record<string, { name: string; description: string; scripts: S
                 description: '计算个人所得税明细，支持模拟数据与跨年计算',
                 icon: <Percent className="w-5 h-5" />,
                 status: 'stable' as const
+            },
+            {
+                id: 'payment-stats',
+                name: '支付统计分析',
+                description: '统计已开票/未开票金额及平台总结算',
+                icon: <BarChart3 className="w-5 h-5" />,
+                status: 'beta' as const
             }
         ]
     },
@@ -767,6 +778,8 @@ export default function App() {
                 return <TaxReportReportManagement onBack={() => setCurrentView('system')} />;
             case 'tax-calculation':
                 return <TaxCalculationScript onBack={() => setCurrentView('system')} />;
+            case 'payment-stats':
+                return <PaymentStatsScript onBack={() => setCurrentView('system')} />;
             default:
                 return null;
         }

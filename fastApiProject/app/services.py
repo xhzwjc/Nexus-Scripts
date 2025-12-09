@@ -1492,3 +1492,116 @@ class SMSService:
             "sms_api_base_url": config["api_base_url"],
             "sms_headers": config["headers"]
         }
+
+
+class PaymentStatsService:
+    """支付统计服务类"""
+
+    def __init__(self, environment: str = None):
+        self.environment = settings.resolve_environment(environment)
+        self.db_config = settings.get_db_config(self.environment)
+        self.logger = logging.getLogger(__name__)
+        self.engine = self._init_db_connection()
+
+    def _init_db_connection(self):
+        """初始化数据库连接"""
+        db_uri = (
+            f"mysql+pymysql://{self.db_config['user']}:{quote_plus(self.db_config['password'])}@"
+            f"{self.db_config['host']}:{self.db_config['port']}/{self.db_config['database']}"
+            "?charset=utf8mb4&connect_timeout=10"
+        )
+        return sqlalchemy.create_engine(
+            db_uri,
+            pool_size=5,
+            pool_recycle=3600,
+            pool_pre_ping=True
+        )
+
+    def get_normal_enterprises(self) -> List[Dict[str, Any]]:
+        """获取所有正常企业列表"""
+        sql = """
+            SELECT enterprise_name, id
+            FROM biz_enterprise_base
+            WHERE status NOT IN (1, 5, 6) AND deleted = 0
+            ORDER BY id
+        """
+        try:
+            with self.engine.connect() as conn:
+                df = pd.read_sql(sql, conn)
+                return df.to_dict(orient="records")
+        except Exception as e:
+            self.logger.error(f"获取企业列表失败: {e}")
+            raise
+
+    def calculate_stats(self, enterprise_ids: List[int]) -> Dict[str, Any]:
+        """计算统计数据"""
+        # 如果没有选中任何企业，直接返回空数据
+        if not enterprise_ids:
+            return {
+                "total_settlement": 0.0,
+                "tax_address_stats": []
+            }
+
+        # 构建包含条件
+        ids_str = ",".join(map(str, enterprise_ids))
+        inclusion_clause = f"AND enterprise_id IN ({ids_str})"
+
+        # 1. 统计各个税地下有多少未开票和已开票的金额
+        sql_tax = f"""
+            SELECT
+                MAX(tax_address) as tax_address, -- 使用MAX规避GROUP BY严格模式
+                tax_id,
+                SUM(ROUND(CASE WHEN has_invoiced = 2 THEN pay_amount ELSE 0 END, 2)) AS invoiced_amount,
+                SUM(ROUND(CASE WHEN has_invoiced != 2 THEN pay_amount ELSE 0 END, 2)) AS uninvoiced_amount
+            FROM biz_balance_worker
+            WHERE pay_status = 3
+            {inclusion_clause}
+            GROUP BY tax_id
+        """
+
+        # 2. 统计平台总共结算多少元
+        sql_total = f"""
+            SELECT
+                SUM(ROUND(pay_amount, 2)) AS total_amount
+            FROM biz_balance_worker
+            WHERE pay_status = 3
+            {inclusion_clause}
+        """
+
+        try:
+            with self.engine.connect() as conn:
+                df_tax = pd.read_sql(sql_tax, conn)
+                df_total = pd.read_sql(sql_total, conn)
+
+                total_amount = df_total.iloc[0]['total_amount'] if not df_total.empty else 0.0
+                if pd.isna(total_amount):
+                    total_amount = 0.0
+
+                tax_stats = []
+                for _, row in df_tax.iterrows():
+                    inv = row['invoiced_amount'] or 0
+                    uninv = row['uninvoiced_amount'] or 0
+                    addr = row['tax_address']
+                    # 如果 addr是None，给个默认值
+                    if not addr:
+                        addr = f"未知税地({row['tax_id']})"
+                        
+                    tax_stats.append({
+                        "tax_id": row['tax_id'],
+                        "tax_address": addr,
+                        "invoiced_amount": inv,
+                        "uninvoiced_amount": uninv,
+                        "total_amount": inv + uninv
+                    })
+
+                # 按未开票金额降序排序
+                tax_stats.sort(key=lambda x: x['uninvoiced_amount'], reverse=True)
+
+                return {
+                    "total_settlement": float(total_amount),
+                    "tax_address_stats": tax_stats
+                }
+        except Exception as e:
+            self.logger.error(f"计算统计数据失败: {e}")
+            raise
+
