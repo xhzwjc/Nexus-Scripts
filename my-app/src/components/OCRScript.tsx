@@ -7,6 +7,14 @@ import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { ArrowLeft, Play, FileText, Folder, Loader2, Download, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { getApiBaseUrl } from '../lib/api';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "./ui/dialog";
 
 // Extend File interface to include webkitRelativePath (used by directory upload)
 interface FileWithPath extends File {
@@ -31,6 +39,10 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
     const [requestId, setRequestId] = useState<string>('');
     const [isAborting, setIsAborting] = useState(false);
     const abortControllerRef = useRef<AbortController | null>(null);
+
+    // 确认弹窗状态
+    const [showBackConfirm, setShowBackConfirm] = useState(false);
+    const [showAbortConfirm, setShowAbortConfirm] = useState(false);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const [autoScroll, setAutoScroll] = useState(true);
@@ -225,6 +237,35 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
         }
     };
 
+    // 处理返回点击
+    const handleBackClick = () => {
+        if (isRunning) {
+            setShowBackConfirm(true);
+        } else {
+            onBack();
+        }
+    };
+
+    // 处理中止点击
+    const handleAbortClick = () => {
+        setShowAbortConfirm(true);
+    };
+
+    // 确认中止
+    const confirmAbort = async () => {
+        setShowAbortConfirm(false);
+        await handleAbort();
+    };
+
+    // 确认返回
+    const confirmBack = async () => {
+        setShowBackConfirm(false);
+        if (isRunning) {
+            await handleAbort();
+        }
+        onBack();
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6 md:p-12 font-sans text-slate-900">
             {/* 顶栏：标题与返回 */}
@@ -233,7 +274,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                     <Button
                         variant="outline"
                         size="icon"
-                        onClick={onBack}
+                        onClick={handleBackClick}
                         className="h-10 w-10 rounded-full border-slate-200 bg-white shadow-sm hover:bg-slate-50 hover:text-slate-900 transition-all"
                     >
                         <ArrowLeft className="h-5 w-5" />
@@ -263,7 +304,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                         <Button
                             variant="destructive"
                             size="sm"
-                            onClick={handleAbort}
+                            onClick={handleAbortClick}
                             disabled={isAborting || !requestId}
                             className="rounded-full"
                         >
@@ -562,6 +603,38 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                     </Card>
                 </div>
             </div>
+
+            {/* 返回确认弹窗 */}
+            <Dialog open={showBackConfirm} onOpenChange={setShowBackConfirm}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>确认退出？</DialogTitle>
+                        <DialogDescription>
+                            当前正在进行 OCR 处理，退出页面将终止所有正在进行的任务。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowBackConfirm(false)}>取消</Button>
+                        <Button variant="destructive" onClick={confirmBack}>退出并终止</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* 中止确认弹窗 */}
+            <Dialog open={showAbortConfirm} onOpenChange={setShowAbortConfirm}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>确认终止？</DialogTitle>
+                        <DialogDescription>
+                            您确定要终止当前的 OCR 处理任务吗？已处理的数据将会遗失！
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowAbortConfirm(false)}>取消</Button>
+                        <Button variant="destructive" onClick={confirmAbort}>确认终止</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
