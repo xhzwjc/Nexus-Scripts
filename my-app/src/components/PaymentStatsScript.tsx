@@ -39,7 +39,7 @@ interface PaymentStatsData {
 }
 
 export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
-    const [environment, setEnvironment] = useState('test');
+    const [environment, setEnvironment] = useState('prod');
     const [isLoadingUsers, setIsLoadingUsers] = useState(false);
     const [isCalculating, setIsCalculating] = useState(false);
 
