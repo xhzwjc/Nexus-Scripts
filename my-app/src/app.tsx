@@ -86,7 +86,8 @@ const keyUserMap: Record<string, User> = {
         role: 'operator',
         permissions: {
             'tax-reporting': true,
-            'tax-calculation': true
+            'tax-calculation': true,
+            'payment-stats': true
         },
         name: '运营人员'
     },
@@ -115,7 +116,8 @@ const keyUserMap: Record<string, User> = {
             'task-automation': true,
             'sms_operations_center': true,
             'tax-reporting': true,
-            'tax-calculation': true
+            'tax-calculation': true,
+            'payment-stats': true
         },
         name: '**'
     },
@@ -185,7 +187,7 @@ const allScripts: Record<string, { name: string; description: string; scripts: S
             },
             {
                 id: 'payment-stats',
-                name: '支付统计分析',
+                name: '结算与开票统计',
                 description: '统计已开票/未开票金额及平台总结算',
                 icon: <BarChart3 className="w-5 h-5" />,
                 status: 'beta' as const
