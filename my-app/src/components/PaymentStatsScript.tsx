@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Checkbox } from './ui/checkbox';
 import { ScrollArea } from './ui/scroll-area';
+import { Skeleton } from './ui/skeleton';
 import {
     Command,
     CommandEmpty,
@@ -62,6 +63,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
 
     // Fetch enterprises on mount/env change
     useEffect(() => {
+        setStatsData(null); // Clear previous stats on environment change
         fetchEnterprises();
     }, [environment]);
 
@@ -282,10 +284,18 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                 </CardHeader>
                                 <CardContent>
                                     <div className="text-3xl font-bold text-primary">
-                                        {statsData ? formatCurrency(statsData.total_settlement) : '---'}
+                                        {isCalculating ? (
+                                            <Skeleton className="h-9 w-32" />
+                                        ) : (
+                                            statsData ? formatCurrency(statsData.total_settlement) : '---'
+                                        )}
                                     </div>
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        基于 {selectedEnterpriseIds.length} 个企业的统计结果
+                                        {isCalculating ? (
+                                            <Skeleton className="h-3 w-48" />
+                                        ) : (
+                                            `基于 ${selectedEnterpriseIds.length} 个企业的统计结果`
+                                        )}
                                     </p>
                                 </CardContent>
                             </Card>
@@ -295,7 +305,11 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                 </CardHeader>
                                 <CardContent>
                                     <div className="text-3xl font-bold">
-                                        {statsData ? statsData.tax_address_stats.length : '---'}
+                                        {isCalculating ? (
+                                            <Skeleton className="h-9 w-16" />
+                                        ) : (
+                                            statsData ? statsData.tax_address_stats.length : '---'
+                                        )}
                                     </div>
                                     <p className="text-xs text-muted-foreground mt-1">
                                         不同的税地来源
@@ -328,7 +342,17 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {!statsData ? (
+                                            {isCalculating ? (
+                                                Array.from({ length: 5 }).map((_, i) => (
+                                                    <TableRow key={i}>
+                                                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
+                                                    </TableRow>
+                                                ))
+                                            ) : !statsData ? (
                                                 <TableRow>
                                                     <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
                                                         请点击“开始统计”查看数据
@@ -395,7 +419,18 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {!statsData ? (
+                                            {isCalculating ? (
+                                                Array.from({ length: 5 }).map((_, i) => (
+                                                    <TableRow key={i}>
+                                                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                                                        <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
+                                                    </TableRow>
+                                                ))
+                                            ) : !statsData ? (
                                                 <TableRow>
                                                     <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
                                                         请点击“开始统计”查看数据
