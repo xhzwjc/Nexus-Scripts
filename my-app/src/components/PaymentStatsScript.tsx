@@ -33,9 +33,18 @@ interface TaxAddressStat {
     total_amount: number;
 }
 
+interface EnterpriseTaxStat {
+    enterprise_name: string;
+    tax_address: string;
+    invoiced_amount: number;
+    uninvoiced_amount: number;
+    total_amount: number;
+}
+
 interface PaymentStatsData {
     total_settlement: number;
     tax_address_stats: TaxAddressStat[];
+    enterprise_stats: EnterpriseTaxStat[];
 }
 
 export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
@@ -337,6 +346,75 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                                         <TableCell className="font-medium max-w-[200px] truncate" title={row.tax_address}>
                                                             {row.tax_address}
                                                             <div className="text-xs text-muted-foreground font-normal">ID: {row.tax_id}</div>
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-mono text-amber-600 font-medium">
+                                                            {formatCurrency(row.uninvoiced_amount)}
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-mono text-emerald-600">
+                                                            {formatCurrency(row.invoiced_amount)}
+                                                        </TableCell>
+                                                        <TableCell className="text-right">
+                                                            {row.total_amount > 0
+                                                                ? `${((row.uninvoiced_amount / row.total_amount) * 100).toFixed(1)}%`
+                                                                : '0.0%'}
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-mono">
+                                                            {formatCurrency(row.total_amount)}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Enterprise Detail Table */}
+                        <Card>
+                            <CardHeader className="flex flex-row items-center justify-between">
+                                <div className="space-y-1">
+                                    <CardTitle>企业维度未开票金额统计</CardTitle>
+                                    <p className="text-sm text-muted-foreground">
+                                        展示各企业在不同税地的开票情况
+                                    </p>
+                                </div>
+                                <BarChart3 className="w-5 h-5 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="rounded-md border">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow className="bg-slate-50">
+                                                <TableHead>企业名称</TableHead>
+                                                <TableHead>税地名称</TableHead>
+                                                <TableHead className="text-right">未开票金额</TableHead>
+                                                <TableHead className="text-right">已开票金额</TableHead>
+                                                <TableHead className="text-right">未开票占比</TableHead>
+                                                <TableHead className="text-right">总金额</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {!statsData ? (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                                                        请点击“开始统计”查看数据
+                                                    </TableCell>
+                                                </TableRow>
+                                            ) : (!statsData.enterprise_stats || statsData.enterprise_stats.length === 0) ? (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                                                        暂无数据
+                                                    </TableCell>
+                                                </TableRow>
+                                            ) : (
+                                                statsData.enterprise_stats.map((row, index) => (
+                                                    <TableRow key={index}>
+                                                        <TableCell className="font-medium max-w-[200px] truncate" title={row.enterprise_name}>
+                                                            {row.enterprise_name}
+                                                        </TableCell>
+                                                        <TableCell className="max-w-[200px] truncate" title={row.tax_address}>
+                                                            {row.tax_address}
                                                         </TableCell>
                                                         <TableCell className="text-right font-mono text-amber-600 font-medium">
                                                             {formatCurrency(row.uninvoiced_amount)}

@@ -1539,69 +1539,86 @@ class PaymentStatsService:
         if not enterprise_ids:
             return {
                 "total_settlement": 0.0,
-                "tax_address_stats": []
+                "tax_address_stats": [],
+                "enterprise_stats": []
             }
 
         # 构建包含条件
         ids_str = ",".join(map(str, enterprise_ids))
-        inclusion_clause = f"AND enterprise_id IN ({ids_str})"
+        inclusion_clause = f"AND b.enterprise_id IN ({ids_str})"
 
-        # 1. 统计各个税地下有多少未开票和已开票的金额
-        sql_tax = f"""
+        # 综合查询：同时获取企业和税地维度的基础数据
+        # 过滤测试税地 (2, 3)
+        sql_query = f"""
             SELECT
-                MAX(tax_address) as tax_address, -- 使用MAX规避GROUP BY严格模式
-                tax_id,
-                SUM(ROUND(CASE WHEN has_invoiced = 2 THEN pay_amount ELSE 0 END, 2)) AS invoiced_amount,
-                SUM(ROUND(CASE WHEN has_invoiced != 2 THEN pay_amount ELSE 0 END, 2)) AS uninvoiced_amount
-            FROM biz_balance_worker
-            WHERE pay_status = 3
+                e.enterprise_name,
+                b.enterprise_id,
+                b.tax_id,
+                MAX(b.tax_address) as tax_address,
+                SUM(ROUND(CASE WHEN b.has_invoiced = 2 THEN b.pay_amount ELSE 0 END, 2)) AS invoiced_amount,
+                SUM(ROUND(CASE WHEN b.has_invoiced != 2 THEN b.pay_amount ELSE 0 END, 2)) AS uninvoiced_amount
+            FROM biz_balance_worker b
+            LEFT JOIN biz_enterprise_base e ON b.enterprise_id = e.id
+            WHERE b.pay_status = 3
+#             AND b.tax_id NOT IN (2, 3)
             {inclusion_clause}
-            GROUP BY tax_id
+            GROUP BY b.tax_id, b.enterprise_id
         """
-
-        # 2. 统计平台总共结算多少元
-        sql_total = f"""
-            SELECT
-                SUM(ROUND(pay_amount, 2)) AS total_amount
-            FROM biz_balance_worker
-            WHERE pay_status = 3
-            {inclusion_clause}
-        """
-
+        print(sql_query)
         try:
             with self.engine.connect() as conn:
-                df_tax = pd.read_sql(sql_tax, conn)
-                df_total = pd.read_sql(sql_total, conn)
+                df = pd.read_sql(sql_query, conn)
 
-                total_amount = df_total.iloc[0]['total_amount'] if not df_total.empty else 0.0
-                if pd.isna(total_amount):
-                    total_amount = 0.0
+                if df.empty:
+                    return {
+                        "total_settlement": 0.0,
+                        "tax_address_stats": [],
+                        "enterprise_stats": []
+                    }
 
-                tax_stats = []
-                for _, row in df_tax.iterrows():
+                # 1. 构造企业-税地维度统计 (EnterpriseTaxStatItem)
+                enterprise_stats = []
+                for _, row in df.iterrows():
                     inv = row['invoiced_amount'] or 0
                     uninv = row['uninvoiced_amount'] or 0
-                    addr = row['tax_address']
-                    # 如果 addr是None，给个默认值
-                    if not addr:
-                        addr = f"未知税地({row['tax_id']})"
-                        
-                    tax_stats.append({
-                        "tax_id": row['tax_id'],
-                        "tax_address": addr,
+                    enterprise_stats.append({
+                        "enterprise_name": row['enterprise_name'] or f"未知企业({row['enterprise_id']})",
+                        "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
                         "invoiced_amount": inv,
                         "uninvoiced_amount": uninv,
                         "total_amount": inv + uninv
                     })
 
+                # 2. 聚合生成税地维度统计 (TaxAddressStatItem)
+                # 按 tax_id 分组求和
+                df_tax_agg = df.groupby(['tax_id', 'tax_address'], as_index=False).agg({
+                    'invoiced_amount': 'sum',
+                    'uninvoiced_amount': 'sum'
+                })
+
+                tax_address_stats = []
+                for _, row in df_tax_agg.iterrows():
+                    inv = row['invoiced_amount'] or 0
+                    uninv = row['uninvoiced_amount'] or 0
+                    tax_address_stats.append({
+                        "tax_id": row['tax_id'],
+                        "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
+                        "invoiced_amount": inv,
+                        "uninvoiced_amount": uninv,
+                        "total_amount": inv + uninv
+                    })
+                
                 # 按未开票金额降序排序
-                tax_stats.sort(key=lambda x: x['uninvoiced_amount'], reverse=True)
+                tax_address_stats.sort(key=lambda x: x['uninvoiced_amount'], reverse=True)
+
+                # 3. 计算总金额
+                total_settlement = df['invoiced_amount'].sum() + df['uninvoiced_amount'].sum()
 
                 return {
-                    "total_settlement": float(total_amount),
-                    "tax_address_stats": tax_stats
+                    "total_settlement": float(total_settlement),
+                    "tax_address_stats": tax_address_stats,
+                    "enterprise_stats": enterprise_stats
                 }
         except Exception as e:
             self.logger.error(f"计算统计数据失败: {e}")
             raise
-

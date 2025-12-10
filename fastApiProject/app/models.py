@@ -604,8 +604,16 @@ class TaxAddressStatItem(BaseModel):
     total_amount: float = Field(..., description="总金额")
 
 
+class EnterpriseTaxStatItem(BaseModel):
+    enterprise_name: str = Field(..., description="企业名称")
+    tax_address: str = Field(..., description="税地名称")
+    invoiced_amount: float = Field(..., description="已开票金额")
+    uninvoiced_amount: float = Field(..., description="未开票金额")
+    total_amount: float = Field(..., description="总金额")
+
+
 class PaymentStatsResponse(BaseModel):
     success: bool
     message: str
-    data: Optional[Dict[str, Any]] = None  # 包含 total_settlement, tax_address_stats, etc.
+    data: Optional[Dict[str, Any]] = None  # 包含 total_settlement, tax_address_stats, enterprise_stats
     request_id: str
