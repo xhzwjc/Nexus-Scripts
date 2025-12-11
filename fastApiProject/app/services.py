@@ -1564,7 +1564,7 @@ class PaymentStatsService:
             {inclusion_clause}
             GROUP BY b.tax_id, b.enterprise_id
         """
-        print(sql_query)
+        # print(sql_query)
         try:
             with self.engine.connect() as conn:
                 df = pd.read_sql(sql_query, conn)
@@ -1614,10 +1614,34 @@ class PaymentStatsService:
                 # 3. 计算总金额
                 total_settlement = df['invoiced_amount'].sum() + df['uninvoiced_amount'].sum()
 
+                # 4. 按月统计结算金额
+                # 新增查询：按月分组
+                sql_monthly = f"""
+                    SELECT
+                        DATE_FORMAT(b.payment_over_time, '%%Y-%%m') as month,
+                        SUM(ROUND(b.pay_amount, 2)) as amount
+                    FROM biz_balance_worker b
+                    WHERE b.pay_status = 3
+                    AND b.tax_id NOT IN (2, 3)
+                    {inclusion_clause}
+                    GROUP BY month
+                    ORDER BY month DESC
+                """
+                df_monthly = pd.read_sql(sql_monthly, conn)
+                
+                monthly_stats = []
+                for _, row in df_monthly.iterrows():
+                    if row['month']: # 过滤掉可能的空时间
+                         monthly_stats.append({
+                            "month": row['month'],
+                            "amount": float(row['amount'] or 0)
+                        })
+
                 return {
                     "total_settlement": float(total_settlement),
                     "tax_address_stats": tax_address_stats,
-                    "enterprise_stats": enterprise_stats
+                    "enterprise_stats": enterprise_stats,
+                    "monthly_stats": monthly_stats
                 }
         except Exception as e:
             self.logger.error(f"计算统计数据失败: {e}")

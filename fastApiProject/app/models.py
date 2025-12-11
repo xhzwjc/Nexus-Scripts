@@ -612,8 +612,13 @@ class EnterpriseTaxStatItem(BaseModel):
     total_amount: float = Field(..., description="总金额")
 
 
+class MonthlyStatItem(BaseModel):
+    month: str = Field(..., description="月份 (YYYY-MM)")
+    amount: float = Field(..., description="结算金额")
+
+
 class PaymentStatsResponse(BaseModel):
     success: bool
     message: str
-    data: Optional[Dict[str, Any]] = None  # 包含 total_settlement, tax_address_stats, enterprise_stats
+    data: Optional[Dict[str, Any]] = None  # 包含 total_settlement, tax_address_stats, enterprise_stats, monthly_stats
     request_id: str

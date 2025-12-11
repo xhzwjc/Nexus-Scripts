@@ -42,10 +42,16 @@ interface EnterpriseTaxStat {
     total_amount: number;
 }
 
+interface MonthlyStatItem {
+    month: string;
+    amount: number;
+}
+
 interface PaymentStatsData {
     total_settlement: number;
     tax_address_stats: TaxAddressStat[];
     enterprise_stats: EnterpriseTaxStat[];
+    monthly_stats: MonthlyStatItem[];
 }
 
 export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
@@ -317,6 +323,46 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                 </CardContent>
                             </Card>
                         </div>
+
+                        {/* Monthly Histogram */}
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium text-muted-foreground">月度结算金额趋势</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                {isCalculating ? (
+                                    <div className="space-y-2">
+                                        <Skeleton className="h-4 w-full" />
+                                        <Skeleton className="h-4 w-5/6" />
+                                        <Skeleton className="h-4 w-4/6" />
+                                    </div>
+                                ) : !statsData || !statsData.monthly_stats || statsData.monthly_stats.length === 0 ? (
+                                    <div className="text-sm text-muted-foreground">暂无数据</div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {statsData.monthly_stats.map((item) => {
+                                            const maxAmount = Math.max(...statsData.monthly_stats.map(s => s.amount));
+                                            const percent = maxAmount > 0 ? (item.amount / maxAmount) * 100 : 0;
+
+                                            return (
+                                                <div key={item.month} className="space-y-1">
+                                                    <div className="flex items-center justify-between text-xs">
+                                                        <span className="font-medium text-slate-700">{item.month}</span>
+                                                        <span className="font-mono text-slate-600">{formatCurrency(item.amount)}</span>
+                                                    </div>
+                                                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                                        <div
+                                                            className="h-full bg-primary/70 rounded-full transition-all duration-500"
+                                                            style={{ width: `${percent}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
 
                         {/* Detail Table */}
                         <Card>
