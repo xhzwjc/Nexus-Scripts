@@ -1535,12 +1535,15 @@ class PaymentStatsService:
 
     def calculate_stats(self, enterprise_ids: List[int]) -> Dict[str, Any]:
         """计算统计数据"""
+        self.logger.info(f"calculate_stats called with enterprise_ids: {enterprise_ids}")
         # 如果没有选中任何企业，直接返回空数据
         if not enterprise_ids:
+            self.logger.warning("calculate_stats: No enterprise_ids provided, returning empty stats")
             return {
                 "total_settlement": 0.0,
                 "tax_address_stats": [],
-                "enterprise_stats": []
+                "enterprise_stats": [],
+                "monthly_stats": []
             }
 
         # 构建包含条件
@@ -1637,12 +1640,18 @@ class PaymentStatsService:
                             "amount": float(row['amount'] or 0)
                         })
 
-                return {
+                result = {
                     "total_settlement": float(total_settlement),
                     "tax_address_stats": tax_address_stats,
                     "enterprise_stats": enterprise_stats,
                     "monthly_stats": monthly_stats
                 }
+                
+                self.logger.info(f"calculate_stats result: total_settlement={result['total_settlement']}, "
+                                 f"tax_stats_count={len(result['tax_address_stats'])}, "
+                                 f"enterprise_stats_count={len(result['enterprise_stats'])}, "
+                                 f"monthly_stats_count={len(result['monthly_stats'])}")
+                return result
         except Exception as e:
             self.logger.error(f"计算统计数据失败: {e}")
             raise
