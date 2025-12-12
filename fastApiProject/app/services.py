@@ -1520,11 +1520,12 @@ class PaymentStatsService:
     def get_normal_enterprises(self) -> List[Dict[str, Any]]:
         """获取所有正常企业列表"""
         sql = """
-            SELECT enterprise_name, id
-            FROM biz_enterprise_base
-            WHERE status NOT IN (1, 5, 6) AND deleted = 0
-            ORDER BY id
-        """
+              SELECT enterprise_name, id
+              FROM biz_enterprise_base
+              WHERE status NOT IN (1, 5, 6)
+                AND deleted = 0
+              ORDER BY id \
+              """
         try:
             with self.engine.connect() as conn:
                 df = pd.read_sql(sql, conn)
@@ -1610,7 +1611,7 @@ class PaymentStatsService:
                         "uninvoiced_amount": uninv,
                         "total_amount": inv + uninv
                     })
-                
+
                 # 按未开票金额降序排序
                 tax_address_stats.sort(key=lambda x: x['uninvoiced_amount'], reverse=True)
 
@@ -1629,6 +1630,7 @@ class PaymentStatsService:
                         MAX(b.tax_address) as tax_address,
                         b.tax_id,
                         SUM(ROUND(b.pay_amount, 2)) as amount,
+                        SUM(ROUND(b.service_amount, 2)) as service_amount,
                         SUM(ROUND(CASE WHEN b.has_invoiced = 2 THEN b.pay_amount ELSE 0 END, 2)) AS invoiced_amount,
                         SUM(ROUND(CASE WHEN b.has_invoiced != 2 THEN b.pay_amount ELSE 0 END, 2)) AS uninvoiced_amount
                     FROM biz_balance_worker b
@@ -1640,32 +1642,36 @@ class PaymentStatsService:
                     ORDER BY month DESC, amount DESC
                 """
                 df_monthly = pd.read_sql(sql_monthly, conn)
-                
+
                 # 处理数据：将扁平的 DataFrame 转换为 month -> details 结构
-                monthly_stats_map = {} # month -> {amount: 0, details: []}
-                
+                monthly_stats_map = {}  # month -> {amount: 0, details: []}
+
                 for _, row in df_monthly.iterrows():
                     month = row['month']
                     if not month: continue
-                    
+
                     if month not in monthly_stats_map:
                         monthly_stats_map[month] = {
                             "month": month,
                             "amount": 0.0,
+                            "service_amount": 0.0,
                             "details": []
                         }
-                    
+
                     inv = row['invoiced_amount'] or 0
                     uninv = row['uninvoiced_amount'] or 0
                     total = row['amount'] or 0
-                    
+                    service_amount = row['service_amount'] or 0
+
                     monthly_stats_map[month]['amount'] += total
+                    monthly_stats_map[month]['service_amount'] += service_amount
                     monthly_stats_map[month]['details'].append({
                         "enterprise_name": row['enterprise_name'] or f"未知企业({row['enterprise_id']})",
                         "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
                         "invoiced_amount": inv,
                         "uninvoiced_amount": uninv,
-                        "total_amount": total
+                        "total_amount": total,
+                        "service_amount": service_amount
                     })
 
                 # 转换为列表
@@ -1677,7 +1683,7 @@ class PaymentStatsService:
                     "enterprise_stats": enterprise_stats,
                     "monthly_stats": monthly_stats
                 }
-                
+
                 self.logger.info(f"calculate_stats result: total_settlement={result['total_settlement']}, "
                                  f"tax_stats_count={len(result['tax_address_stats'])}, "
                                  f"enterprise_stats_count={len(result['enterprise_stats'])}, "

@@ -610,11 +610,13 @@ class EnterpriseTaxStatItem(BaseModel):
     invoiced_amount: float = Field(..., description="已开票金额")
     uninvoiced_amount: float = Field(..., description="未开票金额")
     total_amount: float = Field(..., description="总金额")
+    service_amount: float = Field(..., description="服务费金额")
 
 
 class MonthlyStatItem(BaseModel):
     month: str = Field(..., description="月份 (YYYY-MM)")
     amount: float = Field(..., description="结算金额")
+    service_amount: float = Field(..., description="服务费金额")
     details: List[EnterpriseTaxStatItem] = Field(default=[], description="该月详细统计")
 
 

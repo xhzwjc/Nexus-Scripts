@@ -49,6 +49,7 @@ interface EnterpriseTaxStat {
     invoiced_amount: number;
     uninvoiced_amount: number;
     total_amount: number;
+    service_amount: number;
 }
 
 interface MonthlyStatItem {
@@ -564,6 +565,7 @@ function MonthlyItem({
                                 <TableHead className="h-8">企业名称</TableHead>
                                 <TableHead className="h-8">税地名称</TableHead>
                                 <TableHead className="h-8 text-right">总金额</TableHead>
+                                <TableHead className="h-8 text-right">总服务费</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -573,6 +575,9 @@ function MonthlyItem({
                                     <TableCell className="py-2 text-xs text-muted-foreground">{detail.tax_address}</TableCell>
                                     <TableCell className="py-2 text-xs text-right font-mono">
                                         {formatCurrency(detail.total_amount)}
+                                    </TableCell>
+                                    <TableCell className="py-2 text-xs text-right font-mono">
+                                        {formatCurrency(detail.service_amount)}
                                     </TableCell>
                                 </TableRow>
                             ))}
