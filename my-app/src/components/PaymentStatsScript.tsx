@@ -55,11 +55,13 @@ interface EnterpriseTaxStat {
 interface MonthlyStatItem {
     month: string;
     amount: number;
+    service_amount: number;
     details: EnterpriseTaxStat[];
 }
 
 interface PaymentStatsData {
     total_settlement: number;
+    total_service_amount: number;
     tax_address_stats: TaxAddressStat[];
     enterprise_stats: EnterpriseTaxStat[];
     monthly_stats: MonthlyStatItem[];
@@ -318,6 +320,23 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                             </Card>
                             <Card>
                                 <CardHeader className="pb-2">
+                                    <CardTitle className="text-sm font-medium text-muted-foreground">平台总服务费</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="text-3xl font-bold text-amber-600">
+                                        {isCalculating ? (
+                                            <Skeleton className="h-9 w-32" />
+                                        ) : (
+                                            statsData ? formatCurrency(statsData.total_service_amount) : '---'
+                                        )}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                        所有已选企业的服务费总和
+                                    </div>
+                                </CardContent>
+                            </Card>
+                            <Card>
+                                <CardHeader className="pb-2">
                                     <CardTitle className="text-sm font-medium text-muted-foreground">涉及税地总数</CardTitle>
                                 </CardHeader>
                                 <CardContent>
@@ -544,9 +563,14 @@ function MonthlyItem({
                     </Badge>
                 </div>
                 <div className="flex items-center space-x-4">
-                    <span className="font-mono font-bold text-primary">
-                        {formatCurrency(item.amount)}
-                    </span>
+                    <div className="flex flex-col items-end">
+                        <span className="font-mono font-bold text-primary">
+                            {formatCurrency(item.amount)}
+                        </span>
+                        <span className="text-xs text-muted-foreground font-mono">
+                            服务费: {formatCurrency(item.service_amount)}
+                        </span>
+                    </div>
                     {isOpen ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
                 </div>
             </div>

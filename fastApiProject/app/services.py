@@ -1560,7 +1560,8 @@ class PaymentStatsService:
                 b.tax_id,
                 MAX(b.tax_address) as tax_address,
                 SUM(ROUND(CASE WHEN b.has_invoiced = 2 THEN b.pay_amount ELSE 0 END, 2)) AS invoiced_amount,
-                SUM(ROUND(CASE WHEN b.has_invoiced != 2 THEN b.pay_amount ELSE 0 END, 2)) AS uninvoiced_amount
+                SUM(ROUND(CASE WHEN b.has_invoiced != 2 THEN b.pay_amount ELSE 0 END, 2)) AS uninvoiced_amount,
+                SUM(ROUND(b.service_amount, 2)) AS service_amount
             FROM biz_balance_worker b
             LEFT JOIN biz_enterprise_base e ON b.enterprise_id = e.id
             WHERE b.pay_status = 3
@@ -1576,8 +1577,10 @@ class PaymentStatsService:
                 if df.empty:
                     return {
                         "total_settlement": 0.0,
+                        "total_service_amount": 0.0,
                         "tax_address_stats": [],
-                        "enterprise_stats": []
+                        "enterprise_stats": [],
+                        "monthly_stats": []
                     }
 
                 # 1. 构造企业-税地维度统计 (EnterpriseTaxStatItem)
@@ -1585,31 +1588,36 @@ class PaymentStatsService:
                 for _, row in df.iterrows():
                     inv = row['invoiced_amount'] or 0
                     uninv = row['uninvoiced_amount'] or 0
+                    svc = row['service_amount'] or 0
                     enterprise_stats.append({
                         "enterprise_name": row['enterprise_name'] or f"未知企业({row['enterprise_id']})",
                         "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
                         "invoiced_amount": inv,
                         "uninvoiced_amount": uninv,
-                        "total_amount": inv + uninv
+                        "total_amount": inv + uninv,
+                        "service_amount": svc
                     })
 
                 # 2. 聚合生成税地维度统计 (TaxAddressStatItem)
                 # 按 tax_id 分组求和
                 df_tax_agg = df.groupby(['tax_id', 'tax_address'], as_index=False).agg({
                     'invoiced_amount': 'sum',
-                    'uninvoiced_amount': 'sum'
+                    'uninvoiced_amount': 'sum',
+                    'service_amount': 'sum'
                 })
 
                 tax_address_stats = []
                 for _, row in df_tax_agg.iterrows():
                     inv = row['invoiced_amount'] or 0
                     uninv = row['uninvoiced_amount'] or 0
+                    svc = row['service_amount'] or 0
                     tax_address_stats.append({
                         "tax_id": row['tax_id'],
                         "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
                         "invoiced_amount": inv,
                         "uninvoiced_amount": uninv,
-                        "total_amount": inv + uninv
+                        "total_amount": inv + uninv,
+                        "service_amount": svc
                     })
 
                 # 按未开票金额降序排序
@@ -1617,6 +1625,7 @@ class PaymentStatsService:
 
                 # 3. 计算总金额
                 total_settlement = df['invoiced_amount'].sum() + df['uninvoiced_amount'].sum()
+                total_service_amount = df['service_amount'].sum()
 
                 # 4. 按月统计结算金额
                 # 新增查询：按月分组
@@ -1683,6 +1692,7 @@ class PaymentStatsService:
 
                 result = {
                     "total_settlement": round(float(total_settlement), 2),
+                    "total_service_amount": round(float(total_service_amount), 2),
                     "tax_address_stats": tax_address_stats,
                     "enterprise_stats": enterprise_stats,
                     "monthly_stats": monthly_stats
