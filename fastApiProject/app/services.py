@@ -1619,26 +1619,57 @@ class PaymentStatsService:
 
                 # 4. 按月统计结算金额
                 # 新增查询：按月分组
+                # 4. 按月统计结算金额
+                # 新增查询：按月、企业、税地分组
                 sql_monthly = f"""
                     SELECT
                         DATE_FORMAT(b.payment_over_time, '%%Y-%%m') as month,
-                        SUM(ROUND(b.pay_amount, 2)) as amount
+                        e.enterprise_name,
+                        b.enterprise_id,
+                        MAX(b.tax_address) as tax_address,
+                        b.tax_id,
+                        SUM(ROUND(b.pay_amount, 2)) as amount,
+                        SUM(ROUND(CASE WHEN b.has_invoiced = 2 THEN b.pay_amount ELSE 0 END, 2)) AS invoiced_amount,
+                        SUM(ROUND(CASE WHEN b.has_invoiced != 2 THEN b.pay_amount ELSE 0 END, 2)) AS uninvoiced_amount
                     FROM biz_balance_worker b
+                    LEFT JOIN biz_enterprise_base e ON b.enterprise_id = e.id
                     WHERE b.pay_status = 3
                     AND b.tax_id NOT IN (2, 3)
                     {inclusion_clause}
-                    GROUP BY month
-                    ORDER BY month DESC
+                    GROUP BY month, b.enterprise_id, b.tax_id
+                    ORDER BY month DESC, amount DESC
                 """
                 df_monthly = pd.read_sql(sql_monthly, conn)
                 
-                monthly_stats = []
+                # 处理数据：将扁平的 DataFrame 转换为 month -> details 结构
+                monthly_stats_map = {} # month -> {amount: 0, details: []}
+                
                 for _, row in df_monthly.iterrows():
-                    if row['month']: # 过滤掉可能的空时间
-                         monthly_stats.append({
-                            "month": row['month'],
-                            "amount": float(row['amount'] or 0)
-                        })
+                    month = row['month']
+                    if not month: continue
+                    
+                    if month not in monthly_stats_map:
+                        monthly_stats_map[month] = {
+                            "month": month,
+                            "amount": 0.0,
+                            "details": []
+                        }
+                    
+                    inv = row['invoiced_amount'] or 0
+                    uninv = row['uninvoiced_amount'] or 0
+                    total = row['amount'] or 0
+                    
+                    monthly_stats_map[month]['amount'] += total
+                    monthly_stats_map[month]['details'].append({
+                        "enterprise_name": row['enterprise_name'] or f"未知企业({row['enterprise_id']})",
+                        "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
+                        "invoiced_amount": inv,
+                        "uninvoiced_amount": uninv,
+                        "total_amount": total
+                    })
+
+                # 转换为列表
+                monthly_stats = list(monthly_stats_map.values())
 
                 result = {
                     "total_settlement": float(total_settlement),

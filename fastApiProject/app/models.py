@@ -615,6 +615,7 @@ class EnterpriseTaxStatItem(BaseModel):
 class MonthlyStatItem(BaseModel):
     month: str = Field(..., description="月份 (YYYY-MM)")
     amount: float = Field(..., description="结算金额")
+    details: List[EnterpriseTaxStatItem] = Field(default=[], description="该月详细统计")
 
 
 class PaymentStatsResponse(BaseModel):

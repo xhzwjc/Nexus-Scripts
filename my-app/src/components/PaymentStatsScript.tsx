@@ -17,7 +17,16 @@ import {
     CommandItem,
 } from './ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
-import { ArrowLeft, Loader2, Filter, Calculator, BarChart3, Check } from 'lucide-react';
+import {
+    ArrowLeft,
+    Loader2,
+    Filter,
+    Calculator,
+    BarChart3,
+    Check,
+    ChevronDown,
+    ChevronUp
+} from 'lucide-react';
 import { getApiBaseUrl } from '../lib/api';
 import { cn } from '../lib/utils'; // Assuming utils exists, if not use classnames or inline
 
@@ -45,6 +54,7 @@ interface EnterpriseTaxStat {
 interface MonthlyStatItem {
     month: string;
     amount: number;
+    details: EnterpriseTaxStat[];
 }
 
 interface PaymentStatsData {
@@ -296,13 +306,13 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                             statsData ? formatCurrency(statsData.total_settlement) : '---'
                                         )}
                                     </div>
-                                    <p className="text-xs text-muted-foreground mt-1">
+                                    <div className="text-xs text-muted-foreground mt-1">
                                         {isCalculating ? (
                                             <Skeleton className="h-3 w-48" />
                                         ) : (
                                             `基于 ${selectedEnterpriseIds.length} 个企业的统计结果`
                                         )}
-                                    </p>
+                                    </div>
                                 </CardContent>
                             </Card>
                             <Card>
@@ -324,42 +334,28 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                             </Card>
                         </div>
 
-                        {/* Monthly Histogram */}
+                        {/* Monthly Histogram & Details */}
                         <Card>
                             <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium text-muted-foreground">月度结算金额趋势</CardTitle>
+                                <CardTitle className="text-sm font-medium text-muted-foreground">月度结算金额趋势与明细</CardTitle>
                             </CardHeader>
                             <CardContent>
                                 {isCalculating ? (
                                     <div className="space-y-2">
-                                        <Skeleton className="h-4 w-full" />
-                                        <Skeleton className="h-4 w-5/6" />
-                                        <Skeleton className="h-4 w-4/6" />
+                                        <Skeleton className="h-10 w-full" />
+                                        <Skeleton className="h-10 w-full" />
+                                        <Skeleton className="h-10 w-full" />
                                     </div>
                                 ) : !statsData || !statsData.monthly_stats || statsData.monthly_stats.length === 0 ? (
                                     <div className="text-sm text-muted-foreground">暂无数据</div>
                                 ) : (
-                                    <div className="space-y-3">
-                                        {statsData.monthly_stats.map((item) => {
-                                            const maxAmount = Math.max(...statsData.monthly_stats.map(s => s.amount));
-                                            const percent = maxAmount > 0 ? (item.amount / maxAmount) * 100 : 0;
-
-                                            return (
-                                                <div key={item.month} className="space-y-1">
-                                                    <div className="flex items-center justify-between text-xs">
-                                                        <span className="font-medium text-slate-700">{item.month}</span>
-                                                        <span className="font-mono text-slate-600">{formatCurrency(item.amount)}</span>
-                                                    </div>
-                                                    <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                                        <div
-                                                            className="h-full bg-primary/70 rounded-full transition-all duration-500"
-                                                            style={{ width: `${percent}%` }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
+                                    <ScrollArea className="h-[600px] pr-4">
+                                        <div className="space-y-4">
+                                            {statsData.monthly_stats.map((item) => (
+                                                <MonthlyItem key={item.month} item={item} formatCurrency={formatCurrency} />
+                                            ))}
+                                        </div>
+                                    </ScrollArea>
                                 )}
                             </CardContent>
                         </Card>
@@ -525,3 +521,68 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
         </div>
     );
 }
+function MonthlyItem({
+    item,
+    formatCurrency
+}: {
+    item: MonthlyStatItem,
+    formatCurrency: (val: number) => string
+}) {
+    const [isOpen, setIsOpen] = useState(false);
+
+    return (
+        <div className="border rounded-md overflow-hidden bg-white">
+            <div
+                className="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                onClick={() => setIsOpen(!isOpen)}
+            >
+                <div className="flex items-center space-x-2">
+                    <span className="font-medium text-slate-800">{item.month}</span>
+                    <Badge variant="secondary" className="text-xs font-normal">
+                        {item.details.length} 条记录
+                    </Badge>
+                </div>
+                <div className="flex items-center space-x-4">
+                    <span className="font-mono font-bold text-primary">
+                        {formatCurrency(item.amount)}
+                    </span>
+                    {isOpen ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                </div>
+            </div>
+
+            {/* Progress Bar (Visible always as a summary) */}
+            <div className="px-3 pb-2">
+                {/*  We don't know global max here, so just a subtle line or maybe nothing. 
+                      User asked for "breakdown below". Let's just keep the collapse logic. */}
+            </div>
+
+            {isOpen && (
+                <div className="border-t bg-slate-50/50 p-3">
+                    <Table>
+                        <TableHeader>
+                            <TableRow className="hover:bg-transparent">
+                                <TableHead className="h-8">企业名称</TableHead>
+                                <TableHead className="h-8">税地名称</TableHead>
+                                <TableHead className="h-8 text-right">总金额</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {item.details.map((detail, idx) => (
+                                <TableRow key={idx} className="hover:bg-slate-100/50">
+                                    <TableCell className="py-2 text-xs font-medium">{detail.enterprise_name}</TableCell>
+                                    <TableCell className="py-2 text-xs text-muted-foreground">{detail.tax_address}</TableCell>
+                                    <TableCell className="py-2 text-xs text-right font-mono">
+                                        {formatCurrency(detail.total_amount)}
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Ensure proper exports and closing braces
+export { PaymentStatsScript }; // Re-export if needed, or just let default export handle it.
