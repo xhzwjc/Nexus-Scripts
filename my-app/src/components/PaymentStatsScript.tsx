@@ -298,8 +298,11 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                         {/* KPI Cards */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <Card className="bg-primary/5 border-primary/20">
-                                <CardHeader className="pb-2">
+                                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                                     <CardTitle className="text-sm font-medium text-muted-foreground">平台总结算金额 (已过滤)</CardTitle>
+                                    <div className="text-xs text-muted-foreground">
+                                        涉及税地: {statsData ? statsData.tax_address_stats.length : '-'}
+                                    </div>
                                 </CardHeader>
                                 <CardContent>
                                     <div className="text-3xl font-bold text-primary">
@@ -319,8 +322,11 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                 </CardContent>
                             </Card>
                             <Card>
-                                <CardHeader className="pb-2">
+                                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                                     <CardTitle className="text-sm font-medium text-muted-foreground">平台总服务费</CardTitle>
+                                    <div className="text-xs text-muted-foreground">
+                                        涉及税地: {statsData ? statsData.tax_address_stats.length : '-'}
+                                    </div>
                                 </CardHeader>
                                 <CardContent>
                                     <div className="text-3xl font-bold text-amber-600">
@@ -335,23 +341,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                     </div>
                                 </CardContent>
                             </Card>
-                            <Card>
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="text-sm font-medium text-muted-foreground">涉及税地总数</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="text-3xl font-bold">
-                                        {isCalculating ? (
-                                            <Skeleton className="h-9 w-16" />
-                                        ) : (
-                                            statsData ? statsData.tax_address_stats.length : '---'
-                                        )}
-                                    </div>
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                        不同的税地来源
-                                    </p>
-                                </CardContent>
-                            </Card>
+
                         </div>
 
                         {/* Monthly Histogram & Details */}
