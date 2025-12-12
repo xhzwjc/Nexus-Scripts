@@ -1674,11 +1674,15 @@ class PaymentStatsService:
                         "service_amount": service_amount
                     })
 
-                # 转换为列表
+                # Round values in monthly stats
+                for item in monthly_stats_map.values():
+                    item['amount'] = round(item['amount'], 2)
+                    item['service_amount'] = round(item['service_amount'], 2)
+                
                 monthly_stats = list(monthly_stats_map.values())
 
                 result = {
-                    "total_settlement": float(total_settlement),
+                    "total_settlement": round(float(total_settlement), 2),
                     "tax_address_stats": tax_address_stats,
                     "enterprise_stats": enterprise_stats,
                     "monthly_stats": monthly_stats
