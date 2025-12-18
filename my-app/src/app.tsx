@@ -43,6 +43,7 @@ import './App.css';
 import TaxCalculationScript from "@/components/TaxCalculatorScript";
 import PaymentStatsScript from '@/components/PaymentStatsScript';
 import OCRScript from "@/components/OCRScript";
+import DeliveryScript from "@/components/DeliveryScript";
 
 // 角色类型与权限映射
 type Role = 'admin' | 'operator' | 'custom' | 'QA' | 'PM';
@@ -77,7 +78,8 @@ const keyUserMap: Record<string, User> = {
             'sms_operations_center': true,
             'tax-reporting': true,
             'tax-calculation': true,
-            'payment-stats': true
+            'payment-stats': true,
+            'delivery-tool': true
         },
         name: '系统管理员'
     },
@@ -87,7 +89,8 @@ const keyUserMap: Record<string, User> = {
         permissions: {
             'tax-reporting': true,
             'tax-calculation': true,
-            'payment-stats': true
+            'payment-stats': true,
+            'delivery-tool': true
         },
         name: '运营人员'
     },
@@ -102,7 +105,8 @@ const keyUserMap: Record<string, User> = {
             'sms_operations_center': true,
             'tax-reporting': true,
             'tax-calculation': true,
-            'payment-stats': true
+            'payment-stats': true,
+            'delivery-tool': true
         },
         name: 'JC'
     },
@@ -117,7 +121,8 @@ const keyUserMap: Record<string, User> = {
             'sms_operations_center': true,
             'tax-reporting': true,
             'tax-calculation': true,
-            'payment-stats': true
+            'payment-stats': true,
+            'delivery-tool': true
         },
         name: '**'
     },
@@ -190,6 +195,13 @@ const allScripts: Record<string, { name: string; description: string; scripts: S
                 name: '结算与开票统计',
                 description: '统计已开票/未开票金额及平台总结算',
                 icon: <BarChart3 className="w-5 h-5" />,
+                status: 'beta' as const
+            },
+            {
+                id: 'delivery-tool',
+                name: '交付物提交工具',
+                description: '协助运营人员为指定用户快速提交任务交付物',
+                icon: <FileText className="w-5 h-5" />,
                 status: 'beta' as const
             }
         ]
@@ -782,6 +794,8 @@ export default function App() {
                 return <TaxCalculationScript onBack={() => setCurrentView('system')} />;
             case 'payment-stats':
                 return <PaymentStatsScript onBack={() => setCurrentView('system')} />;
+            case 'delivery-tool':
+                return <DeliveryScript onBack={() => setCurrentView('system')} />;
             default:
                 return null;
         }
