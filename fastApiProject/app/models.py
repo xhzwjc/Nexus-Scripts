@@ -642,3 +642,7 @@ class DeliverySubmitRequest(BaseModel):
     environment: str
     token: str
     payload: Dict[str, Any]
+
+class DeliveryWorkerInfoRequest(BaseModel):
+    environment: str
+    token: str
