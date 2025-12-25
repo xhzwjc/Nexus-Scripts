@@ -551,54 +551,62 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
     // 2. Login View
     const renderLogin = () => (
-        <div className="max-w-xl mx-auto mt-10 animate-in fade-in slide-in-from-bottom-5">
-            <Card>
-                <CardHeader>
-                    <CardTitle>批量登录</CardTitle>
-                    <CardDescription>请输入手机号列表，每行一个，或用逗号分隔</CardDescription>
+        <div className="max-w-md mx-auto mt-20 animate-in fade-in zoom-in-95 duration-500">
+            <Card className="border-0 shadow-2xl bg-white/60 backdrop-blur-3xl ring-1 ring-white/40 rounded-[40px] overflow-hidden">
+                <CardHeader className="text-center pb-2 pt-8">
+                    <div className="mx-auto w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-4 shadow-[0_8px_24px_rgba(59,130,246,0.15)]">
+                        <User className="h-8 w-8 text-blue-600" />
+                    </div>
+                    <CardTitle className="text-2xl font-bold text-slate-800 tracking-tight">批量登录</CardTitle>
+                    <CardDescription className="text-slate-500 font-medium">请输入手机号列表开启任务</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-6 px-8 pb-10">
                     <div className="space-y-2">
-                        <Label>环境选择</Label>
+                        <Label className="text-slate-600 font-semibold text-xs ml-1">环境选择</Label>
                         <Select value={environment} onValueChange={setEnvironment}>
-                            <SelectTrigger>
+                            <SelectTrigger className="rounded-2xl border-white/40 bg-white/50 h-10 ring-0 focus:ring-2 focus:ring-blue-500/10 shadow-sm transition-all hover:bg-white/80">
                                 <SelectValue />
                             </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="test">测试环境</SelectItem>
-                                <SelectItem value="prod">生产环境</SelectItem>
+                            <SelectContent className="rounded-xl border-white/20 bg-white/80 backdrop-blur-xl shadow-xl">
+                                <SelectItem value="test" className="rounded-lg my-1 mx-1 focus:bg-blue-50 focus:text-blue-600 cursor-pointer">测试环境</SelectItem>
+                                <SelectItem value="prod" className="rounded-lg my-1 mx-1 focus:bg-blue-50 focus:text-blue-600 cursor-pointer">生产环境</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
 
                     <div className="space-y-2">
-                        <Label>手机号列表</Label>
+                        <Label className="text-slate-600 font-semibold text-xs ml-1">手机号列表</Label>
                         <Textarea
-                            placeholder={`19999999999\n18888888888 或：19999999999,18888888888`}
-                            rows={10}
-                            className="font-mono"
+                            placeholder={`19999999999\n18888888888`}
+                            rows={8}
+                            className="rounded-2xl border-white/40 bg-white/50 font-mono text-sm resize-none ring-0 focus:ring-2 focus:ring-blue-500/10 shadow-inner p-4 transition-all focus:bg-white/80"
                             value={mobileInput}
                             onChange={e => setMobileInput(e.target.value)}
                         />
-                        <p className="text-xs text-muted-foreground">支持自动过滤无效格式，仅保留11位数字号码</p>
+                        <p className="text-[10px] text-slate-400 text-right pr-2">自动过滤非11位号码</p>
                     </div>
 
-                    <Button className="w-full" size="lg" onClick={handleLogin} disabled={isLoggingIn}>
-                        {isLoggingIn ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                        {isLoggingIn ? '正在批量登录...' : '开始获取任务'}
+                    <Button
+                        className="w-full h-12 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white shadow-[0_8px_20px_rgba(37,99,235,0.25)] hover:shadow-[0_12px_28px_rgba(37,99,235,0.35)] active:scale-[0.97] transition-all duration-300 font-medium text-base"
+                        onClick={handleLogin}
+                        disabled={isLoggingIn}
+                    >
+                        {isLoggingIn ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : null}
+                        {isLoggingIn ? '正在登录...' : '开始获取任务'}
                     </Button>
                 </CardContent>
             </Card>
         </div>
     );
 
+
     // 3. Main Process View
     const renderProcess = () => (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-140px)]">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-140px)] p-2">
             {/* Sidebar: Users Tree */}
-            <Card className="lg:col-span-1 flex flex-col h-full border-r bg-slate-50/50">
-                <CardHeader className="py-4 px-4 border-b bg-white">
-                    <CardTitle className="text-base">用户列表 ({users.length})</CardTitle>
+            <Card className="lg:col-span-1 flex flex-col h-full border-0 bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.06)]">
+                <CardHeader className="py-5 px-5 border-b border-slate-200/50 bg-white/40 backdrop-blur-md">
+                    <CardTitle className="text-sm font-semibold text-slate-800 tracking-tight">交付团队 ({users.length})</CardTitle>
                 </CardHeader>
                 <ScrollArea className="flex-1">
                     <div className="p-2 space-y-1">
@@ -608,34 +616,38 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                 <div key={user.mobile} className="space-y-1">
                                     {/* User Header */}
                                     <div
-                                        className={`flex items-center p-2 rounded-md cursor-pointer hover:bg-slate-200/50 transition-colors ${isExpanded ? 'bg-slate-200' : ''}`}
+                                        className={`group flex items-center p-3 mx-2 mt-2 rounded-2xl cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] border border-transparent ${isExpanded
+                                            ? 'bg-white/80 shadow-[0_8px_16px_rgba(0,0,0,0.06)] backdrop-blur-md border-white/40'
+                                            : 'hover:bg-white/50 hover:shadow-sm text-slate-600'
+                                            }`}
                                         onClick={() => toggleUserExpand(user.mobile)}
                                     >
-                                        <Avatar className="h-8 w-8 mr-2 border bg-white text-muted-foreground">
+                                        <Avatar className="h-9 w-9 mr-3 border-2 border-white shadow-sm transition-transform duration-300 group-hover:scale-105">
                                             <AvatarFallback className="bg-primary/10 text-primary text-xs">
                                                 {user.realname.substring(0, 2)}
                                             </AvatarFallback>
                                         </Avatar>
                                         <div className="flex-1 min-w-0">
-                                            <div className="font-medium text-sm truncate">{user.realname}</div>
-                                            <div className="text-xs text-muted-foreground truncate">{user.mobile}</div>
+                                            <div className="font-medium text-sm truncate text-slate-800 tracking-tight">{user.realname}</div>
+                                            <div className="text-[11px] text-slate-500 truncate font-medium">{user.mobile}</div>
                                         </div>
-                                        <Badge variant="secondary" className="ml-1 text-[10px] h-5">{user.tasks.length}</Badge>
-                                        {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground ml-1" /> : <ChevronRight className="h-4 w-4 text-muted-foreground ml-1" />}
+                                        <Badge variant="secondary" className="ml-1 text-[10px] h-5 bg-slate-100/50 text-slate-600 backdrop-blur-sm border-0">{user.tasks.length}</Badge>
+                                        {isExpanded ? <ChevronDown className="h-4 w-4 text-slate-400 ml-1" /> : <ChevronRight className="h-4 w-4 text-slate-400 ml-1" />}
                                     </div>
 
                                     {/* Task List (Accordion) */}
-                                    {isExpanded && (
-                                        <div className="ml-4 pl-2 border-l-2 border-slate-200 space-y-1 max-h-[300px] overflow-y-auto">
+                                    <div className={`overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${isExpanded ? 'max-h-[500px] opacity-100 py-1' : 'max-h-0 opacity-0 py-0'}`}>
+                                        <div className="ml-3 pl-3 border-l-2 border-slate-200/50 space-y-1">
                                             {user.tasks.length === 0 ? (
-                                                <div className="py-2 text-xs text-muted-foreground pl-2">无待交付任务</div>
+                                                <div className="py-2 text-xs text-muted-foreground pl-2 italic">无待交付任务</div>
                                             ) : (
-                                                user.tasks.map(task => (
+                                                user.tasks.map((task, idx) => (
                                                     <div
                                                         key={task.taskId}
-                                                        className={`relative p-2 rounded text-xs cursor-pointer border transition-all mb-1 overflow-hidden ${activeTaskId === task.taskId && activeUserMobile === user.mobile
-                                                            ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-sm'
-                                                            : 'border-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                                                        style={{ animationDelay: `${idx * 30}ms` }}
+                                                        className={`group relative p-3 rounded-2xl text-xs cursor-pointer border transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] ${activeTaskId === task.taskId && activeUserMobile === user.mobile
+                                                            ? 'bg-blue-500/10 border-blue-200/50 text-blue-700 shadow-[0_4px_12px_rgba(59,130,246,0.15)] backdrop-blur-md'
+                                                            : 'border-transparent text-slate-600 hover:bg-white/60 hover:text-slate-900 hover:shadow-sm'
                                                             }`}
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -643,50 +655,57 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                                         }}
                                                         title={task.taskDesc}
                                                     >
-                                                        {/* Active Indicator */}
+                                                        {/* Active Indicator (Glowing Dot) */}
                                                         {activeTaskId === task.taskId && activeUserMobile === user.mobile && (
-                                                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 rounded-l" />
+                                                            <div className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1 h-3 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.6)]" />
                                                         )}
-                                                        <div className="font-semibold line-clamp-1 break-all pr-1">{task.taskName}</div>
-                                                        <div className="mt-1 opacity-80 text-[10px] line-clamp-2 leading-tight break-all text-muted-foreground/90">
+                                                        <div className={`font-semibold line-clamp-1 break-all pr-1 text-[13px] ${activeTaskId === task.taskId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>{task.taskName}</div>
+                                                        <div className={`mt-1 opacity-80 text-[11px] line-clamp-2 leading-tight break-all text-muted-foreground/90 ${activeTaskId === task.taskId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>
                                                             {task.taskDesc || '暂无描述'}
                                                         </div>
                                                     </div>
                                                 ))
                                             )}
                                         </div>
-                                    )}
+                                    </div>
                                 </div>
                             );
                         })}
                     </div>
                 </ScrollArea>
-                <div className="p-3 border-t bg-white">
+                <div className="p-4 border-t border-white/20 bg-white/40 backdrop-blur-md">
                     <Button
                         variant="outline"
                         size="sm"
-                        className="w-full text-xs"
+                        className="w-full text-xs h-9 rounded-xl border-white/40 bg-white/50 hover:bg-white/80 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-95 shadow-sm hover:shadow-md text-slate-700"
                         onClick={handleRefreshTasks}
                         disabled={isLoggingIn}
                     >
-                        {isLoggingIn ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : <RefreshCw className="mr-2 h-3 w-3" />}
+                        {isLoggingIn ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin text-blue-500" /> : <RefreshCw className="mr-2 h-3.5 w-3.5 text-blue-500" />}
                         刷新任务列表
                     </Button>
                 </div>
             </Card>
 
             {/* Main: Form Area */}
-            <Card className="lg:col-span-3 h-full overflow-hidden flex flex-col bg-white shadow-sm border-none ring-1 ring-slate-200">
-                <CardHeader className="py-4 border-b">
+            <Card className="lg:col-span-3 h-full overflow-hidden flex flex-col bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] border-0 transition-all duration-500 hover:shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
+                <CardHeader className="py-5 px-6 border-b border-slate-200/50 bg-white/40 backdrop-blur-md sticky top-0 z-10">
                     <div className="flex items-center justify-between overflow-hidden">
-                        <div className="flex-1 min-w-0 pr-4">
-                            <div className="flex items-center">
-                                <CardTitle className="text-lg truncate max-w-full" title={activeTask ? (currentDraft?.reportName || activeTask.taskName) : ''}>
+                        <div className="flex-1 min-w-0 pr-6">
+                            <div className="flex items-center space-x-2">
+                                <CardTitle className="text-xl font-bold tracking-tight text-slate-800 truncate leading-relaxed" title={activeTask ? (currentDraft?.reportName || activeTask.taskName) : ''}>
                                     {activeTask ? (currentDraft?.reportName || activeTask.taskName) : '请选择任务'}
                                 </CardTitle>
+                                {activeTask && <Badge variant="outline" className="text-[10px] px-1.5 h-5 border-blue-200 text-blue-600 bg-blue-50/50 rounded-md shrink-0">进行中</Badge>}
                             </div>
-                            <CardDescription className="truncate max-w-full block" title={activeTask ? `${activeUser?.realname} - ${activeTask.taskDesc}` : ''}>
-                                {activeTask ? `${activeUser?.realname} - ${activeTask.taskDesc}` : '在左侧列表选择一个任务开始操作'}
+                            <CardDescription className="truncate font-medium text-slate-500 mt-1" title={activeTask ? `${activeUser?.realname} - ${activeTask.taskDesc}` : ''}>
+                                {activeTask ? (
+                                    <span className="flex items-center">
+                                        <User className="w-3 h-3 mr-1 inline-block" /> {activeUser?.realname}
+                                        <span className="mx-2 opacity-30">|</span>
+                                        {activeTask.taskDesc}
+                                    </span>
+                                ) : '在左侧列表选择一个任务开始操作'}
                             </CardDescription>
                         </div>
                         {activeTask && (
