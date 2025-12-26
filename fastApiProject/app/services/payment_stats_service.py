@@ -1,0 +1,225 @@
+import logging
+import sqlalchemy
+import pandas as pd
+from sqlalchemy import text
+from typing import List, Dict, Any
+from urllib.parse import quote_plus
+
+from ..config import settings
+
+# 配置日志
+logger = logging.getLogger(__name__)
+
+
+class PaymentStatsService:
+    """支付统计服务类"""
+
+    def __init__(self, environment: str = None):
+        self.environment = settings.resolve_environment(environment)
+        self.db_config = settings.get_db_config(self.environment)
+        self.logger = logging.getLogger(__name__)
+        self.engine = self._init_db_connection()
+
+    def _init_db_connection(self):
+        """初始化数据库连接"""
+        db_uri = (
+            f"mysql+pymysql://{self.db_config['user']}:{quote_plus(self.db_config['password'])}@"
+            f"{self.db_config['host']}:{self.db_config['port']}/{self.db_config['database']}"
+            "?charset=utf8mb4&connect_timeout=10"
+        )
+        return sqlalchemy.create_engine(
+            db_uri,
+            pool_size=5,
+            pool_recycle=3600,
+            pool_pre_ping=True
+        )
+
+    def get_normal_enterprises(self) -> List[Dict[str, Any]]:
+        """获取所有正常企业列表"""
+        sql = """
+              SELECT enterprise_name, id
+              FROM biz_enterprise_base
+              WHERE status NOT IN (1, 5, 6)
+                AND deleted = 0
+              ORDER BY id 
+              """
+        try:
+            with self.engine.connect() as conn:
+                df = pd.read_sql(sql, conn)
+                return df.to_dict(orient="records")
+        except Exception as e:
+            self.logger.error(f"获取企业列表失败: {e}")
+            raise
+
+    def calculate_stats(self, enterprise_ids: List[int]) -> Dict[str, Any]:
+        """计算统计数据"""
+        self.logger.info(f"calculate_stats called with enterprise_ids: {enterprise_ids}")
+        # 如果没有选中任何企业，直接返回空数据
+        if not enterprise_ids:
+            self.logger.warning("calculate_stats: No enterprise_ids provided, returning empty stats")
+            return {
+                "total_settlement": 0.0,
+                "tax_address_stats": [],
+                "enterprise_stats": [],
+                "monthly_stats": []
+            }
+
+        # 构建包含条件
+        ids_str = ",".join(map(str, enterprise_ids))
+        inclusion_clause = f"AND b.enterprise_id IN ({ids_str})"
+
+        # 综合查询：同时获取企业和税地维度的基础数据
+        # 过滤测试税地 (2, 3)
+        sql_query = f"""
+            SELECT
+                e.enterprise_name,
+                b.enterprise_id,
+                b.tax_id,
+                MAX(b.tax_address) as tax_address,
+                SUM(ROUND(CASE WHEN b.has_invoiced = 2 THEN b.pay_amount ELSE 0 END, 2)) AS invoiced_amount,
+                SUM(ROUND(CASE WHEN b.has_invoiced != 2 THEN b.pay_amount ELSE 0 END, 2)) AS uninvoiced_amount,
+                SUM(ROUND(b.service_amount, 2)) AS service_amount
+            FROM biz_balance_worker b
+            LEFT JOIN biz_enterprise_base e ON b.enterprise_id = e.id
+            WHERE b.pay_status = 3
+#             AND b.tax_id NOT IN (2, 3)
+            {inclusion_clause}
+            GROUP BY b.tax_id, b.enterprise_id
+        """
+        # print(sql_query)
+        try:
+            with self.engine.connect() as conn:
+                df = pd.read_sql(sql_query, conn)
+
+                if df.empty:
+                    return {
+                        "total_settlement": 0.0,
+                        "total_service_amount": 0.0,
+                        "tax_address_stats": [],
+                        "enterprise_stats": [],
+                        "monthly_stats": []
+                    }
+
+                # 1. 构造企业-税地维度统计 (EnterpriseTaxStatItem)
+                enterprise_stats = []
+                for _, row in df.iterrows():
+                    inv = row['invoiced_amount'] or 0
+                    uninv = row['uninvoiced_amount'] or 0
+                    svc = row['service_amount'] or 0
+                    enterprise_stats.append({
+                        "enterprise_name": row['enterprise_name'] or f"未知企业({row['enterprise_id']})",
+                        "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
+                        "invoiced_amount": inv,
+                        "uninvoiced_amount": uninv,
+                        "total_amount": inv + uninv,
+                        "service_amount": svc
+                    })
+
+                # 2. 聚合生成税地维度统计 (TaxAddressStatItem)
+                # 按 tax_id 分组求和
+                df_tax_agg = df.groupby(['tax_id', 'tax_address'], as_index=False).agg({
+                    'invoiced_amount': 'sum',
+                    'uninvoiced_amount': 'sum',
+                    'service_amount': 'sum'
+                })
+
+                tax_address_stats = []
+                for _, row in df_tax_agg.iterrows():
+                    inv = row['invoiced_amount'] or 0
+                    uninv = row['uninvoiced_amount'] or 0
+                    svc = row['service_amount'] or 0
+                    tax_address_stats.append({
+                        "tax_id": row['tax_id'],
+                        "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
+                        "invoiced_amount": inv,
+                        "uninvoiced_amount": uninv,
+                        "total_amount": inv + uninv,
+                        "service_amount": svc
+                    })
+
+                # 按未开票金额降序排序
+                tax_address_stats.sort(key=lambda x: x['uninvoiced_amount'], reverse=True)
+
+                # 3. 计算总金额
+                total_settlement = df['invoiced_amount'].sum() + df['uninvoiced_amount'].sum()
+                total_service_amount = df['service_amount'].sum()
+
+                # 4. 按月统计结算金额
+                # 新增查询：按月分组
+                # 4. 按月统计结算金额
+                # 新增查询：按月、企业、税地分组
+                sql_monthly = f"""
+                    SELECT
+                        DATE_FORMAT(b.payment_over_time, '%%Y-%%m') as month,
+                        e.enterprise_name,
+                        b.enterprise_id,
+                        MAX(b.tax_address) as tax_address,
+                        b.tax_id,
+                        SUM(ROUND(b.pay_amount, 2)) as amount,
+                        SUM(ROUND(b.service_amount, 2)) as service_amount,
+                        SUM(ROUND(CASE WHEN b.has_invoiced = 2 THEN b.pay_amount ELSE 0 END, 2)) AS invoiced_amount,
+                        SUM(ROUND(CASE WHEN b.has_invoiced != 2 THEN b.pay_amount ELSE 0 END, 2)) AS uninvoiced_amount
+                    FROM biz_balance_worker b
+                    LEFT JOIN biz_enterprise_base e ON b.enterprise_id = e.id
+                    WHERE b.pay_status = 3
+                    AND b.tax_id NOT IN (2, 3)
+                    {inclusion_clause}
+                    GROUP BY month, b.enterprise_id, b.tax_id
+                    ORDER BY month DESC, amount DESC
+                """
+                df_monthly = pd.read_sql(sql_monthly, conn)
+
+                # 处理数据：将扁平的 DataFrame 转换为 month -> details 结构
+                monthly_stats_map = {}  # month -> {amount: 0, details: []}
+
+                for _, row in df_monthly.iterrows():
+                    month = row['month']
+                    if not month: continue
+
+                    if month not in monthly_stats_map:
+                        monthly_stats_map[month] = {
+                            "month": month,
+                            "amount": 0.0,
+                            "service_amount": 0.0,
+                            "details": []
+                        }
+
+                    inv = row['invoiced_amount'] or 0
+                    uninv = row['uninvoiced_amount'] or 0
+                    total = row['amount'] or 0
+                    service_amount = row['service_amount'] or 0
+
+                    monthly_stats_map[month]['amount'] += total
+                    monthly_stats_map[month]['service_amount'] += service_amount
+                    monthly_stats_map[month]['details'].append({
+                        "enterprise_name": row['enterprise_name'] or f"未知企业({row['enterprise_id']})",
+                        "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
+                        "invoiced_amount": inv,
+                        "uninvoiced_amount": uninv,
+                        "total_amount": total,
+                        "service_amount": service_amount
+                    })
+
+                # Round values in monthly stats
+                for item in monthly_stats_map.values():
+                    item['amount'] = round(item['amount'], 2)
+                    item['service_amount'] = round(item['service_amount'], 2)
+                
+                monthly_stats = list(monthly_stats_map.values())
+
+                result = {
+                    "total_settlement": round(float(total_settlement), 2),
+                    "total_service_amount": round(float(total_service_amount), 2),
+                    "tax_address_stats": tax_address_stats,
+                    "enterprise_stats": enterprise_stats,
+                    "monthly_stats": monthly_stats
+                }
+
+                self.logger.info(f"calculate_stats result: total_settlement={result['total_settlement']}, "
+                                 f"tax_stats_count={len(result['tax_address_stats'])}, "
+                                 f"enterprise_stats_count={len(result['enterprise_stats'])}, "
+                                 f"monthly_stats_count={len(result['monthly_stats'])}")
+                return result
+        except Exception as e:
+            self.logger.error(f"计算统计数据失败: {e}")
+            raise

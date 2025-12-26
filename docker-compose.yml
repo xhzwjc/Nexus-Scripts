@@ -32,6 +32,9 @@ services:
       context: ./fastApiProject
     image: project-root-fastapi:v1.0.0
     restart: always
+    volumes:
+      - paddlex_models:/root/.paddlex       # PaddleX 模型缓存
+      - paddle_models:/root/.paddleocr      # PaddleOCR 模型缓存
     ports:
       - "8091:8091"
     environment:
@@ -66,3 +69,7 @@ services:
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  paddlex_models:    # 持久化 PaddleX 模型缓存
+  paddle_models:     # 持久化 PaddleOCR 模型缓存
