@@ -837,7 +837,7 @@ export default function App() {
     // 未登录状态 - 显示密钥输入界面
     if (!currentUser) {
         return (
-            <div className="min-h-screen relative overflow-hidden flex items-center justify-center p-6 bg-[#F2F2F7] dark:bg-black font-sans selection:bg-blue-100">
+            <div className="min-h-screen relative overflow-x-hidden flex items-center justify-center p-6 bg-[#F2F2F7] dark:bg-black font-sans selection:bg-blue-100">
                 {/* Aurora Background */}
                 <div className="fixed inset-0 pointer-events-none">
                     <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-blue-500/20 blur-[120px] rounded-full mix-blend-multiply dark:mix-blend-normal animate-pulse" style={{ animationDuration: '8s' }} />
@@ -926,7 +926,7 @@ export default function App() {
     if (currentView === 'system') {
 
         return (
-            <div className="min-h-screen relative overflow-hidden bg-[#F2F2F7] dark:bg-black font-sans selection:bg-blue-100 p-6">
+            <div className="min-h-screen relative overflow-x-hidden bg-[#F2F2F7] dark:bg-black font-sans selection:bg-blue-100 p-4 md:p-6">
                 {/* Aurora Background */}
                 <div className="fixed inset-0 pointer-events-none">
                     <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-blue-500/20 blur-[120px] rounded-full mix-blend-multiply dark:mix-blend-normal animate-pulse" style={{ animationDuration: '8s' }} />
@@ -1099,7 +1099,7 @@ export default function App() {
 
     // 首页
     return (
-        <div className="min-h-screen relative overflow-hidden bg-[#F2F2F7] dark:bg-black font-sans selection:bg-blue-100 p-6">
+        <div className="min-h-screen relative overflow-x-hidden bg-[#F2F2F7] dark:bg-black font-sans selection:bg-blue-100 p-4 md:p-6">
             {/* Aurora Background */}
             <div className="fixed inset-0 pointer-events-none">
                 <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-blue-500/20 blur-[120px] rounded-full mix-blend-multiply dark:mix-blend-normal animate-pulse" style={{ animationDuration: '8s' }} />
@@ -1126,17 +1126,17 @@ export default function App() {
                     想要更靠上：改小数值 (如 pt-10)
                     想要更靠下：改大数值 (如 pt-32)
                 */}
-                <div className="flex-1 flex flex-col justify-start pt-20 pb-20">
+                <div className="flex-1 flex flex-col justify-start pt-4 pb-8 md:pb-20 origin-top scale-[0.85] md:scale-100 lg:scale-100 xl:scale-100">
 
                     <motion.div
                         initial={{ opacity: 0, y: 30 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={springConfig}
-                        className="text-center mb-16 mt-10 md:mt-0"
+                        className="text-center mb-8 md:mb-12 lg:mb-16 mt-4 md:mt-0"
                     >
-                        <h1 className="text-6xl md:text-7xl font-black mb-6 tracking-tight text-[#0f172a] dark:text-white drop-shadow-sm leading-tight">
+                        <h1 className="text-3xl md:text-5xl lg:text-7xl font-black mb-4 md:mb-6 tracking-tight text-[#0f172a] dark:text-white drop-shadow-sm leading-tight">
                             ScriptHub
-                            <span className="text-blue-600 block text-2xl md:text-3xl mt-4 font-bold tracking-normal opacity-90">自动化脚本调度中心</span>
+                            <span className="text-blue-600 block text-lg md:text-xl lg:text-3xl mt-2 md:mt-4 font-bold tracking-normal opacity-90">自动化脚本调度中心</span>
                         </h1>
                         <p className="text-xl text-[#64748b] font-medium max-w-2xl mx-auto leading-relaxed">
                             企业级任务编排与执行引擎，提供从数据结算到报表生成的全流程自动化解决方案。
