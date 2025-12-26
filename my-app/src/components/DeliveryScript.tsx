@@ -602,13 +602,13 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
     // 3. Main Process View
     const renderProcess = () => (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-140px)] p-2">
+        <div className="flex flex-col lg:grid lg:grid-cols-4 gap-6 lg:h-[calc(100vh-140px)] p-2">
             {/* Sidebar: Users Tree */}
-            <Card className="lg:col-span-1 flex flex-col h-full border-0 bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.06)]">
+            <Card className="lg:col-span-1 flex flex-col min-h-[400px] h-auto lg:h-full border-0 bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.06)]">
                 <CardHeader className="py-5 px-5 border-b border-slate-200/50 bg-white/40 backdrop-blur-md">
                     <CardTitle className="text-sm font-semibold text-slate-800 tracking-tight">交付团队 ({users.length})</CardTitle>
                 </CardHeader>
-                <ScrollArea className="flex-1">
+                <div className="flex-1 overflow-y-auto min-h-0">
                     <div className="p-2 space-y-1">
                         {users.map(user => {
                             const isExpanded = expandedUserMobiles.includes(user.mobile);
@@ -619,7 +619,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         className={`group flex items-center p-3 mx-2 mt-2 rounded-2xl cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] border border-transparent ${isExpanded
                                             ? 'bg-white/80 shadow-[0_8px_16px_rgba(0,0,0,0.06)] backdrop-blur-md border-white/40'
                                             : 'hover:bg-white/50 hover:shadow-sm text-slate-600'
-                                            }`}
+                                        }`}
                                         onClick={() => toggleUserExpand(user.mobile)}
                                     >
                                         <Avatar className="h-9 w-9 mr-3 border-2 border-white shadow-sm transition-transform duration-300 group-hover:scale-105">
@@ -648,7 +648,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                                         className={`group relative p-3 rounded-2xl text-xs cursor-pointer border transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] ${activeTaskId === task.taskId && activeUserMobile === user.mobile
                                                             ? 'bg-blue-500/10 border-blue-200/50 text-blue-700 shadow-[0_4px_12px_rgba(59,130,246,0.15)] backdrop-blur-md'
                                                             : 'border-transparent text-slate-600 hover:bg-white/60 hover:text-slate-900 hover:shadow-sm'
-                                                            }`}
+                                                        }`}
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             handleSelectTask(user.mobile, task.taskId);
@@ -672,7 +672,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                             );
                         })}
                     </div>
-                </ScrollArea>
+                </div>
                 <div className="p-4 border-t border-white/20 bg-white/40 backdrop-blur-md">
                     <Button
                         variant="outline"
@@ -688,7 +688,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
             </Card>
 
             {/* Main: Form Area */}
-            <Card className="lg:col-span-3 h-full overflow-hidden flex flex-col bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] border-0 transition-all duration-500 hover:shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
+            <Card className="lg:col-span-3 min-h-[600px] h-auto lg:h-full lg:overflow-hidden flex flex-col bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] border-0 transition-all duration-500 hover:shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
                 <CardHeader className="py-5 px-6 border-b border-slate-200/50 bg-white/40 backdrop-blur-md sticky top-0 z-10">
                     <div className="flex items-center justify-between overflow-hidden">
                         <div className="flex-1 min-w-0 pr-6">
@@ -717,7 +717,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 </CardHeader>
 
                 {activeTaskId && activeUser && currentDraft && draftKey ? (
-                    <ScrollArea className="flex-1" key={draftKey}>
+                    <div className="flex-1 overflow-y-auto p-0" key={draftKey}>
                         <div className="p-6 space-y-6">
                             {/* Form Inputs */}
                             <div className="grid grid-cols-2 gap-6">
@@ -860,7 +860,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                 </div>
                             </div>
                         </div>
-                    </ScrollArea>
+                    </div>
                 ) : (
                     <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground space-y-4">
                         <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
