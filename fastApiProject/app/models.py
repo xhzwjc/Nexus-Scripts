@@ -625,3 +625,24 @@ class PaymentStatsResponse(BaseModel):
     message: str
     data: Optional[Dict[str, Any]] = None  # 包含 total_settlement, tax_address_stats, enterprise_stats, monthly_stats
     request_id: str
+
+
+# 交付物提交工具模型
+class DeliveryLoginRequest(BaseModel):
+    environment: str = Field(..., description="环境: test/prod")
+    mobile: str = Field(..., description="手机号")
+    code: str = Field("987654", description="验证码")
+
+class DeliveryTaskRequest(BaseModel):
+    environment: str
+    token: str
+    status: int = 0
+
+class DeliverySubmitRequest(BaseModel):
+    environment: str
+    token: str
+    payload: Dict[str, Any]
+
+class DeliveryWorkerInfoRequest(BaseModel):
+    environment: str
+    token: str

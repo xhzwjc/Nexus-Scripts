@@ -14,7 +14,7 @@
           "taskName"
         ],
         "remark": "",
-        "apiTemplateId": "SMS_498085232",
+        "apiTemplateId": "SMS_498600203",
         "channelId": 2,
         "channelCode": "ALIYUN",
         "createTime": 1762485441000
@@ -32,7 +32,7 @@
           "date"
         ],
         "remark": "",
-        "apiTemplateId": "SMS_498075225",
+        "apiTemplateId": "SMS_498610226",
         "channelId": 2,
         "channelCode": "ALIYUN",
         "createTime": 1762483498000

@@ -20,7 +20,8 @@ from .models import (
     CommissionCalculationResponse, MobileTaskRequest, MobileTaskResponse, SMSResendResponse, SMSResendRequest,
     SMSSendResponse, SMSBatchSendRequest, SMSSendSingleRequest, SMSBaseRequest, SMSTemplateResponse,
     MobileParseResponse, MobileParseRequest, TaxCalculationResponse, TaxCalculationRequest,
-    PaymentStatsRequest, PaymentStatsResponse
+    PaymentStatsRequest, PaymentStatsResponse,
+    DeliveryLoginRequest, DeliveryTaskRequest, DeliverySubmitRequest, DeliveryWorkerInfoRequest
 )
 from .services import EnterpriseSettlementService, AccountBalanceService, CommissionCalculationService, \
     MobileTaskService, SMSService, PaymentStatsService
@@ -654,7 +655,7 @@ async def calculate_tax(
     request_id = str(uuid.uuid4())
     start_time = _time.time()
     logger.info(f"[税额计算] 开始 | 请求ID: {request_id}")
-    logger.info(f"[税额计算] 参数: 年份={request.year}, 批次号={request.batch_no}, 身份证={request.credential_num[:6]}***, 模拟={request.use_mock}")
+    logger.info(f"[税额计算] 参数: 年份={request.year}, 批次号={request.batch_no}, 身份证={(request.credential_num[:6] if request.credential_num else 'None')}***, 模拟={request.use_mock}")
     
     try:
         if not request.use_mock:
@@ -920,3 +921,35 @@ async def calculate_payment_stats(request: PaymentStatsRequest):
             "message": str(e), 
             "request_id": request_id
         }
+
+
+# 交付物工具接口
+@app.post("/delivery/login", tags=["交付物工具"])
+async def delivery_login(request: DeliveryLoginRequest):
+    service = MobileTaskService(environment=request.environment)
+    return service.delivery_login(request.mobile, request.code)
+
+@app.post("/delivery/tasks", tags=["交付物工具"])
+async def delivery_tasks(request: DeliveryTaskRequest):
+    service = MobileTaskService(environment=request.environment)
+    return service.delivery_get_tasks(request.token, request.status)
+
+@app.post("/delivery/upload", tags=["交付物工具"])
+async def delivery_upload(
+    environment: str = Form(...),
+    token: str = Form(...),
+    file: UploadFile = File(...)
+):
+    service = MobileTaskService(environment=environment)
+    content = await file.read()
+    return service.delivery_upload(token, content, file.filename)
+
+@app.post("/delivery/submit", tags=["交付物工具"])
+async def delivery_submit(request: DeliverySubmitRequest):
+    service = MobileTaskService(environment=request.environment)
+    return service.delivery_submit(request.token, request.payload)
+
+@app.post("/delivery/worker-info", tags=["交付物工具"])
+async def delivery_worker_info(request: DeliveryWorkerInfoRequest):
+    service = MobileTaskService(environment=request.environment)
+    return service.delivery_worker_info(request.token)
