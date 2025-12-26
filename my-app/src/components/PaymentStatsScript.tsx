@@ -107,25 +107,25 @@ function MonthlyItem({
             </div>
 
             {isOpen && (
-                <div className="border-t border-white/20 bg-white/30 p-4 animate-in slide-in-from-top-2">
+                <div className="border-t border-white/20 bg-white/30 p-2 md:p-4 animate-in slide-in-from-top-2">
                     <Table>
                         <TableHeader>
                             <TableRow className="hover:bg-transparent border-0">
-                                <TableHead className="h-8 text-xs font-bold text-slate-500">企业名称</TableHead>
-                                <TableHead className="h-8 text-xs font-bold text-slate-500">税地名称</TableHead>
-                                <TableHead className="h-8 text-xs font-bold text-slate-500 text-right">总金额</TableHead>
-                                <TableHead className="h-8 text-xs font-bold text-slate-500 text-right">总服务费</TableHead>
+                                <TableHead className="h-8 text-[10px] md:text-xs font-bold text-slate-500">企业名称</TableHead>
+                                <TableHead className="h-8 text-[10px] md:text-xs font-bold text-slate-500">税地名称</TableHead>
+                                <TableHead className="h-8 text-[10px] md:text-xs font-bold text-slate-500 text-right">总金额</TableHead>
+                                <TableHead className="h-8 text-[10px] md:text-xs font-bold text-slate-500 text-right">总服务费</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {item.details.map((detail, idx) => (
                                 <TableRow key={idx} className="hover:bg-white/40 border-0">
-                                    <TableCell className="py-2 text-sm font-medium text-slate-700">{detail.enterprise_name}</TableCell>
-                                    <TableCell className="py-2 text-xs text-slate-500">{detail.tax_address}</TableCell>
-                                    <TableCell className="py-2 text-sm text-right font-mono font-bold text-slate-700">
+                                    <TableCell className="py-1 md:py-2 text-[10px] md:text-xs font-medium text-slate-700 max-w-[100px] truncate" title={detail.enterprise_name}>{detail.enterprise_name}</TableCell>
+                                    <TableCell className="py-1 md:py-2 text-[10px] md:text-xs text-slate-500 max-w-[80px] truncate" title={detail.tax_address}>{detail.tax_address}</TableCell>
+                                    <TableCell className="py-1 md:py-2 text-[10px] md:text-xs text-right font-mono font-bold text-slate-700">
                                         {formatCurrency(detail.total_amount)}
                                     </TableCell>
-                                    <TableCell className="py-2 text-sm text-right font-mono font-medium text-amber-600">
+                                    <TableCell className="py-1 md:py-2 text-[10px] md:text-xs text-right font-mono font-medium text-amber-600">
                                         {formatCurrency(detail.service_amount)}
                                     </TableCell>
                                 </TableRow>
@@ -439,46 +439,46 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
 
                 {/* Tables Section */}
                 {/* Tables Section */}
-                <div className="grid grid-cols-1 gap-6">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 md:gap-6">
                     {/* Tax Address Stats */}
                     <Card className="bg-white/60 dark:bg-white/5 backdrop-blur-3xl border border-white/40 shadow-sm rounded-3xl overflow-hidden">
-                        <CardHeader className="px-6 py-6 border-b border-slate-100/50">
-                            <CardTitle className="text-lg font-bold text-[#0f172a]">税地开票概览</CardTitle>
+                        <CardHeader className="px-4 py-4 md:px-6 md:py-6 border-b border-slate-100/50">
+                            <CardTitle className="text-base md:text-lg font-bold text-[#0f172a]">税地开票概览</CardTitle>
                         </CardHeader>
                         <CardContent className="p-0 overflow-x-auto">
-                            <Table className="min-w-[600px]">
+                            <Table className="min-w-[500px] md:min-w-0">
                                 <TableHeader className="bg-slate-50/50">
                                     <TableRow className="hover:bg-transparent border-b-0">
-                                        <TableHead className="py-4 pl-6 font-bold text-slate-600">税地名称</TableHead>
-                                        <TableHead className="py-4 text-right font-bold text-slate-600">未开票金额</TableHead>
-                                        <TableHead className="py-4 text-right font-bold text-slate-600">已开票</TableHead>
-                                        <TableHead className="py-4 text-right font-bold text-slate-600">进度</TableHead>
-                                        <TableHead className="py-4 pr-6 text-right font-bold text-slate-600">总金额</TableHead>
+                                        <TableHead className="py-2 pl-4 md:py-4 md:pl-6 text-xs md:text-sm font-bold text-slate-600">税地名称</TableHead>
+                                        <TableHead className="py-2 md:py-4 text-right text-xs md:text-sm font-bold text-slate-600">未开票金额</TableHead>
+                                        <TableHead className="py-2 md:py-4 text-right text-xs md:text-sm font-bold text-slate-600">已开票</TableHead>
+                                        <TableHead className="py-2 md:py-4 text-right text-xs md:text-sm font-bold text-slate-600">进度</TableHead>
+                                        <TableHead className="py-2 pr-4 md:py-4 md:pr-6 text-right text-xs md:text-sm font-bold text-slate-600">总金额</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {isCalculating ? (
-                                        <TableRow><TableCell colSpan={5} className="h-32 text-center">加载中...</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={5} className="h-32 text-center text-xs md:text-sm">加载中...</TableCell></TableRow>
                                     ) : (!statsData || statsData.tax_address_stats.length === 0) ? (
-                                        <TableRow><TableCell colSpan={5} className="h-32 text-center text-slate-400">暂无数据</TableCell></TableRow>
+                                        <TableRow><TableCell colSpan={5} className="h-32 text-center text-slate-400 text-xs md:text-sm">暂无数据</TableCell></TableRow>
                                     ) : (
                                         statsData.tax_address_stats.map((row) => (
                                             <TableRow key={row.tax_id} className="hover:bg-white/40 border-slate-100/50">
-                                                <TableCell className="pl-6 font-medium text-slate-700">
+                                                <TableCell className="pl-4 md:pl-6 text-xs md:text-sm font-medium text-slate-700">
                                                     {row.tax_address}
                                                 </TableCell>
-                                                <TableCell className="text-right font-mono text-amber-600 font-bold">
+                                                <TableCell className="text-right font-mono text-amber-600 font-bold text-xs md:text-sm">
                                                     {formatCurrency(row.uninvoiced_amount)}
                                                 </TableCell>
-                                                <TableCell className="text-right font-mono text-emerald-600 font-bold">
+                                                <TableCell className="text-right font-mono text-emerald-600 font-bold text-xs md:text-sm">
                                                     {formatCurrency(row.invoiced_amount)}
                                                 </TableCell>
                                                 <TableCell className="text-right">
-                                                    <Badge variant={row.uninvoiced_amount > 0 ? "outline" : "secondary"} className="font-mono">
+                                                    <Badge variant={row.uninvoiced_amount > 0 ? "outline" : "secondary"} className="font-mono text-[10px] md:text-xs">
                                                         {row.total_amount > 0 ? `${((row.invoiced_amount / row.total_amount) * 100).toFixed(0)}%` : '0%'}
                                                     </Badge>
                                                 </TableCell>
-                                                <TableCell className="pr-6 text-right font-mono font-medium text-slate-600">
+                                                <TableCell className="pr-4 md:pr-6 text-right font-mono font-medium text-slate-600 text-xs md:text-sm">
                                                     {formatCurrency(row.total_amount)}
                                                 </TableCell>
                                             </TableRow>
@@ -492,49 +492,49 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                     {/* Enterprise Stats */}
                     <Card className="bg-white/60 dark:bg-white/5 backdrop-blur-3xl border border-white/40 shadow-sm rounded-3xl overflow-hidden">
                         <CardHeader className="px-6 py-6 border-b border-slate-100/50">
-                            <CardTitle className="text-lg font-bold text-[#0f172a]">企业开票详情</CardTitle>
+                            <CardTitle className="text-base md:text-lg font-bold text-[#0f172a]">企业开票详情</CardTitle>
                         </CardHeader>
                         <CardContent className="p-0 overflow-x-auto">
                             <ScrollArea className="h-[500px]">
-                                <Table className="min-w-[700px]">
+                                <Table className="min-w-[600px] md:min-w-0">
                                     <TableHeader className="bg-slate-50/50 sticky top-0 z-10 backdrop-blur-md">
                                         <TableRow className="hover:bg-transparent border-b-0">
-                                            <TableHead className="py-4 pl-4 font-bold text-slate-600">企业</TableHead>
-                                            <TableHead className="py-4 font-bold text-slate-600">税地</TableHead>
-                                            <TableHead className="py-4 text-right font-bold text-slate-600">未开票</TableHead>
-                                            <TableHead className="py-4 text-right font-bold text-slate-600">已开票</TableHead>
-                                            <TableHead className="py-4 text-right font-bold text-slate-600">进度</TableHead>
-                                            <TableHead className="py-4 pr-4 text-right font-bold text-slate-600">总金额</TableHead>
+                                            <TableHead className="py-2 pl-4 md:py-4 md:pl-4 text-xs md:text-sm font-bold text-slate-600">企业</TableHead>
+                                            <TableHead className="py-2 md:py-4 text-xs md:text-sm font-bold text-slate-600">税地</TableHead>
+                                            <TableHead className="py-2 md:py-4 text-right text-xs md:text-sm font-bold text-slate-600">未开票</TableHead>
+                                            <TableHead className="py-2 md:py-4 text-right text-xs md:text-sm font-bold text-slate-600">已开票</TableHead>
+                                            <TableHead className="py-2 md:py-4 text-right text-xs md:text-sm font-bold text-slate-600">进度</TableHead>
+                                            <TableHead className="py-2 pr-4 md:py-4 md:pr-4 text-right text-xs md:text-sm font-bold text-slate-600">总金额</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {isCalculating ? (
-                                            <TableRow><TableCell colSpan={6} className="h-32 text-center">加载中...</TableCell></TableRow>
+                                            <TableRow><TableCell colSpan={6} className="h-32 text-center text-xs md:text-sm">加载中...</TableCell></TableRow>
                                         ) : (!statsData || !statsData.enterprise_stats || statsData.enterprise_stats.length === 0) ? (
-                                            <TableRow><TableCell colSpan={6} className="h-32 text-center text-slate-400">暂无数据</TableCell></TableRow>
+                                            <TableRow><TableCell colSpan={6} className="h-32 text-center text-slate-400 text-xs md:text-sm">暂无数据</TableCell></TableRow>
                                         ) : (
                                             statsData.enterprise_stats.map((row, index) => (
                                                 <TableRow key={index} className="hover:bg-white/40 border-slate-100/50">
-                                                    <TableCell className="pl-4 font-medium text-slate-700">
+                                                    <TableCell className="pl-4 font-medium text-slate-700 text-xs md:text-sm max-w-[100px] md:max-w-[150px] truncate" title={row.enterprise_name}>
                                                         {row.enterprise_name}
                                                     </TableCell>
-                                                    <TableCell className="text-xs text-slate-500 max-w-[120px] truncate" title={row.tax_address}>
+                                                    <TableCell className="text-[10px] md:text-xs text-slate-500 max-w-[80px] md:max-w-[120px] truncate" title={row.tax_address}>
                                                         {row.tax_address}
                                                     </TableCell>
-                                                    <TableCell className="text-right font-mono text-amber-600 font-bold">
+                                                    <TableCell className="text-right font-mono text-amber-600 font-bold text-xs md:text-sm">
                                                         {formatCurrency(row.uninvoiced_amount)}
                                                     </TableCell>
-                                                    <TableCell className="text-right font-mono text-emerald-600 font-bold">
+                                                    <TableCell className="text-right font-mono text-emerald-600 font-bold text-xs md:text-sm">
                                                         {formatCurrency(row.invoiced_amount)}
                                                     </TableCell>
                                                     <TableCell className="text-right">
-                                                        <span className="text-xs text-slate-400">
+                                                        <span className="text-[10px] md:text-xs text-slate-400">
                                                             {row.total_amount > 0
                                                                 ? `${((row.invoiced_amount / row.total_amount) * 100).toFixed(0)}%`
                                                                 : '0%'}
                                                         </span>
                                                     </TableCell>
-                                                    <TableCell className="pr-4 text-right font-mono text-slate-600 font-medium">
+                                                    <TableCell className="pr-4 text-right font-mono text-slate-600 font-medium text-xs md:text-sm">
                                                         {formatCurrency(row.total_amount)}
                                                     </TableCell>
                                                 </TableRow>
