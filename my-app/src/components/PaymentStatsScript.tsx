@@ -438,8 +438,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                 </Card>
 
                 {/* Tables Section */}
-                {/* Tables Section */}
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 md:gap-6">
+                <div className="grid grid-cols-1 gap-4 md:gap-6">
                     {/* Tax Address Stats */}
                     <Card className="bg-white/60 dark:bg-white/5 backdrop-blur-3xl border border-white/40 shadow-sm rounded-3xl overflow-hidden">
                         <CardHeader className="px-4 py-4 md:px-6 md:py-6 border-b border-slate-100/50">
