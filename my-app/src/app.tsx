@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { motion, AnimatePresence, Transition } from 'framer-motion';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
@@ -30,7 +31,9 @@ import {
     CloudFog,
     CloudLightning,
     BarChart3,
-    User as UserIcon
+
+    User as UserIcon,
+    Search
 } from 'lucide-react';
 import SettlementScript from './components/SettlementScript';
 import CommissionScript from './components/CommissionScript';
@@ -44,6 +47,14 @@ import TaxCalculationScript from "@/components/TaxCalculatorScript";
 import PaymentStatsScript from '@/components/PaymentStatsScript';
 import OCRScript from "@/components/OCRScript";
 import DeliveryScript from "@/components/DeliveryScript";
+
+// iOS 26 Animation Config
+const springConfig: Transition = { type: "spring", stiffness: 300, damping: 30 };
+const fadeInVariants = {
+    initial: { opacity: 0, scale: 0.95, filter: "blur(10px)" },
+    animate: { opacity: 1, scale: 1, filter: "blur(0px)" },
+    exit: { opacity: 0, scale: 0.95, filter: "blur(10px)" }
+};
 
 // 角色类型与权限映射
 type Role = 'admin' | 'operator' | 'custom' | 'QA' | 'PM';
@@ -275,7 +286,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 /* ============== 统一高度的状态 Chip 组件 ============== */
 const StatusChip: React.FC<React.PropsWithChildren<{ className?: string }>> = ({ children, className }) => (
     <div
-        className={`h-9 px-3 inline-flex items-center gap-2 rounded-md border bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/40 shadow-sm text-sm leading-none ${className || ''}`}>
+        className={`h-9 px-3 inline-flex items-center gap-2 rounded-xl border border-white/40 bg-white/40 dark:bg-white/10 backdrop-blur-md shadow-sm text-sm font-bold leading-none text-slate-700 dark:text-slate-200 ${className || ''}`}>
         {children}
     </div>
 );
@@ -296,8 +307,8 @@ const HoverFloatCard: React.FC<React.PropsWithChildren<{ className?: string }>> 
         const rect = el.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-        const rx = ((y / rect.height) - 0.5) * 6;   // 上下轻微倾斜
-        const ry = ((x / rect.width) - 0.5) * -6;   // 左右轻微倾斜
+        const rx = ((y / rect.height) - 0.5) * 10;   // Increased tilt
+        const ry = ((x / rect.width) - 0.5) * -10;   // Increased tilt
         el.style.setProperty('--rx', `${rx}deg`);
         el.style.setProperty('--ry', `${ry}deg`);
         el.style.setProperty('--mx', `${x}px`);
@@ -329,10 +340,10 @@ const HoverFloatCard: React.FC<React.PropsWithChildren<{ className?: string }>> 
           transition-all duration-300 ease-[cubic-bezier(.22,1,.36,1)]
           [transform-style:preserve-3d]
           [transform:rotateX(var(--rx,0))_rotateY(var(--ry,0))]
-          group-hover:-translate-y-2 group-hover:scale-[1.01]
-          group-hover:shadow-[0_20px_40px_rgba(56,189,248,0.18)]
-          bg-white/40 dark:bg-white/[0.06] backdrop-blur-md
-          ring-1 ring-white/40
+          group-hover:-translate-y-2 group-hover:scale-[1.02]
+          group-hover:shadow-[0_25px_50px_rgba(0,0,0,0.15)]
+          bg-white/60 dark:bg-black/20 backdrop-blur-3xl
+          border border-white/40 dark:border-white/10
         "
             >
                 {children}
@@ -542,7 +553,7 @@ const StatusToolbar: React.FC<StatusToolbarProps> = ({
                 <UserIcon className="w-4 h-4 text-primary" />
                 <span className="whitespace-nowrap">{user.name} ({user.role})</span>
             </StatusChip>
-            <Button variant="ghost" className="h-9 px-3" onClick={onLogoutClick}>
+            <Button variant="ghost" className="h-9 px-4 rounded-xl hover:bg-white/40 font-bold text-slate-600 hover:text-red-500 transition-colors" onClick={onLogoutClick}>
                 退出
             </Button>
         </StatusGroup>
@@ -826,57 +837,83 @@ export default function App() {
     // 未登录状态 - 显示密钥输入界面
     if (!currentUser) {
         return (
-            <div className="min-h-screen colorful-background flex items-center justify-center p-6">
+            <div className="min-h-screen relative overflow-hidden flex items-center justify-center p-6 bg-[#F2F2F7] dark:bg-black font-sans selection:bg-blue-100">
+                {/* Aurora Background */}
+                <div className="fixed inset-0 pointer-events-none">
+                    <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-blue-500/20 blur-[120px] rounded-full mix-blend-multiply dark:mix-blend-normal animate-pulse" style={{ animationDuration: '8s' }} />
+                    <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-purple-500/20 blur-[120px] rounded-full mix-blend-multiply dark:mix-blend-normal animate-pulse" style={{ animationDuration: '10s' }} />
+                </div>
+
                 <Toaster richColors position="top-center" />
-                <Card className="w-full max-w-md animate-fadeIn">
-                    <CardHeader className="space-y-1">
-                        <CardTitle className="text-2xl flex items-center justify-center gap-2">
-                            <Lock className="w-5 h-5" />
-                            访问授权
-                        </CardTitle>
-                        <CardDescription className="text-center">
-                            请输入您的访问密钥以使用系统
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {errorMessage && (
-                            <div className="flex items-center gap-2 p-3 bg-red-50 text-red-600 rounded-md">
-                                <AlertCircle className="w-4 h-4" />
-                                <span>{errorMessage}</span>
+
+                <motion.div
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    variants={fadeInVariants}
+                    transition={springConfig}
+                    className="w-full max-w-md relative z-10"
+                >
+                    <Card className="border-white/20 bg-white/60 dark:bg-black/40 backdrop-blur-3xl shadow-[0_8px_40px_rgba(0,0,0,0.12)] rounded-[32px]">
+                        <CardHeader className="space-y-4 pb-2 text-center">
+                            <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                                <Lock className="w-8 h-8 text-white" />
                             </div>
-                        )}
-                        <div className="space-y-2">
-                            <Input
-                                type="password"
-                                placeholder="输入访问密钥"
-                                value={userKey}
-                                onChange={(e) => setUserKey(e.target.value)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !isVerifying) {
-                                        validateKey();
-                                    }
-                                }}
-                                autoFocus
-                                disabled={isVerifying}
-                                className="pr-10"
-                            />
-                        </div>
-                        <Button
-                            className="w-full"
-                            onClick={validateKey}
-                            disabled={isVerifying}
-                        >
-                            {isVerifying ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                    验证中...
-                                </>
-                            ) : (
-                                '验证并进入系统'
+                            <div>
+                                <CardTitle className="text-2xl font-black tracking-tight text-slate-900 dark:text-white">
+                                    访问授权
+                                </CardTitle>
+                                <CardDescription className="text-base font-medium">
+                                    请输入密钥以解锁 ScriptHub
+                                </CardDescription>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="space-y-6 pt-6">
+                            {errorMessage && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 text-red-600 rounded-2xl text-sm font-bold"
+                                >
+                                    <AlertCircle className="w-4 h-4" />
+                                    <span>{errorMessage}</span>
+                                </motion.div>
                             )}
-                        </Button>
-                    </CardContent>
-                </Card>
+                            <div className="space-y-4">
+                                <Input
+                                    type="password"
+                                    placeholder="输入访问密钥"
+                                    value={userKey}
+                                    onChange={(e) => setUserKey(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !isVerifying) {
+                                            validateKey();
+                                        }
+                                    }}
+                                    autoFocus
+                                    disabled={isVerifying}
+                                    className="h-14 px-6 rounded-2xl bg-white/50 border-white/40 focus:bg-white/80 focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500/50 text-lg transition-all text-center tracking-widest"
+                                />
+                                <motion.div whileTap={{ scale: 0.96 }}>
+                                    <Button
+                                        className="w-full h-14 rounded-2xl text-lg font-bold bg-slate-900 hover:bg-slate-800 text-white shadow-xl hover:shadow-2xl transition-all"
+                                        onClick={validateKey}
+                                        disabled={isVerifying}
+                                    >
+                                        {isVerifying ? (
+                                            <>
+                                                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                                                验证中...
+                                            </>
+                                        ) : (
+                                            '立即进入'
+                                        )}
+                                    </Button>
+                                </motion.div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </motion.div>
             </div>
         );
     }
@@ -889,17 +926,23 @@ export default function App() {
     if (currentView === 'system') {
 
         return (
-            <div className="min-h-screen colorful-background p-6">
+            <div className="min-h-screen relative overflow-hidden bg-[#F2F2F7] dark:bg-black font-sans selection:bg-blue-100 p-6">
+                {/* Aurora Background */}
+                <div className="fixed inset-0 pointer-events-none">
+                    <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-blue-500/20 blur-[120px] rounded-full mix-blend-multiply dark:mix-blend-normal animate-pulse" style={{ animationDuration: '8s' }} />
+                    <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-purple-500/20 blur-[120px] rounded-full mix-blend-multiply dark:mix-blend-normal animate-pulse" style={{ animationDuration: '10s' }} />
+                </div>
+
                 <Toaster richColors position="top-center" />
-                <div className="max-w-7xl mx-auto">
+                <div className="max-w-7xl mx-auto relative z-10">
                     <StatusToolbar
                         leftSlot={(
                             <Button
                                 variant="ghost"
                                 onClick={() => setCurrentView('home')}
-                                className="h-9"
+                                className="h-10 px-4 rounded-xl hover:bg-white/40 font-bold text-slate-600 dark:text-slate-300 transition-all"
                             >
-                                <ArrowLeft className="w-4 h-4 mr-2" />
+                                <ArrowLeft className="w-5 h-5 mr-2" />
                                 返回首页
                             </Button>
                         )}
@@ -911,28 +954,37 @@ export default function App() {
                         onLogoutClick={() => setShowLogoutConfirm(true)}
                     />
 
-                    <div className="mb-8">
-                        <div className="flex items-center gap-3 mb-2">
-                            <h1 className="text-2xl">{system?.name}</h1>
-                            <Badge variant="outline">
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={springConfig}
+                        className="mb-8"
+                    >
+                        <div className="flex items-center gap-4 mb-3">
+                            <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white">{system?.name}</h1>
+                            <Badge variant="outline" className="h-7 px-3 bg-white/50 backdrop-blur-md border-blue-500/20 text-blue-700 font-bold">
                                 {filteredScripts.length} / {scripts.length} 个脚本
                             </Badge>
                         </div>
-                        <p className="text-muted-foreground">{system?.description}</p>
-                    </div>
+                        <p className="text-lg text-slate-500 dark:text-slate-400 font-medium max-w-2xl">{system?.description}</p>
+                    </motion.div>
 
-                    <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                        <p className="text-sm text-muted-foreground">
-                            {scripts.length > 0 ? '通过关键字快速查找需要运行的脚本。' : '当前系统暂未开放脚本。'}
-                        </p>
+                    <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between bg-white/30 dark:bg-white/5 backdrop-blur-xl p-2 rounded-2xl border border-white/40 shadow-sm">
+                        <div className="pl-4">
+                            <p className="text-sm font-bold text-slate-500">
+                                {scripts.length > 0 ? '快速检索工具库' : '暂无可用工具'}
+                            </p>
+                        </div>
                         {scripts.length > 0 && (
-                            <Input
-                                value={scriptQuery}
-                                onChange={(event) => setScriptQuery(event.target.value)}
-                                placeholder="搜索脚本名称或描述"
-                                aria-label="搜索脚本"
-                                className="md:max-w-sm"
-                            />
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                <Input
+                                    value={scriptQuery}
+                                    onChange={(event) => setScriptQuery(event.target.value)}
+                                    placeholder="搜索脚本名称..."
+                                    className="w-full md:w-[320px] h-10 pl-9 bg-white/60 border-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 text-sm font-medium rounded-xl transition-all"
+                                />
+                            </div>
                         )}
                     </div>
 
@@ -942,60 +994,83 @@ export default function App() {
                             : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
                         }
           `}>
-                        {filteredScripts.map((script) => (
-                            <Card
-                                key={script.id}
-                                className={`
-                  cursor-pointer hover:shadow-md transition-shadow 
-                  ${hasFewScripts ? 'w-full max-w-md mb-6' : ''}
-                `}
-                            >
-                                <CardHeader>
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="p-2 bg-primary/10 rounded-lg">
-                                                {script.icon}
-                                            </div>
-                                            <div>
-                                                <CardTitle className="text-lg">{script.name}</CardTitle>
-                                                <Badge className={`mt-2 ${getStatusColor(script.status)}`}>
-                                                    {script.status}
-                                                </Badge>
+                        <AnimatePresence mode="popLayout">
+                            {filteredScripts.map((script, idx) => (
+                                <motion.div
+                                    key={script.id}
+                                    layout
+                                    initial={{ opacity: 0, scale: 0.9 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.9 }}
+                                    transition={{ ...springConfig, delay: idx * 0.05 }}
+                                    className={hasFewScripts ? 'w-full max-w-md mb-6' : ''}
+                                >
+                                    <Card
+                                        className="
+                                        group border-0 bg-white/60 dark:bg-white/10 backdrop-blur-3xl shadow-[0_8px_30px_rgba(0,0,0,0.04)] 
+                                        hover:shadow-[0_20px_40px_rgba(0,0,0,0.08)] hover:-translate-y-1 transition-all duration-500
+                                        rounded-[28px] overflow-hidden
+                                    "
+                                    >
+                                        <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-lg transform rotate-[-45deg] group-hover:rotate-0 transition-transform duration-500">
+                                                <ArrowLeft className="w-4 h-4 rotate-180" />
                                             </div>
                                         </div>
-                                    </div>
-                                </CardHeader>
-                                <CardContent>
-                                    <CardDescription className="mb-4">
-                                        {script.description}
-                                    </CardDescription>
-                                    <Button
-                                        className="w-full"
-                                        onClick={() => {
-                                            setSelectedScript(script.id);
-                                            setCurrentView('script');
-                                        }}
-                                    >
-                                        <Play className="w-4 h-4 mr-2" />
-                                        启动脚本
-                                    </Button>
-                                </CardContent>
-                            </Card>
-                        ))}
+
+                                        <CardHeader className="pb-2">
+                                            <div className="flex items-start gap-4">
+                                                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 flex items-center justify-center text-blue-600 dark:text-blue-400 shadow-inner">
+                                                    {script.icon}
+                                                </div>
+                                                <div>
+                                                    <CardTitle className="text-xl font-bold tracking-tight text-slate-800 dark:text-white group-hover:text-blue-600 transition-colors">
+                                                        {script.name}
+                                                    </CardTitle>
+                                                    <Badge className={`mt-2 ${getStatusColor(script.status)} border-0 font-bold px-2 py-0.5 text-[10px] uppercase tracking-wider`}>
+                                                        {script.status}
+                                                    </Badge>
+                                                </div>
+                                            </div>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <CardDescription className="mb-6 text-sm leading-relaxed font-medium text-slate-500">
+                                                {script.description}
+                                            </CardDescription>
+                                            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                                                <Button
+                                                    className="w-full h-12 rounded-xl text-base font-bold !bg-gradient-to-r !from-[#0f172a] !to-[#334155] hover:!from-blue-600 hover:!to-blue-500 !text-white !shadow-lg hover:!shadow-blue-500/30 transition-all duration-300 !border-0"
+                                                    onClick={() => {
+                                                        setSelectedScript(script.id);
+                                                        setCurrentView('script');
+                                                    }}
+                                                >
+                                                    <Play className="w-4 h-4 mr-2 fill-current" />
+                                                    启动脚本
+                                                </Button>
+                                            </motion.div>
+                                        </CardContent>
+                                    </Card>
+                                </motion.div>
+                            ))}
+                        </AnimatePresence>
+
                         {noResults && (
-                            <Card className="col-span-full">
-                                <CardHeader>
-                                    <CardTitle>未找到匹配的脚本</CardTitle>
-                                    <CardDescription>
-                                        请尝试调整关键字或清空搜索条件。
-                                    </CardDescription>
-                                </CardHeader>
-                            </Card>
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="col-span-full py-12 text-center">
+                                <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-slate-100 mb-4">
+                                    <Search className="w-8 h-8 text-slate-300" />
+                                </div>
+                                <h3 className="text-lg font-bold text-slate-700">未找到相关脚本</h3>
+                                <p className="text-slate-500">尝试更换搜索关键字</p>
+                            </motion.div>
                         )}
                         {!filteredScripts.length && !noResults && (
-                            <Card className="col-span-full">
-                                <CardHeader>
-                                    <CardTitle>暂无可执行脚本</CardTitle>
+                            <Card className="col-span-full bg-transparent border-dashed border-2 border-slate-300 shadow-none">
+                                <CardHeader className="text-center py-12">
+                                    <div className="mx-auto w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-300">
+                                        <Lock className="w-8 h-8" />
+                                    </div>
+                                    <CardTitle className="text-xl text-slate-500">暂无访问权限</CardTitle>
                                     <CardDescription>
                                         请联系管理员为您开通该系统的脚本权限。
                                     </CardDescription>
@@ -1024,98 +1099,140 @@ export default function App() {
 
     // 首页
     return (
-        <div className="min-h-screen colorful-background p-6">
+        <div className="min-h-screen relative overflow-hidden bg-[#F2F2F7] dark:bg-black font-sans selection:bg-blue-100 p-6">
+            {/* Aurora Background */}
+            <div className="fixed inset-0 pointer-events-none">
+                <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-blue-500/20 blur-[120px] rounded-full mix-blend-multiply dark:mix-blend-normal animate-pulse" style={{ animationDuration: '8s' }} />
+                <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-purple-500/20 blur-[120px] rounded-full mix-blend-multiply dark:mix-blend-normal animate-pulse" style={{ animationDuration: '10s' }} />
+            </div>
+
             <Toaster richColors position="top-center" />
-            <div className="max-w-7xl mx-auto">
-                <StatusToolbar
-                    user={currentUser}
-                    now={now}
-                    weather={weather}
-                    weatherRefreshing={weatherRefreshing}
-                    onRefreshWeather={() => refreshWeather({ background: false })}
-                    onLogoutClick={() => setShowLogoutConfirm(true)}
-                />
-
-                <div className="text-center mb-12">
-                    <h1 className="text-3xl mb-4">ScriptHub 脚本管理平台</h1>
-                    <p className="text-lg text-muted-foreground">
-                        企业级自动化脚本调度与执行中心
-                    </p>
+            <Toaster richColors position="top-center" />
+            <div className="max-w-7xl mx-auto relative z-10 w-full flex flex-col min-h-screen">
+                <div className="w-full py-6">
+                    <StatusToolbar
+                        user={currentUser}
+                        now={now}
+                        weather={weather}
+                        weatherRefreshing={weatherRefreshing}
+                        onRefreshWeather={() => refreshWeather({ background: false })}
+                        onLogoutClick={() => setShowLogoutConfirm(true)}
+                    />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {Object.entries(systems).map(([key, system]) => (
-                        <HoverFloatCard key={key}>
-                            <Card
-                                className="
-                                cursor-pointer transition-shadow rounded-xl border-white/40 bg-transparent
-                                min-h-[280px] flex flex-col justify-between pt-6
-                              ">
-                                <CardHeader>
-                                    <div className="flex items-center justify-between">
-                                        <CardTitle className="text-xl">{system.name}</CardTitle>
-                                        <Badge variant="outline">
-                                            {system.scripts.length} 个脚本
-                                        </Badge>
-                                    </div>
-                                    <CardDescription>{system.description}</CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="space-y-3">
-                                        {system.scripts.length > 0 ? (
-                                            <>
-                                                <div className="flex flex-wrap gap-2">
-                                                    {system.scripts.slice(0, 3).map((script) => (
-                                                        <Badge key={script.id} variant="secondary" className="text-xs">
-                                                            {script.name}
-                                                        </Badge>
-                                                    ))}
-                                                    {system.scripts.length > 3 && (
-                                                        <Badge variant="secondary" className="text-xs">
-                                                            +{system.scripts.length - 3} 更多
-                                                        </Badge>
-                                                    )}
-                                                </div>
-                                                <Button
-                                                    className="w-full mt-4"
-                                                    onClick={() => {
-                                                        setSelectedSystem(key);
-                                                        setCurrentView('system');
-                                                    }}
-                                                >
-                                                    进入系统
-                                                </Button>
-                                            </>
-                                        ) : (
-                                            <div className="text-center py-8 text-muted-foreground">
-                                                <Database className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                                                <p>烹饪中！</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </HoverFloatCard>
-                    ))}
+                {/* 
+                    [自定义位置微调]
+                    调整 pt-20 (顶部距离) 即可控制整体内容的上下位置。
+                    想要更靠上：改小数值 (如 pt-10)
+                    想要更靠下：改大数值 (如 pt-32)
+                */}
+                <div className="flex-1 flex flex-col justify-start pt-20 pb-20">
 
-                </div>
-
-                <div className="mt-8 text-center">
-                    <button
-                        onClick={() => setCurrentView('ocr-tool')}
-                        className="text-sm text-muted-foreground hover:text-primary transition-colors underline underline-offset-4"
+                    <motion.div
+                        initial={{ opacity: 0, y: 30 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={springConfig}
+                        className="text-center mb-16 mt-10 md:mt-0"
                     >
-                        个人工具
-                    </button>
-                </div>
+                        <h1 className="text-6xl md:text-7xl font-black mb-6 tracking-tight text-[#0f172a] dark:text-white drop-shadow-sm leading-tight">
+                            ScriptHub
+                            <span className="text-blue-600 block text-2xl md:text-3xl mt-4 font-bold tracking-normal opacity-90">自动化脚本调度中心</span>
+                        </h1>
+                        <p className="text-xl text-[#64748b] font-medium max-w-2xl mx-auto leading-relaxed">
+                            企业级任务编排与执行引擎，提供从数据结算到报表生成的全流程自动化解决方案。
+                        </p>
+                    </motion.div>
 
-                <div className="mt-16 text-center">
-                    <Card className="inline-block p-6">
-                        <div className="flex items-center gap-3 text-muted-foreground">
-                            <CheckCircle className="w-5 h-5" />
-                            <span>系统运行正常，目前共有 {totalScripts} 个可用的自动化脚本</span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 px-4 md:px-0">
+                        {Object.entries(systems).map(([key, system], idx) => (
+                            <motion.div
+                                key={key}
+                                initial={{ opacity: 0, scale: 0.9 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                transition={{ ...springConfig, delay: idx * 0.1 }}
+                            >
+                                <HoverFloatCard>
+                                    <Card
+                                        className="
+                                    cursor-pointer transition-all rounded-[32px] border-0 bg-transparent
+                                    min-h-[320px] flex flex-col justify-between pt-8 pb-6 px-2
+                                    "
+                                    >
+                                        <CardHeader className="px-6">
+                                            <div className="flex items-center justify-between mb-4">
+                                                <CardTitle className="text-3xl font-black text-[#0f172a] dark:text-white">{system.name}</CardTitle>
+                                                <Badge variant="outline" className="text-sm px-3 py-1 font-bold border-blue-500/30 text-blue-600 bg-blue-500/5">
+                                                    {system.scripts.length} 个脚本
+                                                </Badge>
+                                            </div>
+                                            <CardDescription className="text-base font-medium text-[#64748b] leading-relaxed">
+                                                {system.description}
+                                            </CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="px-6">
+                                            <div className="space-y-6">
+                                                {system.scripts.length > 0 ? (
+                                                    <>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {system.scripts.slice(0, 3).map((script) => (
+                                                                <Badge key={script.id} variant="secondary" className="px-3 py-1.5 text-xs font-bold bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300">
+                                                                    {script.name}
+                                                                </Badge>
+                                                            ))}
+                                                            {system.scripts.length > 3 && (
+                                                                <Badge variant="secondary" className="px-3 py-1.5 text-xs font-bold bg-slate-100 text-slate-400">
+                                                                    +{system.scripts.length - 3} 更多
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                        <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="mt-auto">
+                                                            <Button
+                                                                className="w-full h-14 rounded-2xl text-lg font-bold !bg-gradient-to-r !from-[#0f172a] !to-[#334155] hover:!from-blue-600 hover:!to-blue-500 !text-white !shadow-xl hover:!shadow-blue-500/30 transition-all duration-300 group !border-0"
+                                                                onClick={() => {
+                                                                    setSelectedSystem(key);
+                                                                    setCurrentView('system');
+                                                                }}
+                                                            >
+                                                                进入系统
+                                                                <ArrowLeft className="w-5 h-5 ml-2 rotate-180 group-hover:translate-x-1 transition-transform" />
+                                                            </Button>
+                                                        </motion.div>
+                                                    </>
+                                                ) : (
+                                                    <div className="text-center py-8 text-slate-400">
+                                                        <Database className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                                                        <p className="font-bold text-sm">功能开发中</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                </HoverFloatCard>
+                            </motion.div>
+                        ))}
+                    </div>
+
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.5 }}
+                        className="mt-12 text-center"
+                    >
+                        <button
+                            onClick={() => setCurrentView('ocr-tool')}
+                            className="text-sm font-bold text-slate-400 hover:text-blue-600 transition-colors flex items-center justify-center gap-2 mx-auto py-2 px-4 rounded-xl hover:bg-blue-50/50"
+                        >
+                            <UserIcon className="w-4 h-4" />
+                            个人效率工具
+                        </button>
+
+                        <div className="mt-8">
+                            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/40 border border-white/50 backdrop-blur-md text-xs font-mono text-slate-400 shadow-sm">
+                                <CheckCircle className="w-3 h-3 text-emerald-500" />
+                                <span>System Operational · {totalScripts} Scripts Available</span>
+                            </div>
                         </div>
-                    </Card>
+                    </motion.div>
                 </div>
             </div>
 
