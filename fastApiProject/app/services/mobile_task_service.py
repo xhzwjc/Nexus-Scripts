@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 class MobileTaskService:
     """手机号任务服务类，处理手机号相关自动化任务"""
 
-    def __init__(self, environment: str = None):
+    def __init__(self, environment: str = None, silent: bool = False):
         self.environment = settings.resolve_environment(environment)
         self.base_url = self._get_base_url()
-        logger.info(f"初始化手机号任务服务，环境: {self.environment}，基础URL: {self.base_url}")
+        if not silent:
+            logger.info(f"[MobileTaskService] 初始化，环境: {self.environment}")
 
     def _get_base_url(self) -> str:
         """根据环境获取基础URL"""
@@ -196,10 +197,98 @@ class MobileTaskService:
 
     def delivery_submit(self, token: str, payload: Dict) -> Dict:
         """提交交付物"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 详细日志：记录提交请求
+        logger.info("="*60)
+        logger.info("[交付物提交] 开始处理提交请求")
+        logger.info(f"[交付物提交] Token: {token[:20]}...{token[-10:] if len(token) > 30 else token}")
+
+        # 先获取用户信息（手机号、姓名）
         automator = TaskAutomation(self.base_url)
         automator.access_token = token
         automator.session.headers.update({"Authorization": f"Bearer {token}"})
-        return automator.submit_delivery(payload)
+
+        try:
+            worker_info = automator.get_worker_info()
+            if worker_info.get("code") == 0:
+                user_data = worker_info.get("data", {})
+                mobile = user_data.get("mobile", "未知")
+                realname = user_data.get("realname", "未知")
+                logger.info(f"[交付物提交] 📱 提交人手机号: {mobile}")
+                logger.info(f"[交付物提交] 👤 提交人姓名: {realname}")
+            else:
+                logger.warning(f"[交付物提交] ⚠️ 无法获取用户信息: {worker_info.get('msg', '未知')}")
+        except Exception as e:
+            logger.warning(f"[交付物提交] ⚠️ 获取用户信息失败: {str(e)}")
+
+        # 解析并记录 payload 详情
+        task_id = payload.get("taskId", "未知")
+        task_staff_id = payload.get("taskStaffId", "未知")
+        task_assign_id = payload.get("taskAssignId", "未知")
+        # 使用实际字段名
+        task_content = payload.get("taskContent", "无")
+        report_name = payload.get("reportName", "无")
+        report_address = payload.get("reportAddress", "无")
+        supplement = payload.get("supplement", "无")
+
+        logger.info(f"[交付物提交] 任务ID: {task_id}")
+        logger.info(f"[交付物提交] TaskStaffId: {task_staff_id}")
+        logger.info(f"[交付物提交] TaskAssignId: {task_assign_id}")
+        logger.info(f"[交付物提交] 任务内容(taskContent): {task_content}")
+        logger.info(f"[交付物提交] 报告名称(reportName): {report_name}")
+        logger.info(f"[交付物提交] 报告地址(reportAddress): {report_address}")
+        logger.info(f"[交付物提交] 补充说明(supplement): {supplement}")
+
+        # 记录附件信息 (图片和文件都在attachments中，通过isPic区分)
+        attachments = payload.get("attachments", [])
+        pic_count = 0
+        file_count = 0
+        if attachments:
+            logger.info(f"[交付物提交] 📎 附件总数: {len(attachments)}")
+            for i, att in enumerate(attachments, 1):
+                if isinstance(att, dict):
+                    is_pic = att.get('isPic', 0)
+                    file_name = att.get('fileName', '未知')
+                    file_path = att.get('filePath', att.get('tempPath', '未知'))
+                    file_type = att.get('fileType', '未知')
+                    file_length = att.get('fileLength', 0)
+
+                    if is_pic == 1:
+                        pic_count += 1
+                        logger.info(f"[交付物提交]   🖼️ 图片{pic_count}: {file_name} ({file_type}, {file_length}字节)")
+                        logger.info(f"[交付物提交]       路径: {file_path}")
+                    else:
+                        file_count += 1
+                        logger.info(f"[交付物提交]   📄 文件{file_count}: {file_name} ({file_type}, {file_length}字节)")
+                        logger.info(f"[交付物提交]       路径: {file_path}")
+                else:
+                    logger.info(f"[交付物提交]   附件{i}: {att}")
+            logger.info(f"[交付物提交] 统计: 图片{pic_count}张, 文件{file_count}个")
+        else:
+            logger.info("[交付物提交] 📎 附件总数: 0 (无附件)")
+
+        # 记录完整 payload (JSON 格式)
+        import json
+        logger.info(f"[交付物提交] 完整Payload: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+        logger.info("="*60)
+
+        automator = TaskAutomation(self.base_url)
+        automator.access_token = token
+        automator.session.headers.update({"Authorization": f"Bearer {token}"})
+
+        result = automator.submit_delivery(payload)
+
+        # 记录提交结果
+        logger.info(f"[交付物提交] 提交结果: {json.dumps(result, ensure_ascii=False)}")
+        if result.get("code") == 0:
+            logger.info("[交付物提交] ✅ 提交成功")
+        else:
+            logger.warning(f"[交付物提交] ❌ 提交失败: {result.get('msg', '未知错误')}")
+        logger.info("="*60)
+
+        return result
 
     def delivery_worker_info(self, token: str) -> Dict:
         """获取工人信息"""
@@ -279,6 +368,9 @@ class TaskAutomation:
 
     def submit_delivery(self, payload: Dict) -> Dict:
         """提交交付物"""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[TaskAutomation.submit_delivery] 正在提交到: /app-api/applet/delivery/save")
         return self._post("/app-api/applet/delivery/save", payload)
 
     def get_worker_info(self) -> Dict:
