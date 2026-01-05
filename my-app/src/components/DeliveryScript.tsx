@@ -86,16 +86,16 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
     // Selection
     const [expandedUserMobiles, setExpandedUserMobiles] = useState<string[]>([]);
-    const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+    const [activeTaskAssignId, setActiveTaskAssignId] = useState<string | null>(null);
     const [activeUserMobile, setActiveUserMobile] = useState<string | null>(null);
 
     // -- Current Task/User Helpers --
     const activeUser = users.find(u => u.mobile === activeUserMobile);
 
-    // Composite key for drafts: mobile_taskId
-    const draftKey = (activeUser && activeTaskId) ? `${activeUser.mobile}_${activeTaskId}` : null;
+    // Composite key for drafts: mobile_taskAssignId
+    const draftKey = (activeUser && activeTaskAssignId) ? `${activeUser.mobile}_${activeTaskAssignId}` : null;
 
-    const activeTask = activeUser?.tasks.find(t => t.taskId === activeTaskId);
+    const activeTask = activeUser?.tasks.find(t => t.taskAssignId === activeTaskAssignId);
     const currentDraft = draftKey ? drafts[draftKey] : null;
 
     // -- Submitting State --
@@ -193,18 +193,17 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 setUsers(newUsers);
                 setStep('process');
 
-                // Expand first user if exists
-                if (newUsers[0]) {
-                    setExpandedUserMobiles([newUsers[0].mobile]);
-                    // Select first task if exists
-                    if (newUsers[0].tasks.length > 0) {
-                        const tId = newUsers[0].tasks[0].taskId;
-                        setActiveTaskId(tId);
-                        setActiveUserMobile(newUsers[0].mobile);
-                        // Initialize draft
-                        initDraft(newUsers[0].mobile, tId);
-                    }
+                // 默认展开所有
+                setExpandedUserMobiles(newUsers.map(u => u.mobile));
+                // Select first task if exists
+                if (newUsers[0] && newUsers[0].tasks.length > 0) {
+                    const tId = newUsers[0].tasks[0].taskAssignId;
+                    setActiveTaskAssignId(tId);
+                    setActiveUserMobile(newUsers[0].mobile);
+                    // Initialize draft
+                    initDraft(newUsers[0].mobile, tId);
                 }
+
                 toast.success(`成功登录 ${newUsers.length} 个账号`);
             } else {
                 toast.error('没有账号登录成功');
@@ -249,8 +248,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         }
     };
 
-    const initDraft = (mobile: string, taskId: string) => {
-        const key = `${mobile}_${taskId}`;
+    const initDraft = (mobile: string, taskAssignId: string) => {
+        const key = `${mobile}_${taskAssignId}`;
         setDrafts(prev => {
             if (prev[key]) return prev;
             return {
@@ -286,14 +285,14 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         });
     };
 
-    const handleSelectTask = (userMobile: string, taskId: string) => {
+    const handleSelectTask = (userMobile: string, taskAssignId: string) => {
         // Ensure user is expanded
         if (!expandedUserMobiles.includes(userMobile)) {
             setExpandedUserMobiles(prev => [...prev, userMobile]);
         }
         setActiveUserMobile(userMobile);
-        setActiveTaskId(taskId);
-        initDraft(userMobile, taskId);
+        setActiveTaskAssignId(taskAssignId);
+        initDraft(userMobile, taskAssignId);
         setShowValidation(false);
     };
 
@@ -301,7 +300,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     // File Upload Logic (Adapted for Multi-User)
     // -------------------------------------------------------------------------
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, isPic: boolean) => {
-        if (!activeTaskId || !activeUser || !currentDraft || !draftKey) return;
+        if (!activeTaskAssignId || !activeUser || !currentDraft || !draftKey) return;
 
         const files = e.target.files;
         if (!files || files.length === 0) return;
@@ -415,7 +414,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     };
 
     const removeAttachment = (index: number) => {
-        if (!activeTaskId || !currentDraft || !draftKey) return;
+        if (!activeTaskAssignId || !currentDraft || !draftKey) return;
         const newAtts = [...currentDraft.attachments];
         const removed = newAtts.splice(index, 1)[0];
         if (removed.previewUrl) URL.revokeObjectURL(removed.previewUrl);
@@ -427,7 +426,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     // -------------------------------------------------------------------------
     const handleSubmit = async () => {
         setShowValidation(true);
-        if (!activeTaskId || !activeUser || !currentDraft || !draftKey) return;
+        if (!activeTaskAssignId || !activeUser || !currentDraft || !draftKey) return;
 
         // Validation
         let isValid = true;
@@ -448,7 +447,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         const emptyItem = currentDraft.attachments.find(a => !a.filePath);
         if (emptyItem) return toast.error('存在未成功获取路径的文件');
 
-        const activeTaskObj = activeUser.tasks.find(t => t.taskId === activeTaskId);
+        const activeTaskObj = activeUser.tasks.find(t => t.taskAssignId === activeTaskAssignId);
         if (!activeTaskObj) return;
 
         setIsSubmitting(true);
@@ -490,19 +489,91 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 });
 
                 // Remove task from user list locally to reflect "Done" state
-                setUsers(prev => prev.map(u => {
+                // Calculate next state to determine auto-selection
+                let nextActiveTaskId: string | null = null;
+                let nextActiveUserMobile: string | null = null;
+
+                setUsers(prev => {
+                    // 1. Create the new list first
+                    const newUsers = prev.map(u => {
+                        if (u.mobile === activeUser.mobile) {
+                            return {
+                                ...u,
+                                tasks: u.tasks.filter(t => t.taskAssignId !== activeTaskAssignId)
+                            };
+                        }
+                        return u;
+                    });
+
+                    // 2. Determine selection based on new list
+                    // Logic:
+                    // a) Try to select next task of CURRENT user
+                    const currentUser = newUsers.find(u => u.mobile === activeUser.mobile);
+                    if (currentUser && currentUser.tasks.length > 0) {
+                        nextActiveTaskId = currentUser.tasks[0].taskAssignId;
+                        nextActiveUserMobile = currentUser.mobile;
+                    } else {
+                        // b) If current user done, find FIRST user with tasks
+                        const nextUser = newUsers.find(u => u.tasks.length > 0);
+                        if (nextUser) {
+                            nextActiveTaskId = nextUser.tasks[0].taskAssignId;
+                            nextActiveUserMobile = nextUser.mobile;
+                        }
+                    }
+
+                    // We need to set state OUTSIDE the reducer, but we can't...
+                    // Actually, we can trigger a side effect or just set it after setUsers.
+                    // But setUsers is async. 
+                    // Better approach: Calculate everything here, return newUsers, 
+                    // and use the LOCALLY calculated variables to set other states.
+                    return newUsers;
+                });
+
+                // Since setUsers updater is pure, we need to replicate the logic to set other states accurately
+                // OR adapt the logic above to run on 'users' (current state) before setUsers?
+                // 'users' is the state from closure, which IS the previous state.
+                // So we can calculate the 'next' users list based on 'users' variable directly.
+
+                const currentUsersList = users;
+                const nextUsersList = currentUsersList.map(u => {
                     if (u.mobile === activeUser.mobile) {
                         return {
                             ...u,
-                            tasks: u.tasks.filter(t => t.taskId !== activeTaskId)
+                            tasks: u.tasks.filter(t => t.taskAssignId !== activeTaskAssignId)
                         };
                     }
                     return u;
-                }));
+                });
 
-                // Reset selection
-                setActiveTaskId(null);
-                setActiveUserMobile(null);
+                // Determine next selection
+                let nextTId: string | null = null;
+                let nextMobile: string | null = null;
+
+                const nextCurrentUser = nextUsersList.find(u => u.mobile === activeUser.mobile);
+                if (nextCurrentUser && nextCurrentUser.tasks.length > 0) {
+                    nextTId = nextCurrentUser.tasks[0].taskAssignId;
+                    nextMobile = nextCurrentUser.mobile;
+                } else {
+                    const firstUserWithTasks = nextUsersList.find(u => u.tasks.length > 0);
+                    if (firstUserWithTasks) {
+                        nextTId = firstUserWithTasks.tasks[0].taskAssignId;
+                        nextMobile = firstUserWithTasks.mobile;
+                    }
+                }
+
+                if (nextTId && nextMobile) {
+                    setActiveTaskAssignId(nextTId);
+                    setActiveUserMobile(nextMobile);
+                    // Also init draft for the new task
+                    initDraft(nextMobile, nextTId);
+                    // Ensure the new user is expanded (if switching users)
+                    setExpandedUserMobiles(prev => prev.includes(nextMobile!) ? prev : [...prev, nextMobile!]);
+                } else {
+                    setActiveTaskAssignId(null);
+                    setActiveUserMobile(null);
+                }
+
+
                 setShowValidation(false);
 
             } else {
@@ -619,7 +690,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         className={`group flex items-center p-3 mx-2 mt-2 rounded-2xl cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] border border-transparent ${isExpanded
                                             ? 'bg-white/80 shadow-[0_8px_16px_rgba(0,0,0,0.06)] backdrop-blur-md border-white/40'
                                             : 'hover:bg-white/50 hover:shadow-sm text-slate-600'
-                                        }`}
+                                            }`}
                                         onClick={() => toggleUserExpand(user.mobile)}
                                     >
                                         <Avatar className="h-9 w-9 mr-3 border-2 border-white shadow-sm transition-transform duration-300 group-hover:scale-105">
@@ -643,24 +714,24 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                             ) : (
                                                 user.tasks.map((task, idx) => (
                                                     <div
-                                                        key={task.taskId}
+                                                        key={`${task.taskId}-${task.taskAssignId}-${idx}`}
                                                         style={{ animationDelay: `${idx * 30}ms` }}
-                                                        className={`group relative p-3 rounded-2xl text-xs cursor-pointer border transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] ${activeTaskId === task.taskId && activeUserMobile === user.mobile
+                                                        className={`group relative p-3 rounded-2xl text-xs cursor-pointer border transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] ${activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile
                                                             ? 'bg-blue-500/10 border-blue-200/50 text-blue-700 shadow-[0_4px_12px_rgba(59,130,246,0.15)] backdrop-blur-md'
                                                             : 'border-transparent text-slate-600 hover:bg-white/60 hover:text-slate-900 hover:shadow-sm'
-                                                        }`}
+                                                            }`}
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            handleSelectTask(user.mobile, task.taskId);
+                                                            handleSelectTask(user.mobile, task.taskAssignId);
                                                         }}
                                                         title={task.taskDesc}
                                                     >
                                                         {/* Active Indicator (Glowing Dot) */}
-                                                        {activeTaskId === task.taskId && activeUserMobile === user.mobile && (
+                                                        {activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile && (
                                                             <div className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1 h-3 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.6)]" />
                                                         )}
-                                                        <div className={`font-semibold line-clamp-1 break-all pr-1 text-[13px] ${activeTaskId === task.taskId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>{task.taskName}</div>
-                                                        <div className={`mt-1 opacity-80 text-[11px] line-clamp-2 leading-tight break-all text-muted-foreground/90 ${activeTaskId === task.taskId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>
+                                                        <div className={`font-semibold line-clamp-1 break-all pr-1 text-[13px] ${activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>{task.taskName}</div>
+                                                        <div className={`mt-1 opacity-80 text-[11px] line-clamp-2 leading-tight break-all text-muted-foreground/90 ${activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>
                                                             {task.taskDesc || '暂无描述'}
                                                         </div>
                                                     </div>
@@ -716,7 +787,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                     </div>
                 </CardHeader>
 
-                {activeTaskId && activeUser && currentDraft && draftKey ? (
+                {activeTaskAssignId && activeUser && currentDraft && draftKey ? (
                     <div className="flex-1 overflow-y-auto p-0" key={draftKey}>
                         <div className="p-6 space-y-6">
                             {/* Form Inputs */}
@@ -871,7 +942,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 )}
 
                 {/* Footer Action */}
-                {activeTaskId && (
+                {activeTaskAssignId && (
                     <div className="p-4 border-t bg-slate-50/50 flex justify-end">
                         <Button className="w-40" onClick={handleSubmit} disabled={isSubmitting}>
                             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
