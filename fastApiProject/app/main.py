@@ -715,7 +715,6 @@ async def calculate_tax(
 # ================= OCR处理接口 =================
 from .ocr_service import run_ocr_process, set_abort_signal
 from .models import OCRProcessRequest
-from fastapi.responses import StreamingResponse
 
 
 @app.post("/ocr/process", tags=["OCR处理"])
