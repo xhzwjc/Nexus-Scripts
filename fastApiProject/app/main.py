@@ -926,12 +926,23 @@ async def calculate_payment_stats(request: PaymentStatsRequest):
 # 交付物工具接口
 @app.post("/delivery/login", tags=["交付物工具"])
 async def delivery_login(request: DeliveryLoginRequest):
-    service = MobileTaskService(environment=request.environment)
-    return service.delivery_login(request.mobile, request.code)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[交付物-登录] 手机号: {request.mobile}")
+    service = MobileTaskService(environment=request.environment, silent=True)
+    result = service.delivery_login(request.mobile, request.code)
+    if result.get("success"):
+        logger.info(f"[交付物-登录] ✅ 登录成功")
+    else:
+        logger.warning(f"[交付物-登录] ❌ 登录失败: {result.get('msg')}")
+    return result
 
 @app.post("/delivery/tasks", tags=["交付物工具"])
 async def delivery_tasks(request: DeliveryTaskRequest):
-    service = MobileTaskService(environment=request.environment)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[交付物-任务列表] 获取任务列表, status={request.status}")
+    service = MobileTaskService(environment=request.environment, silent=True)
     return service.delivery_get_tasks(request.token, request.status)
 
 @app.post("/delivery/upload", tags=["交付物工具"])
@@ -940,16 +951,28 @@ async def delivery_upload(
     token: str = Form(...),
     file: UploadFile = File(...)
 ):
-    service = MobileTaskService(environment=environment)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[交付物-上传] 文件名: {file.filename}")
+    service = MobileTaskService(environment=environment, silent=True)
     content = await file.read()
-    return service.delivery_upload(token, content, file.filename)
+    result = service.delivery_upload(token, content, file.filename)
+    if result.get("code") == 0:
+        logger.info(f"[交付物-上传] ✅ 上传成功, URL: {result.get('data', '无')}")
+    else:
+        logger.warning(f"[交付物-上传] ❌ 上传失败: {result.get('msg')}")
+    return result
 
 @app.post("/delivery/submit", tags=["交付物工具"])
 async def delivery_submit(request: DeliverySubmitRequest):
-    service = MobileTaskService(environment=request.environment)
+    # delivery_submit 内部已有详细日志，这里不需要额外日志
+    service = MobileTaskService(environment=request.environment, silent=True)
     return service.delivery_submit(request.token, request.payload)
 
 @app.post("/delivery/worker-info", tags=["交付物工具"])
 async def delivery_worker_info(request: DeliveryWorkerInfoRequest):
-    service = MobileTaskService(environment=request.environment)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[交付物-用户信息] 获取用户信息")
+    service = MobileTaskService(environment=request.environment, silent=True)
     return service.delivery_worker_info(request.token)
