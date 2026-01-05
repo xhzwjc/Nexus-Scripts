@@ -84,12 +84,15 @@ async def custom_redoc_ui():
 def get_settlement_service():
     return EnterpriseSettlementService()
 
+
 # 关键修改：账户核对服务依赖，接收接口传入的environment
 def get_balance_service(request: BalanceVerificationRequest):
     """根据请求中的environment创建AccountBalanceService实例"""
     return AccountBalanceService(environment=request.environment)
 
+
 import time as _time
+
 
 @app.post("/settlement/process", response_model=SettlementResponse, tags=["结算处理"])
 async def process_settlement(
@@ -103,7 +106,7 @@ async def process_settlement(
     start_time = _time.time()
     logger.info(f"[结算处理] 开始 | 请求ID: {request_id}")
     logger.info(f"[结算处理] 参数: 企业数量={len(request.enterprises)}, 并发={request.concurrent}")
-    
+
     try:
         result = service.process_settlement(request)
         elapsed = round(_time.time() - start_time, 2)
@@ -114,17 +117,18 @@ async def process_settlement(
         logger.error(f"[结算处理] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"处理结算请求时发生错误: {str(e)}")
 
+
 # 账户核对接口（新增）
 @app.post("/balance/verify", response_model=BalanceVerificationResponse, tags=["账户核对"])
 async def verify_balance(
-    request: BalanceVerificationRequest,
-    service: AccountBalanceService = Depends(get_balance_service)
+        request: BalanceVerificationRequest,
+        service: AccountBalanceService = Depends(get_balance_service)
 ):
     request_id = str(uuid.uuid4())
     start_time = _time.time()
     logger.info(f"[余额核对] 开始 | 请求ID: {request_id}")
     logger.info(f"[余额核对] 参数: 企业ID={request.tenant_id}, 环境={request.environment}, 超时={request.timeout}秒")
-    
+
     try:
         result = service.verify_balances_with_timeout(
             tenant_id=request.tenant_id,
@@ -133,14 +137,15 @@ async def verify_balance(
         elapsed = round(_time.time() - start_time, 2)
         data_count = len(result) if result else 0
         logger.info(f"[余额核对] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 数据条数: {data_count}")
-        
+
         # 记录响应数据摘要
         if result:
             for item in result[:3]:  # 最多记录前3条
-                logger.info(f"[余额核对] 响应数据: 账户={item.get('enterprise_name', 'N/A') + '_' + item.get('tax_address', 'N/A')}, 余额={item.get('actual_balance', 'N/A')}")
+                logger.info(
+                    f"[余额核对] 响应数据: 账户={item.get('enterprise_name', 'N/A') + '_' + item.get('tax_address', 'N/A')}, 余额={item.get('actual_balance', 'N/A')}")
             if len(result) > 3:
                 logger.info(f"[余额核对] ... 共 {len(result)} 条数据")
-        
+
         return {
             "success": True,
             "message": "核对完成" if result else "未找到企业数据",
@@ -175,7 +180,7 @@ async def calculate_commission(
     start_time = _time.time()
     logger.info(f"[佣金计算] 开始 | 请求ID: {request_id}")
     logger.info(f"[佣金计算] 参数: 渠道ID={request.channel_id}, 环境={request.environment}, 超时={request.timeout}秒")
-    
+
     try:
         result = service.calculate_commission(
             channel_id=request.channel_id,
@@ -208,6 +213,7 @@ def get_mobile_task_service(request: MobileTaskRequest):
     """根据请求中的environment创建MobileTaskService实例"""
     return MobileTaskService(environment=request.environment)
 
+
 # 为手机号解析接口创建专用的依赖注入函数
 def get_mobile_parse_service(request: MobileParseRequest):
     """根据请求创建MobileTaskService实例（用于解析接口）"""
@@ -229,7 +235,8 @@ async def parse_mobile_numbers(
     """
     try:
         request_id = str(uuid.uuid4())
-        logger.info(f"收到手机号解析请求: 请求ID={request_id}, 是否有文件={bool(request.file_content)}, 范围={request.range}")
+        logger.info(
+            f"收到手机号解析请求: 请求ID={request_id}, 是否有文件={bool(request.file_content)}, 范围={request.range}")
 
         # 仅执行解析操作，只传入需要的参数
         mobiles = service.parse_mobile_numbers(
@@ -256,7 +263,6 @@ async def parse_mobile_numbers(
         }
 
 
-
 # 手机号任务接口（新增）
 @app.post("/mobile/task/process", response_model=MobileTaskResponse, tags=["手机号任务"])
 async def process_mobile_tasks(
@@ -268,8 +274,9 @@ async def process_mobile_tasks(
     start_time = _time.time()
     mobile_count = len(request.mobiles) if request.mobiles else 0
     logger.info(f"[手机号任务] 开始 | 请求ID: {request_id}")
-    logger.info(f"[手机号任务] 参数: 模式={request.mode}, 手机号数量={mobile_count}, 有文件={bool(request.file_content)}, 范围={request.range}")
-    
+    logger.info(
+        f"[手机号任务] 参数: 模式={request.mode}, 手机号数量={mobile_count}, 有文件={bool(request.file_content)}, 范围={request.range}")
+
     try:
         result = service.process_mobile_tasks(request)
         elapsed = round(_time.time() - start_time, 2)
@@ -322,7 +329,7 @@ async def update_sms_templates(
 
         result = service.update_templates()
         return {
-            "code": result.get("code",0),
+            "code": result.get("code", 0),
             "success": result["success"],
             "message": result["message"],
             "data": result.get("data", {}).get("list", []),
@@ -517,18 +524,18 @@ async def list_enterprises(
     request_id = str(uuid.uuid4())
     start_time = _time.time()
     logger.info(f"[企业列表] 开始 | 请求ID: {request_id} | 环境: {environment or 'default'}")
-    
+
     try:
         db_config = get_db_config(environment)
         enterprises = get_enterprise_list(db_config)
         elapsed = round(_time.time() - start_time, 2)
         logger.info(f"[企业列表] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 企业数量: {len(enterprises)}")
-        
+
         # 记录前几个企业名称
         if enterprises:
             names = [e.get('name', e.get('enterprise_name', 'N/A')) for e in enterprises[:5]]
             logger.info(f"[企业列表] 响应数据预览: {names}{'...' if len(enterprises) > 5 else ''}")
-        
+
         return {
             "success": True,
             "message": "已加载企业信息！",
@@ -541,6 +548,7 @@ async def list_enterprises(
         logger.error(f"[企业列表] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # 2. 获取完税数据接口
 @app.post("/tax/data", response_model=TaxDataResponse, tags=["税务报表"])
 async def get_tax_data(
@@ -550,8 +558,9 @@ async def get_tax_data(
     start_time = _time.time()
     enterprise_count = len(request.enterprise_ids) if request.enterprise_ids else 0
     logger.info(f"[完税数据] 开始 | 请求ID: {request_id}")
-    logger.info(f"[完税数据] 参数: 年月={request.year_month}, 企业数={enterprise_count}, 金额类型={request.amount_type}")
-    
+    logger.info(
+        f"[完税数据] 参数: 年月={request.year_month}, 企业数={enterprise_count}, 金额类型={request.amount_type}")
+
     try:
         db_config = get_db_config(request.environment)
         generator = TaxReportGenerator(db_config)
@@ -562,7 +571,7 @@ async def get_tax_data(
         )
         elapsed = round(_time.time() - start_time, 2)
         logger.info(f"[完税数据] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 数据条数: {len(tax_data)}")
-        
+
         # 记录数据摘要
         if tax_data:
             total_amount = sum(float(d.get('营业额_元', 0) or 0) for d in tax_data)
@@ -580,18 +589,22 @@ async def get_tax_data(
         logger.error(f"[完税数据] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 from urllib.parse import quote
+
+
 # 3. 生成税务报表接口
 @app.post("/tax/report/generate", response_model=TaxReportGenerateResponse, tags=["税务报表"])
 async def generate_tax_report(
-    request: TaxReportGenerateRequest,
+        request: TaxReportGenerateRequest,
 ):
     request_id = str(uuid.uuid4())
     start_time = _time.time()
     enterprise_count = len(request.enterprise_ids) if request.enterprise_ids else 0
     logger.info(f"[税务报表] 开始 | 请求ID: {request_id}")
-    logger.info(f"[税务报表] 参数: 年月={request.year_month}, 企业数={enterprise_count}, 金额类型={request.amount_type}")
-    
+    logger.info(
+        f"[税务报表] 参数: 年月={request.year_month}, 企业数={enterprise_count}, 金额类型={request.amount_type}")
+
     try:
         db_config = get_db_config(request.environment)
         generator = TaxReportGenerator(db_config)
@@ -642,10 +655,12 @@ async def generate_tax_report(
         logger.error(f"[税务报表] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # 在文件中添加必要的导入
 from .tax_calculator import TaxCalculator
 from .models import TaxCalculationRequest, TaxCalculationResponse
 import uuid
+
 
 # 添加税额计算接口
 @app.post("/tax/calculate", response_model=TaxCalculationResponse, tags=["税务计算"])
@@ -655,8 +670,9 @@ async def calculate_tax(
     request_id = str(uuid.uuid4())
     start_time = _time.time()
     logger.info(f"[税额计算] 开始 | 请求ID: {request_id}")
-    logger.info(f"[税额计算] 参数: 年份={request.year}, 批次号={request.batch_no}, 身份证={(request.credential_num[:6] if request.credential_num else 'None')}***, 模拟={request.use_mock}")
-    
+    logger.info(
+        f"[税额计算] 参数: 年份={request.year}, 批次号={request.batch_no}, 身份证={(request.credential_num[:6] if request.credential_num else 'None')}***, 模拟={request.use_mock}")
+
     try:
         if not request.use_mock:
             if not request.batch_no and (not request.credential_num or request.credential_num.strip() == ""):
@@ -692,7 +708,8 @@ async def calculate_tax(
 
         total_tax = sum(r.get('tax', 0) for r in results) if results else 0.0
         elapsed = round(_time.time() - start_time, 2)
-        logger.info(f"[税额计算] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 记录数: {len(results)} | 总税额: {round(total_tax, 2)}")
+        logger.info(
+            f"[税额计算] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 记录数: {len(results)} | 总税额: {round(total_tax, 2)}")
 
         return {
             "success": True,
@@ -724,7 +741,7 @@ async def process_ocr(request: OCRProcessRequest):
     request_id = str(uuid.uuid4())
     logger.info(f"[OCR本地模式] 开始 | 请求ID: {request_id}")
     logger.info(f"[OCR本地模式] 参数: Excel={request.excel_path}, 附件={request.source_folder}, 模式={request.mode}")
-    
+
     return StreamingResponse(
         run_ocr_process(
             excel_path=request.excel_path,
@@ -749,22 +766,22 @@ app.mount("/outputs", StaticFiles(directory=OUTPUTS_DIR), name="outputs")
 
 @app.post("/ocr/process-upload", tags=["OCR处理"])
 async def process_ocr_upload(
-    mode: int = Form(1),
-    excel_file: UploadFile = File(...),
-    image_files: List[UploadFile] = File(...)
+        mode: int = Form(1),
+        excel_file: UploadFile = File(...),
+        image_files: List[UploadFile] = File(...)
 ):
     """上传模式：接收 Excel 和图片文件，处理后返回结果下载链接"""
     request_id = str(uuid.uuid4())
     start_time = _time.time()
     total_size_mb = round(sum(len(await img.read()) for img in image_files) / 1024 / 1024, 2) if False else 0
-    
+
     logger.info(f"[OCR上传模式] 开始 | 请求ID: {request_id}")
     logger.info(f"[OCR上传模式] 参数: Excel={excel_file.filename}, 图片数={len(image_files)}, 模式={mode}")
-    
+
     # 关键：在 generator 开始前读取所有文件内容到内存
     excel_content = await excel_file.read()
     excel_filename = excel_file.filename or "upload.xlsx"
-    
+
     # 读取所有图片文件
     image_data_list = []
     for img in image_files:
@@ -774,14 +791,14 @@ async def process_ocr_upload(
                 "filename": img.filename,
                 "content": content
             })
-    
+
     total_size_mb = round(sum(len(d["content"]) for d in image_data_list) / 1024 / 1024, 2)
     logger.info(f"[OCR上传模式] 文件接收完成 | 请求ID: {request_id} | 图片总大小: {total_size_mb}MB")
-    
+
     # 打印第一个文件名看看目录结构
     if image_data_list:
         logger.info(f"[OCR上传模式] 图片路径示例: {image_data_list[0]['filename']}")
-    
+
     def process_generator():
         # 创建临时目录
         temp_dir = tempfile.mkdtemp()
@@ -789,15 +806,15 @@ async def process_ocr_upload(
             temp_path = Path(temp_dir)
             source_folder = temp_path / "source_images"
             source_folder.mkdir()
-            
+
             # 保存 Excel
             excel_path = temp_path / excel_filename
             with open(excel_path, "wb") as f:
                 f.write(excel_content)
-            
+
             yield json.dumps({"type": "log", "content": f"已接收 Excel: {excel_filename}"}, ensure_ascii=False) + "\n"
             yield json.dumps({"type": "log", "content": f"mode 参数值: {mode}"}, ensure_ascii=False) + "\n"
-            
+
             # 保存图片（保持完整的子目录结构）
             # webkitdirectory 上传时：附件信息/张三/photo.jpg
             count = 0
@@ -806,28 +823,29 @@ async def process_ocr_upload(
                 original_path = img_data["filename"]
                 # 解析完整的路径结构
                 parts = original_path.replace("\\", "/").split("/")
-                
+
                 # 处理路径结构：
                 # - 如果路径包含多层，直接使用完整结构（保留所有子目录）
                 # - 例如：附件信息/附件信息/王京川/111111.jpg → 保持完整结构
                 new_path = "/".join(parts)
-                
+
                 if not first_folder_logged:
-                    yield json.dumps({"type": "log", "content": f"原始路径: {original_path} → 映射为: {new_path}"}, ensure_ascii=False) + "\n"
+                    yield json.dumps({"type": "log", "content": f"原始路径: {original_path} → 映射为: {new_path}"},
+                                     ensure_ascii=False) + "\n"
                     first_folder_logged = True
-                
+
                 target_path = source_folder / new_path
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 with open(target_path, "wb") as f:
                     f.write(img_data["content"])
                 count += 1
-            
+
             yield json.dumps({"type": "log", "content": f"已接收图片文件: {count} 个"}, ensure_ascii=False) + "\n"
 
             # 准备输出路径
             output_filename = f"ocr_result_{uuid.uuid4().hex[:8]}.xlsx"
             target_excel_path = os.path.join(OUTPUTS_DIR, output_filename)
-            
+
             # 调用 OCR
             ocr_gen = run_ocr_process(
                 excel_path=str(excel_path),
@@ -836,23 +854,23 @@ async def process_ocr_upload(
                 mode=mode,
                 request_id=request_id
             )
-            
+
             # 转发 OCR 日志
             for item in ocr_gen:
                 yield item
-            
+
             # 返回下载链接
             if os.path.exists(target_excel_path):
                 yield json.dumps({
-                    "type": "result", 
-                    "success": True, 
-                    "message": "处理完成", 
+                    "type": "result",
+                    "success": True,
+                    "message": "处理完成",
                     "download_url": f"outputs/{output_filename}"
                 }, ensure_ascii=False) + "\n"
             else:
                 yield json.dumps({
-                    "type": "result", 
-                    "success": False, 
+                    "type": "result",
+                    "success": False,
                     "message": "未生成结果文件"
                 }, ensure_ascii=False) + "\n"
         finally:
@@ -877,6 +895,7 @@ async def abort_ocr(request_id: str):
     logger.info(f"[OCR中止] 收到中止请求 | 请求ID: {request_id}")
     set_abort_signal(request_id)
     return {"success": True, "message": f"已发送中止信号: {request_id}"}
+
 
 # 支付统计相关接口
 @app.post("/stats/payment/enterprises", response_model=PaymentStatsResponse, tags=["支付统计"])
@@ -909,16 +928,16 @@ async def calculate_payment_stats(request: PaymentStatsRequest):
         service = PaymentStatsService(environment=request.environment)
         stats = service.calculate_stats(enterprise_ids=request.enterprise_ids)
         return {
-            "success": True, 
-            "message": "计算成功", 
-            "data": stats, 
+            "success": True,
+            "message": "计算成功",
+            "data": stats,
             "request_id": request_id
         }
     except Exception as e:
         logger.error(f"计算统计失败: {e}")
         return {
-            "success": False, 
-            "message": str(e), 
+            "success": False,
+            "message": str(e),
             "request_id": request_id
         }
 
@@ -926,28 +945,52 @@ async def calculate_payment_stats(request: PaymentStatsRequest):
 # 交付物工具接口
 @app.post("/delivery/login", tags=["交付物工具"])
 async def delivery_login(request: DeliveryLoginRequest):
-    service = MobileTaskService(environment=request.environment)
-    return service.delivery_login(request.mobile, request.code)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[交付物-登录] 手机号: {request.mobile}")
+    service = MobileTaskService(environment=request.environment, silent=True)
+    result = service.delivery_login(request.mobile, request.code)
+    if result.get("success"):
+        logger.info(f"[交付物-登录] ✅ 登录成功")
+    else:
+        logger.warning(f"[交付物-登录] ❌ 登录失败: {result.get('msg')}")
+    return result
+
 
 @app.post("/delivery/tasks", tags=["交付物工具"])
 async def delivery_tasks(request: DeliveryTaskRequest):
-    service = MobileTaskService(environment=request.environment)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[交付物-任务列表] 获取任务列表, status={request.status}")
+    service = MobileTaskService(environment=request.environment, silent=True)
     return service.delivery_get_tasks(request.token, request.status)
+
 
 @app.post("/delivery/upload", tags=["交付物工具"])
 async def delivery_upload(
-    environment: str = Form(...),
-    token: str = Form(...),
-    file: UploadFile = File(...)
+        environment: str = Form(...),
+        token: str = Form(...),
+        file: UploadFile = File(...)
 ):
-    service = MobileTaskService(environment=environment)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[交付物-上传] 文件名: {file.filename}")
+    service = MobileTaskService(environment=environment, silent=True)
     content = await file.read()
-    return service.delivery_upload(token, content, file.filename)
+    result = service.delivery_upload(token, content, file.filename)
+    if result.get("code") == 0:
+        logger.info(f"[交付物-上传] ✅ 上传成功, URL: {result.get('data', '无')}")
+    else:
+        logger.warning(f"[交付物-上传] ❌ 上传失败: {result.get('msg')}")
+    return result
+
 
 @app.post("/delivery/submit", tags=["交付物工具"])
 async def delivery_submit(request: DeliverySubmitRequest):
-    service = MobileTaskService(environment=request.environment)
+    # delivery_submit 内部已有详细日志，这里不需要额外日志
+    service = MobileTaskService(environment=request.environment, silent=True)
     return service.delivery_submit(request.token, request.payload)
+
 
 @app.post("/delivery/worker-info", tags=["交付物工具"])
 async def delivery_worker_info(request: DeliveryWorkerInfoRequest):
