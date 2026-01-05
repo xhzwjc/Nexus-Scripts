@@ -1,23 +1,22 @@
-
-import React, { useState, useEffect } from 'react';
+import React, {useState, useEffect} from 'react';
 import axios from 'axios';
-import { toast, Toaster } from 'sonner';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Textarea } from './ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { ScrollArea } from './ui/scroll-area';
-import { Badge } from './ui/badge';
-import { Skeleton } from './ui/skeleton';
+import {toast, Toaster} from 'sonner';
+import {Card, CardContent, CardHeader, CardTitle, CardDescription} from './ui/card';
+import {Button} from './ui/button';
+import {Input} from './ui/input';
+import {Label} from './ui/label';
+import {Textarea} from './ui/textarea';
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/select';
+import {ScrollArea} from './ui/scroll-area';
+import {Badge} from './ui/badge';
+import {Skeleton} from './ui/skeleton';
 import {
     ArrowLeft, Loader2, Upload, File as FileIcon, X, CheckCircle, AlertCircle,
     Image as ImageIcon, User, ChevronRight, ChevronDown, LogOut, RefreshCw
 } from 'lucide-react';
-import { getApiBaseUrl } from '../lib/api';
-import { Avatar, AvatarFallback } from './ui/avatar';
-import { Separator } from './ui/separator';
+import {getApiBaseUrl} from '../lib/api';
+import {Avatar, AvatarFallback} from './ui/avatar';
+import {Separator} from './ui/separator';
 
 interface DeliveryScriptProps {
     onBack: () => void;
@@ -69,7 +68,7 @@ interface FormDraft {
     attachments: Attachment[];
 }
 
-export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
+export default function DeliveryScript({onBack}: DeliveryScriptProps) {
     const apiBaseUrl = getApiBaseUrl();
 
     // -- Global State --
@@ -86,16 +85,16 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
     // Selection
     const [expandedUserMobiles, setExpandedUserMobiles] = useState<string[]>([]);
-    const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+    const [activeTaskAssignId, setActiveTaskAssignId] = useState<string | null>(null);
     const [activeUserMobile, setActiveUserMobile] = useState<string | null>(null);
 
     // -- Current Task/User Helpers --
     const activeUser = users.find(u => u.mobile === activeUserMobile);
 
-    // Composite key for drafts: mobile_taskId
-    const draftKey = (activeUser && activeTaskId) ? `${activeUser.mobile}_${activeTaskId}` : null;
+    // Composite key for drafts: mobile_taskAssignId
+    const draftKey = (activeUser && activeTaskAssignId) ? `${activeUser.mobile}_${activeTaskAssignId}` : null;
 
-    const activeTask = activeUser?.tasks.find(t => t.taskId === activeTaskId);
+    const activeTask = activeUser?.tasks.find(t => t.taskAssignId === activeTaskAssignId);
     const currentDraft = draftKey ? drafts[draftKey] : null;
 
     // -- Submitting State --
@@ -193,18 +192,17 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 setUsers(newUsers);
                 setStep('process');
 
-                // Expand first user if exists
-                if (newUsers[0]) {
-                    setExpandedUserMobiles([newUsers[0].mobile]);
-                    // Select first task if exists
-                    if (newUsers[0].tasks.length > 0) {
-                        const tId = newUsers[0].tasks[0].taskId;
-                        setActiveTaskId(tId);
-                        setActiveUserMobile(newUsers[0].mobile);
-                        // Initialize draft
-                        initDraft(newUsers[0].mobile, tId);
-                    }
+                // 默认展开所有
+                setExpandedUserMobiles(newUsers.map(u => u.mobile));
+                // Select first task if exists
+                if (newUsers[0] && newUsers[0].tasks.length > 0) {
+                    const tId = newUsers[0].tasks[0].taskAssignId;
+                    setActiveTaskAssignId(tId);
+                    setActiveUserMobile(newUsers[0].mobile);
+                    // Initialize draft
+                    initDraft(newUsers[0].mobile, tId);
                 }
+
                 toast.success(`成功登录 ${newUsers.length} 个账号`);
             } else {
                 toast.error('没有账号登录成功');
@@ -233,7 +231,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                     if (taskRes.data && taskRes.data.code === 0 && taskRes.data.data?.list) {
                         // Filter myStatus=4
                         const newTasks = (taskRes.data.data.list as Task[]).filter(t => t.myStatus === 4);
-                        updatedUsers[i] = { ...user, tasks: newTasks };
+                        updatedUsers[i] = {...user, tasks: newTasks};
                         successCount++;
                     }
                 } catch (e) {
@@ -249,8 +247,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         }
     };
 
-    const initDraft = (mobile: string, taskId: string) => {
-        const key = `${mobile}_${taskId}`;
+    const initDraft = (mobile: string, taskAssignId: string) => {
+        const key = `${mobile}_${taskAssignId}`;
         setDrafts(prev => {
             if (prev[key]) return prev;
             return {
@@ -286,14 +284,14 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         });
     };
 
-    const handleSelectTask = (userMobile: string, taskId: string) => {
+    const handleSelectTask = (userMobile: string, taskAssignId: string) => {
         // Ensure user is expanded
         if (!expandedUserMobiles.includes(userMobile)) {
             setExpandedUserMobiles(prev => [...prev, userMobile]);
         }
         setActiveUserMobile(userMobile);
-        setActiveTaskId(taskId);
-        initDraft(userMobile, taskId);
+        setActiveTaskAssignId(taskAssignId);
+        initDraft(userMobile, taskAssignId);
         setShowValidation(false);
     };
 
@@ -301,7 +299,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     // File Upload Logic (Adapted for Multi-User)
     // -------------------------------------------------------------------------
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, isPic: boolean) => {
-        if (!activeTaskId || !activeUser || !currentDraft || !draftKey) return;
+        if (!activeTaskAssignId || !activeUser || !currentDraft || !draftKey) return;
 
         const files = e.target.files;
         if (!files || files.length === 0) return;
@@ -364,7 +362,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
         try {
             const res = await axios.post(`${apiBaseUrl}/delivery/upload`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+                headers: {'Content-Type': 'multipart/form-data'}
             });
 
             if (res.data && res.data.code === 0) {
@@ -387,11 +385,11 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                         // We need to match it in the *current state*.
                         // A safer way is to match by uploadTime + fileName + fileLength
                         if (a.uploadTime === item.uploadTime && a.fileName === item.fileName) {
-                            return { ...a, uploading: false, filePath: finalPath, tempPath: finalPath };
+                            return {...a, uploading: false, filePath: finalPath, tempPath: finalPath};
                         }
                         return a;
                     });
-                    return { ...prev, [dKey]: { ...draft, attachments: newAtts } };
+                    return {...prev, [dKey]: {...draft, attachments: newAtts}};
                 });
                 toast.success(`文件 ${item.fileName} 上传成功`);
             } else {
@@ -404,18 +402,18 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 if (!draft) return prev;
                 const newAtts = draft.attachments.map(a => {
                     if (a.uploadTime === item.uploadTime && a.fileName === item.fileName) {
-                        return { ...a, uploading: false, error: errorMsg };
+                        return {...a, uploading: false, error: errorMsg};
                     }
                     return a;
                 });
-                return { ...prev, [dKey]: { ...draft, attachments: newAtts } };
+                return {...prev, [dKey]: {...draft, attachments: newAtts}};
             });
             toast.error(`文件 ${item.fileName} 上传失败`);
         }
     };
 
     const removeAttachment = (index: number) => {
-        if (!activeTaskId || !currentDraft || !draftKey) return;
+        if (!activeTaskAssignId || !currentDraft || !draftKey) return;
         const newAtts = [...currentDraft.attachments];
         const removed = newAtts.splice(index, 1)[0];
         if (removed.previewUrl) URL.revokeObjectURL(removed.previewUrl);
@@ -427,7 +425,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     // -------------------------------------------------------------------------
     const handleSubmit = async () => {
         setShowValidation(true);
-        if (!activeTaskId || !activeUser || !currentDraft || !draftKey) return;
+        if (!activeTaskAssignId || !activeUser || !currentDraft || !draftKey) return;
 
         // Validation
         let isValid = true;
@@ -448,7 +446,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         const emptyItem = currentDraft.attachments.find(a => !a.filePath);
         if (emptyItem) return toast.error('存在未成功获取路径的文件');
 
-        const activeTaskObj = activeUser.tasks.find(t => t.taskId === activeTaskId);
+        const activeTaskObj = activeUser.tasks.find(t => t.taskAssignId === activeTaskAssignId);
         if (!activeTaskObj) return;
 
         setIsSubmitting(true);
@@ -484,25 +482,97 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
                 // Clear draft
                 setDrafts(prev => {
-                    const next = { ...prev };
+                    const next = {...prev};
                     delete next[draftKey];
                     return next;
                 });
 
                 // Remove task from user list locally to reflect "Done" state
-                setUsers(prev => prev.map(u => {
+                // Calculate next state to determine auto-selection
+                let nextActiveTaskId: string | null = null;
+                let nextActiveUserMobile: string | null = null;
+
+                setUsers(prev => {
+                    // 1. Create the new list first
+                    const newUsers = prev.map(u => {
+                        if (u.mobile === activeUser.mobile) {
+                            return {
+                                ...u,
+                                tasks: u.tasks.filter(t => t.taskAssignId !== activeTaskAssignId)
+                            };
+                        }
+                        return u;
+                    });
+
+                    // 2. Determine selection based on new list
+                    // Logic:
+                    // a) Try to select next task of CURRENT user
+                    const currentUser = newUsers.find(u => u.mobile === activeUser.mobile);
+                    if (currentUser && currentUser.tasks.length > 0) {
+                        nextActiveTaskId = currentUser.tasks[0].taskAssignId;
+                        nextActiveUserMobile = currentUser.mobile;
+                    } else {
+                        // b) If current user done, find FIRST user with tasks
+                        const nextUser = newUsers.find(u => u.tasks.length > 0);
+                        if (nextUser) {
+                            nextActiveTaskId = nextUser.tasks[0].taskAssignId;
+                            nextActiveUserMobile = nextUser.mobile;
+                        }
+                    }
+
+                    // We need to set state OUTSIDE the reducer, but we can't...
+                    // Actually, we can trigger a side effect or just set it after setUsers.
+                    // But setUsers is async.
+                    // Better approach: Calculate everything here, return newUsers,
+                    // and use the LOCALLY calculated variables to set other states.
+                    return newUsers;
+                });
+
+                // Since setUsers updater is pure, we need to replicate the logic to set other states accurately
+                // OR adapt the logic above to run on 'users' (current state) before setUsers?
+                // 'users' is the state from closure, which IS the previous state.
+                // So we can calculate the 'next' users list based on 'users' variable directly.
+
+                const currentUsersList = users;
+                const nextUsersList = currentUsersList.map(u => {
                     if (u.mobile === activeUser.mobile) {
                         return {
                             ...u,
-                            tasks: u.tasks.filter(t => t.taskId !== activeTaskId)
+                            tasks: u.tasks.filter(t => t.taskAssignId !== activeTaskAssignId)
                         };
                     }
                     return u;
-                }));
+                });
 
-                // Reset selection
-                setActiveTaskId(null);
-                setActiveUserMobile(null);
+                // Determine next selection
+                let nextTId: string | null = null;
+                let nextMobile: string | null = null;
+
+                const nextCurrentUser = nextUsersList.find(u => u.mobile === activeUser.mobile);
+                if (nextCurrentUser && nextCurrentUser.tasks.length > 0) {
+                    nextTId = nextCurrentUser.tasks[0].taskAssignId;
+                    nextMobile = nextCurrentUser.mobile;
+                } else {
+                    const firstUserWithTasks = nextUsersList.find(u => u.tasks.length > 0);
+                    if (firstUserWithTasks) {
+                        nextTId = firstUserWithTasks.tasks[0].taskAssignId;
+                        nextMobile = firstUserWithTasks.mobile;
+                    }
+                }
+
+                if (nextTId && nextMobile) {
+                    setActiveTaskAssignId(nextTId);
+                    setActiveUserMobile(nextMobile);
+                    // Also init draft for the new task
+                    initDraft(nextMobile, nextTId);
+                    // Ensure the new user is expanded (if switching users)
+                    setExpandedUserMobiles(prev => prev.includes(nextMobile!) ? prev : [...prev, nextMobile!]);
+                } else {
+                    setActiveTaskAssignId(null);
+                    setActiveUserMobile(null);
+                }
+
+
                 setShowValidation(false);
 
             } else {
@@ -532,7 +602,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                         onBack();
                     }
                 }}>
-                    <ArrowLeft className="h-4 w-4" />
+                    <ArrowLeft className="h-4 w-4"/>
                 </Button>
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">交付物提交工具 {step === 'process' && '(多用户模式)'}</h2>
@@ -542,8 +612,11 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 </div>
             </div>
             {step === 'process' && (
-                <Button variant="outline" size="sm" onClick={() => { setStep('login'); setUsers([]); }}>
-                    <LogOut className="mr-2 h-4 w-4" /> 退出/重新登录
+                <Button variant="outline" size="sm" onClick={() => {
+                    setStep('login');
+                    setUsers([]);
+                }}>
+                    <LogOut className="mr-2 h-4 w-4"/> 退出/重新登录
                 </Button>
             )}
         </div>
@@ -552,10 +625,12 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     // 2. Login View
     const renderLogin = () => (
         <div className="max-w-md mx-auto mt-20 animate-in fade-in zoom-in-95 duration-500">
-            <Card className="border-0 shadow-2xl bg-white/60 backdrop-blur-3xl ring-1 ring-white/40 rounded-[40px] overflow-hidden">
+            <Card
+                className="border-0 shadow-2xl bg-white/60 backdrop-blur-3xl ring-1 ring-white/40 rounded-[40px] overflow-hidden">
                 <CardHeader className="text-center pb-2 pt-8">
-                    <div className="mx-auto w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-4 shadow-[0_8px_24px_rgba(59,130,246,0.15)]">
-                        <User className="h-8 w-8 text-blue-600" />
+                    <div
+                        className="mx-auto w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-4 shadow-[0_8px_24px_rgba(59,130,246,0.15)]">
+                        <User className="h-8 w-8 text-blue-600"/>
                     </div>
                     <CardTitle className="text-2xl font-bold text-slate-800 tracking-tight">批量登录</CardTitle>
                     <CardDescription className="text-slate-500 font-medium">请输入手机号列表开启任务</CardDescription>
@@ -564,12 +639,16 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                     <div className="space-y-2">
                         <Label className="text-slate-600 font-semibold text-xs ml-1">环境选择</Label>
                         <Select value={environment} onValueChange={setEnvironment}>
-                            <SelectTrigger className="rounded-2xl border-white/40 bg-white/50 h-10 ring-0 focus:ring-2 focus:ring-blue-500/10 shadow-sm transition-all hover:bg-white/80">
-                                <SelectValue />
+                            <SelectTrigger
+                                className="rounded-2xl border-white/40 bg-white/50 h-10 ring-0 focus:ring-2 focus:ring-blue-500/10 shadow-sm transition-all hover:bg-white/80">
+                                <SelectValue/>
                             </SelectTrigger>
-                            <SelectContent className="rounded-xl border-white/20 bg-white/80 backdrop-blur-xl shadow-xl">
-                                <SelectItem value="test" className="rounded-lg my-1 mx-1 focus:bg-blue-50 focus:text-blue-600 cursor-pointer">测试环境</SelectItem>
-                                <SelectItem value="prod" className="rounded-lg my-1 mx-1 focus:bg-blue-50 focus:text-blue-600 cursor-pointer">生产环境</SelectItem>
+                            <SelectContent
+                                className="rounded-xl border-white/20 bg-white/80 backdrop-blur-xl shadow-xl">
+                                <SelectItem value="test"
+                                            className="rounded-lg my-1 mx-1 focus:bg-blue-50 focus:text-blue-600 cursor-pointer">测试环境</SelectItem>
+                                <SelectItem value="prod"
+                                            className="rounded-lg my-1 mx-1 focus:bg-blue-50 focus:text-blue-600 cursor-pointer">生产环境</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
@@ -591,7 +670,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                         onClick={handleLogin}
                         disabled={isLoggingIn}
                     >
-                        {isLoggingIn ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : null}
+                        {isLoggingIn ? <Loader2 className="mr-2 h-5 w-5 animate-spin"/> : null}
                         {isLoggingIn ? '正在登录...' : '开始获取任务'}
                     </Button>
                 </CardContent>
@@ -604,9 +683,11 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     const renderProcess = () => (
         <div className="flex flex-col lg:grid lg:grid-cols-4 gap-6 lg:h-[calc(100vh-140px)] p-2">
             {/* Sidebar: Users Tree */}
-            <Card className="lg:col-span-1 flex flex-col min-h-[400px] h-auto lg:h-full border-0 bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.06)]">
+            <Card
+                className="lg:col-span-1 flex flex-col min-h-[400px] h-auto lg:h-full border-0 bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.06)]">
                 <CardHeader className="py-5 px-5 border-b border-slate-200/50 bg-white/40 backdrop-blur-md">
-                    <CardTitle className="text-sm font-semibold text-slate-800 tracking-tight">交付团队 ({users.length})</CardTitle>
+                    <CardTitle className="text-sm font-semibold text-slate-800 tracking-tight">交付团队
+                        ({users.length})</CardTitle>
                 </CardHeader>
                 <div className="flex-1 overflow-y-auto min-h-0">
                     <div className="p-2 space-y-1">
@@ -619,48 +700,58 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         className={`group flex items-center p-3 mx-2 mt-2 rounded-2xl cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] border border-transparent ${isExpanded
                                             ? 'bg-white/80 shadow-[0_8px_16px_rgba(0,0,0,0.06)] backdrop-blur-md border-white/40'
                                             : 'hover:bg-white/50 hover:shadow-sm text-slate-600'
-                                            }`}
+                                        }`}
                                         onClick={() => toggleUserExpand(user.mobile)}
                                     >
-                                        <Avatar className="h-9 w-9 mr-3 border-2 border-white shadow-sm transition-transform duration-300 group-hover:scale-105">
+                                        <Avatar
+                                            className="h-9 w-9 mr-3 border-2 border-white shadow-sm transition-transform duration-300 group-hover:scale-105">
                                             <AvatarFallback className="bg-primary/10 text-primary text-xs">
                                                 {user.realname.substring(0, 2)}
                                             </AvatarFallback>
                                         </Avatar>
                                         <div className="flex-1 min-w-0">
-                                            <div className="font-medium text-sm truncate text-slate-800 tracking-tight">{user.realname}</div>
-                                            <div className="text-[11px] text-slate-500 truncate font-medium">{user.mobile}</div>
+                                            <div
+                                                className="font-medium text-sm truncate text-slate-800 tracking-tight">{user.realname}</div>
+                                            <div
+                                                className="text-[11px] text-slate-500 truncate font-medium">{user.mobile}</div>
                                         </div>
-                                        <Badge variant="secondary" className="ml-1 text-[10px] h-5 bg-slate-100/50 text-slate-600 backdrop-blur-sm border-0">{user.tasks.length}</Badge>
-                                        {isExpanded ? <ChevronDown className="h-4 w-4 text-slate-400 ml-1" /> : <ChevronRight className="h-4 w-4 text-slate-400 ml-1" />}
+                                        <Badge variant="secondary"
+                                               className="ml-1 text-[10px] h-5 bg-slate-100/50 text-slate-600 backdrop-blur-sm border-0">{user.tasks.length}</Badge>
+                                        {isExpanded ? <ChevronDown className="h-4 w-4 text-slate-400 ml-1"/> :
+                                            <ChevronRight className="h-4 w-4 text-slate-400 ml-1"/>}
                                     </div>
 
                                     {/* Task List (Accordion) */}
-                                    <div className={`overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${isExpanded ? 'max-h-[500px] opacity-100 py-1' : 'max-h-0 opacity-0 py-0'}`}>
+                                    <div
+                                        className={`overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${isExpanded ? 'max-h-[500px] opacity-100 py-1' : 'max-h-0 opacity-0 py-0'}`}>
                                         <div className="ml-3 pl-3 border-l-2 border-slate-200/50 space-y-1">
                                             {user.tasks.length === 0 ? (
-                                                <div className="py-2 text-xs text-muted-foreground pl-2 italic">无待交付任务</div>
+                                                <div
+                                                    className="py-2 text-xs text-muted-foreground pl-2 italic">无待交付任务</div>
                                             ) : (
                                                 user.tasks.map((task, idx) => (
                                                     <div
-                                                        key={task.taskId}
-                                                        style={{ animationDelay: `${idx * 30}ms` }}
-                                                        className={`group relative p-3 rounded-2xl text-xs cursor-pointer border transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] ${activeTaskId === task.taskId && activeUserMobile === user.mobile
+                                                        key={`${task.taskId}-${task.taskAssignId}-${idx}`}
+                                                        style={{animationDelay: `${idx * 30}ms`}}
+                                                        className={`group relative p-3 rounded-2xl text-xs cursor-pointer border transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] ${activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile
                                                             ? 'bg-blue-500/10 border-blue-200/50 text-blue-700 shadow-[0_4px_12px_rgba(59,130,246,0.15)] backdrop-blur-md'
                                                             : 'border-transparent text-slate-600 hover:bg-white/60 hover:text-slate-900 hover:shadow-sm'
-                                                            }`}
+                                                        }`}
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            handleSelectTask(user.mobile, task.taskId);
+                                                            handleSelectTask(user.mobile, task.taskAssignId);
                                                         }}
                                                         title={task.taskDesc}
                                                     >
                                                         {/* Active Indicator (Glowing Dot) */}
-                                                        {activeTaskId === task.taskId && activeUserMobile === user.mobile && (
-                                                            <div className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1 h-3 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.6)]" />
+                                                        {activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile && (
+                                                            <div
+                                                                className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1 h-3 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.6)]"/>
                                                         )}
-                                                        <div className={`font-semibold line-clamp-1 break-all pr-1 text-[13px] ${activeTaskId === task.taskId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>{task.taskName}</div>
-                                                        <div className={`mt-1 opacity-80 text-[11px] line-clamp-2 leading-tight break-all text-muted-foreground/90 ${activeTaskId === task.taskId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>
+                                                        <div
+                                                            className={`font-semibold line-clamp-1 break-all pr-1 text-[13px] ${activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>{task.taskName}</div>
+                                                        <div
+                                                            className={`mt-1 opacity-80 text-[11px] line-clamp-2 leading-tight break-all text-muted-foreground/90 ${activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>
                                                             {task.taskDesc || '暂无描述'}
                                                         </div>
                                                     </div>
@@ -681,27 +772,34 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                         onClick={handleRefreshTasks}
                         disabled={isLoggingIn}
                     >
-                        {isLoggingIn ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin text-blue-500" /> : <RefreshCw className="mr-2 h-3.5 w-3.5 text-blue-500" />}
+                        {isLoggingIn ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin text-blue-500"/> :
+                            <RefreshCw className="mr-2 h-3.5 w-3.5 text-blue-500"/>}
                         刷新任务列表
                     </Button>
                 </div>
             </Card>
 
             {/* Main: Form Area */}
-            <Card className="lg:col-span-3 min-h-[600px] h-auto lg:h-full lg:overflow-hidden flex flex-col bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] border-0 transition-all duration-500 hover:shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
-                <CardHeader className="py-5 px-6 border-b border-slate-200/50 bg-white/40 backdrop-blur-md sticky top-0 z-10">
+            <Card
+                className="lg:col-span-3 min-h-[600px] h-auto lg:h-full lg:overflow-hidden flex flex-col bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] border-0 transition-all duration-500 hover:shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
+                <CardHeader
+                    className="py-5 px-6 border-b border-slate-200/50 bg-white/40 backdrop-blur-md sticky top-0 z-10">
                     <div className="flex items-center justify-between overflow-hidden">
                         <div className="flex-1 min-w-0 pr-6">
                             <div className="flex items-center space-x-2">
-                                <CardTitle className="text-xl font-bold tracking-tight text-slate-800 truncate leading-relaxed" title={activeTask ? (currentDraft?.reportName || activeTask.taskName) : ''}>
+                                <CardTitle
+                                    className="text-xl font-bold tracking-tight text-slate-800 truncate leading-relaxed"
+                                    title={activeTask ? (currentDraft?.reportName || activeTask.taskName) : ''}>
                                     {activeTask ? (currentDraft?.reportName || activeTask.taskName) : '请选择任务'}
                                 </CardTitle>
-                                {activeTask && <Badge variant="outline" className="text-[10px] px-1.5 h-5 border-blue-200 text-blue-600 bg-blue-50/50 rounded-md shrink-0">进行中</Badge>}
+                                {activeTask && <Badge variant="outline"
+                                                      className="text-[10px] px-1.5 h-5 border-blue-200 text-blue-600 bg-blue-50/50 rounded-md shrink-0">进行中</Badge>}
                             </div>
-                            <CardDescription className="truncate font-medium text-slate-500 mt-1" title={activeTask ? `${activeUser?.realname} - ${activeTask.taskDesc}` : ''}>
+                            <CardDescription className="truncate font-medium text-slate-500 mt-1"
+                                             title={activeTask ? `${activeUser?.realname} - ${activeTask.taskDesc}` : ''}>
                                 {activeTask ? (
                                     <span className="flex items-center">
-                                        <User className="w-3 h-3 mr-1 inline-block" /> {activeUser?.realname}
+                                        <User className="w-3 h-3 mr-1 inline-block"/> {activeUser?.realname}
                                         <span className="mx-2 opacity-30">|</span>
                                         {activeTask.taskDesc}
                                     </span>
@@ -716,7 +814,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                     </div>
                 </CardHeader>
 
-                {activeTaskId && activeUser && currentDraft && draftKey ? (
+                {activeTaskAssignId && activeUser && currentDraft && draftKey ? (
                     <div className="flex-1 overflow-y-auto p-0" key={draftKey}>
                         <div className="p-6 space-y-6">
                             {/* Form Inputs */}
@@ -730,7 +828,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         onChange={e => updateDraft(draftKey, 'reportName', e.target.value)}
                                         className={showValidation && !currentDraft.reportName ? 'border-red-500' : ''}
                                     />
-                                    {showValidation && !currentDraft.reportName && <span className="text-xs text-red-500">此项必填</span>}
+                                    {showValidation && !currentDraft.reportName &&
+                                        <span className="text-xs text-red-500">此项必填</span>}
                                 </div>
                                 <div className="space-y-2">
                                     <Label>位置信息 <span className="text-red-500">*</span></Label>
@@ -741,7 +840,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         onChange={e => updateDraft(draftKey, 'reportAddress', e.target.value)}
                                         className={showValidation && !currentDraft.reportAddress ? 'border-red-500' : ''}
                                     />
-                                    {showValidation && !currentDraft.reportAddress && <span className="text-xs text-red-500">此项必填</span>}
+                                    {showValidation && !currentDraft.reportAddress &&
+                                        <span className="text-xs text-red-500">此项必填</span>}
                                 </div>
                             </div>
 
@@ -755,11 +855,13 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         value={currentDraft.reportContent}
                                         onChange={e => updateDraft(draftKey, 'reportContent', e.target.value)}
                                     />
-                                    <span className="absolute bottom-2 right-3 text-xs text-muted-foreground bg-white px-1">
+                                    <span
+                                        className="absolute bottom-2 right-3 text-xs text-muted-foreground bg-white px-1">
                                         {currentDraft.reportContent.length}/300
                                     </span>
                                 </div>
-                                {showValidation && !currentDraft.reportContent && <span className="text-xs text-red-500">此项必填</span>}
+                                {showValidation && !currentDraft.reportContent &&
+                                    <span className="text-xs text-red-500">此项必填</span>}
                             </div>
 
                             <div className="space-y-2">
@@ -772,7 +874,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                 />
                             </div>
 
-                            <Separator />
+                            <Separator/>
 
                             {/* Attachments */}
                             <div className="space-y-6">
@@ -780,16 +882,18 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                 <div>
                                     <div className="flex items-center justify-between mb-3">
                                         <Label className="font-medium">图片上传 (JPG/PNG, Max 9)</Label>
-                                        <span className="text-xs text-muted-foreground">{currentDraft.attachments.filter(a => a.isPic === 1).length}/9</span>
+                                        <span
+                                            className="text-xs text-muted-foreground">{currentDraft.attachments.filter(a => a.isPic === 1).length}/9</span>
                                     </div>
                                     <div className="flex flex-wrap gap-4">
                                         {currentDraft.attachments.filter(a => a.isPic === 1).map((item, idx) => (
-                                            <div key={idx} className="relative w-24 h-24 border rounded-lg flex items-center justify-center bg-slate-50 group overflow-hidden shadow-sm">
+                                            <div key={idx}
+                                                 className="relative w-24 h-24 border rounded-lg flex items-center justify-center bg-slate-50 group overflow-hidden shadow-sm">
                                                 {item.uploading ? (
-                                                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                                                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground"/>
                                                 ) : item.error ? (
                                                     <div className="flex flex-col items-center">
-                                                        <AlertCircle className="h-6 w-6 text-red-500 mb-1" />
+                                                        <AlertCircle className="h-6 w-6 text-red-500 mb-1"/>
                                                         <span className="text-[10px] text-red-500">失败</span>
                                                     </div>
                                                 ) : item.previewUrl ? (
@@ -800,22 +904,25 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                                         onClick={() => item.previewUrl && setPreviewImage(item.previewUrl)}
                                                     />
                                                 ) : (
-                                                    <ImageIcon className="h-8 w-8 text-slate-300" />
+                                                    <ImageIcon className="h-8 w-8 text-slate-300"/>
                                                 )}
                                                 <button
                                                     className="absolute -top-2 -right-2 bg-white rounded-full p-1 shadow border opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-slate-100"
                                                     onClick={() => removeAttachment(currentDraft.attachments.indexOf(item))}
                                                 >
-                                                    <X className="h-3 w-3 text-slate-500" />
+                                                    <X className="h-3 w-3 text-slate-500"/>
                                                 </button>
-                                                {!item.previewUrl && !item.uploading && !item.error && <span className="absolute bottom-0 text-[8px] w-full text-center truncate px-1 bg-white/80">{item.fileName}</span>}
+                                                {!item.previewUrl && !item.uploading && !item.error && <span
+                                                    className="absolute bottom-0 text-[8px] w-full text-center truncate px-1 bg-white/80">{item.fileName}</span>}
                                             </div>
                                         ))}
                                         {currentDraft.attachments.filter(a => a.isPic === 1).length < 9 && (
-                                            <Label htmlFor="upload-pic" className="w-24 h-24 border border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors border-slate-300">
-                                                <Upload className="h-6 w-6 text-slate-400 mb-1" />
+                                            <Label htmlFor="upload-pic"
+                                                   className="w-24 h-24 border border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors border-slate-300">
+                                                <Upload className="h-6 w-6 text-slate-400 mb-1"/>
                                                 <span className="text-xs text-slate-500">上传图片</span>
-                                                <input id="upload-pic" type="file" accept="image/*" multiple className="hidden" onChange={e => handleFileUpload(e, true)} />
+                                                <input id="upload-pic" type="file" accept="image/*" multiple
+                                                       className="hidden" onChange={e => handleFileUpload(e, true)}/>
                                             </Label>
                                         )}
                                     </div>
@@ -825,35 +932,47 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                 <div>
                                     <div className="flex items-center justify-between mb-3">
                                         <Label className="font-medium">文件附件 (Max 6)</Label>
-                                        <span className="text-xs text-muted-foreground">{currentDraft.attachments.filter(a => a.isPic === 0).length}/6</span>
+                                        <span
+                                            className="text-xs text-muted-foreground">{currentDraft.attachments.filter(a => a.isPic === 0).length}/6</span>
                                     </div>
                                     <div className="space-y-2">
                                         {currentDraft.attachments.filter(a => a.isPic === 0).map((item, idx) => (
-                                            <div key={idx} className="flex items-center justify-between p-3 border rounded-lg bg-slate-50/50 hover:bg-slate-50 transition-colors group">
+                                            <div key={idx}
+                                                 className="flex items-center justify-between p-3 border rounded-lg bg-slate-50/50 hover:bg-slate-50 transition-colors group">
                                                 <div className="flex items-center space-x-3 overflow-hidden">
-                                                    <div className="w-8 h-8 rounded bg-blue-50 flex items-center justify-center flex-shrink-0 text-blue-500">
-                                                        <FileIcon className="h-4 w-4" />
+                                                    <div
+                                                        className="w-8 h-8 rounded bg-blue-50 flex items-center justify-center flex-shrink-0 text-blue-500">
+                                                        <FileIcon className="h-4 w-4"/>
                                                     </div>
                                                     <div className="flex flex-col min-w-0">
-                                                        <span className="text-sm font-medium truncate pr-2">{item.fileName}</span>
-                                                        <span className="text-xs text-muted-foreground">{(item.fileLength / 1024).toFixed(1)} KB</span>
+                                                        <span
+                                                            className="text-sm font-medium truncate pr-2">{item.fileName}</span>
+                                                        <span
+                                                            className="text-xs text-muted-foreground">{(item.fileLength / 1024).toFixed(1)} KB</span>
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center">
-                                                    {item.uploading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground mr-2" />}
-                                                    {item.error && <span className="text-red-500 text-xs mr-2">{item.error}</span>}
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-500" onClick={() => removeAttachment(currentDraft.attachments.indexOf(item))}>
-                                                        <X className="h-4 w-4" />
+                                                    {item.uploading && <Loader2
+                                                        className="h-4 w-4 animate-spin text-muted-foreground mr-2"/>}
+                                                    {item.error &&
+                                                        <span className="text-red-500 text-xs mr-2">{item.error}</span>}
+                                                    <Button variant="ghost" size="icon"
+                                                            className="h-8 w-8 text-slate-400 hover:text-red-500"
+                                                            onClick={() => removeAttachment(currentDraft.attachments.indexOf(item))}>
+                                                        <X className="h-4 w-4"/>
                                                     </Button>
                                                 </div>
                                             </div>
                                         ))}
                                         {currentDraft.attachments.filter(a => a.isPic === 0).length < 6 && (
                                             <Label htmlFor="upload-file" className="block w-full">
-                                                <div className="w-full h-12 border border-dashed rounded-lg flex items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors border-slate-300">
-                                                    <span className="text-sm text-slate-500 flex items-center"><Upload className="h-4 w-4 mr-2" /> 点击上传附件</span>
+                                                <div
+                                                    className="w-full h-12 border border-dashed rounded-lg flex items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors border-slate-300">
+                                                    <span className="text-sm text-slate-500 flex items-center"><Upload
+                                                        className="h-4 w-4 mr-2"/> 点击上传附件</span>
                                                 </div>
-                                                <input id="upload-file" type="file" accept="*" multiple className="hidden" onChange={e => handleFileUpload(e, false)} />
+                                                <input id="upload-file" type="file" accept="*" multiple
+                                                       className="hidden" onChange={e => handleFileUpload(e, false)}/>
                                             </Label>
                                         )}
                                     </div>
@@ -864,28 +983,29 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 ) : (
                     <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground space-y-4">
                         <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
-                            <User className="h-8 w-8 text-slate-300" />
+                            <User className="h-8 w-8 text-slate-300"/>
                         </div>
                         <p>请先从左侧选择一个任务进行操作</p>
                     </div>
                 )}
 
                 {/* Footer Action */}
-                {activeTaskId && (
+                {activeTaskAssignId && (
                     <div className="p-4 border-t bg-slate-50/50 flex justify-end">
                         <Button className="w-40" onClick={handleSubmit} disabled={isSubmitting}>
-                            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                            {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> :
+                                <CheckCircle className="mr-2 h-4 w-4"/>}
                             确认提交交付
                         </Button>
                     </div>
                 )}
             </Card>
-        </div >
+        </div>
     );
 
     return (
         <div className="container max-w-7xl mx-auto py-6 animate-in fade-in duration-500">
-            <Toaster richColors position="top-center" />
+            <Toaster richColors position="top-center"/>
 
             {/* Modal */}
             {previewImage && (
@@ -893,7 +1013,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200"
                     onClick={() => setPreviewImage(null)}
                 >
-                    <div className="relative max-w-5xl max-h-[90vh] p-4 outline-none" onClick={e => e.stopPropagation()}>
+                    <div className="relative max-w-5xl max-h-[90vh] p-4 outline-none"
+                         onClick={e => e.stopPropagation()}>
                         <img
                             src={previewImage}
                             alt="Full Preview"
@@ -903,7 +1024,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                             className="absolute -top-10 right-0 text-white/80 hover:text-white transition-colors p-2"
                             onClick={() => setPreviewImage(null)}
                         >
-                            <X className="h-8 w-8" />
+                            <X className="h-8 w-8"/>
                         </button>
                     </div>
                 </div>
