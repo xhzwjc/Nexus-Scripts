@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import axios from 'axios';
-import {Toaster, toast} from 'sonner';
+import {toast} from 'sonner';
 import {Card, CardContent, CardHeader, CardTitle} from './ui/card';
 import {Button} from './ui/button';
 import {Input} from './ui/input';
@@ -269,7 +269,6 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
 
     return (
         <div className="min-h-screen colorful-background">
-            <Toaster richColors position="top-center"/>
             <div className="max-w-6xl mx-auto">
                 <div className="mb-6">
                     <Button variant="ghost" onClick={handleBack} className="mb-4">
@@ -538,17 +537,16 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                                                 <div key={i} className="text-xs font-mono">
                                                     <span className="text-muted-foreground">[{log.ts}]</span>
                                                     <span
-                                                        className={`ml-2 ${
-                                                            log.level === 'ERROR'
-                                                                ? 'text-red-500'
-                                                                : log.level === 'SUCCESS'
-                                                                    ? 'text-green-500'
-                                                                    : log.level === 'DEBUG'
-                                                                        ? 'text-blue-500'
-                                                                        : ''
+                                                        className={`ml-2 ${log.level === 'ERROR'
+                                                            ? 'text-red-500'
+                                                            : log.level === 'SUCCESS'
+                                                                ? 'text-green-500'
+                                                                : log.level === 'DEBUG'
+                                                                    ? 'text-blue-500'
+                                                                    : ''
                                                         }`}
                                                     >
-                                                      [{log.level}] {log.text}
+                                                        [{log.level}] {log.text}
                                                     </span>
                                                 </div>
                                             ))

@@ -22,7 +22,7 @@ import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './u
 import {Textarea} from './ui/textarea';
 import {Checkbox} from './ui/checkbox';
 import axios, {AxiosError, AxiosInstance} from 'axios';
-import {Toaster, toast} from 'sonner';
+import {toast} from 'sonner';
 import {getApiBaseUrl} from '../lib/api';
 
 // ===== Types =====
@@ -506,11 +506,11 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
 
             const params =
                 resendType === 'mobile'
-                ? {
-                mobiles: [resendMobile.trim()],
-                tax_id: resendTaxId.trim()
-                }
-                : {batch_no: resendBatchNo.trim()};
+                    ? {
+                        mobiles: [resendMobile.trim()],
+                        tax_id: resendTaxId.trim()
+                    }
+                    : {batch_no: resendBatchNo.trim()};
 
             const res = await api.post<ApiResponse>('/sms/resend', {
                 environment,
@@ -561,7 +561,6 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
 
     return (
         <div className="min-h-screen colorful-background">
-            <Toaster richColors position="top-center"/>
             <div className="max-w-6xl mx-auto">
                 <div className="mb-6">
                     <Button variant="ghost" onClick={onBack} className="mb-4">
@@ -730,9 +729,10 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     </div>
                                 </CardHeader>
                                 <CardContent>
-                  <pre className="p-4 bg-gray-800 text-gray-100 rounded-md overflow-x-auto max-h-96 text-sm">
-                    {serializeAllowedTemplates(allTemplatesFormatted)}
-                  </pre>
+                                    <pre
+                                        className="p-4 bg-gray-800 text-gray-100 rounded-md overflow-x-auto max-h-96 text-sm">
+                                        {serializeAllowedTemplates(allTemplatesFormatted)}
+                                    </pre>
                                     <p className="text-xs text-gray-500 mt-2">点击复制按钮可直接将格式复制到剪贴板，方便粘贴到代码中</p>
                                 </CardContent>
                             </Card>
@@ -938,9 +938,9 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                                     <TableCell colSpan={3}>
                                                                         <div
                                                                             className="p-3 bg-gray-50 rounded-md text-sm animate-in fade-in-50 duration-200">
-                                      <pre className="whitespace-pre-wrap">
-                                        {JSON.stringify(result.result, null, 2)}
-                                      </pre>
+                                                                            <pre className="whitespace-pre-wrap">
+                                                                                {JSON.stringify(result.result, null, 2)}
+                                                                            </pre>
                                                                         </div>
                                                                     </TableCell>
                                                                 </TableRow>
@@ -1028,8 +1028,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                 return (
                                                     <div
                                                         key={t.code}
-                                                        className={`p-3 border rounded-md cursor-pointer transition-all duration-200 ${
-                                                            checked ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
+                                                        className={`p-3 border rounded-md cursor-pointer transition-all duration-200 ${checked ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
                                                         }`}
                                                         onClick={() => toggleTemplateSelection(t.code)}
                                                     >
@@ -1180,9 +1179,9 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                                     <TableCell colSpan={4}>
                                                                         <div
                                                                             className="p-3 bg-gray-50 rounded-md text-sm animate-in fade-in-50 duration-200">
-                                      <pre className="whitespace-pre-wrap">
-                                        {JSON.stringify(result.result, null, 2)}
-                                      </pre>
+                                                                            <pre className="whitespace-pre-wrap">
+                                                                                {JSON.stringify(result.result, null, 2)}
+                                                                            </pre>
                                                                         </div>
                                                                     </TableCell>
                                                                 </TableRow>
@@ -1318,16 +1317,14 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                 </CardHeader>
                                 <CardContent>
                                     <div
-                                        className={`p-4 rounded-md ${
-                                            resendResult.success
-                                                ? 'bg-green-50 border border-green-200'
-                                                : 'bg-red-50 border border-red-200'
+                                        className={`p-4 rounded-md ${resendResult.success
+                                            ? 'bg-green-50 border border-green-200'
+                                            : 'bg-red-50 border border-red-200'
                                         }`}
                                     >
                                         <div>
                                             <p
-                                                className={`font-medium ${
-                                                    resendResult.success ? 'text-green-800' : 'text-red-800'
+                                                className={`font-medium ${resendResult.success ? 'text-green-800' : 'text-red-800'
                                                 }`}
                                             >
                                                 {resendResult.success ? '补发成功' : '补发失败'}
@@ -1337,8 +1334,8 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                 <div className="mt-3">
                                                     <p className="text-xs text-muted-foreground mb-1">详细信息：</p>
                                                     <pre className="text-sm bg-gray-50 p-2 rounded whitespace-pre-wrap">
-                {JSON.stringify(resendResult.data, null, 2)}
-              </pre>
+                                                        {JSON.stringify(resendResult.data, null, 2)}
+                                                    </pre>
                                                 </div>
                                             )}
                                             <p className="mt-2 text-xs text-muted-foreground">

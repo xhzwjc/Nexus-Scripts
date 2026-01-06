@@ -1,6 +1,6 @@
 import React, {useState, useCallback, useEffect, useMemo, useRef} from 'react';
 import axios from 'axios';
-import {Toaster, toast} from 'sonner';
+import {toast} from 'sonner';
 import {
     ArrowLeft,
     Loader2,
@@ -604,7 +604,6 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
 
     return (
         <div className="min-h-screen p-6">
-            <Toaster richColors position="top-center"/>
             <div className="max-w-6xl mx-auto space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">

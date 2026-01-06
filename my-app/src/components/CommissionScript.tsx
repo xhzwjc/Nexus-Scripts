@@ -6,7 +6,7 @@ import React, {
     useRef,
 } from 'react';
 import axios from 'axios';
-import {Toaster, toast} from 'sonner';
+import {toast} from 'sonner';
 import {Card, CardContent, CardHeader, CardTitle} from './ui/card';
 import {Button} from './ui/button';
 import {Input} from './ui/input';
@@ -462,12 +462,12 @@ export default function CommissionScript({onBack}: { onBack: () => void }) {
                 className="p-0 h-auto font-medium"
                 onClick={() => toggleSort(field)}
             >
-        <span className="inline-flex items-center gap-1">
-          {label}
-            <ArrowUpDown
-                className={`h-4 w-4 ${sortBy === field ? 'text-foreground' : 'text-muted-foreground'}`}
-            />
-        </span>
+                <span className="inline-flex items-center gap-1">
+                    {label}
+                    <ArrowUpDown
+                        className={`h-4 w-4 ${sortBy === field ? 'text-foreground' : 'text-muted-foreground'}`}
+                    />
+                </span>
             </Button>
         </TableHead>
     );
@@ -475,7 +475,6 @@ export default function CommissionScript({onBack}: { onBack: () => void }) {
 
     return (
         <div className="min-h-screen colorful-background">
-            <Toaster richColors position="top-center"/>
             <div className="max-w-7xl mx-auto p-6">
                 {/* 顶部 */}
                 <div className="mb-6">
@@ -578,9 +577,9 @@ export default function CommissionScript({onBack}: { onBack: () => void }) {
                                     </div>
                                 </div>
                                 <div className="flex items-center justify-between px-4 py-2 border-t">
-                  <span className="text-xs text-muted-foreground">
-                    {logAutoFollow ? '自动跟随' : '已暂停自动跟随（上滑以查看历史）'}
-                  </span>
+                                    <span className="text-xs text-muted-foreground">
+                                        {logAutoFollow ? '自动跟随' : '已暂停自动跟随（上滑以查看历史）'}
+                                    </span>
                                     <div className="flex gap-2">
                                         <Button
                                             size="sm"
@@ -742,8 +741,7 @@ export default function CommissionScript({onBack}: { onBack: () => void }) {
                                                             {formatCurrency(detail.api_commission)}
                                                         </TableCell>
                                                         <TableCell
-                                                            className={`text-right font-mono tabular-nums ${
-                                                                detail.difference !== 0 ? 'text-red-600 font-semibold' : 'text-emerald-600'
+                                                            className={`text-right font-mono tabular-nums ${detail.difference !== 0 ? 'text-red-600 font-semibold' : 'text-emerald-600'
                                                             }`}
                                                         >
                                                             {formatCurrency(detail.difference)}

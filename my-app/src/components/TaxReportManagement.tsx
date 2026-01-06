@@ -1,6 +1,6 @@
 import React, {useState, useEffect, useMemo, useCallback} from 'react';
 import axios from 'axios';
-import {Toaster, toast} from 'sonner';
+import {toast} from 'sonner';
 import {
     Search,
     Download,
@@ -487,7 +487,6 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
 
     return (
         <div className="min-h-screen colorful-background p-6">
-            <Toaster richColors position="top-center"/>
 
             {/* 下载确认弹窗 */}
             {showDownloadConfirmDialog && (
@@ -749,17 +748,19 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                             {/*<TableCell>{formatCurrency(item['增值税_元'])}</TableCell>*/}
                                                             {/*<TableCell>{formatCurrency(item['应纳个人经营所得税_元'])}</TableCell>*/}
                                                             <TableCell>
-                                                                <span style={{color: item.service_pay_status === 1 ? 'red' : 'inherit'}}>
-                                                                  {item.service_pay_status === 0 ? '成功' : '失败'}
+                                                                <span
+                                                                    style={{color: item.service_pay_status === 1 ? 'red' : 'inherit'}}>
+                                                                    {item.service_pay_status === 0 ? '成功' : '失败'}
                                                                 </span>
                                                             </TableCell>
                                                             <TableCell>
                                                                 {Number(item.tax_amount) > 0 ? (
-                                                                    <span style={{ color: item.tax_pay_status === 1 ? 'red' : 'inherit' }}>
-                                                                      {item.tax_pay_status === 0 ? '成功' : '失败'}
+                                                                    <span
+                                                                        style={{color: item.tax_pay_status === 1 ? 'red' : 'inherit'}}>
+                                                                        {item.tax_pay_status === 0 ? '成功' : '失败'}
                                                                     </span>
                                                                 ) : (
-                                                                    <span style={{ color: '#999' }}>无需扣税</span>
+                                                                    <span style={{color: '#999'}}>无需扣税</span>
                                                                 )}
                                                             </TableCell>
 

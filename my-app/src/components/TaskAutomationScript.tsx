@@ -9,7 +9,7 @@ import {Badge} from './ui/badge';
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from './ui/table';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from './ui/tabs';
 import {AlertCircle, ArrowLeft, ChevronDown, ChevronRight, Download, Play, Trash2, Upload} from 'lucide-react';
-import {Toaster, toast} from 'sonner';
+import {toast} from 'sonner';
 import {getApiBaseUrl} from '../lib/api';
 
 // ---------- 类型定义 ----------
@@ -489,7 +489,6 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
     // ---------- JSX ----------
     return (
         <div className="min-h-screen colorful-background">
-            <Toaster richColors position="top-center"/>
             <div className="max-w-6xl mx-auto">
                 <div className="mb-6">
                     <Button variant="ghost" onClick={onBack} className="mb-4">
@@ -538,8 +537,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                             onDragOver={onDragOver}
                                             onDragLeave={onDragLeave}
                                             onDrop={onDrop}
-                                            className={`mt-1 border-2 border-dashed rounded-md p-4 text-center cursor-pointer transition-colors ${
-                                                dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-500'
+                                            className={`mt-1 border-2 border-dashed rounded-md p-4 text-center cursor-pointer transition-colors ${dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-500'
                                             }`}
                                         >
                                             <Upload className="w-6 h-6 mx-auto text-gray-400"/>
@@ -839,8 +837,8 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                                                         <p className="font-medium">结算单数据：</p>
                                                                                         <pre
                                                                                             className="bg-gray-100 p-2 rounded overflow-x-auto text-xs">
-                                              {formatStepData(phone.steps[key], key)}
-                                            </pre>
+                                                                                            {formatStepData(phone.steps[key], key)}
+                                                                                        </pre>
                                                                                     </div>
                                                                                     {!phone.success && phone.error === '无可确认的结算单' && (
                                                                                         <div
@@ -854,8 +852,8 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                                             ) : (
                                                                                 <pre
                                                                                     className="bg-gray-100 p-2 rounded overflow-x-auto text-xs">
-                                          {formatStepData(phone.steps[key], key)}
-                                        </pre>
+                                                                                    {formatStepData(phone.steps[key], key)}
+                                                                                </pre>
                                                                             )}
                                                                         </div>
                                                                     ))}
@@ -987,8 +985,8 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                                         ) : (
                                                                             <pre
                                                                                 className="bg-gray-100 p-2 rounded overflow-x-auto text-xs">
-                                        {formatStepData(phone.steps[key], key)}
-                                      </pre>
+                                                                                {formatStepData(phone.steps[key], key)}
+                                                                            </pre>
                                                                         )}
                                                                     </div>
                                                                 ))}

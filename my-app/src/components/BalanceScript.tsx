@@ -1,6 +1,6 @@
 import React, {useMemo, useRef, useState, useCallback, useEffect} from 'react';
 import axios from 'axios';
-import {Toaster, toast} from 'sonner';
+import {toast} from 'sonner';
 import {Card, CardContent, CardHeader, CardTitle} from './ui/card';
 import {Button} from './ui/button';
 import {Input} from './ui/input';
@@ -88,9 +88,9 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
 
     // 控制下拉框显示状态
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-// 搜索关键词
+    // 搜索关键词
     const [searchTerm, setSearchTerm] = useState('');
-// 选中的企业信息
+    // 选中的企业信息
     const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | undefined>(undefined);
 
     // 新增：点击空白处关闭下拉框的处理
@@ -297,7 +297,6 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
 
     return (
         <div className="min-h-screen colorful-background p-6">
-            <Toaster richColors position="top-center"/>
             <div className="max-w-6xl mx-auto flex flex-col gap-6">
                 {/* 顶部：返回 + 状态 */}
                 <div className="flex items-center justify-between">
@@ -580,8 +579,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                                     paginatedResults.map((result) => (
                                         <TableRow
                                             key={result.tax_location_id}
-                                            className={`odd:bg-muted/30 ${
-                                                !result.is_correct ? 'bg-red-50 hover:bg-red-100' : ''
+                                            className={`odd:bg-muted/30 ${!result.is_correct ? 'bg-red-50 hover:bg-red-100' : ''
                                             }`}
                                         >
                                             <TableCell className="tabular-nums">{result.tax_location_id}</TableCell>
@@ -605,8 +603,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                                                 {formatCurrency(result.actual_balance)}
                                             </TableCell>
                                             <TableCell
-                                                className={`text-right font-mono tabular-nums ${
-                                                    result.balance_diff !== 0 ? 'text-red-600 font-semibold' : 'text-emerald-600'
+                                                className={`text-right font-mono tabular-nums ${result.balance_diff !== 0 ? 'text-red-600 font-semibold' : 'text-emerald-600'
                                                 }`}
                                             >
                                                 {result.balance_diff === 0 ? '无差异' : formatCurrency(result.balance_diff)}
@@ -646,7 +643,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                                         p === '...' ? (
                                             <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">
                                                 ...
-                                              </span>
+                                            </span>
                                         ) : (
                                             <Button
                                                 key={p}
