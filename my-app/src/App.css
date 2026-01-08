@@ -6,12 +6,14 @@
 /* 基础背景 - 浅色偏白/极浅灰 */
 .colorful-background {
     min-height: 100vh;
-    background: linear-gradient(135deg, #f8fafb 0%, #f1f5f9 50%, #e8f4f8 100%);
-    background-attachment: fixed;
+    /* 原本的 gradient 被移除，交由 Canvas 组件处理，或者设为 transparent */
+    background: transparent;
     position: relative;
+    /* 确保内容在 canvas 之上 */
+    z-index: 1;
 }
 
-/* 背景装饰 - 轻微渐变光影 */
+/* 如果你觉得网格太单调，可以保留下面这两个光斑，但要降低 opacity */
 .colorful-background::before {
     content: '';
     position: fixed;
@@ -19,8 +21,11 @@
     right: -10%;
     width: 600px;
     height: 600px;
-    background: radial-gradient(circle, rgba(20, 184, 166, 0.06) 0%, transparent 70%);
+    /* 降低透明度 0.06 -> 0.03 */
+    background: radial-gradient(circle, rgba(20, 184, 166, 0.03) 0%, transparent 70%);
     pointer-events: none;
+    z-index: -1;
+    /* 确保在内容之下 */
 }
 
 .colorful-background::after {
@@ -30,8 +35,10 @@
     left: -5%;
     width: 500px;
     height: 500px;
-    background: radial-gradient(circle, rgba(59, 130, 246, 0.04) 0%, transparent 70%);
+    /* 降低透明度 0.04 -> 0.02 */
+    background: radial-gradient(circle, rgba(59, 130, 246, 0.02) 0%, transparent 70%);
     pointer-events: none;
+    z-index: -1;
 }
 
 /* ============================================

@@ -57,6 +57,8 @@ import DeliveryScript from "./components/DeliveryScript";
 import { HelpPage } from './components/Layout/HelpPage';
 import { DashboardSidebar } from './components/Layout/DashboardSidebar';
 import { DashboardHeader as DashHeader } from './components/Layout/DashboardHeader';
+import { ClothBackground } from './components/Layout/ClothBackground';
+import { BubuMascot } from './components/Layout/BubuMascot';
 
 // 角色类型与权限映射
 type Role = 'admin' | 'operator' | 'custom' | 'QA' | 'PM';
@@ -1097,6 +1099,7 @@ export default function App() {
     // -----------------------------------------------------------
     return (
         <div className="colorful-background flex h-screen overflow-hidden text-slate-600 font-sans relative">
+            <ClothBackground />
             <Toaster richColors position="top-right" />
 
             {/* 锁屏遮罩 */}
@@ -1181,6 +1184,7 @@ export default function App() {
                     toast.success('已退出登录');
                 }}
             />
+            <BubuMascot />
             <Toaster richColors position="top-right" />
         </div>
     );
