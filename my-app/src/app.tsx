@@ -814,6 +814,12 @@ export default function App() {
                 }));
                 setCurrentUser(u);
                 filterScripts(u);
+
+                // 重置锁屏状态和活跃时间，防止登录后立即被锁
+                setIsLocked(false);
+                lastActivityRef.current = Date.now();
+                localStorage.setItem('app_last_activity', lastActivityRef.current.toString());
+
                 toast.success("验证成功");
             } else toast.error("无效的访问密钥");
             setIsVerifying(false);
