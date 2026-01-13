@@ -5,7 +5,6 @@ import { Badge } from './components/ui/badge';
 import { Input } from './components/ui/input';
 import { Toaster, toast } from 'sonner';
 import {
-    ArrowLeft,
     Settings,
     Play,
     Database,
@@ -30,18 +29,9 @@ import {
     CloudFog,
     CloudLightning,
     BarChart3,
-    User as UserIcon,
-    Power,
     Server,
-    Zap,
     ShieldCheck,
-    ChevronRight,
-    LogOut,
-    Search,
-    ScanLine,
-    Wrench,
-    ScrollText,
-    CircleHelp
+    ChevronRight
 } from 'lucide-react';
 import SettlementScript from './components/SettlementScript';
 import CommissionScript from './components/CommissionScript';
@@ -73,12 +63,7 @@ interface User {
     name?: string;
 }
 
-// 存储在localStorage中的认证信息类型
-interface AuthData {
-    key: string;
-    user: User;
-    expiresAt: number; // 时间戳，当天23:59:59
-}
+
 
 // 密钥与用户映射表 (实际应用中应存储在后端)
 const keyUserMap: Record<string, User> = {
@@ -235,74 +220,7 @@ const getEndOfDayTimestamp = () => {
     return now.getTime();
 };
 
-/* ============== 仪表盘统计小组件 (已修复定义) ============== */
-interface StatWidgetProps {
-    title: string;
-    value: string | number;
-    icon: React.ElementType;
-    trend?: string;
-    bgColor: string;   // 新增属性
-    iconColor: string; // 新增属性
-}
 
-const StatWidget: React.FC<StatWidgetProps> = ({ title, value, icon: Icon, trend, bgColor, iconColor }) => (
-    <div
-        className="bg-white/60 dark:bg-slate-900/40 backdrop-blur-sm border border-slate-200/50 dark:border-slate-800 rounded-xl p-4 flex items-center gap-4 shadow-sm hover:shadow-md transition-all group">
-        <div className={`p-3 rounded-lg ${bgColor} group-hover:scale-105 transition-transform duration-300`}>
-            <Icon className={`w-6 h-6 ${iconColor}`} />
-        </div>
-        <div>
-            <p className="text-sm text-slate-500 font-medium">{title}</p>
-            <div className="flex items-end gap-2">
-                <h4 className="text-2xl font-bold leading-none text-slate-800 dark:text-slate-100">{value}</h4>
-                {trend && <span
-                    className="text-xs font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-900/30 px-1.5 py-0.5 rounded-full mb-0.5">{trend}</span>}
-            </div>
-        </div>
-    </div>
-);
-
-/* ============== 顶部导航栏 (透明化) ============== */
-interface DashboardHeaderProps {
-    user: User | null;
-    onLogout: () => void;
-}
-
-const DashboardHeader: React.FC<DashboardHeaderProps> = ({ user, onLogout }) => {
-    if (!user) return null;
-
-    return (
-        <header
-            className="fixed top-0 left-0 right-0 h-16 px-6 bg-white/10 backdrop-blur-md border-b border-white/10 z-50 flex items-center justify-between transition-all">
-            <div className="flex items-center gap-2">
-                <div
-                    className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-white font-bold shadow-lg shadow-primary/30">
-                    S
-                </div>
-                <span className="font-bold text-lg tracking-tight text-slate-800">
-                    ScriptHub <span className="text-primary font-normal opacity-80">Dashboard</span>
-                </span>
-            </div>
-            <div className="flex items-center gap-4">
-                <div className="text-right hidden sm:block">
-                    <p className="text-sm font-medium leading-none text-slate-700">{user.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                        {user.role === 'admin' ? '系统管理员' : user.role}
-                    </p>
-                </div>
-                <div className="h-8 w-[1px] bg-slate-400/30 mx-1"></div>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={onLogout}
-                    className="text-muted-foreground hover:text-red-500 hover:bg-red-50/50"
-                >
-                    <Power className="w-5 h-5" />
-                </Button>
-            </div>
-        </header>
-    );
-};
 
 /* ============== 确认弹窗 ============== */
 interface ConfirmDialogProps {
@@ -364,70 +282,7 @@ const StatusChip: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
     </div>
 );
 
-const StatusGroup: React.FC<React.PropsWithChildren> = ({ children }) => (
-    <div className="flex items-center justify-end flex-wrap gap-2">
-        {children}
-    </div>
-);
 
-/* ============== 悬停效果组件 ============== */
-const HoverFloatCard: React.FC<React.PropsWithChildren<{ className?: string }>> = ({ children, className }) => {
-    const ref = useRef<HTMLDivElement>(null);
-
-    const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
-        const el = ref.current;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const rx = ((y / rect.height) - 0.5) * 6;
-        const ry = ((x / rect.width) - 0.5) * -6;
-        el.style.setProperty('--rx', `${rx}deg`);
-        el.style.setProperty('--ry', `${ry}deg`);
-        el.style.setProperty('--mx', `${x}px`);
-        el.style.setProperty('--my', `${y}px`);
-    };
-
-    const onLeave = () => {
-        const el = ref.current;
-        if (!el) return;
-        el.style.setProperty('--rx', '0deg');
-        el.style.setProperty('--ry', '0deg');
-    };
-
-    return (
-        <div
-            ref={ref}
-            onMouseMove={onMove}
-            onMouseLeave={onLeave}
-            className={`group relative [perspective:1000px] ${className || ''}`}
-        >
-            <div
-                className="pointer-events-none absolute -bottom-2 left-1/2 h-6 w-3/4 -translate-x-1/2 rounded-[50%] bg-sky-900/10 blur-md opacity-0 group-hover:opacity-100 transition duration-300" />
-            <div
-                className="
-          relative rounded-xl h-full
-          transition-all duration-300 ease-[cubic-bezier(.22,1,.36,1)]
-          [transform-style:preserve-3d]
-          [transform:rotateX(var(--rx,0))_rotateY(var(--ry,0))]
-          group-hover:-translate-y-2 group-hover:scale-[1.01]
-          group-hover:shadow-[0_20px_40px_rgba(56,189,248,0.18)]
-          bg-white/40 dark:bg-white/[0.06] backdrop-blur-md
-          ring-1 ring-white/40
-        "
-            >
-                {children}
-            </div>
-            <div
-                className="pointer-events-none absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                style={{
-                    background:
-                        'radial-gradient(240px 140px at var(--mx, 50%) var(--my, 50%), rgba(255,255,255,0.35), rgba(255,255,255,0.12) 35%, transparent 60%)'
-                }}
-            />
-        </div>
-    );
-};
 
 
 /* ============== 时间 Chip ============== */
@@ -556,40 +411,6 @@ const WeatherChip: React.FC<{
     );
 };
 
-/* ============== 工具栏 ============== */
-interface StatusToolbarProps {
-    leftSlot?: React.ReactNode;
-    user: User;
-    now: Date;
-    weather: WeatherState;
-    weatherRefreshing: boolean;
-    onRefreshWeather: () => void;
-    onLogoutClick: () => void;
-}
-
-const StatusToolbar: React.FC<StatusToolbarProps> = ({
-    leftSlot,
-    user,
-    now,
-    weather,
-    weatherRefreshing,
-    onRefreshWeather,
-    onLogoutClick
-}) => (
-    <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <div className="flex-1 min-w-[160px] flex items-center justify-start">
-            {leftSlot ?? <span className="text-sm text-transparent">占位</span>}
-        </div>
-        <StatusGroup>
-            <TimeChip name={user?.name} now={now} />
-            <StatusChip>
-                <UserIcon className="w-4 h-4 text-primary" />
-                <span className="whitespace-nowrap">{user.name} ({user.role})</span>
-            </StatusChip>
-            <Button variant="ghost" className="h-9 px-3" onClick={onLogoutClick}>退出</Button>
-        </StatusGroup>
-    </div>
-);
 
 /* ============== 主应用 ============== */
 export default function App() {
@@ -940,6 +761,16 @@ export default function App() {
                     <p className="text-slate-500 text-base">
                         {timeGreeting}, {currentUser?.name}。所有系统节点运行正常的系统。
                     </p>
+                </div>
+
+                {/* 时间与天气 */}
+                <div className="flex items-center gap-3 flex-wrap mb-8">
+                    <TimeChip name={currentUser?.name} now={now} />
+                    <WeatherChip
+                        state={weather}
+                        refreshing={weatherRefreshing}
+                        onRefresh={() => refreshWeather()}
+                    />
                 </div>
 
                 {/* 状态徽章行 */}
