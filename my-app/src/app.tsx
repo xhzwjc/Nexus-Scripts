@@ -753,24 +753,25 @@ export default function App() {
 
         return (
             <div className="max-w-5xl">
-                {/* 问候语 */}
-                <div className="mb-8">
-                    <h1 className="text-3xl font-bold text-slate-800 tracking-tight mb-2">
-                        {timeGreeting}, {currentUser?.name}。
-                    </h1>
-                    <p className="text-slate-500 text-base">
-                        {timeGreeting}, {currentUser?.name}。所有系统节点运行正常的系统。
-                    </p>
-                </div>
+                {/* 问候语与天气时间 - Flex 布局 */}
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-10">
+                    <div>
+                        <h1 className="text-3xl font-bold text-slate-800 tracking-tight mb-2">
+                            {timeGreeting}, {currentUser?.name}。
+                        </h1>
+                        <p className="text-slate-500 text-base">
+                            所有系统节点运行正常的系统。
+                        </p>
+                    </div>
 
-                {/* 时间与天气 */}
-                <div className="flex items-center gap-3 flex-wrap mb-8">
-                    <TimeChip name={currentUser?.name} now={now} />
-                    <WeatherChip
-                        state={weather}
-                        refreshing={weatherRefreshing}
-                        onRefresh={() => refreshWeather()}
-                    />
+                    <div className="flex items-center gap-3">
+                        <TimeChip now={now} />
+                        <WeatherChip
+                            state={weather}
+                            refreshing={weatherRefreshing}
+                            onRefresh={() => refreshWeather()}
+                        />
+                    </div>
                 </div>
 
                 {/* 状态徽章行 */}
