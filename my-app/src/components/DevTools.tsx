@@ -17,13 +17,18 @@ import {
     Code,
     Check,
     AlertCircle,
-    Languages
+    Languages,
+    ArrowLeft
 } from 'lucide-react';
 import { toast } from 'sonner';
 import CryptoJS from 'crypto-js';
 
 type DevToolTab = 'json' | 'timestamp' | 'uuid' | 'base64' | 'url' | 'jwt' | 'hash' | 'regex';
 type Language = 'zh' | 'en';
+
+interface DevToolsProps {
+    onBack?: () => void;
+}
 
 const TRANSLATIONS = {
     zh: {
@@ -206,7 +211,7 @@ const TRANSLATIONS = {
     }
 };
 
-export default function DevTools() {
+export default function DevTools({ onBack }: DevToolsProps) {
     const [activeTab, setActiveTab] = useState<DevToolTab>('json');
     const [lang, setLang] = useState<Language>('zh');
 
@@ -445,6 +450,16 @@ export default function DevTools() {
             <div className="w-full md:w-60 shrink-0 mt-8 md:mt-0">
                 <div className="mb-6 px-2">
                     <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        {onBack && (
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={onBack}
+                                className="-ml-3 mr-1 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
+                            >
+                                <ArrowLeft className="w-5 h-5" />
+                            </Button>
+                        )}
                         <Terminal className="w-6 h-6 text-blue-600" />
                         {t.title}
                     </h2>
