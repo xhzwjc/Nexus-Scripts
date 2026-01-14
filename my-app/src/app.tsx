@@ -18,7 +18,8 @@ import {
     ShieldCheck,
     ChevronRight,
     CheckCircle,
-    ArrowLeft
+    ArrowLeft,
+    Terminal
 } from 'lucide-react';
 import './App.css';
 
@@ -43,6 +44,7 @@ const TaxCalculationScript = dynamic(() => import("./components/TaxCalculatorScr
 const PaymentStatsScript = dynamic(() => import('./components/PaymentStatsScript'), { loading: () => <LoadingComponent />, ssr: false });
 const OCRScript = dynamic(() => import("@/components/OCRScript"), { loading: () => <LoadingComponent />, ssr: false });
 const DeliveryScript = dynamic(() => import("./components/DeliveryScript"), { loading: () => <LoadingComponent />, ssr: false });
+const DevTools = dynamic(() => import("./components/DevTools"), { loading: () => <LoadingComponent />, ssr: false });
 
 // Layout 组件导入
 import { HelpPage } from './components/Layout/HelpPage';
@@ -480,6 +482,29 @@ export default function App() {
                             </button>
                         </div>
 
+                        {/* 开发者工具箱 (权限控制) */}
+                        {currentUser?.permissions['dev-tools'] && (
+                            <div className="system-card p-6 cursor-pointer flex flex-col h-[250px]" onClick={() => setCurrentView('dev-tools')}>
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
+                                        <Terminal className="w-6 h-6 text-blue-600" />
+                                    </div>
+                                    <Badge className="bg-blue-50 text-blue-700 border border-blue-200 text-[11px] px-2">
+                                        <span className="w-1.5 h-1.5 bg-blue-500 rounded-full mr-1.5 inline-block"></span>
+                                        工具集
+                                    </Badge>
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-800 mb-2">开发者工具箱</h3>
+                                <p className="text-slate-500 text-sm mb-4 leading-relaxed flex-1 overflow-hidden">
+                                    提供 JSON 格式化、时间戳转换、UUID 生成等研发专用工具。
+                                </p>
+                                <button className="w-full mt-auto flex items-center text-blue-600 hover:text-blue-700 font-medium text-sm transition-colors">
+                                    打开工具箱
+                                    <ChevronRight className="w-4 h-4 ml-1" />
+                                </button>
+                            </div>
+                        )}
+
                         {/* HS 辅助系统 */}
                         <div className="system-card p-6 flex flex-col h-[250px]">
                             <div className="flex justify-between items-start mb-4">
@@ -677,6 +702,11 @@ export default function App() {
                 <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' ? 'p-0' : 'p-6'}`}>
                     {currentView === 'home' && renderHomeContent()}
                     {currentView === 'system' && renderSystemContent()}
+                    {currentView === 'dev-tools' && (
+                        <div className="h-full">
+                            <DevTools onBack={() => setCurrentView('home')} />
+                        </div>
+                    )}
                     {currentView === 'help' && (
                         <div className="h-full rounded-none overflow-hidden border-0">
                             <HelpPage onBack={() => setCurrentView('home')} />
