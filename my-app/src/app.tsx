@@ -22,17 +22,27 @@ import {
 } from 'lucide-react';
 import './App.css';
 
-// 脚本组件导入
-import SettlementScript from './components/SettlementScript';
-import CommissionScript from './components/CommissionScript';
-import BalanceScript from './components/BalanceScript';
-import TaskAutomationScript from './components/TaskAutomationScript';
-import SmsManagementScript from "./components/BatchSmsScript";
-import TaxReportReportManagement from "./components/TaxReportManagement";
-import TaxCalculationScript from "./components/TaxCalculatorScript";
-import PaymentStatsScript from './components/PaymentStatsScript';
-import OCRScript from "@/components/OCRScript";
-import DeliveryScript from "./components/DeliveryScript";
+import dynamic from 'next/dynamic';
+
+// Loading 组件
+const LoadingComponent = () => (
+    <div className="flex h-full items-center justify-center text-slate-400 p-8">
+        <Loader2 className="h-8 w-8 animate-spin" />
+        <span className="ml-2">加载模块中...</span>
+    </div>
+);
+
+// 动态导入脚本组件 (Code Splitting)
+const SettlementScript = dynamic(() => import('./components/SettlementScript'), { loading: () => <LoadingComponent />, ssr: false });
+const CommissionScript = dynamic(() => import('./components/CommissionScript'), { loading: () => <LoadingComponent />, ssr: false });
+const BalanceScript = dynamic(() => import('./components/BalanceScript'), { loading: () => <LoadingComponent />, ssr: false });
+const TaskAutomationScript = dynamic(() => import('./components/TaskAutomationScript'), { loading: () => <LoadingComponent />, ssr: false });
+const SmsManagementScript = dynamic(() => import("./components/BatchSmsScript"), { loading: () => <LoadingComponent />, ssr: false });
+const TaxReportReportManagement = dynamic(() => import("./components/TaxReportManagement"), { loading: () => <LoadingComponent />, ssr: false });
+const TaxCalculationScript = dynamic(() => import("./components/TaxCalculatorScript"), { loading: () => <LoadingComponent />, ssr: false });
+const PaymentStatsScript = dynamic(() => import('./components/PaymentStatsScript'), { loading: () => <LoadingComponent />, ssr: false });
+const OCRScript = dynamic(() => import("@/components/OCRScript"), { loading: () => <LoadingComponent />, ssr: false });
+const DeliveryScript = dynamic(() => import("./components/DeliveryScript"), { loading: () => <LoadingComponent />, ssr: false });
 
 // Layout 组件导入
 import { HelpPage } from './components/Layout/HelpPage';
