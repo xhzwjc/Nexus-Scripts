@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
 import { Button } from './components/ui/button';
@@ -7,420 +9,61 @@ import { Toaster, toast } from 'sonner';
 import {
     Settings,
     Play,
-    Database,
-    Calculator,
-    Users,
-    CheckCircle,
-    Send,
-    FileText,
-    Percent,
     Lock,
     AlertCircle,
     Loader2,
-    Clock,
-    MapPin,
-    Thermometer,
     Cloud,
-    Wind,
-    Droplets,
-    Sun,
-    CloudRain,
-    CloudSnow,
-    CloudFog,
-    CloudLightning,
     BarChart3,
     Server,
     ShieldCheck,
-    ChevronRight
+    ChevronRight,
+    CheckCircle,
+    ArrowLeft
 } from 'lucide-react';
+import './App.css';
+
+// 脚本组件导入
 import SettlementScript from './components/SettlementScript';
 import CommissionScript from './components/CommissionScript';
 import BalanceScript from './components/BalanceScript';
 import TaskAutomationScript from './components/TaskAutomationScript';
 import SmsManagementScript from "./components/BatchSmsScript";
 import TaxReportReportManagement from "./components/TaxReportManagement";
-import './App.css';
 import TaxCalculationScript from "./components/TaxCalculatorScript";
 import PaymentStatsScript from './components/PaymentStatsScript';
 import OCRScript from "@/components/OCRScript";
 import DeliveryScript from "./components/DeliveryScript";
+
+// Layout 组件导入
 import { HelpPage } from './components/Layout/HelpPage';
 import { DashboardSidebar } from './components/Layout/DashboardSidebar';
 import { DashboardHeader as DashHeader } from './components/Layout/DashboardHeader';
 import { ClothBackground } from './components/Layout/ClothBackground';
 import { BubuMascot } from './components/Layout/BubuMascot';
+import { QuickActions, saveRecentScript } from './components/Layout/QuickActions';
 
-// 角色类型与权限映射
-type Role = 'admin' | 'operator' | 'custom' | 'QA' | 'PM';
+// UI 组件导入
+import { ConfirmDialog } from './components/ui/ConfirmDialog';
 
-interface Permission {
-    [scriptId: string]: boolean;
-}
-
-interface User {
-    role: Role;
-    permissions: Permission;
-    name?: string;
-}
-
-
-
-// 密钥与用户映射表 (实际应用中应存储在后端)
-const keyUserMap: Record<string, User> = {
-    // 超管密钥 - 拥有所有权限
-    'K3^%w4qPz@!5RZ#hT7*eF1nD8~L0bV&cXoM9uA2j': {
-        role: 'admin',
-        permissions: {
-            'settlement': true,
-            'commission': true,
-            'balance': true,
-            'task-automation': true,
-            'sms_operations_center': true,
-            'tax-reporting': true,
-            'tax-calculation': true,
-            'payment-stats': true,
-            'delivery-tool': true
-        },
-        name: '系统管理员'
-    },
-    // 运营人员密钥 - 仅税务报表权限
-    'pE7#tV4^Rk!2zF1&B@8cU5*mO~yW6%LxJ3dQ0nHa': {
-        role: 'operator',
-        permissions: {
-            'tax-reporting': true,
-            'tax-calculation': true,
-            'payment-stats': true,
-            'delivery-tool': true
-        },
-        name: '运营人员'
-    },
-    // 自定义角色
-    'wjc': {
-        role: 'QA',
-        permissions: {
-            'settlement': true,
-            'commission': true,
-            'balance': true,
-            'task-automation': true,
-            'sms_operations_center': true,
-            'tax-reporting': true,
-            'tax-calculation': true,
-            'payment-stats': true,
-            'delivery-tool': true
-        },
-        name: 'JC'
-    },
-    // 经理
-    'U5*mO~yW6%LxJ3dQ0nHaD8~L0bV&cXoM9uA2j': {
-        role: 'PM',
-        permissions: {
-            'settlement': true,
-            'commission': true,
-            'balance': true,
-            'task-automation': true,
-            'sms_operations_center': true,
-            'tax-reporting': true,
-            'tax-calculation': true,
-            'payment-stats': true,
-            'delivery-tool': true
-        },
-        name: '**'
-    },
-};
-
-interface Script {
-    id: string;
-    name: string;
-    description: string;
-    icon: React.ReactNode;
-    status: 'active' | 'beta' | 'stable';
-}
-
-const allScripts: Record<string, { name: string; description: string; scripts: Script[] }> = {
-    chunmiao: {
-        name: 'CM系统',
-        description: '一个用于管理企业和渠道业务流程的综合系统',
-        scripts: [
-            {
-                id: 'settlement',
-                name: '结算处理脚本',
-                description: '批量处理企业结算任务，支持并发执行',
-                icon: <Settings className="w-5 h-5" />,
-                status: 'stable' as const
-            },
-            {
-                id: 'commission',
-                name: '渠道佣金计算与验证',
-                description: '计算渠道佣金并进行数据校验',
-                icon: <Calculator className="w-5 h-5" />,
-                status: 'stable' as const
-            },
-            {
-                id: 'balance',
-                name: '企业账户余额核对',
-                description: '核对企业账户余额的准确性',
-                icon: <Database className="w-5 h-5" />,
-                status: 'active' as const
-            },
-            {
-                id: 'task-automation',
-                name: '任务自动化管理工具',
-                description: '批量执行用户任务流程操作',
-                icon: <Users className="w-5 h-5" />,
-                status: 'beta' as const
-            },
-            {
-                id: 'sms_operations_center',
-                name: '短信运营中心',
-                description: '模板管理与批量发送、补发综合工具',
-                icon: <Send className="w-5 h-5" />,
-                status: 'beta' as const
-            },
-            {
-                id: 'tax-reporting',
-                name: '税务报表生成',
-                description: '按企业和月份生成完税数据报表并导出',
-                icon: <FileText className="w-5 h-5" />,
-                status: 'beta' as const
-            },
-            {
-                id: 'tax-calculation',
-                name: '税额计算工具',
-                description: '计算个人所得税明细，支持模拟数据与跨年计算',
-                icon: <Percent className="w-5 h-5" />,
-                status: 'stable' as const
-            },
-            {
-                id: 'payment-stats',
-                name: '结算与开票统计',
-                description: '统计已开票/未开票金额及平台总结算',
-                icon: <BarChart3 className="w-5 h-5" />,
-                status: 'beta' as const
-            },
-            {
-                id: 'delivery-tool',
-                name: '交付物提交工具',
-                description: '协助运营人员为指定用户快速提交任务交付物',
-                icon: <FileText className="w-5 h-5" />,
-                status: 'beta' as const
-            }
-        ]
-    },
-    haoshi: {
-        name: 'HS系统',
-        description: '即将上线更多脚本功能',
-        scripts: []
-    }
-};
-
-// 计算当天结束时间戳（23:59:59）
-const getEndOfDayTimestamp = () => {
-    const now = new Date();
-    now.setHours(23, 59, 59, 999);
-    return now.getTime();
-};
-
-
-
-/* ============== 确认弹窗 ============== */
-interface ConfirmDialogProps {
-    open: boolean;
-    title: string;
-    description?: string;
-    confirmText?: string;
-    cancelText?: string;
-    onConfirm: () => void;
-    onCancel: () => void;
-}
-
-const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
-    open,
-    title,
-    description,
-    confirmText = '确认',
-    cancelText = '取消',
-    onConfirm,
-    onCancel
-}) => {
-    useEffect(() => {
-        if (!open) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onCancel();
-        };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [open, onCancel]);
-
-    if (!open) return null;
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
-            <div className="relative w-full max-w-sm p-4">
-                <Card className="animate-fadeIn">
-                    <CardHeader>
-                        <CardTitle className="text-lg">{title}</CardTitle>
-                        {description && <CardDescription>{description}</CardDescription>}
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex justify-end gap-2">
-                            <Button variant="outline" onClick={onCancel}>{cancelText}</Button>
-                            <Button onClick={onConfirm}>{confirmText}</Button>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-        </div>
-    );
-};
-
-/* ============== 状态 Chip 组件 ============== */
-const StatusChip: React.FC<React.PropsWithChildren<{ className?: string }>> = ({ children, className }) => (
-    <div
-        className={`h-9 px-3 inline-flex items-center gap-2 rounded-md border bg-white/40 backdrop-blur shadow-sm text-sm leading-none ${className || ''}`}>
-        {children}
-    </div>
-);
-
-
-
-
-/* ============== 时间 Chip ============== */
-const TimeChip: React.FC<{ name?: string; now: Date }> = ({ name, now }) => {
-    const dtf = useMemo(() => new Intl.DateTimeFormat('zh-CN', {
-        timeZone: 'Asia/Shanghai',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-        weekday: 'short', month: '2-digit', day: '2-digit', hour12: false
-    }), []);
-
-    const parts = useMemo(() => {
-        const p = dtf.formatToParts(now);
-        const get = (type: string) => p.find(x => x.type === type)?.value || '';
-        const hour = parseInt(get('hour') || '0', 10);
-        return { hour, minute: get('minute'), second: get('second'), weekday: get('weekday') };
-    }, [dtf, now]);
-
-    const greeting = parts.hour < 6 ? '自律' : parts.hour < 12 ? '早安' : parts.hour < 14 ? '午安' : parts.hour < 18 ? '下午好' : '晚上好';
-
-    return (
-        <StatusChip>
-            <Clock className="w-4 h-4 text-primary" />
-            <span className="whitespace-nowrap tabular-nums font-mono">
-                {parts.hour.toString().padStart(2, '0')}:{parts.minute}:{parts.second}
-            </span>
-            <span className="text-muted-foreground hidden sm:inline">{parts.weekday}</span>
-            <span className="text-muted-foreground hidden lg:inline">| {greeting}{name ? `, ${name}` : ''}</span>
-        </StatusChip>
-    );
-};
-
-/* ============== 天气 Chip ============== */
-type WeatherData = { temp: number; desc: string; wind: number; humidity: number; code: string; };
-type WeatherState = { loading: boolean; error?: string; data?: WeatherData; };
-const WEATHER_CACHE_KEY = 'heweather_bj_cache';
-const WEATHER_TTL = 10 * 60 * 1000;
-
-const WeatherChip: React.FC<{
-    state: WeatherState;
-    refreshing: boolean;
-    label?: string;
-    onRefresh?: () => void;
-}> = ({ state, refreshing, label = '北京', onRefresh }) => {
-    const weatherIcon = (code?: string) => {
-        if (!code) return <Cloud className="w-4 h-4" />;
-        const iconMap: Record<string, React.ReactNode> = {
-            "100": <Sun className="w-4 h-4" />,          // 晴
-            "101": <Cloud className="w-4 h-4" />,         // 多云
-            "102": <Cloud className="w-4 h-4" />,         // 少云
-            "103": <Cloud className="w-4 h-4" />,         // 晴间多云
-            "104": <Cloud className="w-4 h-4" />,         // 阴
-            "300": <CloudRain className="w-4 h-4" />,     // 阵雨
-            "301": <CloudRain className="w-4 h-4" />,     // 强阵雨
-            "302": <CloudLightning className="w-4 h-4" />, // 雷阵雨
-            "303": <CloudLightning className="w-4 h-4" />, // 强雷阵雨
-            "304": <CloudRain className="w-4 h-4" />,     // 冰雹
-            "305": <CloudRain className="w-4 h-4" />,     // 小雨
-            "306": <CloudRain className="w-4 h-4" />,     // 中雨
-            "307": <CloudRain className="w-4 h-4" />,     // 大雨
-            "308": <CloudRain className="w-4 h-4" />,     // 极端降雨
-            "309": <CloudRain className="w-4 h-4" />,     // 毛毛雨
-            "310": <CloudRain className="w-4 h-4" />,     // 暴雨
-            "311": <CloudRain className="w-4 h-4" />,     // 大暴雨
-            "312": <CloudRain className="w-4 h-4" />,     // 特大暴雨
-            "313": <CloudRain className="w-4 h-4" />,     // 冻雨
-            "400": <CloudSnow className="w-4 h-4" />,     // 小雪
-            "401": <CloudSnow className="w-4 h-4" />,     // 中雪
-            "402": <CloudSnow className="w-4 h-4" />,     // 大雪
-            "403": <CloudSnow className="w-4 h-4" />,     // 暴雪
-            "404": <CloudRain className="w-4 h-4" />,     // 雨夹雪
-            "405": <CloudRain className="w-4 h-4" />,     // 雨雪天气
-            "406": <CloudSnow className="w-4 h-4" />,     // 阵雨夹雪
-            "407": <CloudSnow className="w-4 h-4" />,     // 阵雪
-            "500": <CloudFog className="w-4 h-4" />,      // 薄雾
-            "501": <CloudFog className="w-4 h-4" />,      // 雾
-            "502": <CloudFog className="w-4 h-4" />,      // 霾
-            "503": <CloudFog className="w-4 h-4" />,      // 扬沙
-            "504": <CloudFog className="w-4 h-4" />,      // 浮尘
-            "507": <CloudFog className="w-4 h-4" />,      // 沙尘暴
-            "508": <CloudFog className="w-4 h-4" />,      // 强沙尘暴
-            "900": <Sun className="w-4 h-4" />,           // 热
-            "901": <Thermometer className="w-4 h-4" />,   // 冷
-            "999": <Cloud className="w-4 h-4" />          // 未知
-        };
-        return iconMap[code] || <Cloud className="w-4 h-4" />;
-    };
-
-    return (
-        <StatusChip>
-            <MapPin className="w-4 h-4 text-primary" />
-            <span className="whitespace-nowrap">{label}</span>
-            <span className="text-muted-foreground">·</span>
-            {state.loading && !state.data ? (
-                <span className="text-muted-foreground">加载中...</span>
-            ) : state.error && !state.data ? (
-                <span className="text-muted-foreground">天气不可用</span>
-            ) : state.data ? (
-                <>
-                    {weatherIcon(state.data.code)}
-                    <span className="whitespace-nowrap tabular-nums font-mono">{state.data.temp}°C</span>
-                    <span className="hidden sm:inline">{state.data.desc}</span>
-                    <span className="text-muted-foreground hidden md:inline">·</span>
-                    <span className="text-muted-foreground hidden md:inline">
-                        <Wind className="inline w-3 h-3 mr-1" />
-                        {state.data.wind} km/h
-                    </span>
-                    <span className="text-muted-foreground hidden lg:inline">
-                        <Droplets className="inline w-3 h-3 mx-1" />
-                        {state.data.humidity}%
-                    </span>
-                    {refreshing &&
-                        <Loader2 className="w-3 h-3 ml-1 animate-spin text-muted-foreground" aria-label="刷新中" />}
-                </>
-            ) : null}
-
-            {onRefresh && (
-                <button
-                    type="button"
-                    onClick={onRefresh}
-                    className="ml-1 text-xs text-primary hover:underline hidden md:inline"
-                    aria-label="刷新天气">
-                    刷新
-                </button>
-            )}
-        </StatusChip>
-    );
-};
-
+// 类型和配置导入
+import type { User, ViewType, WeatherState, SystemConfig } from './lib/types';
+import {
+    keyUserMap,
+    allScripts,
+    WEATHER_CACHE_KEY,
+    WEATHER_TTL,
+    getEndOfDayTimestamp
+} from './lib/config';
 
 /* ============== 主应用 ============== */
 export default function App() {
-    const [currentView, setCurrentView] = useState<'home' | 'system' | 'script' | 'ocr-tool' | 'help'>('home');
+    const [currentView, setCurrentView] = useState<ViewType>('home');
     const [selectedSystem, setSelectedSystem] = useState<string>('');
     const [selectedScript, setSelectedScript] = useState<string>('');
     const [userKey, setUserKey] = useState('');
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [errorMessage, setErrorMessage] = useState('');
-    const [systems, setSystems] = useState(allScripts);
+    const [systems, setSystems] = useState<Record<string, SystemConfig>>(allScripts);
     const [isLoading, setIsLoading] = useState(true);
     const [isVerifying, setIsVerifying] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -435,6 +78,13 @@ export default function App() {
     const [lockError, setLockError] = useState('');
     const lastActivityRef = useRef<number>(Date.now());
 
+    // 搜索相关状态
+    const [homeSearchQuery, setHomeSearchQuery] = useState('');
+    const [showSearchResults, setShowSearchResults] = useState(false);
+
+    // 5小时自动锁屏
+    const AUTO_LOCK_MS = 5 * 60 * 60 * 1000;
+
     // 初始化持久化状态
     useEffect(() => {
         const savedLocked = localStorage.getItem('app_is_locked') === 'true';
@@ -445,11 +95,10 @@ export default function App() {
             const t = parseInt(savedLastActivity);
             if (!isNaN(t)) {
                 lastActivityRef.current = t;
-                // Use literal since constant is defined later
-                if (Date.now() - t > 5 * 60 * 60 * 1000) setIsLocked(true);
+                if (Date.now() - t > AUTO_LOCK_MS) setIsLocked(true);
             }
         }
-    }, []);
+    }, [AUTO_LOCK_MS]);
 
     // 监听锁屏状态变化并持久化
     useEffect(() => {
@@ -459,10 +108,6 @@ export default function App() {
             localStorage.removeItem('app_is_locked');
         }
     }, [isLocked]);
-
-    // 搜索相关状态
-    const [homeSearchQuery, setHomeSearchQuery] = useState('');
-    const [showSearchResults, setShowSearchResults] = useState(false);
 
     // 搜索结果计算
     const searchResults = useMemo(() => {
@@ -485,9 +130,7 @@ export default function App() {
         return () => clearInterval(t);
     }, []);
 
-    // 5小时自动锁屏检测
-    const AUTO_LOCK_MS = 5 * 60 * 60 * 1000; // 5小时
-
+    // 自动锁屏检测
     useEffect(() => {
         if (!currentUser) return;
 
@@ -495,21 +138,17 @@ export default function App() {
             lastActivityRef.current = Date.now();
         };
 
-        // 监听用户活动
         window.addEventListener('mousemove', updateActivity);
         window.addEventListener('keydown', updateActivity);
         window.addEventListener('click', updateActivity);
 
-        // 定时检查是否需要锁屏
         const checkLock = setInterval(() => {
-            // 每次检查时更新持久化的活跃时间
             localStorage.setItem('app_last_activity', lastActivityRef.current.toString());
-
             if (Date.now() - lastActivityRef.current > AUTO_LOCK_MS && !isLocked) {
                 setIsLocked(true);
                 toast.info('由于长时间未操作，系统已自动锁定');
             }
-        }, 60000); // 每分钟检查一次
+        }, 60000);
 
         return () => {
             window.removeEventListener('mousemove', updateActivity);
@@ -517,7 +156,7 @@ export default function App() {
             window.removeEventListener('click', updateActivity);
             clearInterval(checkLock);
         };
-    }, [currentUser, isLocked]);
+    }, [currentUser, isLocked, AUTO_LOCK_MS]);
 
     // 手动锁屏
     const handleLock = () => {
@@ -534,7 +173,6 @@ export default function App() {
             return;
         }
 
-        // 安全检查：必须使用当前登录用户的密钥解锁
         if (input !== userKey.trim()) {
             if (keyUserMap[input]) {
                 setLockError('无法解锁：请使用当前登录账号的密钥');
@@ -551,6 +189,7 @@ export default function App() {
         toast.success('解锁成功');
     };
 
+    // 天气刷新
     const refreshWeather = useCallback(async (options?: { background?: boolean }) => {
         const background = !!options?.background;
         const apiKey = process.env.NEXT_PUBLIC_HEWEATHER_API_KEY;
@@ -584,6 +223,7 @@ export default function App() {
         }
     }, []);
 
+    // 天气初始化
     useEffect(() => {
         const raw = localStorage.getItem(WEATHER_CACHE_KEY);
         let hasCached = false;
@@ -594,14 +234,14 @@ export default function App() {
                     setWeather({ loading: false, data: c.data });
                     hasCached = true;
                 }
-            } catch {
-            }
+            } catch { /* ignore */ }
         }
         refreshWeather({ background: hasCached });
         const i = setInterval(() => refreshWeather({ background: true }), WEATHER_TTL);
         return () => clearInterval(i);
     }, [refreshWeather]);
 
+    // 认证初始化
     useEffect(() => {
         setTimeout(() => {
             const saved = localStorage.getItem('scriptHubAuth');
@@ -615,8 +255,7 @@ export default function App() {
                         setIsLoading(false);
                         return;
                     }
-                } catch {
-                }
+                } catch { /* ignore */ }
             }
             setIsLoading(false);
         }, 100);
@@ -635,12 +274,9 @@ export default function App() {
                 }));
                 setCurrentUser(u);
                 filterScripts(u);
-
-                // 重置锁屏状态和活跃时间，防止登录后立即被锁
                 setIsLocked(false);
                 lastActivityRef.current = Date.now();
                 localStorage.setItem('app_last_activity', lastActivityRef.current.toString());
-
                 toast.success("验证成功");
             } else toast.error("无效的访问密钥");
             setIsVerifying(false);
@@ -664,6 +300,14 @@ export default function App() {
         localStorage.removeItem('scriptHubAuth');
     };
 
+    // 快捷导航到脚本
+    const navigateToScript = (systemId: string, scriptId: string) => {
+        setSelectedSystem(systemId);
+        setSelectedScript(scriptId);
+        saveRecentScript(userKey, systemId, scriptId);
+        setCurrentView('script');
+    };
+
     const system = systems[selectedSystem as keyof typeof systems];
     const scripts = system?.scripts ?? [];
     const filteredScripts = useMemo(() => {
@@ -671,9 +315,8 @@ export default function App() {
         return scripts.filter(s => `${s.name} ${s.description}`.toLowerCase().includes(scriptQuery.trim().toLowerCase()));
     }, [system, scripts, scriptQuery]);
 
-    // 定义总数变量
     const totalScripts = useMemo(() => (
-        Object.values(systems).reduce((total, system) => total + system.scripts.length, 0)
+        Object.values(systems).reduce((total, sys) => total + sys.scripts.length, 0)
     ), [systems]);
 
     const getStatusColor = (status: string) => {
@@ -711,38 +354,49 @@ export default function App() {
         }
     };
 
-    if (isLoading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><Loader2
-        className="w-10 h-10 text-primary animate-spin" /></div>;
+    // ============== 加载状态 ==============
+    if (isLoading) return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+            <Loader2 className="w-10 h-10 text-primary animate-spin" />
+        </div>
+    );
 
+    // ============== 登录页面 ==============
     if (!currentUser) {
         return (
             <div className="min-h-screen colorful-background flex items-center justify-center p-6">
                 <Toaster richColors position="top-center" />
                 <Card className="w-full max-w-md animate-fadeIn shadow-xl border-0 bg-white/90 backdrop-blur">
                     <CardHeader className="text-center">
-                        <CardTitle className="text-2xl flex items-center justify-center gap-2"><Lock
-                            className="w-5 h-5" /> 访问授权</CardTitle>
+                        <CardTitle className="text-2xl flex items-center justify-center gap-2">
+                            <Lock className="w-5 h-5" /> 访问授权
+                        </CardTitle>
                         <CardDescription>请输入您的访问密钥以使用系统</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         {errorMessage &&
-                            <div className="flex items-center gap-2 p-3 bg-red-50 text-red-600 rounded-md"><AlertCircle
-                                className="w-4 h-4" /><span>{errorMessage}</span></div>}
-                        <Input type="password" placeholder="输入访问密钥" value={userKey}
+                            <div className="flex items-center gap-2 p-3 bg-red-50 text-red-600 rounded-md">
+                                <AlertCircle className="w-4 h-4" /><span>{errorMessage}</span>
+                            </div>
+                        }
+                        <Input
+                            type="password"
+                            placeholder="输入访问密钥"
+                            value={userKey}
                             onChange={e => setUserKey(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && !isVerifying && validateKey()}
-                            disabled={isVerifying} />
-                        <Button className="w-full" onClick={validateKey} disabled={isVerifying}>{isVerifying ?
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : '验证并进入系统'}</Button>
+                            disabled={isVerifying}
+                        />
+                        <Button className="w-full" onClick={validateKey} disabled={isVerifying}>
+                            {isVerifying ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : '验证并进入系统'}
+                        </Button>
                     </CardContent>
                 </Card>
             </div>
         );
     }
 
-    // -----------------------------------------------------------
-    // 视图渲染组件
-    // -----------------------------------------------------------
+    // ============== 首页内容 ==============
     const renderHomeContent = () => {
         const hour = now.getHours();
         let timeGreeting = '晚上好';
@@ -752,26 +406,15 @@ export default function App() {
         else if (hour < 18) timeGreeting = '下午好';
 
         return (
-            <div className="max-w-5xl">
-                {/* 问候语与天气时间 - Flex 布局 */}
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-10">
-                    <div>
-                        <h1 className="text-3xl font-bold text-slate-800 tracking-tight mb-2">
-                            {timeGreeting}, {currentUser?.name}。
-                        </h1>
-                        <p className="text-slate-500 text-base">
-                            所有系统节点运行正常的系统。
-                        </p>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                        <TimeChip now={now} />
-                        <WeatherChip
-                            state={weather}
-                            refreshing={weatherRefreshing}
-                            onRefresh={() => refreshWeather()}
-                        />
-                    </div>
+            <div className="max-w-7xl">
+                {/* 问候语 */}
+                <div className="mb-10">
+                    <h1 className="text-3xl font-bold text-slate-800 tracking-tight mb-2">
+                        {timeGreeting}, {currentUser?.name}。
+                    </h1>
+                    <p className="text-slate-500 text-base">
+                        所有系统节点运行正常。
+                    </p>
                 </div>
 
                 {/* 状态徽章行 */}
@@ -802,64 +445,88 @@ export default function App() {
                     </div>
                 </div>
 
-                {/* 系统卡片 */}
-                <div className="grid grid-cols-2 gap-6">
-                    {/* CM 核心业务系统 */}
-                    <div className="system-card p-6 cursor-pointer" onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}>
-                        <div className="flex justify-between items-start mb-4">
-                            <div className="w-12 h-12 bg-teal-50 rounded-xl flex items-center justify-center">
-                                <Settings className="w-6 h-6 text-teal-600" />
+                {/* 系统卡片和快捷操作 */}
+                <div className="flex gap-6 items-stretch">
+                    {/* 左侧：系统卡片 */}
+                    <div className="flex-[3] grid grid-cols-2 gap-6">
+                        {/* CM 核心业务系统 */}
+                        <div className="system-card p-6 cursor-pointer flex flex-col h-[250px]" onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}>
+                            <div className="flex justify-between items-start mb-4">
+                                <div className="w-12 h-12 bg-teal-50 rounded-xl flex items-center justify-center">
+                                    <Settings className="w-6 h-6 text-teal-600" />
+                                </div>
+                                <Badge className="bg-green-50 text-green-700 border border-green-200 text-[11px] px-2">
+                                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 inline-block"></span>
+                                    运行中
+                                </Badge>
                             </div>
-                            <Badge className="bg-green-50 text-green-700 border border-green-200 text-[11px] px-2">
-                                <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 inline-block"></span>
-                                运行中
-                            </Badge>
+                            <h3 className="text-xl font-bold text-slate-800 mb-2">CM 核心业务系统</h3>
+                            <p className="text-slate-500 text-sm mb-4 leading-relaxed flex-1 overflow-hidden">
+                                包含结算脚本、佣金计算、自动化任务调度等 {systems['chunmiao'].scripts.length} 个核心脚本。
+                            </p>
+                            <button className="btn-teal-gradient w-full mt-auto">
+                                进入 CM 系统
+                                <ChevronRight className="w-4 h-4" />
+                            </button>
                         </div>
-                        <h3 className="text-xl font-bold text-slate-800 mb-2">CM 核心业务系统</h3>
-                        <p className="text-slate-500 text-sm mb-6 leading-relaxed">
-                            包含结算脚本、佣金计算、自动化任务调度等 {systems['chunmiao'].scripts.length} 个核心脚本。
-                        </p>
-                        <button className="btn-teal-gradient w-full">
-                            进入 CM 系统
-                            <ChevronRight className="w-4 h-4" />
-                        </button>
+
+                        {/* HS 辅助系统 */}
+                        <div className="system-card p-6 flex flex-col h-[250px]">
+                            <div className="flex justify-between items-start mb-4">
+                                <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
+                                    <Cloud className="w-6 h-6 text-slate-500" />
+                                </div>
+                                <Badge variant="outline" className="text-slate-500 border-slate-200 text-[11px] px-2">
+                                    规划中
+                                </Badge>
+                            </div>
+                            <h3 className="text-xl font-bold text-slate-800 mb-2">HS 辅助系统</h3>
+                            <p className="text-slate-500 text-sm mb-4 leading-relaxed flex-1">
+                                新一代数据看板与辅助工具集，当前处于架构设计阶段。
+                            </p>
+                            <button className="btn-outline-gray w-full mt-auto" disabled>
+                                功能开发中
+                                <ChevronRight className="w-4 h-4" />
+                            </button>
+                        </div>
                     </div>
 
-                    {/* HS 辅助系统 */}
-                    <div className="system-card p-6">
-                        <div className="flex justify-between items-start mb-4">
-                            <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
-                                <Cloud className="w-6 h-6 text-slate-500" />
-                            </div>
-                            <Badge variant="outline" className="text-slate-500 border-slate-200 text-[11px] px-2">
-                                规划中
-                            </Badge>
-                        </div>
-                        <h3 className="text-xl font-bold text-slate-800 mb-2">HS 辅助系统</h3>
-                        <p className="text-slate-500 text-sm mb-6 leading-relaxed">
-                            新一代数据看板与辅助工具集，当前处于架构设计阶段。
-                        </p>
-                        <button className="btn-outline-gray w-full">
-                            功能开发中
-                            <ChevronRight className="w-4 h-4" />
-                        </button>
-                    </div>
+                    {/* 右侧：快捷操作面板 */}
+                    <QuickActions
+                        onNavigateToScript={navigateToScript}
+                        onNavigateToSystem={() => {
+                            setSelectedSystem('chunmiao');
+                            setScriptQuery('');
+                            setCurrentView('system');
+                        }}
+                        setCurrentView={setCurrentView}
+                        userKey={userKey}
+                    />
                 </div>
 
                 {/* 底部版本号 */}
                 <footer className="mt-12 text-center md:text-left">
                     <span className="version-badge">ScriptHub v 2.0-stable</span>
                 </footer>
-            </div>
+            </div >
         );
     };
 
+    // ============== 系统工具页面 ==============
     const renderSystemContent = () => {
         const hasFewScripts = filteredScripts.length > 0 && filteredScripts.length <= 2;
         return (
             <div className="p-8 max-w-7xl mx-auto w-full">
                 <div className="mb-8">
                     <div className="flex items-center gap-3 mb-2">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="mr-2 h-8 w-8"
+                            onClick={() => setCurrentView('home')}
+                        >
+                            <ArrowLeft className="h-5 w-5" />
+                        </Button>
                         <h1 className="text-2xl font-bold">{system?.name}</h1>
                         <Badge variant="outline" className="bg-white/50">
                             {filteredScripts.length} / {scripts.length} 个脚本
@@ -919,6 +586,7 @@ export default function App() {
                                     className="w-full"
                                     onClick={() => {
                                         setSelectedScript(script.id);
+                                        saveRecentScript(userKey, selectedSystem, script.id);
                                         setCurrentView('script');
                                     }}
                                 >
@@ -932,9 +600,8 @@ export default function App() {
             </div>
         );
     };
-    // -----------------------------------------------------------
-    // 统一布局渲染
-    // -----------------------------------------------------------
+
+    // ============== 主布局 ==============
     return (
         <div className="colorful-background flex h-screen overflow-hidden text-slate-600 font-sans relative">
             <ClothBackground />
@@ -991,6 +658,10 @@ export default function App() {
                     currentUser={currentUser}
                     setSelectedSystem={setSelectedSystem}
                     setScriptQuery={setScriptQuery}
+                    now={now}
+                    weather={weather}
+                    weatherRefreshing={weatherRefreshing}
+                    onRefreshWeather={() => refreshWeather()}
                 />
 
                 <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' ? 'p-0' : 'p-6'}`}>
@@ -1023,8 +694,6 @@ export default function App() {
                 }}
             />
             <BubuMascot />
-            <Toaster richColors position="top-right" />
         </div>
     );
-
 }

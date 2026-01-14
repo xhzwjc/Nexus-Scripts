@@ -1,17 +1,32 @@
 import React from 'react';
 import { Search, CircleHelp, Lock, Settings, Cloud } from 'lucide-react';
+import { TimeChip } from '../ui/TimeChip';
+import { WeatherChip } from '../ui/WeatherChip';
+import type { WeatherState, ViewType, User } from '@/lib/types';
+
+interface SearchResult {
+    id: string;
+    name: string;
+    desc: string;
+    type: 'cm' | 'hs';
+}
 
 interface HeaderProps {
     homeSearchQuery: string;
     setHomeSearchQuery: (q: string) => void;
     showSearchResults: boolean;
     setShowSearchResults: (show: boolean) => void;
-    searchResults: any[];
-    setCurrentView: (view: any) => void;
+    searchResults: SearchResult[];
+    setCurrentView: (view: ViewType) => void;
     setSelectedSystem: (sys: string) => void;
     setScriptQuery: (q: string) => void;
     handleLock: () => void;
-    currentUser: any;
+    currentUser: User | null;
+    // 时间和天气
+    now: Date;
+    weather: WeatherState;
+    weatherRefreshing: boolean;
+    onRefreshWeather: () => void;
 }
 
 export const DashboardHeader: React.FC<HeaderProps> = ({
@@ -24,7 +39,11 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
     setSelectedSystem,
     setScriptQuery,
     handleLock,
-    currentUser
+    currentUser,
+    now,
+    weather,
+    weatherRefreshing,
+    onRefreshWeather
 }) => {
     return (
         <header className="h-16 px-8 flex items-center justify-between border-b border-slate-200/50 bg-white/40 backdrop-blur-sm sticky top-0 z-30 shrink-0">
@@ -78,7 +97,17 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
             </div>
 
             {/* Right Actions */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+                {/* 时间和天气 */}
+                <TimeChip now={now} />
+                <WeatherChip
+                    state={weather}
+                    refreshing={weatherRefreshing}
+                    onRefresh={onRefreshWeather}
+                />
+
+                <div className="h-6 w-px bg-slate-200 mx-1"></div>
+
                 <button
                     className="p-2 text-slate-500 hover:text-slate-700 transition-colors"
                     onClick={() => setCurrentView('help')}
