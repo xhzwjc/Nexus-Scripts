@@ -26,7 +26,8 @@ export const keyUserMap: Record<string, User> = {
             'tax-calculation': true,
             'payment-stats': true,
             'delivery-tool': true,
-            'dev-tools': true
+            'dev-tools': true,
+            'cert-health': true
         },
         name: '系统管理员'
     },
@@ -54,7 +55,8 @@ export const keyUserMap: Record<string, User> = {
             'tax-calculation': true,
             'payment-stats': true,
             'delivery-tool': true,
-            'dev-tools': true
+            'dev-tools': true,
+            'cert-health': true
         },
         name: 'JC'
     },
@@ -70,7 +72,8 @@ export const keyUserMap: Record<string, User> = {
             'tax-reporting': true,
             'tax-calculation': true,
             'payment-stats': true,
-            'delivery-tool': true
+            'delivery-tool': true,
+            'cert-health': true
         },
         name: '**'
     },

@@ -13,9 +13,7 @@ import {
     AlertCircle,
     Loader2,
     Cloud,
-    BarChart3,
     Server,
-    ShieldCheck,
     ChevronRight,
     CheckCircle,
     ArrowLeft,
@@ -46,6 +44,7 @@ const OCRScript = dynamic(() => import("@/components/OCRScript"), { loading: () 
 const DeliveryScript = dynamic(() => import("./components/DeliveryScript"), { loading: () => <LoadingComponent />, ssr: false });
 const DevTools = dynamic(() => import("./components/DevTools"), { loading: () => <LoadingComponent />, ssr: false });
 const TeamResourcesContainer = dynamic(() => import("./components/TeamResources/TeamResourcesContainer").then(mod => ({ default: mod.TeamResourcesContainer })), { loading: () => <LoadingComponent />, ssr: false });
+
 
 // Layout 组件导入
 import { HelpPage } from './components/Layout/HelpPage';
@@ -94,6 +93,11 @@ export default function App() {
     // 搜索相关状态
     const [homeSearchQuery, setHomeSearchQuery] = useState('');
     const [showSearchResults, setShowSearchResults] = useState(false);
+
+    // 证书健康检测状态
+    const [healthCheckState, setHealthCheckState] = useState<{ status: 'idle' | 'loading' | 'success' | 'error'; healthPercent: number; issues: unknown[]; totalEnvs: number; checkedEnvs: number } | undefined>(undefined);
+    // 标记是否是新登录（而不是从 localStorage 恢复的会话）
+    const [isFreshLogin, setIsFreshLogin] = useState(false);
 
     // 5小时自动锁屏
     const AUTO_LOCK_MS = 5 * 60 * 60 * 1000;
@@ -288,6 +292,7 @@ export default function App() {
                 setCurrentUser(u);
                 filterScripts(u);
                 setIsLocked(false);
+                setIsFreshLogin(true); // 标记为新登录，触发健康检测
                 lastActivityRef.current = Date.now();
                 localStorage.setItem('app_last_activity', lastActivityRef.current.toString());
                 toast.success("验证成功");
@@ -302,6 +307,8 @@ export default function App() {
         ])) as typeof allScripts;
         setSystems(filtered);
     };
+
+
 
     const logout = () => {
         setCurrentUser(null);
@@ -440,14 +447,90 @@ export default function App() {
                         <span className="text-slate-500">可运用资</span>
                         <span className="text-teal-600 text-xs ml-1">Ready</span>
                     </div>
-                    <div className="status-badge">
-                        <div className="icon bg-green-50 text-green-600">
-                            <ShieldCheck className="w-4 h-4" />
-                        </div>
-                        <span className="text-slate-500">系统健康</span>
-                        <span className="font-semibold text-slate-700">100%</span>
-                        <Badge className="bg-green-100 text-green-700 border-0 text-[10px] px-1.5 py-0">Stable</Badge>
-                    </div>
+                    {/* 系统健康徽章 */}
+                    {(() => {
+                        const hasPermission = !!currentUser?.permissions['cert-health'];
+                        const isLoading = healthCheckState?.status === 'loading';
+                        const isIdle = !healthCheckState || healthCheckState.status === 'idle';
+                        const isError = healthCheckState?.status === 'error';
+                        const isSuccess = healthCheckState?.status === 'success';
+                        const hasIssues = isSuccess && healthCheckState.issues.length > 0;
+                        const percent = healthCheckState?.healthPercent ?? 100;
+
+                        // 无权限用户：显示100%
+                        if (!hasPermission) {
+                            return (
+                                <div className="status-badge">
+                                    <div className="icon bg-green-50 text-green-600">
+                                        <Server className="w-4 h-4" />
+                                    </div>
+                                    <span className="text-slate-500">系统健康</span>
+                                    <span className="font-semibold text-slate-700">100%</span>
+                                    <Badge className="bg-green-100 text-green-700 border-0 text-[10px] px-1.5 py-0">Stable</Badge>
+                                </div>
+                            );
+                        }
+
+                        // 正在加载或未开始检测：显示骨架屏
+                        if (isLoading || isIdle) {
+                            return (
+                                <div className="status-badge">
+                                    <div className="icon bg-blue-50 text-blue-600">
+                                        <Server className="w-4 h-4 animate-spin" />
+                                    </div>
+                                    <span className="text-slate-500">系统健康</span>
+                                    <div className="w-8 h-4 bg-slate-200 rounded animate-pulse" />
+                                    <Badge className="bg-blue-100 text-blue-700 border-0 text-[10px] px-1.5 py-0">
+                                        {isLoading ? `${healthCheckState.checkedEnvs}/${healthCheckState.totalEnvs}` : '检测中...'}
+                                    </Badge>
+                                </div>
+                            );
+                        }
+
+                        // 检测错误：显示100%（可点击重试）
+                        if (isError) {
+                            return (
+                                <div className="status-badge">
+                                    <div className="icon bg-yellow-50 text-yellow-600">
+                                        <Server className="w-4 h-4" />
+                                    </div>
+                                    <span className="text-slate-500">系统健康</span>
+                                    <span className="font-semibold text-slate-700">100%</span>
+                                    <Badge className="bg-yellow-100 text-yellow-700 border-0 text-[10px] px-1.5 py-0">检测失败</Badge>
+                                </div>
+                            );
+                        }
+
+                        // 检测成功 - 有问题：显示实际百分比
+                        if (hasIssues) {
+                            return (
+                                <div className="status-badge">
+                                    <div className={`icon ${percent < 90 ? 'bg-red-50 text-red-600' : 'bg-yellow-50 text-yellow-600'}`}>
+                                        <Server className="w-4 h-4" />
+                                    </div>
+                                    <span className="text-slate-500">系统健康</span>
+                                    <span className={`font-semibold ${percent < 90 ? 'text-red-600' : 'text-yellow-600'}`}>
+                                        {percent}%
+                                    </span>
+                                    <Badge className={`border-0 text-[10px] px-1.5 py-0 ${percent < 90 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                        {healthCheckState.issues.length}个问题
+                                    </Badge>
+                                </div>
+                            );
+                        }
+
+                        // 检测成功 - 全部正常：显示100%
+                        return (
+                            <div className="status-badge">
+                                <div className="icon bg-green-50 text-green-600">
+                                    <Server className="w-4 h-4" />
+                                </div>
+                                <span className="text-slate-500">系统健康</span>
+                                <span className="font-semibold text-slate-700">100%</span>
+                                <Badge className="bg-green-100 text-green-700 border-0 text-[10px] px-1.5 py-0">Stable</Badge>
+                            </div>
+                        );
+                    })()}
                     <div className="status-badge">
                         <div className="icon bg-violet-50 text-violet-600">
                             <Server className="w-4 h-4" />
@@ -698,6 +781,10 @@ export default function App() {
                     weather={weather}
                     weatherRefreshing={weatherRefreshing}
                     onRefreshWeather={() => refreshWeather()}
+                    hasHealthPermission={!!currentUser?.permissions['cert-health']}
+                    userKey={userKey}
+                    isFreshLogin={isFreshLogin}
+                    onHealthChange={setHealthCheckState}
                 />
 
                 <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' ? 'p-0' : 'p-6'}`}>

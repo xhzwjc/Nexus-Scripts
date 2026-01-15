@@ -2,7 +2,9 @@ import React from 'react';
 import { Search, CircleHelp, Lock, Settings, Cloud } from 'lucide-react';
 import { TimeChip } from '../ui/TimeChip';
 import { WeatherChip } from '../ui/WeatherChip';
+import { HeaderHealthIndicator } from '../TeamResources/HeaderHealthIndicator';
 import type { WeatherState, ViewType, User } from '@/lib/types';
+import type { HealthCheckState } from '../TeamResources/HeaderHealthIndicator';
 
 interface SearchResult {
     id: string;
@@ -27,6 +29,11 @@ interface HeaderProps {
     weather: WeatherState;
     weatherRefreshing: boolean;
     onRefreshWeather: () => void;
+    // 健康检测
+    hasHealthPermission?: boolean;
+    userKey?: string;
+    isFreshLogin?: boolean;
+    onHealthChange?: (state: HealthCheckState) => void;
 }
 
 export const DashboardHeader: React.FC<HeaderProps> = ({
@@ -43,7 +50,11 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
     now,
     weather,
     weatherRefreshing,
-    onRefreshWeather
+    onRefreshWeather,
+    hasHealthPermission = false,
+    userKey,
+    isFreshLogin = false,
+    onHealthChange
 }) => {
     return (
         <header className="h-16 px-8 flex items-center justify-between border-b border-slate-200/50 bg-white/40 backdrop-blur-sm sticky top-0 z-30 shrink-0">
@@ -98,6 +109,14 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
 
             {/* Right Actions */}
             <div className="flex items-center gap-3">
+                {/* 证书健康指示器（权限控制） */}
+                <HeaderHealthIndicator
+                    hasPermission={hasHealthPermission}
+                    userKey={userKey}
+                    isFreshLogin={isFreshLogin}
+                    onHealthChange={onHealthChange}
+                />
+
                 {/* 时间和天气 */}
                 <TimeChip now={now} />
                 <WeatherChip
