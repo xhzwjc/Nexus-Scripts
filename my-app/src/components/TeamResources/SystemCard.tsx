@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { SystemResource, Environment } from '@/lib/team-resources-data';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -8,9 +8,10 @@ import { toast } from 'sonner';
 
 interface SystemCardProps {
     system: SystemResource;
+    groupLogo?: string; // 集团logo，作为favicon加载失败时的回退
 }
 
-export function SystemCard({ system }: SystemCardProps) {
+export function SystemCard({ system, groupLogo }: SystemCardProps) {
     // 判断环境是否有有效数据（url不为空且不是占位符）
     const hasValidEnv = (envKey: Environment): boolean => {
         const envData = system.environments[envKey];
@@ -34,13 +35,39 @@ export function SystemCard({ system }: SystemCardProps) {
 
     const [env, setEnv] = useState<Environment>(getDefaultEnv());
     const [revealedCreds, setRevealedCreds] = useState<Record<string, boolean>>({});
+    const [faviconError, setFaviconError] = useState(false);
 
     const currentEnv = system.environments[env];
 
     // 当系统数据变化时重新计算默认环境
     React.useEffect(() => {
         setEnv(getDefaultEnv());
+        setFaviconError(false); // 重置favicon错误状态
     }, [getDefaultEnv]);
+
+    // 从URL中提取favicon地址
+    const faviconUrl = useMemo(() => {
+        // 优先使用生产环境，然后测试，最后开发
+        const envOrder: Environment[] = ['prod', 'test', 'dev'];
+        for (const envKey of envOrder) {
+            const envData = system.environments[envKey];
+            if (envData?.url) {
+                const url = envData.url.trim();
+                if (url && url !== 'https://' && url !== 'example.com') {
+                    try {
+                        // 确保URL有协议
+                        const fullUrl = url.startsWith('http') ? url : `https://${url}`;
+                        const urlObj = new URL(fullUrl);
+                        // 直接从网站根目录获取favicon
+                        return `${urlObj.protocol}//${urlObj.hostname}/favicon.ico`;
+                    } catch {
+                        // URL解析失败，继续尝试下一个环境
+                    }
+                }
+            }
+        }
+        return null;
+    }, [system.environments]);
 
     const toggleReveal = (id: string) => {
         setRevealedCreds(prev => ({
@@ -69,8 +96,29 @@ export function SystemCard({ system }: SystemCardProps) {
             {/* Header */}
             <div className="p-5 border-b border-slate-100 flex items-start justify-between bg-slate-50/50">
                 <div className="flex gap-3">
-                    <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm">
-                        <Database className="w-5 h-5 text-blue-600" />
+                    <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm flex items-center justify-center w-10 h-10 relative">
+                        {/* 默认显示集团logo或Database图标 */}
+                        {groupLogo && faviconError ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={groupLogo} alt="" className="w-5 h-5 object-contain" />
+                        ) : (
+                            <Database className={`w-5 h-5 text-blue-600 transition-opacity duration-300 ${faviconUrl && !faviconError ? 'opacity-0' : 'opacity-100'}`} />
+                        )}
+                        {/* Favicon 加载成功后覆盖显示 */}
+                        {faviconUrl && !faviconError && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                                src={faviconUrl}
+                                alt=""
+                                className="w-5 h-5 object-contain absolute opacity-0 transition-opacity duration-500"
+                                onError={() => setFaviconError(true)}
+                                onLoad={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.classList.remove('opacity-0');
+                                    target.classList.add('opacity-100');
+                                }}
+                            />
+                        )}
                     </div>
                     <div>
                         <h3 className="font-bold text-slate-800 text-base">{system.name}</h3>

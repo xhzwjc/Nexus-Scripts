@@ -91,6 +91,7 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                         >
                             {group.logo ? (
                                 <div className="w-8 h-8 rounded-lg overflow-hidden bg-white border border-slate-200 flex-shrink-0">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img
                                         src={group.logo}
                                         alt={group.name}
@@ -128,8 +129,8 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                     )}
 
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        {(searchQuery ? filteredGroups.flatMap(g => g.systems) : currentGroup?.systems || []).map(system => (
-                            <SystemCard key={system.id} system={system} />
+                        {(searchQuery ? filteredGroups.flatMap(g => g.systems.map(s => ({ system: s, logo: g.logo }))) : (currentGroup?.systems || []).map(s => ({ system: s, logo: currentGroup?.logo }))).map(({ system, logo }) => (
+                            <SystemCard key={system.id} system={system} groupLogo={logo} />
                         ))}
 
                         {filteredGroups.length === 0 && (
