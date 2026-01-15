@@ -45,6 +45,7 @@ const PaymentStatsScript = dynamic(() => import('./components/PaymentStatsScript
 const OCRScript = dynamic(() => import("@/components/OCRScript"), { loading: () => <LoadingComponent />, ssr: false });
 const DeliveryScript = dynamic(() => import("./components/DeliveryScript"), { loading: () => <LoadingComponent />, ssr: false });
 const DevTools = dynamic(() => import("./components/DevTools"), { loading: () => <LoadingComponent />, ssr: false });
+const TeamResourcesContainer = dynamic(() => import("./components/TeamResources/TeamResourcesContainer").then(mod => ({ default: mod.TeamResourcesContainer })), { loading: () => <LoadingComponent />, ssr: false });
 
 // Layout 组件导入
 import { HelpPage } from './components/Layout/HelpPage';
@@ -715,6 +716,11 @@ export default function App() {
                     {(currentView === 'script' || currentView === 'ocr-tool') && (
                         <div className="min-h-full">
                             {renderScript()}
+                        </div>
+                    )}
+                    {currentView === 'team-resources' && (
+                        <div className="h-full p-0">
+                            <TeamResourcesContainer onBack={() => setCurrentView('home')} />
                         </div>
                     )}
                 </main>

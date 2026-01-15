@@ -14,7 +14,7 @@ export interface User {
 }
 
 // ============== 视图类型 ==============
-export type ViewType = 'home' | 'system' | 'script' | 'ocr-tool' | 'help' | 'dev-tools';
+export type ViewType = 'home' | 'system' | 'script' | 'ocr-tool' | 'help' | 'dev-tools' | 'team-resources';
 
 // ============== 脚本类型 ==============
 export interface Script {

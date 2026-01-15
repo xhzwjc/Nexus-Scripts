@@ -1,0 +1,189 @@
+import React, { useState } from 'react';
+import { SystemResource, Environment } from '@/lib/team-resources-data';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Globe, Database, ExternalLink, Eye, EyeOff, Copy, User } from 'lucide-react';
+import { toast } from 'sonner';
+
+interface SystemCardProps {
+    system: SystemResource;
+}
+
+export function SystemCard({ system }: SystemCardProps) {
+    // 判断环境是否有有效数据（url不为空且不是占位符）
+    const hasValidEnv = (envKey: Environment): boolean => {
+        const envData = system.environments[envKey];
+        if (!envData) return false;
+        const url = envData.url?.trim() || '';
+        return url.length > 0 && url !== 'https://' && url !== 'example.com';
+    };
+
+    // 智能选择默认环境：生产 > 测试 > 开发
+    const getDefaultEnv = React.useCallback((): Environment => {
+        if (hasValidEnv('prod')) return 'prod';
+        if (hasValidEnv('test')) return 'test';
+        if (hasValidEnv('dev')) return 'dev';
+        // 如果都没有有效数据，返回第一个存在的环境
+        if (system.environments.prod) return 'prod';
+        if (system.environments.test) return 'test';
+        if (system.environments.dev) return 'dev';
+        return 'prod';
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [system.id, system.environments]);
+
+    const [env, setEnv] = useState<Environment>(getDefaultEnv());
+    const [revealedCreds, setRevealedCreds] = useState<Record<string, boolean>>({});
+
+    const currentEnv = system.environments[env];
+
+    // 当系统数据变化时重新计算默认环境
+    React.useEffect(() => {
+        setEnv(getDefaultEnv());
+    }, [getDefaultEnv]);
+
+    const toggleReveal = (id: string) => {
+        setRevealedCreds(prev => ({
+            ...prev,
+            [id]: !prev[id]
+        }));
+    };
+
+    const copyToClipboard = (text: string, label: string) => {
+        if (!text) {
+            toast.error('内容为空');
+            return;
+        }
+        navigator.clipboard.writeText(text);
+        toast.success(`已复制 ${label}`);
+    };
+
+    const envLabels: Record<Environment, string> = {
+        dev: '开发',
+        test: '测试',
+        prod: '生产'
+    };
+
+    return (
+        <Card className="flex flex-col overflow-hidden border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 flex items-start justify-between bg-slate-50/50">
+                <div className="flex gap-3">
+                    <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm">
+                        <Database className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-slate-800 text-base">{system.name}</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">{system.description || '暂无描述'}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 flex-1 flex flex-col gap-4">
+
+                {/* Environment Tabs */}
+                <Tabs value={env} onValueChange={(v) => setEnv(v as Environment)} className="w-full">
+                    <TabsList className="w-full grid grid-cols-3 mb-4 bg-slate-100/80">
+                        <TabsTrigger value="dev" disabled={!system.environments.dev}>
+                            {envLabels.dev}
+                        </TabsTrigger>
+                        <TabsTrigger value="test" disabled={!system.environments.test}>
+                            {envLabels.test}
+                        </TabsTrigger>
+                        <TabsTrigger value="prod" disabled={!system.environments.prod}>
+                            {envLabels.prod}
+                        </TabsTrigger>
+                    </TabsList>
+                </Tabs>
+
+                {currentEnv ? (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        {/* URL Link */}
+                        <div className="flex items-center gap-2 p-3 bg-blue-50/50 border border-blue-100 rounded-lg text-sm text-blue-700 hover:bg-blue-50 transition-colors group">
+                            <Globe className="w-4 h-4 shrink-0" />
+                            <a href={currentEnv.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate font-medium hover:underline">
+                                {currentEnv.url}
+                            </a>
+                            <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                                onClick={() => copyToClipboard(currentEnv.url, 'URL')}
+                            >
+                                <Copy className="w-3 h-3" />
+                            </Button>
+                            <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                        </div>
+
+                        {/* Credentials */}
+                        <div className="space-y-2">
+                            {currentEnv.creds.length > 0 ? (
+                                currentEnv.creds.map(cred => (
+                                    <div key={cred.id} className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200 group">
+                                        <div className="w-16 shrink-0 text-xs font-medium text-slate-500">{cred.label}</div>
+
+                                        <div className="flex-1 flex items-center gap-2 min-w-0">
+                                            {/* Username */}
+                                            <div className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-slate-200">
+                                                <User className="w-3 h-3 text-slate-400" />
+                                                <span className="text-sm font-mono text-slate-700 truncate max-w-[100px]">
+                                                    {cred.username}
+                                                </span>
+                                                <Button
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    className="h-5 w-5 ml-1"
+                                                    onClick={() => copyToClipboard(cred.username, '用户名')}
+                                                >
+                                                    <Copy className="w-3 h-3" />
+                                                </Button>
+                                            </div>
+
+                                            <span className="text-slate-300">/</span>
+
+                                            {/* Password */}
+                                            <div className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-slate-200 flex-1 min-w-0">
+                                                <span className="text-sm font-mono text-slate-700 truncate">
+                                                    {cred.password ? (revealedCreds[cred.id] ? cred.password : '••••••••') : '(未设置)'}
+                                                </span>
+                                                {cred.password && (
+                                                    <>
+                                                        <Button
+                                                            size="icon"
+                                                            variant="ghost"
+                                                            className="h-5 w-5 ml-auto"
+                                                            onClick={() => toggleReveal(cred.id)}
+                                                        >
+                                                            {revealedCreds[cred.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                                        </Button>
+                                                        <Button
+                                                            size="icon"
+                                                            variant="ghost"
+                                                            className="h-5 w-5"
+                                                            onClick={() => copyToClipboard(cred.password || '', '密码')}
+                                                        >
+                                                            <Copy className="w-3 h-3" />
+                                                        </Button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center py-4 text-sm text-slate-400 italic">
+                                    暂无凭证信息
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="py-8 text-center text-slate-400 text-sm">
+                        该环境未配置。
+                    </div>
+                )}
+            </div>
+        </Card>
+    );
+}

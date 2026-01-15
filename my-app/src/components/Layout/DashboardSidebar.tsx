@@ -1,9 +1,10 @@
 import React from 'react';
-import { Wrench, ScanLine, CircleHelp, ScrollText, LogOut, ChevronRight, Server, CheckCircle } from 'lucide-react';
+import { Wrench, ScanLine, CircleHelp, ScrollText, LogOut, ChevronRight, Server, CheckCircle, Users } from 'lucide-react';
+import type { ViewType } from '@/lib/types';
 
 interface SidebarProps {
     currentView: string;
-    setCurrentView: (view: any) => void;
+    setCurrentView: (view: ViewType) => void;
     setSelectedSystem: (sys: string) => void;
     setScriptQuery: (q: string) => void;
     setShowLogoutConfirm: (show: boolean) => void;
@@ -54,6 +55,13 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                     >
                         <ScanLine className="w-[18px] h-[18px]" />
                         <span>OCR 工具</span>
+                    </div>
+                    <div
+                        className={`sidebar-nav-item ${currentView === 'team-resources' ? 'active' : ''}`}
+                        onClick={() => setCurrentView('team-resources')}
+                    >
+                        <Users className="w-[18px] h-[18px]" />
+                        <span>团队资源</span>
                     </div>
                 </nav>
             </div>

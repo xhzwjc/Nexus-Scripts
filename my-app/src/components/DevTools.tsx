@@ -15,15 +15,15 @@ import {
     ShieldCheck,
     Hash,
     Code,
-    Check,
     AlertCircle,
     Languages,
-    ArrowLeft
+    ArrowLeft,
+    Unlock
 } from 'lucide-react';
 import { toast } from 'sonner';
 import CryptoJS from 'crypto-js';
 
-type DevToolTab = 'json' | 'timestamp' | 'uuid' | 'base64' | 'url' | 'jwt' | 'hash' | 'regex';
+type DevToolTab = 'json' | 'timestamp' | 'uuid' | 'base64' | 'url' | 'jwt' | 'hash' | 'regex' | 'decrypt';
 type Language = 'zh' | 'en';
 
 interface DevToolsProps {
@@ -44,7 +44,8 @@ const TRANSLATIONS = {
             url: 'URL 编解码',
             jwt: 'JWT 解析',
             hash: 'Hash 计算',
-            regex: '正则测试'
+            regex: '正则测试',
+            decrypt: '资源解密'
         },
         json: {
             title: 'JSON 工具',
@@ -117,7 +118,21 @@ const TRANSLATIONS = {
             test_string_placeholder: '粘贴内容以进行匹配测试...',
             matches_label: '匹配结果',
             no_matches: '未找到匹配项。',
-            error: '正则表达式错误: '
+            error: '正则表达式错詯: '
+        },
+        decrypt: {
+            title: '团队资源解密',
+            desc: '解密 team-resources.enc.json 中的加密数据',
+            input_label: '加密数据 (AES 密文)',
+            input_placeholder: '粘贴加密后的字符串...',
+            key_label: '解密密钥',
+            key_placeholder: '输入解密密钥 (默认使用系统密钥)',
+            decrypt_btn: '解密',
+            output_label: '解密结果 (JSON)',
+            output_placeholder: '解密后的明文数据将显示在这里...',
+            success: '解密成功',
+            fail: '解密失败: ',
+            copy_success: '解密数据已复制'
         }
     },
     en: {
@@ -133,7 +148,8 @@ const TRANSLATIONS = {
             url: 'URL Encoder',
             jwt: 'JWT Debugger',
             hash: 'Hash Calculator',
-            regex: 'Regex Tester'
+            regex: 'Regex Tester',
+            decrypt: 'Decrypt Resources'
         },
         json: {
             title: 'JSON Tools',
@@ -207,6 +223,20 @@ const TRANSLATIONS = {
             matches_label: 'Matches',
             no_matches: 'No matches found.',
             error: 'Regex Error: '
+        },
+        decrypt: {
+            title: 'Decrypt Team Resources',
+            desc: 'Decrypt team-resources.enc.json encrypted data',
+            input_label: 'Encrypted Data (AES Ciphertext)',
+            input_placeholder: 'Paste the encrypted string...',
+            key_label: 'Decryption Key',
+            key_placeholder: 'Enter key (leave empty for default)',
+            decrypt_btn: 'Decrypt',
+            output_label: 'Decrypted Result (JSON)',
+            output_placeholder: 'Decrypted plaintext will appear here...',
+            success: 'Decryption successful',
+            fail: 'Decryption failed: ',
+            copy_success: 'Decrypted data copied'
         }
     }
 };
@@ -254,6 +284,15 @@ export default function DevTools({ onBack }: DevToolsProps) {
     const [regexFlags, setRegexFlags] = useState('g');
     const [regexText, setRegexText] = useState('');
     const [regexResult, setRegexResult] = useState<string[]>([]);
+
+    // State - Decrypt
+    const [decryptInput, setDecryptInput] = useState('');
+    const [decryptKey, setDecryptKey] = useState('');
+    const [decryptOutput, setDecryptOutput] = useState('');
+    const [decryptError, setDecryptError] = useState('');
+
+    // Default encryption key (same as team-resources-data.ts)
+    const DEFAULT_ENCRYPTION_KEY = 'ScriptHub@TeamResources#2024!Secure';
 
     // ================== Handlers ==================
 
@@ -413,6 +452,40 @@ export default function DevTools({ onBack }: DevToolsProps) {
         }
     };
 
+    // Decrypt Handler
+    const handleDecrypt = () => {
+        setDecryptError('');
+        setDecryptOutput('');
+
+        if (!decryptInput.trim()) {
+            setDecryptError(lang === 'zh' ? '请输入加密数据' : 'Please enter encrypted data');
+            return;
+        }
+
+        try {
+            const key = decryptKey.trim() || DEFAULT_ENCRYPTION_KEY;
+            const bytes = CryptoJS.AES.decrypt(decryptInput.trim(), key);
+            const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+
+            if (!decrypted) {
+                throw new Error(lang === 'zh' ? '解密失败，请检查密钥是否正确' : 'Decryption failed, check if the key is correct');
+            }
+
+            // Try to parse and format as JSON
+            try {
+                const parsed = JSON.parse(decrypted);
+                setDecryptOutput(JSON.stringify(parsed, null, 2));
+            } catch {
+                // Not JSON, just show as is
+                setDecryptOutput(decrypted);
+            }
+
+            toast.success(t.decrypt.success);
+        } catch (e) {
+            setDecryptError(t.decrypt.fail + (e as Error).message);
+        }
+    };
+
     // Nav Button
     const NavBtn = ({ id, icon, label }: { id: DevToolTab, icon: React.ReactElement, label: string }) => (
         <button
@@ -478,6 +551,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                     <NavBtn id="jwt" icon={<ShieldCheck />} label={t.nav.jwt} />
                     <NavBtn id="hash" icon={<Hash />} label={t.nav.hash} />
                     <NavBtn id="regex" icon={<Code />} label={t.nav.regex} />
+                    <NavBtn id="decrypt" icon={<Unlock />} label={t.nav.decrypt} />
                 </div>
             </div>
 
@@ -804,6 +878,71 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                         )}
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Decrypt */}
+                {activeTab === 'decrypt' && (
+                    <div className="h-full flex flex-col overflow-hidden">
+                        <div className="mb-4 shrink-0">
+                            <h3 className="text-lg font-semibold text-slate-800">{t.decrypt.title}</h3>
+                            <p className="text-sm text-slate-500">{t.decrypt.desc}</p>
+                        </div>
+                        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-hidden">
+                            <div className="flex flex-col gap-3 overflow-hidden">
+                                <div className="flex-1 flex flex-col gap-2 overflow-hidden">
+                                    <label className="text-xs font-medium text-slate-500 shrink-0">{t.decrypt.input_label}</label>
+                                    <textarea
+                                        value={decryptInput}
+                                        onChange={(e) => setDecryptInput(e.target.value)}
+                                        placeholder={t.decrypt.input_placeholder}
+                                        className="flex-1 font-mono text-sm resize-none overflow-auto border border-slate-200 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        style={{ minHeight: 0 }}
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-2 shrink-0">
+                                    <label className="text-xs font-medium text-slate-500">{t.decrypt.key_label}</label>
+                                    <Input
+                                        value={decryptKey}
+                                        onChange={(e) => setDecryptKey(e.target.value)}
+                                        placeholder={t.decrypt.key_placeholder}
+                                        type="password"
+                                    />
+                                </div>
+                                <Button onClick={handleDecrypt} className="bg-green-600 hover:bg-green-700 shrink-0">
+                                    <Unlock className="w-4 h-4 mr-2" />
+                                    {t.decrypt.decrypt_btn}
+                                </Button>
+                                {decryptError && (
+                                    <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 p-3 rounded-lg shrink-0">
+                                        <AlertCircle className="w-4 h-4" />
+                                        {decryptError}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex flex-col gap-2 overflow-hidden">
+                                <div className="flex items-center justify-between shrink-0">
+                                    <label className="text-xs font-medium text-slate-500">{t.decrypt.output_label}</label>
+                                    {decryptOutput && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => copyToClipboard(decryptOutput, t.decrypt.copy_success)}
+                                            className="text-slate-500 hover:text-blue-600"
+                                        >
+                                            <Copy className="w-3.5 h-3.5 mr-1" /> Copy
+                                        </Button>
+                                    )}
+                                </div>
+                                <textarea
+                                    value={decryptOutput}
+                                    readOnly
+                                    placeholder={t.decrypt.output_placeholder}
+                                    className="flex-1 font-mono text-sm bg-slate-50 resize-none overflow-auto border border-slate-200 rounded-md p-3"
+                                    style={{ minHeight: 0 }}
+                                />
                             </div>
                         </div>
                     </div>
