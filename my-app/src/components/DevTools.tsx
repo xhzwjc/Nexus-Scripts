@@ -67,7 +67,12 @@ const TRANSLATIONS = {
             beijing_time: '北京时间 (CST)',
             now_label: '当前时间戳 (秒)',
             get_current: '获取当前时间',
-            invalid: '无效的时间戳'
+            invalid: '无效的时间戳',
+            datetime_label: '日期时间',
+            datetime_placeholder: '例如: 2024-01-15 14:30:00',
+            to_timestamp: '转为时间戳',
+            timestamp_result: '时间戳结果',
+            invalid_datetime: '无效的日期时间格式'
         },
         uuid: {
             title: 'UUID 生成器',
@@ -171,7 +176,12 @@ const TRANSLATIONS = {
             beijing_time: 'Beijing Time (CST)',
             now_label: 'Now (seconds)',
             get_current: 'Get Current Time',
-            invalid: 'Invalid Timestamp'
+            invalid: 'Invalid Timestamp',
+            datetime_label: 'Date Time',
+            datetime_placeholder: 'e.g. 2024-01-15 14:30:00',
+            to_timestamp: 'To Timestamp',
+            timestamp_result: 'Timestamp Result',
+            invalid_datetime: 'Invalid datetime format'
         },
         uuid: {
             title: 'UUID Generator',
@@ -255,6 +265,12 @@ export default function DevTools({ onBack }: DevToolsProps) {
     // State - Timestamp
     const [timestamp, setTimestamp] = useState(String(Math.floor(Date.now() / 1000)));
     const [dateOutput, setDateOutput] = useState('');
+    const [datetimeInput, setDatetimeInput] = useState(() => {
+        const now = new Date();
+        const pad = (n: number) => n.toString().padStart(2, '0');
+        return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    });
+    const [timestampOutput, setTimestampOutput] = useState('');
 
     // State - UUID
     const [uuidOutput, setUuidOutput] = useState('');
@@ -608,13 +624,15 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
                 {/* TIMESTAMP */}
                 {activeTab === 'timestamp' && (
-                    <div className="space-y-6 max-w-lg">
+                    <div className="space-y-6 max-w-xl">
                         <div className="mb-4">
                             <h3 className="text-lg font-semibold text-slate-800">{t.timestamp.title}</h3>
                             <p className="text-sm text-slate-500">{t.timestamp.desc}</p>
                         </div>
 
+                        {/* 时间戳转日期 */}
                         <div className="space-y-4 bg-white/50 p-6 rounded-2xl border border-white/50">
+                            <div className="text-sm font-semibold text-slate-600 mb-2">时间戳 → 日期时间</div>
                             <div className="flex items-end gap-3">
                                 <div className="flex-1 space-y-2">
                                     <label className="text-sm font-medium text-slate-700">{t.timestamp.label}</label>
@@ -652,6 +670,69 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                     </Button>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* 日期转时间戳 */}
+                        <div className="space-y-4 bg-white/50 p-6 rounded-2xl border border-white/50">
+                            <div className="text-sm font-semibold text-slate-600 mb-2">日期时间 → 时间戳</div>
+                            <div className="flex items-end gap-3">
+                                <div className="flex-1 space-y-2">
+                                    <label className="text-sm font-medium text-slate-700">{t.timestamp.datetime_label}</label>
+                                    <Input
+                                        type="datetime-local"
+                                        step="1"
+                                        value={datetimeInput}
+                                        onChange={(e) => setDatetimeInput(e.target.value)}
+                                        className="font-mono bg-white"
+                                    />
+                                </div>
+                                <Button
+                                    onClick={() => {
+                                        if (!datetimeInput) {
+                                            // 默认使用当前时间
+                                            const now = new Date();
+                                            const ts = Math.floor(now.getTime() / 1000);
+                                            setTimestampOutput(`${ts} (秒) / ${ts * 1000} (毫秒)`);
+                                        } else {
+                                            const date = new Date(datetimeInput);
+                                            if (isNaN(date.getTime())) {
+                                                setTimestampOutput(t.timestamp.invalid_datetime);
+                                            } else {
+                                                const ts = Math.floor(date.getTime() / 1000);
+                                                setTimestampOutput(`${ts} (秒) / ${ts * 1000} (毫秒)`);
+                                            }
+                                        }
+                                    }}
+                                    className="mb-[2px]"
+                                >
+                                    {t.timestamp.to_timestamp}
+                                </Button>
+                            </div>
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        const now = new Date();
+                                        const pad = (n: number) => n.toString().padStart(2, '0');
+                                        const formatted = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+                                        setDatetimeInput(formatted);
+                                    }}
+                                    className="text-xs"
+                                >
+                                    使用当前时间
+                                </Button>
+                            </div>
+
+                            {timestampOutput && (
+                                <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl relative group">
+                                    <div className="text-xs text-blue-600 mb-1">{t.timestamp.timestamp_result}</div>
+                                    <span className="font-mono text-lg text-blue-900 font-bold tracking-wide">{timestampOutput}</span>
+                                    <Button size="icon" variant="ghost" className="h-8 w-8 absolute right-2 top-3 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => copyToClipboard(timestampOutput.split(' ')[0])}>
+                                        <Copy className="w-4 h-4 text-blue-600" />
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
