@@ -2,8 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { ResourceGroup } from '@/lib/team-resources-data';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Search, Lock, ArrowLeft, Settings, FolderOpen, Building2 } from 'lucide-react';
+import { Search, Lock, ArrowLeft, Settings, FolderOpen, Building2, Shield } from 'lucide-react';
 import { SystemCard } from './SystemCard';
+import { HealthCheckPanel } from './HealthCheckPanel';
 
 interface ResourceViewerProps {
     data: ResourceGroup[];
@@ -16,6 +17,7 @@ interface ResourceViewerProps {
 export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: ResourceViewerProps) {
     const [activeGroup, setActiveGroup] = useState<string>(data[0]?.id || '');
     const [searchQuery, setSearchQuery] = useState('');
+    const [showHealthCheck, setShowHealthCheck] = useState(false);
 
     // 搜索过滤
     const filteredGroups = useMemo(() => {
@@ -53,6 +55,9 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                     </Button>
                     <span className="font-bold text-slate-800">团队资源</span>
                     <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => setShowHealthCheck(true)} className="text-slate-400 hover:text-green-500" title="系统健康检测">
+                            <Shield className="w-4 h-4" />
+                        </Button>
                         {isAdmin && (
                             <Button variant="ghost" size="icon" onClick={onManage} className="text-slate-400 hover:text-blue-500" title="管理资源">
                                 <Settings className="w-4 h-4" />
@@ -153,6 +158,14 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                     </div>
                 </div>
             </div>
+
+            {/* Health Check Panel */}
+            {showHealthCheck && (
+                <HealthCheckPanel
+                    groups={data}
+                    onClose={() => setShowHealthCheck(false)}
+                />
+            )}
         </div>
     );
 }
