@@ -560,31 +560,30 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
                 {/* JSON */}
                 {activeTab === 'json' && (
-                    <div className="h-full flex flex-col">
-                        <div className="mb-4">
+                    <div className="h-full flex flex-col overflow-hidden">
+                        <div className="mb-4 shrink-0">
                             <h3 className="text-lg font-semibold text-slate-800">{t.json.title}</h3>
                             <p className="text-sm text-slate-500">{t.json.desc}</p>
                         </div>
-                        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[400px]">
-                            <div className="flex flex-col gap-2">
-                                <label className="text-xs font-medium text-slate-500 ml-1">{t.json.input}</label>
-                                <Textarea
+                        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-hidden">
+                            <div className="flex flex-col gap-2 overflow-hidden">
+                                <label className="text-xs font-medium text-slate-500 ml-1 shrink-0">{t.json.input}</label>
+                                <textarea
                                     value={jsonInput}
                                     onChange={(e) => setJsonInput(e.target.value)}
                                     placeholder={t.json.placeholder}
-                                    className="flex-1 font-mono text-xs bg-white/50 resize-none p-3"
+                                    className="flex-1 font-mono text-xs bg-white/50 resize-none p-3 border border-slate-200 rounded-md overflow-auto focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    style={{ minHeight: 0 }}
                                 />
                             </div>
-                            <div className="flex flex-col gap-2">
-                                <label className="text-xs font-medium text-slate-500 ml-1">{t.json.output}</label>
-                                <div className="flex-1 relative">
-                                    <Textarea
+                            <div className="flex flex-col gap-2 overflow-hidden">
+                                <label className="text-xs font-medium text-slate-500 ml-1 shrink-0">{t.json.output}</label>
+                                <div className="flex-1 relative overflow-hidden">
+                                    <textarea
                                         readOnly
                                         value={jsonError || jsonOutput}
-                                        className={`
-                                            h-full w-full font-mono text-xs resize-none p-3 bg-slate-50
-                                            ${jsonError ? 'text-red-500 border-red-200' : 'text-slate-700'}
-                                        `}
+                                        className={`h-full w-full font-mono text-xs resize-none p-3 bg-slate-50 border border-slate-200 rounded-md overflow-auto ${jsonError ? 'text-red-500 border-red-200' : 'text-slate-700'}`}
+                                        style={{ minHeight: 0 }}
                                     />
                                     {jsonOutput && !jsonError && (
                                         <Button
@@ -599,7 +598,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                 </div>
                             </div>
                         </div>
-                        <div className="flex gap-2 mt-4 justify-end">
+                        <div className="flex gap-2 mt-4 justify-end shrink-0">
                             <Button variant="ghost" onClick={() => { setJsonInput(''); setJsonOutput(''); }} >{t.json.clear}</Button>
                             <Button variant="outline" onClick={handleJsonMinify}>{t.json.minify}</Button>
                             <Button onClick={handleJsonFormat} className="bg-blue-600 hover:bg-blue-700 text-white">{t.json.format}</Button>
@@ -681,27 +680,29 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
                 {/* BASE64 */}
                 {activeTab === 'base64' && (
-                    <div className="h-full flex flex-col">
-                        <div className="mb-4">
+                    <div className="h-full flex flex-col overflow-hidden">
+                        <div className="mb-4 shrink-0">
                             <h3 className="text-lg font-semibold text-slate-800">{t.base64.title}</h3>
                             <p className="text-sm text-slate-500">{t.base64.desc}</p>
                         </div>
-                        <div className="flex-1 grid grid-cols-1 gap-4">
-                            <Textarea
+                        <div className="flex-1 flex flex-col gap-4 overflow-hidden">
+                            <textarea
                                 value={base64Input}
                                 onChange={(e) => setBase64Input(e.target.value)}
                                 placeholder={t.base64.placeholder}
-                                className="flex-1 font-mono text-sm bg-white/50 resize-none p-4 min-h-[150px]"
+                                className="flex-1 font-mono text-sm bg-white/50 resize-none p-4 border border-slate-200 rounded-md overflow-auto focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                style={{ minHeight: 0 }}
                             />
-                            <div className="flex gap-4 justify-center py-2">
+                            <div className="flex gap-4 justify-center py-2 shrink-0">
                                 <Button onClick={handleBase64Encode} className="w-32">{t.base64.encode}</Button>
                                 <Button onClick={handleBase64Decode} variant="outline" className="w-32">{t.base64.decode}</Button>
                             </div>
-                            <Textarea
+                            <textarea
                                 readOnly
                                 value={base64Output}
                                 placeholder={t.base64.result_placeholder}
-                                className="flex-1 font-mono text-sm bg-slate-50 resize-none p-4 min-h-[150px]"
+                                className="flex-1 font-mono text-sm bg-slate-50 resize-none p-4 border border-slate-200 rounded-md overflow-auto"
+                                style={{ minHeight: 0 }}
                             />
                         </div>
                     </div>
@@ -709,27 +710,29 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
                 {/* URL */}
                 {activeTab === 'url' && (
-                    <div className="h-full flex flex-col">
-                        <div className="mb-4">
+                    <div className="h-full flex flex-col overflow-hidden">
+                        <div className="mb-4 shrink-0">
                             <h3 className="text-lg font-semibold text-slate-800">{t.url.title}</h3>
                         </div>
-                        <div className="flex-1 flex flex-col gap-4">
-                            <Textarea
+                        <div className="flex-1 flex flex-col gap-4 overflow-hidden">
+                            <textarea
                                 value={urlInput}
                                 onChange={(e) => setUrlInput(e.target.value)}
                                 placeholder={t.url.input_placeholder}
-                                className="h-40 font-mono text-sm bg-white/50 resize-none p-4"
+                                className="flex-1 font-mono text-sm bg-white/50 resize-none p-4 border border-slate-200 rounded-md overflow-auto break-all focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                style={{ minHeight: 0 }}
                             />
-                            <div className="flex gap-4">
+                            <div className="flex gap-4 shrink-0">
                                 <Button onClick={handleUrlEncode} className="flex-1">{t.url.encode}</Button>
                                 <Button onClick={handleUrlDecode} variant="outline" className="flex-1">{t.url.decode}</Button>
                             </div>
-                            <div className="relative flex-1">
-                                <Textarea
+                            <div className="relative flex-1 overflow-hidden">
+                                <textarea
                                     readOnly
                                     value={urlOutput}
                                     placeholder={t.url.result_placeholder}
-                                    className="h-full w-full font-mono text-sm bg-slate-50 resize-none p-4"
+                                    className="h-full w-full font-mono text-sm bg-slate-50 resize-none p-4 border border-slate-200 rounded-md overflow-auto break-all"
+                                    style={{ minHeight: 0 }}
                                 />
                                 {urlOutput && (
                                     <Button size="icon" variant="ghost" className="absolute top-2 right-2" onClick={() => copyToClipboard(urlOutput)}>
@@ -743,37 +746,38 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
                 {/* JWT */}
                 {activeTab === 'jwt' && (
-                    <div className="h-full flex flex-col">
-                        <div className="mb-4">
+                    <div className="h-full flex flex-col overflow-hidden">
+                        <div className="mb-4 shrink-0">
                             <h3 className="text-lg font-semibold text-slate-800">{t.jwt.title}</h3>
                             <p className="text-sm text-slate-500">{t.jwt.desc}</p>
                         </div>
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-                            <div className="flex flex-col gap-2">
-                                <label className="text-xs font-semibold text-slate-500">{t.jwt.token_label}</label>
-                                <Textarea
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 overflow-hidden">
+                            <div className="flex flex-col gap-2 overflow-hidden">
+                                <label className="text-xs font-semibold text-slate-500 shrink-0">{t.jwt.token_label}</label>
+                                <textarea
                                     value={jwtInput}
                                     onChange={(e) => handleJwtDecode(e.target.value)}
                                     placeholder={t.jwt.token_placeholder}
-                                    className="flex-1 font-mono text-xs bg-white/50 resize-none p-4 leading-relaxed break-all"
+                                    className="flex-1 font-mono text-xs bg-white/50 resize-none p-4 leading-relaxed break-all border border-slate-200 rounded-md overflow-auto focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    style={{ minHeight: 0 }}
                                 />
                                 {jwtError && (
-                                    <div className="text-xs text-red-500 flex items-center gap-1 mt-1">
+                                    <div className="text-xs text-red-500 flex items-center gap-1 mt-1 shrink-0">
                                         <AlertCircle className="w-3 h-3" />
                                         {jwtError}
                                     </div>
                                 )}
                             </div>
-                            <div className="flex flex-col gap-4 h-full overflow-y-auto pr-1">
-                                <div className="flex flex-col gap-1">
+                            <div className="flex flex-col gap-4 overflow-hidden">
+                                <div className="flex flex-col gap-1 shrink-0">
                                     <label className="text-xs font-semibold text-slate-500">{t.jwt.header_label}</label>
-                                    <pre className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-mono text-slate-700 overflow-x-auto">
+                                    <pre className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-mono text-slate-700 overflow-auto max-h-[120px]">
                                         {jwtHeader || '{}'}
                                     </pre>
                                 </div>
-                                <div className="flex flex-col gap-1 flex-1">
-                                    <label className="text-xs font-semibold text-purple-600">{t.jwt.payload_label}</label>
-                                    <pre className="bg-slate-50 border border-purple-100 ring-1 ring-purple-50 rounded-lg p-3 text-xs font-mono text-purple-900 overflow-x-auto flex-1">
+                                <div className="flex flex-col gap-1 flex-1 overflow-hidden">
+                                    <label className="text-xs font-semibold text-purple-600 shrink-0">{t.jwt.payload_label}</label>
+                                    <pre className="flex-1 bg-slate-50 border border-purple-100 ring-1 ring-purple-50 rounded-lg p-3 text-xs font-mono text-purple-900 overflow-auto" style={{ minHeight: 0 }}>
                                         {jwtPayload || '{}'}
                                     </pre>
                                 </div>
@@ -827,12 +831,12 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
                 {/* REGEX */}
                 {activeTab === 'regex' && (
-                    <div className="h-full flex flex-col">
-                        <div className="mb-4">
+                    <div className="h-full flex flex-col overflow-hidden">
+                        <div className="mb-4 shrink-0">
                             <h3 className="text-lg font-semibold text-slate-800">{t.regex.title}</h3>
                         </div>
-                        <div className="flex flex-col gap-4 flex-1">
-                            <div className="flex gap-2">
+                        <div className="flex flex-col gap-4 flex-1 overflow-hidden">
+                            <div className="flex gap-2 shrink-0">
                                 <div className="flex-1 relative">
                                     <span className="absolute left-3 top-2.5 text-slate-400 font-mono">/</span>
                                     <Input
@@ -852,19 +856,20 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                 <Button onClick={handleRegexTest}>{t.regex.test_btn}</Button>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-xs font-medium text-slate-500">{t.regex.test_string_label}</label>
-                                    <Textarea
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 overflow-hidden">
+                                <div className="flex flex-col gap-2 overflow-hidden">
+                                    <label className="text-xs font-medium text-slate-500 shrink-0">{t.regex.test_string_label}</label>
+                                    <textarea
                                         value={regexText}
                                         onChange={(e) => setRegexText(e.target.value)}
-                                        className="flex-1 font-mono text-sm resize-none bg-white"
+                                        className="flex-1 font-mono text-sm resize-none bg-white border border-slate-200 rounded-md p-3 overflow-auto focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         placeholder={t.regex.test_string_placeholder}
+                                        style={{ minHeight: 0 }}
                                     />
                                 </div>
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-xs font-medium text-slate-500">{t.regex.matches_label} ({regexResult.length})</label>
-                                    <div className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-4 overflow-y-auto">
+                                <div className="flex flex-col gap-2 overflow-hidden">
+                                    <label className="text-xs font-medium text-slate-500 shrink-0">{t.regex.matches_label} ({regexResult.length})</label>
+                                    <div className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-4 overflow-auto" style={{ minHeight: 0 }}>
                                         {regexResult.length === 0 ? (
                                             <span className="text-slate-400 text-sm italic">{t.regex.no_matches}</span>
                                         ) : (
