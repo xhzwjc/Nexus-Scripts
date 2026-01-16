@@ -1,0 +1,1395 @@
+{
+  "categories": [
+    {
+      "id": "chat",
+      "name": "AI对话",
+      "icon": "MessageSquare",
+      "order": 1
+    },
+    {
+      "id": "code",
+      "name": "代码开发",
+      "icon": "Code",
+      "order": 2
+    },
+    {
+      "id": "agent",
+      "name": "AI Agent",
+      "icon": "Bot",
+      "order": 3
+    },
+    {
+      "id": "image",
+      "name": "图像生成",
+      "icon": "Image",
+      "order": 4
+    },
+    {
+      "id": "video",
+      "name": "视频生成",
+      "icon": "Video",
+      "order": 5
+    },
+    {
+      "id": "design",
+      "name": "设计工具",
+      "icon": "Palette",
+      "order": 6
+    },
+    {
+      "id": "productivity",
+      "name": "效率工具",
+      "icon": "Zap",
+      "order": 7
+    },
+    {
+      "id": "audio",
+      "name": "音频处理",
+      "icon": "Music",
+      "order": 8
+    },
+    {
+      "id": "other",
+      "name": "其他工具",
+      "icon": "MoreHorizontal",
+      "order": 99
+    }
+  ],
+  "resources": [
+    {
+      "id": "chatgpt",
+      "name": "ChatGPT",
+      "description": "OpenAI的AI对话助手",
+      "url": "https://chat.openai.com",
+      "logoUrl": "https://chat.openai.com/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "OpenAI",
+        "对话",
+        "写作"
+      ],
+      "order": 1
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "description": "AI驱动的代码编辑器",
+      "url": "https://cursor.sh",
+      "logoUrl": "https://cursor.sh/favicon.ico",
+      "category": "code",
+      "tags": [
+        "IDE",
+        "编程"
+      ],
+      "order": 1
+    },
+    {
+      "id": "midjourney",
+      "name": "Midjourney",
+      "description": "顶级AI图像生成",
+      "url": "https://www.midjourney.com",
+      "logoUrl": "https://www.midjourney.com/favicon.ico",
+      "category": "image",
+      "tags": [
+        "绘画",
+        "艺术"
+      ],
+      "order": 1
+    },
+    {
+      "id": "runway",
+      "name": "Runway",
+      "description": "AI视频生成领导者",
+      "url": "https://runwayml.com",
+      "logoUrl": "https://runwayml.com/favicon.ico",
+      "category": "video",
+      "tags": [
+        "视频",
+        "特效"
+      ],
+      "order": 1
+    },
+    {
+      "id": "figma",
+      "name": "Figma",
+      "description": "协作设计工具",
+      "url": "https://www.figma.com",
+      "logoUrl": "https://static.figma.com/app/icon/1/favicon.ico",
+      "category": "design",
+      "tags": [
+        "UI",
+        "协作"
+      ],
+      "order": 1
+    },
+    {
+      "id": "notion-ai",
+      "name": "Notion AI",
+      "description": "AI增强的笔记工具",
+      "url": "https://www.notion.so",
+      "logoUrl": "https://www.notion.so/images/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "笔记",
+        "协作"
+      ],
+      "order": 1
+    },
+    {
+      "id": "elevenlabs",
+      "name": "ElevenLabs",
+      "description": "AI语音合成",
+      "url": "https://elevenlabs.io",
+      "logoUrl": "https://elevenlabs.io/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "语音",
+        "TTS"
+      ],
+      "order": 1
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "description": "Anthropic的AI助手",
+      "url": "https://claude.ai",
+      "logoUrl": "https://claude.ai/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "Anthropic",
+        "对话",
+        "分析"
+      ],
+      "order": 2
+    },
+    {
+      "id": "windsurf",
+      "name": "Windsurf",
+      "description": "Codeium的AI IDE",
+      "url": "https://codeium.com/windsurf",
+      "logoUrl": "https://codeium.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "IDE",
+        "编程"
+      ],
+      "order": 2
+    },
+    {
+      "id": "dalle",
+      "name": "DALL-E",
+      "description": "OpenAI图像生成",
+      "url": "https://openai.com/dall-e-3",
+      "logoUrl": "https://openai.com/favicon.ico",
+      "category": "image",
+      "tags": [
+        "OpenAI",
+        "绘画"
+      ],
+      "order": 2
+    },
+    {
+      "id": "pika",
+      "name": "Pika",
+      "description": "AI视频创作平台",
+      "url": "https://pika.art",
+      "logoUrl": "https://pika.art/favicon.ico",
+      "category": "video",
+      "tags": [
+        "视频",
+        "动画"
+      ],
+      "order": 2
+    },
+    {
+      "id": "canva",
+      "name": "Canva",
+      "description": "AI辅助设计平台",
+      "url": "https://www.canva.com",
+      "logoUrl": "https://www.canva.com/favicon.ico",
+      "category": "design",
+      "tags": [
+        "设计",
+        "模板"
+      ],
+      "order": 2
+    },
+    {
+      "id": "gamma",
+      "name": "Gamma",
+      "description": "AI演示文稿生成",
+      "url": "https://gamma.app",
+      "logoUrl": "https://gamma.app/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "PPT",
+        "演示"
+      ],
+      "order": 2
+    },
+    {
+      "id": "suno",
+      "name": "Suno",
+      "description": "AI音乐生成",
+      "url": "https://suno.com",
+      "logoUrl": "https://suno.com/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "音乐",
+        "创作"
+      ],
+      "order": 2
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "description": "Google的多模态AI",
+      "url": "https://gemini.google.com",
+      "logoUrl": "https://www.gstatic.com/lamda/images/gemini_favicon_f069958c85030f74c3f.png",
+      "category": "chat",
+      "tags": [
+        "Google",
+        "多模态"
+      ],
+      "order": 3
+    },
+    {
+      "id": "github-copilot",
+      "name": "GitHub Copilot",
+      "description": "GitHub AI编程助手",
+      "url": "https://github.com/features/copilot",
+      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
+      "category": "code",
+      "tags": [
+        "GitHub",
+        "编程"
+      ],
+      "order": 3
+    },
+    {
+      "id": "stable-diffusion",
+      "name": "Stable Diffusion",
+      "description": "开源图像生成模型",
+      "url": "https://stability.ai",
+      "logoUrl": "https://stability.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "开源",
+        "绘画"
+      ],
+      "order": 3
+    },
+    {
+      "id": "heygen",
+      "name": "HeyGen",
+      "description": "AI数字人视频",
+      "url": "https://www.heygen.com",
+      "logoUrl": "https://www.heygen.com/favicon.ico",
+      "category": "video",
+      "tags": [
+        "数字人",
+        "口播"
+      ],
+      "order": 3
+    },
+    {
+      "id": "remove-bg",
+      "name": "Remove.bg",
+      "description": "AI一键抠图",
+      "url": "https://www.remove.bg",
+      "logoUrl": "https://www.remove.bg/favicon.ico",
+      "category": "design",
+      "tags": [
+        "抠图",
+        "图片处理"
+      ],
+      "order": 3
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity",
+      "description": "AI搜索引擎",
+      "url": "https://www.perplexity.ai",
+      "logoUrl": "https://www.perplexity.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "搜索",
+        "研究"
+      ],
+      "order": 3
+    },
+    {
+      "id": "udio",
+      "name": "Udio",
+      "description": "AI音乐创作平台",
+      "url": "https://www.udio.com",
+      "logoUrl": "https://www.udio.com/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "音乐",
+        "创作"
+      ],
+      "order": 3
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "description": "深度求索AI对话",
+      "url": "https://chat.deepseek.com",
+      "logoUrl": "https://chat.deepseek.com/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "国产",
+        "对话",
+        "代码"
+      ],
+      "order": 4
+    },
+    {
+      "id": "replit",
+      "name": "Replit",
+      "description": "在线AI编程平台",
+      "url": "https://replit.com",
+      "logoUrl": "https://replit.com/public/icons/favicon-196.png",
+      "category": "code",
+      "tags": [
+        "在线IDE",
+        "协作"
+      ],
+      "order": 4
+    },
+    {
+      "id": "leonardo",
+      "name": "Leonardo.AI",
+      "description": "专业AI绘图平台",
+      "url": "https://leonardo.ai",
+      "logoUrl": "https://leonardo.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "绘画",
+        "设计"
+      ],
+      "order": 4
+    },
+    {
+      "id": "luma",
+      "name": "Luma Dream Machine",
+      "description": "AI视频生成",
+      "url": "https://lumalabs.ai/dream-machine",
+      "logoUrl": "https://lumalabs.ai/favicon.ico",
+      "category": "video",
+      "tags": [
+        "视频",
+        "3D"
+      ],
+      "order": 4
+    },
+    {
+      "id": "photoroom",
+      "name": "PhotoRoom",
+      "description": "AI产品图处理",
+      "url": "https://www.photoroom.com",
+      "logoUrl": "https://www.photoroom.com/favicon.ico",
+      "category": "design",
+      "tags": [
+        "电商",
+        "图片处理"
+      ],
+      "order": 4
+    },
+    {
+      "id": "napkin",
+      "name": "Napkin AI",
+      "description": "AI可视化笔记",
+      "url": "https://www.napkin.ai",
+      "logoUrl": "https://www.napkin.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "可视化",
+        "笔记"
+      ],
+      "order": 4
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi",
+      "description": "月之暗面长文本AI",
+      "url": "https://kimi.moonshot.cn",
+      "logoUrl": "https://kimi.moonshot.cn/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "国产",
+        "长文本"
+      ],
+      "order": 5
+    },
+    {
+      "id": "v0",
+      "name": "v0.dev",
+      "description": "Vercel AI UI生成器",
+      "url": "https://v0.dev",
+      "logoUrl": "https://v0.dev/favicon.ico",
+      "category": "code",
+      "tags": [
+        "UI",
+        "React"
+      ],
+      "order": 5
+    },
+    {
+      "id": "ideogram",
+      "name": "Ideogram",
+      "description": "AI文字绘图专家",
+      "url": "https://ideogram.ai",
+      "logoUrl": "https://ideogram.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "文字",
+        "绘画"
+      ],
+      "order": 5
+    },
+    {
+      "id": "doubao",
+      "name": "豆包",
+      "description": "字节跳动AI助手",
+      "url": "https://www.doubao.com",
+      "logoUrl": "https://www.doubao.com/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "国产",
+        "字节"
+      ],
+      "order": 6
+    },
+    {
+      "id": "kling",
+      "name": "可灵AI",
+      "description": "快手AI图像视频生成",
+      "url": "https://klingai.kuaishou.com",
+      "logoUrl": "https://klingai.kuaishou.com/favicon.ico",
+      "category": "image",
+      "tags": [
+        "国产",
+        "快手"
+      ],
+      "order": 6
+    },
+    {
+      "id": "tongyi",
+      "name": "通义千问",
+      "description": "阿里巴巴AI助手",
+      "url": "https://tongyi.aliyun.com",
+      "logoUrl": "https://img.alicdn.com/imgextra/i1/O1CN01AKUdEM1qP2jykihIU_!!6000000005487-2-tps-512-512.png",
+      "category": "chat",
+      "tags": [
+        "国产",
+        "阿里"
+      ],
+      "order": 7
+    },
+    {
+      "id": "wenxin",
+      "name": "文心一言",
+      "description": "百度AI对话",
+      "url": "https://yiyan.baidu.com",
+      "logoUrl": "https://nlp-eb.cdn.bcebos.com/logo/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "国产",
+        "百度"
+      ],
+      "order": 8
+    },
+    {
+      "id": "resource_1768545027378",
+      "name": "Grok",
+      "description": "xAI 的智能对话助手",
+      "url": "https://grok.com/",
+      "logoUrl": "",
+      "category": "chat",
+      "tags": [
+        "对话",
+        "实时搜索",
+        "xAI"
+      ],
+      "order": 35
+    },
+    {
+      "id": "microsoft-copilot",
+      "name": "Microsoft Copilot",
+      "description": "微软多模态AI助手",
+      "url": "https://copilot.microsoft.com",
+      "logoUrl": "https://copilot.microsoft.com/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "微软",
+        "生产力",
+        "多模态"
+      ],
+      "order": 9
+    },
+    {
+      "id": "meta-ai",
+      "name": "Meta AI",
+      "description": "Meta Llama驱动的AI助手",
+      "url": "https://www.meta.ai",
+      "logoUrl": "https://www.meta.ai/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "Meta",
+        "开源",
+        "多模态"
+      ],
+      "order": 10
+    },
+    {
+      "id": "pi-ai",
+      "name": "Pi",
+      "description": "Inflection的个人AI伴侣",
+      "url": "https://pi.ai",
+      "logoUrl": "https://pi.ai/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "对话",
+        "情感支持"
+      ],
+      "order": 11
+    },
+    {
+      "id": "poe",
+      "name": "Poe",
+      "description": "多模型AI聚合平台",
+      "url": "https://poe.com",
+      "logoUrl": "https://poe.com/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "聚合",
+        "多模型"
+      ],
+      "order": 12
+    },
+    {
+      "id": "tabnine",
+      "name": "Tabnine",
+      "description": "AI代码补全助手",
+      "url": "https://www.tabnine.com",
+      "logoUrl": "https://www.tabnine.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "代码补全",
+        "隐私保护"
+      ],
+      "order": 6
+    },
+    {
+      "id": "codewhisperer",
+      "name": "Amazon CodeWhisperer",
+      "description": "亚马逊AI代码生成工具",
+      "url": "https://aws.amazon.com/codewhisperer/",
+      "logoUrl": "https://aws.amazon.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "亚马逊",
+        "代码建议"
+      ],
+      "order": 7
+    },
+    {
+      "id": "cody",
+      "name": "Cody",
+      "description": "Sourcegraph代码库AI助手",
+      "url": "https://sourcegraph.com/cody",
+      "logoUrl": "https://sourcegraph.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "代码搜索",
+        "企业级"
+      ],
+      "order": 8
+    },
+    {
+      "id": "bolt",
+      "name": "Bolt.new",
+      "description": "AI快速原型开发工具",
+      "url": "https://bolt.new",
+      "logoUrl": "https://bolt.new/favicon.ico",
+      "category": "code",
+      "tags": [
+        "原型",
+        "快速开发"
+      ],
+      "order": 9
+    },
+    {
+      "id": "firefly",
+      "name": "Adobe Firefly",
+      "description": "Adobe专业级AI图像生成",
+      "url": "https://firefly.adobe.com",
+      "logoUrl": "https://firefly.adobe.com/favicon.ico",
+      "category": "image",
+      "tags": [
+        "Adobe",
+        "专业编辑"
+      ],
+      "order": 7
+    },
+    {
+      "id": "flux",
+      "name": "Flux",
+      "description": "Black Forest Labs高质量图像模型",
+      "url": "https://blackforestlabs.ai",
+      "logoUrl": "https://blackforestlabs.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "高质量",
+        "提示遵循"
+      ],
+      "order": 8
+    },
+    {
+      "id": "sora",
+      "name": "Sora",
+      "description": "OpenAI文本到视频生成",
+      "url": "https://openai.com/sora",
+      "logoUrl": "https://openai.com/favicon.ico",
+      "category": "video",
+      "tags": [
+        "OpenAI",
+        "高真实度"
+      ],
+      "order": 5
+    },
+    {
+      "id": "veo",
+      "name": "Veo",
+      "description": "Google高物理一致性视频生成",
+      "url": "https://deepmind.google/technologies/veo/",
+      "logoUrl": "https://deepmind.google/favicon.ico",
+      "category": "video",
+      "tags": [
+        "Google",
+        "物理模拟"
+      ],
+      "order": 6
+    },
+    {
+      "id": "synthesia",
+      "name": "Synthesia",
+      "description": "AI数字人头像视频",
+      "url": "https://www.synthesia.io",
+      "logoUrl": "https://www.synthesia.io/favicon.ico",
+      "category": "video",
+      "tags": [
+        "数字人",
+        "企业培训"
+      ],
+      "order": 7
+    },
+    {
+      "id": "hailuo",
+      "name": "Hailuo AI",
+      "description": "MiniMax高质量视频生成",
+      "url": "https://hailuoai.com",
+      "logoUrl": "https://hailuoai.com/favicon.ico",
+      "category": "video",
+      "tags": [
+        "国产",
+        "长视频"
+      ],
+      "order": 8
+    },
+    {
+      "id": "uizard",
+      "name": "Uizard",
+      "description": "AI从草图/文本生成UI设计",
+      "url": "https://uizard.io",
+      "logoUrl": "https://uizard.io/favicon.ico",
+      "category": "design",
+      "tags": [
+        "UI原型",
+        "快速设计"
+      ],
+      "order": 5
+    },
+    {
+      "id": "galileo-ai",
+      "name": "Galileo AI",
+      "description": "文本到专业UI设计",
+      "url": "https://www.usegalileo.ai",
+      "logoUrl": "https://www.usegalileo.ai/favicon.ico",
+      "category": "design",
+      "tags": [
+        "专业设计",
+        "产品UI"
+      ],
+      "order": 6
+    },
+    {
+      "id": "jasper",
+      "name": "Jasper",
+      "description": "AI营销内容写作助手",
+      "url": "https://www.jasper.ai",
+      "logoUrl": "https://www.jasper.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "内容营销",
+        "长文写作"
+      ],
+      "order": 5
+    },
+    {
+      "id": "otter",
+      "name": "Otter.ai",
+      "description": "AI会议实时转录与总结",
+      "url": "https://otter.ai",
+      "logoUrl": "https://otter.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "会议",
+        "转录"
+      ],
+      "order": 6
+    },
+    {
+      "id": "fireflies",
+      "name": "Fireflies.ai",
+      "description": "AI会议笔记与行动项提取",
+      "url": "https://fireflies.ai",
+      "logoUrl": "https://fireflies.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "会议助手",
+        "自动化笔记"
+      ],
+      "order": 7
+    },
+    {
+      "id": "notebooklm",
+      "name": "NotebookLM",
+      "description": "Google AI驱动的研究笔记工具",
+      "url": "https://notebooklm.google",
+      "logoUrl": "https://notebooklm.google/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "Google",
+        "研究总结"
+      ],
+      "order": 8
+    },
+    {
+      "id": "grammarly",
+      "name": "Grammarly",
+      "description": "AI写作语法与风格优化",
+      "url": "https://www.grammarly.com",
+      "logoUrl": "https://www.grammarly.com/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "写作助手",
+        "语法检查"
+      ],
+      "order": 9
+    },
+    {
+      "id": "descript",
+      "name": "Descript",
+      "description": "AI音频视频编辑与Overdub",
+      "url": "https://www.descript.com",
+      "logoUrl": "https://www.descript.com/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "播客编辑",
+        "语音克隆"
+      ],
+      "order": 4
+    },
+    {
+      "id": "playht",
+      "name": "PlayHT",
+      "description": "高自然度AI语音合成",
+      "url": "https://play.ht",
+      "logoUrl": "https://play.ht/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "TTS",
+        "语音克隆"
+      ],
+      "order": 5
+    },
+    {
+      "id": "murf",
+      "name": "Murf.ai",
+      "description": "专业级AI语音工作室",
+      "url": "https://murf.ai",
+      "logoUrl": "https://murf.ai/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "语音合成",
+        "配音"
+      ],
+      "order": 6
+    },
+    {
+      "id": "poe",
+      "name": "Poe",
+      "description": "多模型AI聚合对话平台",
+      "url": "https://poe.com",
+      "logoUrl": "https://poe.com/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "聚合",
+        "多模型",
+        "对话"
+      ],
+      "order": 15
+    },
+    {
+      "id": "meta-ai",
+      "name": "Meta AI",
+      "description": "Meta Llama驱动的多模态助手",
+      "url": "https://www.meta.ai",
+      "logoUrl": "https://www.meta.ai/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "Meta",
+        "开源",
+        "多模态"
+      ],
+      "order": 16
+    },
+    {
+      "id": "groq-chat",
+      "name": "GroqChat",
+      "description": "超快速推理AI对话",
+      "url": "https://chat.groq.com",
+      "logoUrl": "https://groq.com/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "速度",
+        "推理",
+        "开源模型"
+      ],
+      "order": 17
+    },
+    {
+      "id": "aider",
+      "name": "Aider",
+      "description": "开源命令行AI编程助手",
+      "url": "https://aider.chat",
+      "logoUrl": "https://aider.chat/favicon.ico",
+      "category": "code",
+      "tags": [
+        "开源",
+        "终端",
+        "编程"
+      ],
+      "order": 15
+    },
+    {
+      "id": "coderabbit",
+      "name": "CodeRabbit",
+      "description": "AI代码审查与PR总结",
+      "url": "https://coderabbit.ai",
+      "logoUrl": "https://coderabbit.ai/favicon.ico",
+      "category": "code",
+      "tags": [
+        "代码审查",
+        "PR",
+        "自动化"
+      ],
+      "order": 16
+    },
+    {
+      "id": "augment",
+      "name": "Augment",
+      "description": "AI代码补全与重构助手",
+      "url": "https://www.augmentcode.com",
+      "logoUrl": "https://www.augmentcode.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "补全",
+        "大型代码库"
+      ],
+      "order": 17
+    },
+    {
+      "id": "flux",
+      "name": "Flux",
+      "description": "Black Forest Labs 高质量图像模型",
+      "url": "https://blackforestlabs.ai",
+      "logoUrl": "https://blackforestlabs.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "高质量",
+        "提示遵循",
+        "开源变体"
+      ],
+      "order": 14
+    },
+    {
+      "id": "adobe-firefly",
+      "name": "Adobe Firefly",
+      "description": "Adobe集成专业AI图像生成",
+      "url": "https://firefly.adobe.com",
+      "logoUrl": "https://firefly.adobe.com/favicon.ico",
+      "category": "image",
+      "tags": [
+        "Adobe",
+        "专业",
+        "编辑集成"
+      ],
+      "order": 15
+    },
+    {
+      "id": "recraft",
+      "name": "Recraft",
+      "description": "矢量与设计风格AI绘图",
+      "url": "https://www.recraft.ai",
+      "logoUrl": "https://www.recraft.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "矢量",
+        "设计",
+        "一致性"
+      ],
+      "order": 16
+    },
+    {
+      "id": "veo",
+      "name": "Google Veo",
+      "description": "Google 高物理一致性视频生成",
+      "url": "https://deepmind.google/technologies/veo",
+      "logoUrl": "https://deepmind.google/favicon.ico",
+      "category": "video",
+      "tags": [
+        "Google",
+        "物理模拟",
+        "高真实"
+      ],
+      "order": 13
+    },
+    {
+      "id": "hailuo-minimax",
+      "name": "Hailuo MiniMax",
+      "description": "MiniMax 长时长高质量视频",
+      "url": "https://hailuoai.com/video",
+      "logoUrl": "https://hailuoai.com/favicon.ico",
+      "category": "video",
+      "tags": [
+        "国产",
+        "长视频",
+        "运动一致"
+      ],
+      "order": 14
+    },
+    {
+      "id": "viggle",
+      "name": "Viggle",
+      "description": "图像/角色驱动动画视频",
+      "url": "https://viggle.ai",
+      "logoUrl": "https://viggle.ai/favicon.ico",
+      "category": "video",
+      "tags": [
+        "动图",
+        "角色控制",
+        "混合同步"
+      ],
+      "order": 15
+    },
+    {
+      "id": "otter-ai",
+      "name": "Otter.ai",
+      "description": "AI会议实时转录与总结",
+      "url": "https://otter.ai",
+      "logoUrl": "https://otter.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "会议",
+        "转录",
+        "总结"
+      ],
+      "order": 13
+    },
+    {
+      "id": "notebooklm",
+      "name": "NotebookLM",
+      "description": "Google AI研究笔记与播客生成",
+      "url": "https://notebooklm.google",
+      "logoUrl": "https://notebooklm.google/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "Google",
+        "研究",
+        "音频总结"
+      ],
+      "order": 14
+    },
+    {
+      "id": "fireflies",
+      "name": "Fireflies.ai",
+      "description": "AI会议笔记与行动项提取",
+      "url": "https://fireflies.ai",
+      "logoUrl": "https://fireflies.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "会议",
+        "自动化",
+        "CRM集成"
+      ],
+      "order": 15
+    },
+    {
+      "id": "poe-aggregator",
+      "name": "Poe",
+      "description": "多模型聚合与自定义机器人",
+      "url": "https://poe.com",
+      "logoUrl": "https://poe.com/favicon.ico",
+      "category": "other",
+      "tags": [
+        "聚合",
+        "自定义",
+        "API"
+      ],
+      "order": 3
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "description": "超高速AI推理平台",
+      "url": "https://groq.com",
+      "logoUrl": "https://groq.com/favicon.ico",
+      "category": "other",
+      "tags": [
+        "推理",
+        "速度",
+        "API"
+      ],
+      "order": 4
+    },
+    {
+      "id": "google-antigravity",
+      "name": "Google Antigravity",
+      "description": "Google代理优先的AI原生IDE，支持自主代理构建软件",
+      "url": "https://antigravity.google",
+      "logoUrl": "https://antigravity.google/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "Google",
+        "IDE",
+        "自主代理",
+        "Gemini"
+      ],
+      "order": 1
+    },
+    {
+      "id": "trae",
+      "name": "Trae",
+      "description": "字节跳动AI代理团队平台，支持智能工具集成与软件工程代理",
+      "url": "https://www.trae.ai",
+      "logoUrl": "https://www.trae.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "字节",
+        "代理团队",
+        "IDE",
+        "工具调用"
+      ],
+      "order": 2
+    },
+    {
+      "id": "crewai",
+      "name": "CrewAI",
+      "description": "领先的多代理协作框架，构建AI团队执行复杂任务",
+      "url": "https://www.crewai.com",
+      "logoUrl": "https://www.crewai.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "多代理",
+        "开源",
+        "工作流"
+      ],
+      "order": 3
+    },
+    {
+      "id": "autogen",
+      "name": "AutoGen",
+      "description": "Microsoft多代理对话框架，支持自定义代理协作",
+      "url": "https://microsoft.github.io/autogen",
+      "logoUrl": "https://microsoft.github.io/autogen/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "Microsoft",
+        "多代理",
+        "开源"
+      ],
+      "order": 4
+    },
+    {
+      "id": "langgraph",
+      "name": "LangGraph",
+      "description": "LangChain的状态机代理工作流框架，构建可靠代理循环",
+      "url": "https://www.langchain.com/langgraph",
+      "logoUrl": "https://www.langchain.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "LangChain",
+        "状态机",
+        "工作流"
+      ],
+      "order": 5
+    },
+    {
+      "id": "dify",
+      "name": "Dify",
+      "description": "开源AI应用与代理构建平台，低代码快速部署代理工作流",
+      "url": "https://dify.ai",
+      "logoUrl": "https://dify.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "低代码",
+        "工作流"
+      ],
+      "order": 6
+    },
+    {
+      "id": "lindy",
+      "name": "Lindy",
+      "description": "无代码AI代理构建器，支持自定义自动化与多代理任务",
+      "url": "https://www.lindy.ai",
+      "logoUrl": "https://www.lindy.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "无代码",
+        "自动化",
+        "多任务"
+      ],
+      "order": 7
+    },
+    {
+      "id": "bardeen",
+      "name": "Bardeen",
+      "description": "浏览器AI自动化代理，支持网页操作与工作流执行",
+      "url": "https://www.bardeen.ai",
+      "logoUrl": "https://www.bardeen.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "浏览器代理",
+        "自动化",
+        "无代码"
+      ],
+      "order": 8
+    },
+    {
+      "id": "multion",
+      "name": "MultiOn",
+      "description": "浏览器自主AI代理，可执行复杂网页任务",
+      "url": "https://multion.ai",
+      "logoUrl": "https://multion.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "浏览器代理",
+        "自主执行"
+      ],
+      "order": 9
+    },
+    {
+      "id": "devin",
+      "name": "Devin",
+      "description": "Cognition AI软件工程代理，可自主规划与编码",
+      "url": "https://devin.ai",
+      "logoUrl": "https://devin.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "软件工程",
+        "自主代理"
+      ],
+      "order": 10
+    },
+    {
+      "id": "openhands",
+      "name": "OpenHands",
+      "description": "开源自主AI软件工程代理，可独立编写、执行、调试代码",
+      "url": "https://www.all-hands.dev",
+      "logoUrl": "https://www.all-hands.dev/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "软件工程",
+        "自主代理",
+        "代码执行"
+      ],
+      "order": 11
+    },
+    {
+      "id": "auto-gpt",
+      "name": "Auto-GPT",
+      "description": "经典自主AI代理框架，可链式分解并执行复杂任务",
+      "url": "https://agpt.co",
+      "logoUrl": "https://agpt.co/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "自主代理",
+        "任务分解",
+        "工具调用"
+      ],
+      "order": 12
+    },
+    {
+      "id": "metagpt",
+      "name": "MetaGPT",
+      "description": "多代理协作框架，模拟软件公司角色团队开发项目",
+      "url": "https://github.com/geekan/MetaGPT",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "多代理",
+        "开源",
+        "软件开发",
+        "角色协作"
+      ],
+      "order": 13
+    },
+    {
+      "id": "coze",
+      "name": "Coze (扣子)",
+      "description": "字节跳动推出的一站式AI Bot开发平台",
+      "url": "https://www.coze.cn",
+      "logoUrl": "https://sf-coze-web-cdn.coze.cn/obj/coze-web-cn/obric/coze/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "字节",
+        "低代码",
+        "Bot开发"
+      ],
+      "order": 14
+    },
+    {
+      "id": "lovable",
+      "name": "Lovable",
+      "description": "新一代AI全栈开发工具，超越GPT-4o的编码能力",
+      "url": "https://lovable.dev",
+      "logoUrl": "https://lovable.dev/favicon.ico",
+      "category": "code",
+      "tags": [
+        "全栈",
+        "Web开发",
+        "可视化"
+      ],
+      "order": 18
+    },
+    {
+      "id": "huggingface",
+      "name": "Hugging Face",
+      "description": "全球最大的AI模型与数据集开源社区",
+      "url": "https://huggingface.co",
+      "logoUrl": "https://huggingface.co/favicon.ico",
+      "category": "other",
+      "tags": [
+        "开源",
+        "模型库",
+        "基础设施"
+      ],
+      "order": 5
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "description": "在本地轻松运行Llama等大型语言模型",
+      "url": "https://ollama.com",
+      "logoUrl": "https://ollama.com/public/icon-32x32.png",
+      "category": "other",
+      "tags": [
+        "本地部署",
+        "开源",
+        "LLM"
+      ],
+      "order": 6
+    },
+    {
+      "id": "chatglm",
+      "name": "智谱清言",
+      "description": "智谱AI推出的新一代认知智能大模型",
+      "url": "https://chatglm.cn",
+      "logoUrl": "https://chatglm.cn/img/icons/favicon-32x32.png",
+      "category": "chat",
+      "tags": [
+        "国产",
+        "智谱AI",
+        "GLM"
+      ],
+      "order": 18
+    },
+    {
+      "id": "civitai",
+      "name": "Civitai",
+      "description": "全球最大的Stable Diffusion模型分享社区",
+      "url": "https://civitai.com",
+      "logoUrl": "https://civitai.com/favicon.ico",
+      "category": "image",
+      "tags": [
+        "模型库",
+        "SD",
+        "社区"
+      ],
+      "order": 17
+    },
+    {
+      "id": "liblib",
+      "name": "LiblibAI",
+      "description": "中国领先的AI原创图片与模型社区",
+      "url": "https://www.liblib.art",
+      "logoUrl": "https://www.liblib.art/favicon.ico",
+      "category": "image",
+      "tags": [
+        "国产",
+        "模型库",
+        "SD"
+      ],
+      "order": 18
+    },
+    {
+      "id": "monica",
+      "name": "Monica",
+      "description": "全能AI浏览器助手，整合多种主流模型",
+      "url": "https://monica.im",
+      "logoUrl": "https://monica.im/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "浏览器插件",
+        "聚合",
+        "助手"
+      ],
+      "order": 16
+    },
+    {
+      "id": "marscode",
+      "name": "MarsCode",
+      "description": "豆包旗下的AI编程助手 (MarsCode)",
+      "url": "https://www.marscode.cn",
+      "logoUrl": "https://lf-cdn.marscode.cn/obj/eden-cn/ljhwz_lpq/marscode/favicon.ico",
+      "category": "code",
+      "tags": [
+        "字节",
+        "IDE",
+        "免费"
+      ],
+      "order": 19
+    },
+    {
+      "id": "tripo",
+      "name": "Tripo AI",
+      "description": "快速生成高质量3D模型的AI工具",
+      "url": "https://www.tripo3d.ai",
+      "logoUrl": "https://www.tripo3d.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "3D",
+        "建模",
+        "设计"
+      ],
+      "order": 19
+    }
+  ]
+}

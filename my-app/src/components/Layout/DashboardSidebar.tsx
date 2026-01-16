@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wrench, ScanLine, CircleHelp, ScrollText, LogOut, ChevronRight, Server, CheckCircle, Users } from 'lucide-react';
+import { Wrench, ScanLine, CircleHelp, ScrollText, LogOut, ChevronRight, Server, CheckCircle, Users, Sparkles } from 'lucide-react';
 import type { ViewType } from '@/lib/types';
 
 interface SidebarProps {
@@ -62,6 +62,13 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                     >
                         <Users className="w-[18px] h-[18px]" />
                         <span>团队资源</span>
+                    </div>
+                    <div
+                        className={`sidebar-nav-item ${currentView === 'ai-resources' ? 'active' : ''}`}
+                        onClick={() => setCurrentView('ai-resources')}
+                    >
+                        <Sparkles className="w-[18px] h-[18px]" />
+                        <span>AI资源导航</span>
                     </div>
                 </nav>
             </div>

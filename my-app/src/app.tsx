@@ -50,6 +50,7 @@ const TeamResourcesContainer = dynamic(() => import("./components/TeamResources/
 import { HelpPage } from './components/Layout/HelpPage';
 import { DashboardSidebar } from './components/Layout/DashboardSidebar';
 import { DashboardHeader as DashHeader } from './components/Layout/DashboardHeader';
+import { AIResourcesContainer } from './components/AIResources';
 import { ClothBackground } from './components/Layout/ClothBackground';
 import { BubuMascot } from './components/Layout/BubuMascot';
 import { QuickActions, saveRecentScript } from './components/Layout/QuickActions';
@@ -808,6 +809,11 @@ export default function App() {
                     {currentView === 'team-resources' && (
                         <div className="h-full p-0">
                             <TeamResourcesContainer onBack={() => setCurrentView('home')} />
+                        </div>
+                    )}
+                    {currentView === 'ai-resources' && (
+                        <div className="h-full p-0">
+                            <AIResourcesContainer onBack={() => setCurrentView('home')} isAdmin={true} />
                         </div>
                     )}
                 </main>
