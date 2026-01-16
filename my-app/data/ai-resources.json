@@ -830,34 +830,6 @@
       "order": 6
     },
     {
-      "id": "poe",
-      "name": "Poe",
-      "description": "多模型AI聚合对话平台",
-      "url": "https://poe.com",
-      "logoUrl": "https://poe.com/favicon.ico",
-      "category": "chat",
-      "tags": [
-        "聚合",
-        "多模型",
-        "对话"
-      ],
-      "order": 15
-    },
-    {
-      "id": "meta-ai",
-      "name": "Meta AI",
-      "description": "Meta Llama驱动的多模态助手",
-      "url": "https://www.meta.ai",
-      "logoUrl": "https://www.meta.ai/favicon.ico",
-      "category": "chat",
-      "tags": [
-        "Meta",
-        "开源",
-        "多模态"
-      ],
-      "order": 16
-    },
-    {
       "id": "groq-chat",
       "name": "GroqChat",
       "description": "超快速推理AI对话",
@@ -913,20 +885,6 @@
       "order": 17
     },
     {
-      "id": "flux",
-      "name": "Flux",
-      "description": "Black Forest Labs 高质量图像模型",
-      "url": "https://blackforestlabs.ai",
-      "logoUrl": "https://blackforestlabs.ai/favicon.ico",
-      "category": "image",
-      "tags": [
-        "高质量",
-        "提示遵循",
-        "开源变体"
-      ],
-      "order": 14
-    },
-    {
       "id": "adobe-firefly",
       "name": "Adobe Firefly",
       "description": "Adobe集成专业AI图像生成",
@@ -953,20 +911,6 @@
         "一致性"
       ],
       "order": 16
-    },
-    {
-      "id": "veo",
-      "name": "Google Veo",
-      "description": "Google 高物理一致性视频生成",
-      "url": "https://deepmind.google/technologies/veo",
-      "logoUrl": "https://deepmind.google/favicon.ico",
-      "category": "video",
-      "tags": [
-        "Google",
-        "物理模拟",
-        "高真实"
-      ],
-      "order": 13
     },
     {
       "id": "hailuo-minimax",
@@ -1009,34 +953,6 @@
         "总结"
       ],
       "order": 13
-    },
-    {
-      "id": "notebooklm",
-      "name": "NotebookLM",
-      "description": "Google AI研究笔记与播客生成",
-      "url": "https://notebooklm.google",
-      "logoUrl": "https://notebooklm.google/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "Google",
-        "研究",
-        "音频总结"
-      ],
-      "order": 14
-    },
-    {
-      "id": "fireflies",
-      "name": "Fireflies.ai",
-      "description": "AI会议笔记与行动项提取",
-      "url": "https://fireflies.ai",
-      "logoUrl": "https://fireflies.ai/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "会议",
-        "自动化",
-        "CRM集成"
-      ],
-      "order": 15
     },
     {
       "id": "poe-aggregator",
