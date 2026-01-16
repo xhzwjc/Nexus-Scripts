@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { INITIAL_AI_RESOURCES } from '@/lib/ai-resources-data';
 
+export const dynamic = 'force-dynamic';
+
 const DATA_FILE = path.join(process.cwd(), 'data', 'ai-resources.json');
 
 // 确保data目录存在

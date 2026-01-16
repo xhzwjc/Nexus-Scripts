@@ -1,30 +1,58 @@
-# 构建阶段：基于 Node 安装依赖并构建项目
-FROM node:18-alpine AS build
+# 基础镜像
+FROM node:18-alpine AS base
+
+# 依赖安装阶段
+FROM base AS deps
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+# 复制依赖文件
+COPY package.json package-lock.json* ./
+# 安装依赖
+RUN npm ci
 
-RUN npm ci && npm cache clean --force
-
+# 构建阶段
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ENV NEXT_TELEMETRY_DISABLED=1
+# 禁用 Next.js 遥测
+ENV NEXT_TELEMETRY_DISABLED 1
 
+# 执行构建
 RUN npm run build
 
-FROM nginx:1.25.2-alpine
+# 运行阶段
+FROM base AS runner
+WORKDIR /app
 
-RUN rm -rf /usr/share/nginx/html/*
+ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED 1
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
 
-COPY --from=build /app/public/ /usr/share/nginx/html/
-COPY --from=build /app/.next/static /usr/share/nginx/html/.next/static
+# 关键：复制 public 目录 (包含 logo)
+COPY --from=builder /app/public ./public
 
-COPY --from=build /app/.next/server/app/index.html /usr/share/nginx/html/index.html
+# 关键：复制 data 目录 (包含 json 数据文件)
+COPY --from=builder /app/data ./data
 
-# 暴露 Nginx 监听的 80 端口。
-EXPOSE 8090
+# 设置 .next 目录权限
+RUN mkdir .next
+RUN chown nextjs:nodejs .next
 
-# 启动 Nginx 服务，并使用 'daemon off;' 参数使其在前台运行，这是容器化部署的标准做法。
-CMD ["nginx", "-g", "daemon off;"]
+# 复制 Next.js 构建产物 (Standalone 模式)
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+# 容器内部端口 3000
+EXPOSE 3000
+
+ENV PORT 3000
+
+# 启动 Node.js 服务器 (不是 Nginx!)
+CMD ["node", "server.js"]

@@ -4,6 +4,8 @@ import http from 'http';
 import tls from 'tls';
 import { URL } from 'url';
 
+export const dynamic = 'force-dynamic';
+
 export interface HealthCheckResult {
     url: string;
     accessible: boolean;

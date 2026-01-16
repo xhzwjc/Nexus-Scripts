@@ -37,13 +37,20 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
             try {
                 // 1. 加载资源数据
                 const dataRes = await fetch('/api/ai-resources/data');
-                const jsonData = await dataRes.json();
-                setData(jsonData);
+                if (dataRes.ok) {
+                    const jsonData = await dataRes.json();
+                    // 验证数据结构
+                    if (jsonData && Array.isArray(jsonData.categories) && Array.isArray(jsonData.resources)) {
+                        setData(jsonData);
+                    }
+                }
 
                 // 2. 获取本地logo列表
                 const logoListRes = await fetch('/api/ai-resources/logo-list');
-                const logoListData = await logoListRes.json();
-                setLogoCache(logoListData.logos || {});
+                if (logoListRes.ok) {
+                    const logoListData = await logoListRes.json();
+                    setLogoCache(logoListData.logos || {});
+                }
             } catch (error) {
                 console.error('Failed to load AI resources:', error);
             } finally {
