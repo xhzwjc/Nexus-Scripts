@@ -622,19 +622,6 @@
       "order": 9
     },
     {
-      "id": "firefly",
-      "name": "Adobe Firefly",
-      "description": "Adobe专业级AI图像生成",
-      "url": "https://firefly.adobe.com",
-      "logoUrl": "https://firefly.adobe.com/favicon.ico",
-      "category": "image",
-      "tags": [
-        "Adobe",
-        "专业编辑"
-      ],
-      "order": 7
-    },
-    {
       "id": "flux",
       "name": "Flux",
       "description": "Black Forest Labs高质量图像模型",
@@ -1306,6 +1293,426 @@
         "设计"
       ],
       "order": 19
+    },
+    {
+      "id": "xinghuo",
+      "name": "讯飞星火",
+      "description": "科大讯飞推出的多模态认知大模型",
+      "url": "https://xinghuo.xfyun.cn",
+      "logoUrl": "https://xinghuo.xfyun.cn/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "国产",
+        "多模态",
+        "认知推理"
+      ],
+      "order": 13
+    },
+    {
+      "id": "wudao",
+      "name": "智元悟道",
+      "description": "智元奇点研发的大语言模型，擅长长文本与逻辑推理",
+      "url": "https://www.agispark.com",
+      "logoUrl": "https://www.agispark.com/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "国产",
+        "长文本",
+        "逻辑推理"
+      ],
+      "order": 14
+    },
+    {
+      "id": "character-ai",
+      "name": "Character.AI",
+      "description": "个性化角色对话AI平台",
+      "url": "https://character.ai",
+      "logoUrl": "https://character.ai/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "角色对话",
+        "互动",
+        "娱乐"
+      ],
+      "order": 19
+    },
+    {
+      "id": "llama-chat",
+      "name": "Llama Chat",
+      "description": "Hugging Face开源对话模型工具",
+      "url": "https://huggingface.co/chat",
+      "logoUrl": "https://huggingface.co/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "开源",
+        "Llama",
+        "自定义"
+      ],
+      "order": 20
+    },
+    {
+      "id": "jetbrains-ai",
+      "name": "JetBrains AI Assistant",
+      "description": "集成于IDEA等IDE的AI编程助手",
+      "url": "https://www.jetbrains.com/ai/",
+      "logoUrl": "https://www.jetbrains.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "IDE集成",
+        "代码补全",
+        "调试"
+      ],
+      "order": 10
+    },
+    {
+      "id": "codellama",
+      "name": "CodeLlama",
+      "description": "Meta开源的高性能代码生成大模型",
+      "url": "https://ai.meta.com/codellama/",
+      "logoUrl": "https://ai.meta.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "开源",
+        "本地部署",
+        "代码生成"
+      ],
+      "order": 11
+    },
+    {
+      "id": "langchain",
+      "name": "LangChain",
+      "description": "构建大模型应用的核心框架，支持工具调用与链管理",
+      "url": "https://www.langchain.com",
+      "logoUrl": "https://www.langchain.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "工具链",
+        "应用框架"
+      ],
+      "order": 14
+    },
+    {
+      "id": "agentgpt",
+      "name": "AgentGPT",
+      "description": "可视化自主AI代理构建平台，无需代码即可创建任务代理",
+      "url": "https://agentgpt.reworkd.ai",
+      "logoUrl": "https://agentgpt.reworkd.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "可视化",
+        "无代码",
+        "自主代理"
+      ],
+      "order": 15
+    },
+    {
+      "id": "babyagi",
+      "name": "BabyAGI",
+      "description": "经典轻量级自主AI代理框架",
+      "url": "https://github.com/yoheinakajima/babyagi",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "自主代理",
+        "任务管理"
+      ],
+      "order": 16
+    },
+    {
+      "id": "taskingai",
+      "name": "TaskingAI",
+      "description": "轻量级AI代理开发与部署平台",
+      "url": "https://www.tasking.ai",
+      "logoUrl": "https://www.tasking.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "低代码",
+        "代理部署",
+        "工具调用"
+      ],
+      "order": 17
+    },
+    {
+      "id": "playground-ai",
+      "name": "Playground AI",
+      "description": "免费易用的在线AI绘图工具，支持多种模型",
+      "url": "https://playgroundai.com",
+      "logoUrl": "https://playgroundai.com/favicon.ico",
+      "category": "image",
+      "tags": [
+        "免费",
+        "在线绘图",
+        "多模型"
+      ],
+      "order": 10
+    },
+    {
+      "id": "meitu-ai",
+      "name": "美图秀秀AI绘画",
+      "description": "国内大众向AI绘图工具，风格化效果丰富",
+      "url": "https://pc.meitu.com",
+      "logoUrl": "https://pc.meitu.com/favicon.ico",
+      "category": "image",
+      "tags": [
+        "国产",
+        "大众向",
+        "风格化"
+      ],
+      "order": 11
+    },
+    {
+      "id": "kaiber-ai",
+      "name": "Kaiber AI",
+      "description": "AI音乐可视化与艺术视频生成",
+      "url": "https://kaiber.ai",
+      "logoUrl": "https://kaiber.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "音乐可视化",
+        "艺术创作",
+        "动态图像"
+      ],
+      "order": 21
+    },
+    {
+      "id": "capcut-ai",
+      "name": "剪映AI",
+      "description": "国内头部视频剪辑工具，内置AI生成与剪辑功能",
+      "url": "https://www.capcut.cn",
+      "logoUrl": "https://www.capcut.cn/favicon.ico",
+      "category": "video",
+      "tags": [
+        "国产",
+        "视频剪辑",
+        "AI生成"
+      ],
+      "order": 9
+    },
+    {
+      "id": "deepbrain-ai",
+      "name": "DeepBrain AI",
+      "description": "企业级数字人视频生成平台，支持多语言口播",
+      "url": "https://www.deepbrain.io",
+      "logoUrl": "https://www.deepbrain.io/favicon.ico",
+      "category": "video",
+      "tags": [
+        "数字人",
+        "企业级",
+        "口播"
+      ],
+      "order": 10
+    },
+    {
+      "id": "pictory-ai",
+      "name": "Pictory.ai",
+      "description": "文本转视频与视频编辑AI工具",
+      "url": "https://pictory.ai",
+      "logoUrl": "https://pictory.ai/favicon.ico",
+      "category": "video",
+      "tags": [
+        "文本转视频",
+        "剪辑",
+        "自媒体"
+      ],
+      "order": 16
+    },
+    {
+      "id": "invideo-ai",
+      "name": "InVideo AI",
+      "description": "快速生成营销与社交平台视频",
+      "url": "https://invideo.io/ai",
+      "logoUrl": "https://invideo.io/favicon.ico",
+      "category": "video",
+      "tags": [
+        "营销视频",
+        "模板",
+        "快速生成"
+      ],
+      "order": 17
+    },
+    {
+      "id": "jsdelivr-design",
+      "name": "即时设计",
+      "description": "国产专业UI设计工具，内置AI辅助设计功能",
+      "url": "https://js.design",
+      "logoUrl": "https://js.design/favicon.ico",
+      "category": "design",
+      "tags": [
+        "国产",
+        "UI设计",
+        "协作"
+      ],
+      "order": 6
+    },
+    {
+      "id": "adobe-ai-illustrator",
+      "name": "Adobe Illustrator AI",
+      "description": "专业矢量设计工具，集成Firefly AI生成功能",
+      "url": "https://www.adobe.com/cn/products/illustrator.html",
+      "logoUrl": "https://www.adobe.com/favicon.ico",
+      "category": "design",
+      "tags": [
+        "矢量设计",
+        "专业",
+        "AI生成"
+      ],
+      "order": 7
+    },
+    {
+      "id": "adobe-express",
+      "name": "Adobe Express",
+      "description": "Adobe AI驱动的快速设计平台",
+      "url": "https://express.adobe.com",
+      "logoUrl": "https://express.adobe.com/favicon.ico",
+      "category": "design",
+      "tags": [
+        "Adobe",
+        "海报",
+        "社交媒体设计"
+      ],
+      "order": 8
+    },
+    {
+      "id": "figjam-ai",
+      "name": "FigJam AI",
+      "description": "Figma协作式AI设计与头脑风暴工具",
+      "url": "https://www.figma.com/figjam",
+      "logoUrl": "https://static.figma.com/app/icon/1/favicon.ico",
+      "category": "design",
+      "tags": [
+        "协作",
+        "原型",
+        "头脑风暴"
+      ],
+      "order": 9
+    },
+    {
+      "id": "feishu-ai",
+      "name": "飞书AI",
+      "description": "企业协作平台内置的AI助手，支持文档总结与会议纪要",
+      "url": "https://www.feishu.cn",
+      "logoUrl": "https://www.feishu.cn/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "国产",
+        "企业协作",
+        "文档总结"
+      ],
+      "order": 10
+    },
+    {
+      "id": "todoist-ai",
+      "name": "Todoist AI",
+      "description": "AI驱动的任务管理工具，支持智能规划与优先级排序",
+      "url": "https://todoist.com",
+      "logoUrl": "https://todoist.com/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "任务管理",
+        "智能规划",
+        "效率"
+      ],
+      "order": 11
+    },
+    {
+      "id": "clickup-ai",
+      "name": "ClickUp AI",
+      "description": "AI驱动的项目管理与协作平台",
+      "url": "https://clickup.com/ai",
+      "logoUrl": "https://clickup.com/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "项目管理",
+        "协作",
+        "自动化"
+      ],
+      "order": 18
+    },
+    {
+      "id": "adobe-audition-ai",
+      "name": "Adobe Audition AI",
+      "description": "专业音频编辑工具，AI降噪与音频修复功能强大",
+      "url": "https://www.adobe.com/cn/products/audition.html",
+      "logoUrl": "https://www.adobe.com/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "专业编辑",
+        "AI降噪",
+        "音频修复"
+      ],
+      "order": 7
+    },
+    {
+      "id": "voice-ai",
+      "name": "Voice.ai",
+      "description": "实时语音克隆与变声工具，支持多种音色模拟",
+      "url": "https://voice.ai",
+      "logoUrl": "https://voice.ai/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "语音克隆",
+        "实时变声",
+        "音色模拟"
+      ],
+      "order": 8
+    },
+    {
+      "id": "whisper",
+      "name": "Whisper",
+      "description": "OpenAI开源语音转文字工具",
+      "url": "https://openai.com/research/whisper",
+      "logoUrl": "https://openai.com/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "开源",
+        "语音转文字",
+        "多语言"
+      ],
+      "order": 9
+    },
+    {
+      "id": "lovo-ai",
+      "name": "Lovo.ai",
+      "description": "高质量AI语音合成与配音平台",
+      "url": "https://lovo.ai",
+      "logoUrl": "https://lovo.ai/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "语音合成",
+        "配音",
+        "多音色"
+      ],
+      "order": 10
+    },
+    {
+      "id": "modelscope",
+      "name": "ModelScope",
+      "description": "阿里云开源模型社区，汇聚国产优质AI模型",
+      "url": "https://modelscope.cn",
+      "logoUrl": "https://modelscope.cn/favicon.ico",
+      "category": "other",
+      "tags": [
+        "国产",
+        "开源社区",
+        "模型托管"
+      ],
+      "order": 7
+    },
+    {
+      "id": "wandb",
+      "name": "Weights & Biases",
+      "description": "AI模型训练与实验管理平台，支持可视化跟踪",
+      "url": "https://wandb.ai",
+      "logoUrl": "https://wandb.ai/favicon.ico",
+      "category": "other",
+      "tags": [
+        "模型训练",
+        "实验管理",
+        "可视化"
+      ],
+      "order": 8
     }
   ]
 }
