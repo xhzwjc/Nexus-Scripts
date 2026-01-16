@@ -42,7 +42,8 @@ export interface ResourceGroup {
 // 固定访问密钥
 export const ACCESS_KEYS = [
     "U5*mO~yW6%LxJ3dQ0nHaD8~L0bV&cXoM9uA2j",
-    "wjc"
+    "wjc",
+    "pE7#tV4^Rk!2zF1&B@8cU5*mO~yW6%LxJ3dQ0nHa"
 ];
 
 // AES 加密密钥（前端解密用，实际生产环境应更安全处理）
