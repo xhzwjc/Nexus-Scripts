@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Image from 'next/image';
-import { Search, ExternalLink, Settings, ArrowLeft, Sparkles, X, Folder } from 'lucide-react';
+import { Search, ExternalLink, Settings, ArrowLeft, Sparkles, X, Folder, Download } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +28,8 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
     const [activeCategory, setActiveCategory] = useState<string>('all');
     const [isEditing, setIsEditing] = useState(false);
     const [logoCache, setLogoCache] = useState<Record<string, string>>({});
+    const [isDownloading, setIsDownloading] = useState(false);
+    const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 });
 
     // 加载数据和本地logo列表
     useEffect(() => {
@@ -60,6 +62,54 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
         } catch {
             // ignore
         }
+    };
+
+    // 自动下载缺失的logo
+    const downloadMissingLogos = async () => {
+        if (isDownloading) return;
+
+        // 找出缺失logo的资源
+        const missingLogos = data.resources.filter(
+            r => r.logoUrl && !logoCache[r.id]
+        );
+
+        if (missingLogos.length === 0) {
+            toast.info('所有icon已存在，无需下载');
+            return;
+        }
+
+        setIsDownloading(true);
+        setDownloadProgress({ current: 0, total: missingLogos.length });
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (let i = 0; i < missingLogos.length; i++) {
+            const resource = missingLogos[i];
+            setDownloadProgress({ current: i + 1, total: missingLogos.length });
+
+            try {
+                const res = await fetch('/api/ai-resources/logo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: resource.id, logoUrl: resource.logoUrl })
+                });
+                const result = await res.json();
+
+                if (result.success && result.path) {
+                    setLogoCache(prev => ({ ...prev, [resource.id]: result.path }));
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch {
+                failCount++;
+            }
+        }
+
+        setIsDownloading(false);
+        toast.success(`下载完成：成功 ${successCount} 个，失败 ${failCount} 个`);
+        await refreshLogos();
     };
 
     // 获取logo路径（只从本地缓存获取）
@@ -183,10 +233,31 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
 
                         {/* 管理按钮 */}
                         {isAdmin && (
-                            <Button variant="outline" onClick={() => setIsEditing(true)} className="gap-2">
-                                <Settings className="w-4 h-4" />
-                                管理
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                {/* 下载Icon按钮 */}
+                                <Button
+                                    variant="outline"
+                                    onClick={downloadMissingLogos}
+                                    disabled={isDownloading}
+                                    className="gap-2"
+                                >
+                                    {isDownloading ? (
+                                        <>
+                                            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                            {downloadProgress.current}/{downloadProgress.total}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Download className="w-4 h-4" />
+                                            下载Icon
+                                        </>
+                                    )}
+                                </Button>
+                                <Button variant="outline" onClick={() => setIsEditing(true)} className="gap-2">
+                                    <Settings className="w-4 h-4" />
+                                    管理
+                                </Button>
+                            </div>
                         )}
                     </div>
                 </div>
