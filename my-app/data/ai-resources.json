@@ -55,6 +55,24 @@
       "order": 9
     },
     {
+      "id": "data",
+      "name": "数据分析",
+      "icon": "BarChart",
+      "order": 10
+    },
+    {
+      "id": "writing",
+      "name": "写作与内容",
+      "icon": "PenTool",
+      "order": 11
+    },
+    {
+      "id": "search",
+      "name": "搜索与研究",
+      "icon": "Search",
+      "order": 12
+    },
+    {
       "id": "other",
       "name": "其他工具",
       "icon": "MoreHorizontal",
@@ -2049,6 +2067,306 @@
       "category": "monitoring",
       "tags": ["国产", "全链路", "业务监控"],
       "order": 28
+    },
+    {
+      "id": "julius-ai",
+      "name": "Julius AI",
+      "description": "自然语言数据分析师，支持Excel/CSV上传、自动可视化与预测",
+      "url": "https://julius.ai",
+      "logoUrl": "https://julius.ai/favicon.ico",
+      "category": "data",
+      "tags": ["数据可视化", "自然语言", "预测分析"],
+      "order": 1
+    },
+    {
+      "id": "hex-magic",
+      "name": "Hex",
+      "description": "协作式AI数据笔记本，支持SQL/Python与团队共享",
+      "url": "https://hex.tech",
+      "logoUrl": "https://hex.tech/favicon.ico",
+      "category": "data",
+      "tags": ["协作", "数据科学", "笔记本"],
+      "order": 2
+    },
+    {
+      "id": "akkio",
+      "name": "Akkio",
+      "description": "无代码预测建模，适合业务用户快速构建ML模型",
+      "url": "https://www.akkio.com",
+      "logoUrl": "https://www.akkio.com/favicon.ico",
+      "category": "data",
+      "tags": ["无代码", "预测模型", "业务分析"],
+      "order": 3
+    },
+    {
+      "id": "pandas-ai",
+      "name": "Pandas AI",
+      "description": "在Pandas代码中集成AI，自然语言查询DataFrame",
+      "url": "https://github.com/gventuri/pandas-ai",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "data",
+      "tags": ["开源", "Python", "数据查询"],
+      "order": 4
+    },
+    {
+      "id": "thoughtspot",
+      "name": "ThoughtSpot",
+      "description": "企业级自然语言搜索BI平台，支持实时数据洞察",
+      "url": "https://www.thoughtspot.com",
+      "logoUrl": "https://www.thoughtspot.com/favicon.ico",
+      "category": "data",
+      "tags": ["企业级", "BI", "自然语言搜索"],
+      "order": 5
+    },
+    {
+      "id": "polymer",
+      "name": "Polymer",
+      "description": "AI驱动数据仪表盘，自动生成洞察与可视化",
+      "url": "https://www.polymersearch.com",
+      "logoUrl": "https://www.polymersearch.com/favicon.ico",
+      "category": "data",
+      "tags": ["仪表盘", "自动洞察", "无代码"],
+      "order": 6
+    },
+    {
+      "id": "powerdrill",
+      "name": "Powerdrill AI",
+      "description": "快速数据查询与报告生成，支持多数据源连接",
+      "url": "https://powerdrill.ai",
+      "logoUrl": "https://powerdrill.ai/favicon.ico",
+      "category": "data",
+      "tags": ["报告生成", "多数据源", "快速查询"],
+      "order": 7
+    },
+    {
+      "id": "agentar-sql",
+      "name": "Agentar SQL",
+      "description": "蚂蚁数科开源的数据分析智能体，可将自然语言精准转换为SQL查询，企业级准确率高",
+      "url": "https://github.com/AntGroup/Agentar",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "data",
+      "tags": ["开源", "Text-to-SQL", "企业级", "自然语言查询"],
+      "order": 8
+    },
+    {
+      "id": "vanna-ai",
+      "name": "Vanna AI",
+      "description": "开源生成式BI框架，通过RAG将自然语言转换为SQL，支持本地部署与多种数据库",
+      "url": "https://github.com/vanna-ai/vanna",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "data",
+      "tags": ["开源", "RAG", "Text-to-SQL", "本地部署"],
+      "order": 9
+    },
+    {
+      "id": "wren-ai",
+      "name": "Wren AI",
+      "description": "开箱即用AI分析工具，Excel/Google Sheets插件，支持自然语言数据分析",
+      "url": "https://www.wrenai.com",
+      "logoUrl": "https://www.wrenai.com/favicon.ico",
+      "category": "data",
+      "tags": ["Excel插件", "无代码", "商业分析", "自然语言"],
+      "order": 10
+    },
+    {
+      "id": "tdgpt",
+      "name": "TDgpt",
+      "description": "TDengine时序数据库内置AI智能体，一行SQL调用预测、异常检测等复杂能力",
+      "url": "https://www.taosdata.com",
+      "logoUrl": "https://www.taosdata.com/favicon.ico",
+      "category": "data",
+      "tags": ["时序数据", "预测分析", "SQL集成", "异常检测"],
+      "order": 11
+    },
+    {
+      "id": "napkin-ai",
+      "name": "Napkin AI",
+      "description": "文字描述快速转思维导图、流程图等可视化图表，便于整理思路和展示（从productivity移入）",
+      "url": "https://www.napkin.ai",
+      "logoUrl": "https://www.napkin.ai/favicon.ico",
+      "category": "data",
+      "tags": ["可视化", "思维导图", "快速生成", "思路整理"],
+      "order": 13
+    },
+    {
+      "id": "writesonic",
+      "name": "Writesonic",
+      "description": "多功能AI写作平台，擅长SEO优化与社交媒体内容",
+      "url": "https://writesonic.com",
+      "logoUrl": "https://writesonic.com/favicon.ico",
+      "category": "writing",
+      "tags": ["SEO", "社交媒体", "多语言"],
+      "order": 2
+    },
+    {
+      "id": "copy-ai",
+      "name": "Copy.ai",
+      "description": "快速生成营销文案、邮件与产品描述",
+      "url": "https://www.copy.ai",
+      "logoUrl": "https://www.copy.ai/favicon.ico",
+      "category": "writing",
+      "tags": ["营销文案", "快速生成", "模板丰富"],
+      "order": 3
+    },
+    {
+      "id": "rytr",
+      "name": "Rytr",
+      "description": "性价比高AI写作工具，支持40+用例与多语言",
+      "url": "https://rytr.me",
+      "logoUrl": "https://rytr.me/favicon.ico",
+      "category": "writing",
+      "tags": ["性价比", "多语言", "短文"],
+      "order": 4
+    },
+    {
+      "id": "sudowrite",
+      "name": "Sudowrite",
+      "description": "创意写作专用AI，擅长小说、剧本与故事扩展",
+      "url": "https://www.sudowrite.com",
+      "logoUrl": "https://www.sudowrite.com/favicon.ico",
+      "category": "writing",
+      "tags": ["创意写作", "小说", "故事生成"],
+      "order": 5
+    },
+    {
+      "id": "anyword",
+      "name": "Anyword",
+      "description": "数据驱动营销文案生成，带性能预测评分",
+      "url": "https://anyword.com",
+      "logoUrl": "https://anyword.com/favicon.ico",
+      "category": "writing",
+      "tags": ["营销", "性能预测", "A/B测试"],
+      "order": 6
+    },
+    {
+      "id": "frase",
+      "name": "Frase",
+      "description": "SEO内容优化工具，自动生成大纲与文章",
+      "url": "https://www.frase.io",
+      "logoUrl": "https://www.frase.io/favicon.ico",
+      "category": "writing",
+      "tags": ["SEO", "内容大纲", "研究"],
+      "order": 7
+    },
+    {
+      "id": "boardmix-ai",
+      "name": "Boardmix AI",
+      "description": "在线协作白板集成AI写作，根据主题生成文章大纲和内容，支持思维导图",
+      "url": "https://boardmix.cn",
+      "logoUrl": "https://boardmix.cn/favicon.ico",
+      "category": "writing",
+      "tags": ["白板协作", "大纲生成", "团队共创", "思维导图"],
+      "order": 8
+    },
+    {
+      "id": "wordtune",
+      "name": "Wordtune",
+      "description": "专注文本润色与改写，优化句子结构、调整语气，适合文章后期打磨",
+      "url": "https://www.wordtune.com",
+      "logoUrl": "https://www.wordtune.com/favicon.ico",
+      "category": "writing",
+      "tags": ["文本润色", "改写", "语法优化", "语气调整"],
+      "order": 9
+    },
+    {
+      "id": "jenni-ai",
+      "name": "Jenni AI",
+      "description": "擅长段落扩展、续写与创意内容生成，适合突破写作瓶颈寻找灵感",
+      "url": "https://jenni.ai",
+      "logoUrl": "https://jenni.ai/favicon.ico",
+      "category": "writing",
+      "tags": ["创意写作", "段落扩写", "灵感激发", "续写"],
+      "order": 10
+    },
+    {
+      "id": "simplified-ai-writer",
+      "name": "Simplified AI Writer",
+      "description": "集写作、排版与营销于一体的平台，支持多语言内容生成和SEO优化",
+      "url": "https://simplified.com",
+      "logoUrl": "https://simplified.com/favicon.ico",
+      "category": "writing",
+      "tags": ["多语言", "SEO", "内容营销", "排版一体"],
+      "order": 11
+    },
+    {
+      "id": "you-com",
+      "name": "You.com",
+      "description": "多模态AI搜索与聊天，支持自定义App模式",
+      "url": "https://you.com",
+      "logoUrl": "https://you.com/favicon.ico",
+      "category": "search",
+      "tags": ["多模态", "自定义", "聊天搜索"],
+      "order": 2
+    },
+    {
+      "id": "phind",
+      "name": "Phind",
+      "description": "开发者专用AI搜索引擎，擅长代码与技术问题",
+      "url": "https://www.phind.com",
+      "logoUrl": "https://www.phind.com/favicon.ico",
+      "category": "search",
+      "tags": ["开发者", "代码搜索", "技术问答"],
+      "order": 3
+    },
+    {
+      "id": "consensus",
+      "name": "Consensus",
+      "description": "学术论文AI搜索引擎，提供证据级答案",
+      "url": "https://consensus.app",
+      "logoUrl": "https://consensus.app/favicon.ico",
+      "category": "search",
+      "tags": ["学术", "论文搜索", "证据分析"],
+      "order": 4
+    },
+    {
+      "id": "elicit",
+      "name": "Elicit",
+      "description": "科研文献助手，支持论文总结与数据提取",
+      "url": "https://elicit.org",
+      "logoUrl": "https://elicit.org/favicon.ico",
+      "category": "search",
+      "tags": ["科研", "文献总结", "数据提取"],
+      "order": 5
+    },
+    {
+      "id": "scite",
+      "name": "Scite",
+      "description": "智能引用分析，显示论文被支持/质疑情况",
+      "url": "https://scite.ai",
+      "logoUrl": "https://scite.ai/favicon.ico",
+      "category": "search",
+      "tags": ["引用分析", "学术", "可靠性"],
+      "order": 6
+    },
+    {
+      "id": "kagi",
+      "name": "Kagi",
+      "description": "付费高质量AI增强搜索引擎，无广告追踪",
+      "url": "https://kagi.com",
+      "logoUrl": "https://kagi.com/favicon.ico",
+      "category": "search",
+      "tags": ["付费", "高质量", "隐私"],
+      "order": 7
+    },
+    {
+      "id": "brave-search",
+      "name": "Brave Search (Ask Brave)",
+      "description": "Brave浏览器内置隐私保护AI搜索，生成带多媒体深度报告，短期自动删除记录",
+      "url": "https://search.brave.com",
+      "logoUrl": "https://search.brave.com/favicon.ico",
+      "category": "search",
+      "tags": ["隐私保护", "深度报告", "浏览器集成", "多媒体"],
+      "order": 9
+    },
+    {
+      "id": "comet-perplexity",
+      "name": "Comet (by Perplexity)",
+      "description": "Perplexity推出的AI驱动浏览器，可感知页面内容提供侧边栏助手并自动执行多步骤任务",
+      "url": "https://www.perplexity.ai/comet",
+      "logoUrl": "https://www.perplexity.ai/favicon.ico",
+      "category": "search",
+      "tags": ["AI浏览器", "网页自动化", "智能体", "侧边栏助手"],
+      "order": 10
     }
   ]
 }
