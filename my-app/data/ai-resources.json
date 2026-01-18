@@ -330,19 +330,6 @@
       "order": 3
     },
     {
-      "id": "perplexity",
-      "name": "Perplexity",
-      "description": "AI搜索引擎",
-      "url": "https://www.perplexity.ai",
-      "logoUrl": "https://www.perplexity.ai/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "搜索",
-        "研究"
-      ],
-      "order": 3
-    },
-    {
       "id": "udio",
       "name": "Udio",
       "description": "AI音乐创作平台",
