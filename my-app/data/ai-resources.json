@@ -49,6 +49,12 @@
       "order": 8
     },
     {
+      "id": "monitoring",
+      "name": "服务器监控",
+      "icon": "Activity",
+      "order": 9
+    },
+    {
       "id": "other",
       "name": "其他工具",
       "icon": "MoreHorizontal",
@@ -1713,6 +1719,336 @@
         "可视化"
       ],
       "order": 8
+    },
+    {
+      "id": "zencoder",
+      "name": "Zencoder",
+      "description": "2026热门编码代理，专注代码生成与重构",
+      "url": "https://zencoder.ai",
+      "logoUrl": "https://zencoder.ai/favicon.ico",
+      "category": "code",
+      "tags": ["编码代理", "重构", "新工具"],
+      "order": 25
+    },
+    {
+      "id": "dspy",
+      "name": "DSPy",
+      "description": "优化AI代理提示与管道的编程框架（2025-2026大幅流行）",
+      "url": "https://dspy.ai",
+      "logoUrl": "https://dspy.ai/favicon.ico",
+      "category": "agent",
+      "tags": ["开源", "提示优化", "代理编程"],
+      "order": 18
+    },
+    {
+      "id": "semantic-kernel",
+      "name": "Semantic Kernel",
+      "description": "Microsoft企业级AI代理编排框架，支持插件与记忆",
+      "url": "https://github.com/microsoft/semantic-kernel",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "agent",
+      "tags": ["Microsoft", "企业级", "插件系统"],
+      "order": 19
+    },
+    {
+      "id": "agentflow",
+      "name": "AgentFlow",
+      "description": "2026新兴可视化代理工作流框架，简化多代理协作",
+      "url": "https://agentflow.ai",
+      "logoUrl": "https://agentflow.ai/favicon.ico",
+      "category": "agent",
+      "tags": ["可视化", "工作流", "新框架"],
+      "order": 20
+    },
+    {
+      "id": "higgsfield",
+      "name": "Higgsfield AI",
+      "description": "2026新崛起形象到视频生成工具，角色一致性极强",
+      "url": "https://higgsfield.ai",
+      "logoUrl": "https://higgsfield.ai/favicon.ico",
+      "category": "video",
+      "tags": ["形象到视频", "角色控制", "新崛起"],
+      "order": 20
+    },
+    {
+      "id": "prometheus",
+      "name": "Prometheus + Grafana",
+      "description": "开源 / Pull模式，云原生监控事实标准，与Kubernetes集成极佳，适合动态服务发现",
+      "url": "https://prometheus.io",
+      "logoUrl": "https://prometheus.io/favicon.ico",
+      "category": "monitoring",
+      "tags": ["开源", "云原生", "Kubernetes", "微服务"],
+      "order": 1
+    },
+    {
+      "id": "zabbix",
+      "name": "Zabbix",
+      "description": "开源 / Agent, SNMP, IPMI, JMX功能全面、历史悠久、支持深度自定义和自动发现",
+      "url": "https://www.zabbix.com",
+      "logoUrl": "https://www.zabbix.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["开源", "企业级", "自动发现", "混合IT"],
+      "order": 2
+    },
+    {
+      "id": "netdata",
+      "name": "Netdata",
+      "description": "开源 / 实时采集实时性能监控，仪表盘华丽，几乎零配置启动，资源占用低",
+      "url": "https://www.netdata.cloud",
+      "logoUrl": "https://www.netdata.cloud/favicon.ico",
+      "category": "monitoring",
+      "tags": ["开源", "实时监控", "零配置", "单机诊断"],
+      "order": 3
+    },
+    {
+      "id": "nagios",
+      "name": "Nagios",
+      "description": "开源 / 插件式监控界的“元老”，以稳定性和强大的插件生态著称",
+      "url": "https://www.nagios.org",
+      "logoUrl": "https://www.nagios.org/favicon.ico",
+      "category": "monitoring",
+      "tags": ["开源", "插件生态", "传统IT", "稳定"],
+      "order": 4
+    },
+    {
+      "id": "uptime-kuma",
+      "name": "Uptime Kuma",
+      "description": "开源 / HTTP, TCP, ICMP, DNS等轻量级、专注于服务可用性和状态监控，部署简单，界面直观",
+      "url": "https://uptime.kuma.pet",
+      "logoUrl": "https://uptime.kuma.pet/favicon.ico",
+      "category": "monitoring",
+      "tags": ["开源", "可用性监控", "轻量级", "个人项目"],
+      "order": 5
+    },
+    {
+      "id": "hertzbeat",
+      "name": "Apache HertzBeat",
+      "description": "开源 / 无代理(Agentless)新一代一体化平台，开箱即用，无需在被监控端部署代理",
+      "url": "https://hertzbeat.apache.org",
+      "logoUrl": "https://hertzbeat.apache.org/favicon.ico",
+      "category": "monitoring",
+      "tags": ["开源", "无代理", "开箱即用", "中小团队"],
+      "order": 6
+    },
+    {
+      "id": "checkmk",
+      "name": "Checkmk",
+      "description": "开源(RAW版免费) / 自动发现强，Zabbix替代，适合中大型企业",
+      "url": "https://checkmk.com",
+      "logoUrl": "https://checkmk.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["开源", "自动发现", "企业级"],
+      "order": 7
+    },
+    {
+      "id": "icinga",
+      "name": "Icinga 2",
+      "description": "开源 / Nagios叉子，UI更好，模块化设计",
+      "url": "https://icinga.com",
+      "logoUrl": "https://icinga.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["开源", "模块化", "Nagios替代"],
+      "order": 8
+    },
+    {
+      "id": "signoz",
+      "name": "SigNoz",
+      "description": "开源 / OpenTelemetry原生全栈可观测性平台，Datadog开源替代",
+      "url": "https://signoz.io",
+      "logoUrl": "https://signoz.io/favicon.ico",
+      "category": "monitoring",
+      "tags": ["开源", "OpenTelemetry", "全栈"],
+      "order": 9
+    },
+    {
+      "id": "librenms",
+      "name": "LibreNMS",
+      "description": "开源 / 网络+服务器监控，自动发现强",
+      "url": "https://www.librenms.org",
+      "logoUrl": "https://www.librenms.org/favicon.ico",
+      "category": "monitoring",
+      "tags": ["开源", "网络监控", "自动发现"],
+      "order": 10
+    },
+    {
+      "id": "datadog",
+      "name": "Datadog",
+      "description": "SaaS商业 / 统一平台功能强大的统一可观测性平台，整合指标、日志、追踪和应用性能监控(APM)",
+      "url": "https://www.datadoghq.com",
+      "logoUrl": "https://www.datadoghq.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["SaaS", "全栈可观测性", "APM", "云原生"],
+      "order": 11
+    },
+    {
+      "id": "dynatrace",
+      "name": "Dynatrace",
+      "description": "SaaS商业 / AI驱动以AI驱动根因分析著称，自动化程度高，提供全栈式监控和用户体验管理",
+      "url": "https://www.dynatrace.com",
+      "logoUrl": "https://www.dynatrace.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["SaaS", "AI根因分析", "自动化", "大型企业"],
+      "order": 12
+    },
+    {
+      "id": "newrelic",
+      "name": "New Relic",
+      "description": "SaaS商业 / 全栈可观测性，APM强，AI洞察升级",
+      "url": "https://newrelic.com",
+      "logoUrl": "https://newrelic.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["SaaS", "APM", "全栈"],
+      "order": 13
+    },
+    {
+      "id": "solarwinds",
+      "name": "SolarWinds",
+      "description": "商业 / 网络与系统在网络性能监控(NPM)方面表现突出，提供详细的设备级和路径级分析",
+      "url": "https://www.solarwinds.com",
+      "logoUrl": "https://www.solarwinds.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["商业", "网络监控", "设备级分析", "传统IT"],
+      "order": 14
+    },
+    {
+      "id": "manageengine-opmanager",
+      "name": "ManageEngine OpManager",
+      "description": "商业 / 基础设施全面的服务器、网络、虚拟化监控，提供一体化的IT运维管理",
+      "url": "https://www.manageengine.com/network-monitoring/",
+      "logoUrl": "https://www.manageengine.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["商业", "基础设施", "ITSM整合", "中小企业"],
+      "order": 15
+    },
+    {
+      "id": "splunk",
+      "name": "Splunk",
+      "description": "商业 / 日志分析+安全监控强，大企业首选",
+      "url": "https://www.splunk.com",
+      "logoUrl": "https://www.splunk.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["商业", "日志分析", "安全监控"],
+      "order": 16
+    },
+    {
+      "id": "appdynamics",
+      "name": "AppDynamics",
+      "description": "商业 / 业务事务追踪强，企业级APM",
+      "url": "https://www.appdynamics.com",
+      "logoUrl": "https://www.appdynamics.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["商业", "APM", "业务追踪"],
+      "order": 17
+    },
+    {
+      "id": "logicmonitor",
+      "name": "LogicMonitor",
+      "description": "SaaS商业 / 混合云、多站点监控，预配置模板多",
+      "url": "https://www.logicmonitor.com",
+      "logoUrl": "https://www.logicmonitor.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["SaaS", "混合云", "模板丰富"],
+      "order": 18
+    },
+    {
+      "id": "site24x7",
+      "name": "Site24x7",
+      "description": "SaaS商业 / 全栈+网站监控，性价比高",
+      "url": "https://www.site24x7.com",
+      "logoUrl": "https://www.site24x7.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["SaaS", "网站监控", "性价比"],
+      "order": 19
+    },
+    {
+      "id": "uptimerobot-pingdom",
+      "name": "UptimeRobot / Pingdom",
+      "description": "SaaS / 合成监控专注于外部网站和应用可用性监控，多地点探测，配置简单",
+      "url": "https://uptimerobot.com",
+      "logoUrl": "https://uptimerobot.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["SaaS", "外部可用性", "合成监控", "网站监控"],
+      "order": 20
+    },
+    {
+      "id": "betterstack",
+      "name": "Better Stack",
+      "description": "SaaS商业 / 现代日志+指标监控，简洁便宜",
+      "url": "https://betterstack.com",
+      "logoUrl": "https://betterstack.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["SaaS", "日志指标", "新兴"],
+      "order": 21
+    },
+    {
+      "id": "lewei-monitoring",
+      "name": "乐维监控",
+      "description": "国产商业 / 多协议支持国产化适配好（信创），提供智能运维(AIOps)、业务洞察(iBSM)等高级功能",
+      "url": "https://www.lewei.com",
+      "logoUrl": "https://www.lewei.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["国产", "信创", "AIOps", "企业级"],
+      "order": 22
+    },
+    {
+      "id": "aliyun-monitoring",
+      "name": "阿里云监控",
+      "description": "云平台集成 / 云监控+ARMS，生态最全，信创支持好",
+      "url": "https://www.aliyun.com/product/cms",
+      "logoUrl": "https://www.aliyun.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["国产", "云集成", "信创"],
+      "order": 23
+    },
+    {
+      "id": "tencent-monitoring",
+      "name": "腾讯云监控",
+      "description": "云平台集成 / 实时性强，适合游戏/小程序生态",
+      "url": "https://cloud.tencent.com/product/cm",
+      "logoUrl": "https://cloud.tencent.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["国产", "云集成", "实时性"],
+      "order": 24
+    },
+    {
+      "id": "huawei-monitoring",
+      "name": "华为云监控 (CES)",
+      "description": "云平台集成 / 国产化最强，适合政企信创项目",
+      "url": "https://www.huaweicloud.com/product/ces.html",
+      "logoUrl": "https://www.huaweicloud.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["国产", "信创", "政企"],
+      "order": 25
+    },
+    {
+      "id": "blueking",
+      "name": "嘉为蓝鲸",
+      "description": "开源+商业 / 全栈智能观测，集成CMDB强，信创适配",
+      "url": "https://bk.tencent.com",
+      "logoUrl": "https://bk.tencent.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["国产", "开源商业", "智能观测", "信创"],
+      "order": 26
+    },
+    {
+      "id": "tingyun",
+      "name": "听云",
+      "description": "国产商业 / APM+服务器监控老牌",
+      "url": "https://www.tingyun.com",
+      "logoUrl": "https://www.tingyun.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["国产", "APM", "应用性能"],
+      "order": 27
+    },
+    {
+      "id": "transight",
+      "name": "云智慧",
+      "description": "国产商业 / 全链路监控，业务视角强",
+      "url": "https://www.transight.com",
+      "logoUrl": "https://www.transight.com/favicon.ico",
+      "category": "monitoring",
+      "tags": ["国产", "全链路", "业务监控"],
+      "order": 28
     }
   ]
 }
