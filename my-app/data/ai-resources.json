@@ -411,13 +411,16 @@
     {
       "id": "napkin",
       "name": "Napkin AI",
-      "description": "AI可视化笔记",
+      "description": "AI可视化笔记、文字描述快速转思维导图、流程图等可视化图表，便于整理思路和展示",
       "url": "https://www.napkin.ai",
       "logoUrl": "https://www.napkin.ai/favicon.ico",
       "category": "productivity",
       "tags": [
         "可视化",
-        "笔记"
+        "笔记",
+        "思维导图",
+        "快速生成",
+        "思路整理"
       ],
       "order": 4
     },
@@ -729,25 +732,12 @@
       "description": "AI营销内容写作助手",
       "url": "https://www.jasper.ai",
       "logoUrl": "https://www.jasper.ai/favicon.ico",
-      "category": "productivity",
+      "category": "writing",
       "tags": [
         "内容营销",
         "长文写作"
       ],
       "order": 5
-    },
-    {
-      "id": "otter",
-      "name": "Otter.ai",
-      "description": "AI会议实时转录与总结",
-      "url": "https://otter.ai",
-      "logoUrl": "https://otter.ai/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "会议",
-        "转录"
-      ],
-      "order": 6
     },
     {
       "id": "fireflies",
@@ -781,7 +771,7 @@
       "description": "AI写作语法与风格优化",
       "url": "https://www.grammarly.com",
       "logoUrl": "https://www.grammarly.com/favicon.ico",
-      "category": "productivity",
+      "category": "writing",
       "tags": [
         "写作助手",
         "语法检查"
@@ -958,7 +948,7 @@
       "description": "多模型聚合与自定义机器人",
       "url": "https://poe.com",
       "logoUrl": "https://poe.com/favicon.ico",
-      "category": "other",
+      "category": "chat",
       "tags": [
         "聚合",
         "自定义",
@@ -1479,7 +1469,7 @@
       "description": "AI音乐可视化与艺术视频生成",
       "url": "https://kaiber.ai",
       "logoUrl": "https://kaiber.ai/favicon.ico",
-      "category": "image",
+      "category": "video",
       "tags": [
         "音乐可视化",
         "艺术创作",
@@ -1732,7 +1722,11 @@
       "url": "https://zencoder.ai",
       "logoUrl": "https://zencoder.ai/favicon.ico",
       "category": "code",
-      "tags": ["编码代理", "重构", "新工具"],
+      "tags": [
+        "编码代理",
+        "重构",
+        "新工具"
+      ],
       "order": 25
     },
     {
@@ -1742,7 +1736,11 @@
       "url": "https://dspy.ai",
       "logoUrl": "https://dspy.ai/favicon.ico",
       "category": "agent",
-      "tags": ["开源", "提示优化", "代理编程"],
+      "tags": [
+        "开源",
+        "提示优化",
+        "代理编程"
+      ],
       "order": 18
     },
     {
@@ -1752,7 +1750,11 @@
       "url": "https://github.com/microsoft/semantic-kernel",
       "logoUrl": "https://github.com/favicon.ico",
       "category": "agent",
-      "tags": ["Microsoft", "企业级", "插件系统"],
+      "tags": [
+        "Microsoft",
+        "企业级",
+        "插件系统"
+      ],
       "order": 19
     },
     {
@@ -1762,7 +1764,11 @@
       "url": "https://agentflow.ai",
       "logoUrl": "https://agentflow.ai/favicon.ico",
       "category": "agent",
-      "tags": ["可视化", "工作流", "新框架"],
+      "tags": [
+        "可视化",
+        "工作流",
+        "新框架"
+      ],
       "order": 20
     },
     {
@@ -1772,7 +1778,11 @@
       "url": "https://higgsfield.ai",
       "logoUrl": "https://higgsfield.ai/favicon.ico",
       "category": "video",
-      "tags": ["形象到视频", "角色控制", "新崛起"],
+      "tags": [
+        "形象到视频",
+        "角色控制",
+        "新崛起"
+      ],
       "order": 20
     },
     {
@@ -1782,7 +1792,12 @@
       "url": "https://prometheus.io",
       "logoUrl": "https://prometheus.io/favicon.ico",
       "category": "monitoring",
-      "tags": ["开源", "云原生", "Kubernetes", "微服务"],
+      "tags": [
+        "开源",
+        "云原生",
+        "Kubernetes",
+        "微服务"
+      ],
       "order": 1
     },
     {
@@ -1792,7 +1807,12 @@
       "url": "https://www.zabbix.com",
       "logoUrl": "https://www.zabbix.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["开源", "企业级", "自动发现", "混合IT"],
+      "tags": [
+        "开源",
+        "企业级",
+        "自动发现",
+        "混合IT"
+      ],
       "order": 2
     },
     {
@@ -1802,7 +1822,12 @@
       "url": "https://www.netdata.cloud",
       "logoUrl": "https://www.netdata.cloud/favicon.ico",
       "category": "monitoring",
-      "tags": ["开源", "实时监控", "零配置", "单机诊断"],
+      "tags": [
+        "开源",
+        "实时监控",
+        "零配置",
+        "单机诊断"
+      ],
       "order": 3
     },
     {
@@ -1812,7 +1837,12 @@
       "url": "https://www.nagios.org",
       "logoUrl": "https://www.nagios.org/favicon.ico",
       "category": "monitoring",
-      "tags": ["开源", "插件生态", "传统IT", "稳定"],
+      "tags": [
+        "开源",
+        "插件生态",
+        "传统IT",
+        "稳定"
+      ],
       "order": 4
     },
     {
@@ -1822,7 +1852,12 @@
       "url": "https://uptime.kuma.pet",
       "logoUrl": "https://uptime.kuma.pet/favicon.ico",
       "category": "monitoring",
-      "tags": ["开源", "可用性监控", "轻量级", "个人项目"],
+      "tags": [
+        "开源",
+        "可用性监控",
+        "轻量级",
+        "个人项目"
+      ],
       "order": 5
     },
     {
@@ -1832,7 +1867,12 @@
       "url": "https://hertzbeat.apache.org",
       "logoUrl": "https://hertzbeat.apache.org/favicon.ico",
       "category": "monitoring",
-      "tags": ["开源", "无代理", "开箱即用", "中小团队"],
+      "tags": [
+        "开源",
+        "无代理",
+        "开箱即用",
+        "中小团队"
+      ],
       "order": 6
     },
     {
@@ -1842,7 +1882,11 @@
       "url": "https://checkmk.com",
       "logoUrl": "https://checkmk.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["开源", "自动发现", "企业级"],
+      "tags": [
+        "开源",
+        "自动发现",
+        "企业级"
+      ],
       "order": 7
     },
     {
@@ -1852,7 +1896,11 @@
       "url": "https://icinga.com",
       "logoUrl": "https://icinga.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["开源", "模块化", "Nagios替代"],
+      "tags": [
+        "开源",
+        "模块化",
+        "Nagios替代"
+      ],
       "order": 8
     },
     {
@@ -1862,7 +1910,11 @@
       "url": "https://signoz.io",
       "logoUrl": "https://signoz.io/favicon.ico",
       "category": "monitoring",
-      "tags": ["开源", "OpenTelemetry", "全栈"],
+      "tags": [
+        "开源",
+        "OpenTelemetry",
+        "全栈"
+      ],
       "order": 9
     },
     {
@@ -1872,7 +1924,11 @@
       "url": "https://www.librenms.org",
       "logoUrl": "https://www.librenms.org/favicon.ico",
       "category": "monitoring",
-      "tags": ["开源", "网络监控", "自动发现"],
+      "tags": [
+        "开源",
+        "网络监控",
+        "自动发现"
+      ],
       "order": 10
     },
     {
@@ -1882,7 +1938,12 @@
       "url": "https://www.datadoghq.com",
       "logoUrl": "https://www.datadoghq.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["SaaS", "全栈可观测性", "APM", "云原生"],
+      "tags": [
+        "SaaS",
+        "全栈可观测性",
+        "APM",
+        "云原生"
+      ],
       "order": 11
     },
     {
@@ -1892,7 +1953,12 @@
       "url": "https://www.dynatrace.com",
       "logoUrl": "https://www.dynatrace.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["SaaS", "AI根因分析", "自动化", "大型企业"],
+      "tags": [
+        "SaaS",
+        "AI根因分析",
+        "自动化",
+        "大型企业"
+      ],
       "order": 12
     },
     {
@@ -1902,7 +1968,11 @@
       "url": "https://newrelic.com",
       "logoUrl": "https://newrelic.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["SaaS", "APM", "全栈"],
+      "tags": [
+        "SaaS",
+        "APM",
+        "全栈"
+      ],
       "order": 13
     },
     {
@@ -1912,7 +1982,12 @@
       "url": "https://www.solarwinds.com",
       "logoUrl": "https://www.solarwinds.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["商业", "网络监控", "设备级分析", "传统IT"],
+      "tags": [
+        "商业",
+        "网络监控",
+        "设备级分析",
+        "传统IT"
+      ],
       "order": 14
     },
     {
@@ -1922,7 +1997,12 @@
       "url": "https://www.manageengine.com/network-monitoring/",
       "logoUrl": "https://www.manageengine.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["商业", "基础设施", "ITSM整合", "中小企业"],
+      "tags": [
+        "商业",
+        "基础设施",
+        "ITSM整合",
+        "中小企业"
+      ],
       "order": 15
     },
     {
@@ -1932,7 +2012,11 @@
       "url": "https://www.splunk.com",
       "logoUrl": "https://www.splunk.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["商业", "日志分析", "安全监控"],
+      "tags": [
+        "商业",
+        "日志分析",
+        "安全监控"
+      ],
       "order": 16
     },
     {
@@ -1942,7 +2026,11 @@
       "url": "https://www.appdynamics.com",
       "logoUrl": "https://www.appdynamics.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["商业", "APM", "业务追踪"],
+      "tags": [
+        "商业",
+        "APM",
+        "业务追踪"
+      ],
       "order": 17
     },
     {
@@ -1952,7 +2040,11 @@
       "url": "https://www.logicmonitor.com",
       "logoUrl": "https://www.logicmonitor.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["SaaS", "混合云", "模板丰富"],
+      "tags": [
+        "SaaS",
+        "混合云",
+        "模板丰富"
+      ],
       "order": 18
     },
     {
@@ -1962,7 +2054,11 @@
       "url": "https://www.site24x7.com",
       "logoUrl": "https://www.site24x7.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["SaaS", "网站监控", "性价比"],
+      "tags": [
+        "SaaS",
+        "网站监控",
+        "性价比"
+      ],
       "order": 19
     },
     {
@@ -1972,7 +2068,12 @@
       "url": "https://uptimerobot.com",
       "logoUrl": "https://uptimerobot.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["SaaS", "外部可用性", "合成监控", "网站监控"],
+      "tags": [
+        "SaaS",
+        "外部可用性",
+        "合成监控",
+        "网站监控"
+      ],
       "order": 20
     },
     {
@@ -1982,7 +2083,11 @@
       "url": "https://betterstack.com",
       "logoUrl": "https://betterstack.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["SaaS", "日志指标", "新兴"],
+      "tags": [
+        "SaaS",
+        "日志指标",
+        "新兴"
+      ],
       "order": 21
     },
     {
@@ -1992,7 +2097,12 @@
       "url": "https://www.lewei.com",
       "logoUrl": "https://www.lewei.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["国产", "信创", "AIOps", "企业级"],
+      "tags": [
+        "国产",
+        "信创",
+        "AIOps",
+        "企业级"
+      ],
       "order": 22
     },
     {
@@ -2002,7 +2112,11 @@
       "url": "https://www.aliyun.com/product/cms",
       "logoUrl": "https://www.aliyun.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["国产", "云集成", "信创"],
+      "tags": [
+        "国产",
+        "云集成",
+        "信创"
+      ],
       "order": 23
     },
     {
@@ -2012,7 +2126,11 @@
       "url": "https://cloud.tencent.com/product/cm",
       "logoUrl": "https://cloud.tencent.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["国产", "云集成", "实时性"],
+      "tags": [
+        "国产",
+        "云集成",
+        "实时性"
+      ],
       "order": 24
     },
     {
@@ -2022,7 +2140,11 @@
       "url": "https://www.huaweicloud.com/product/ces.html",
       "logoUrl": "https://www.huaweicloud.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["国产", "信创", "政企"],
+      "tags": [
+        "国产",
+        "信创",
+        "政企"
+      ],
       "order": 25
     },
     {
@@ -2032,7 +2154,12 @@
       "url": "https://bk.tencent.com",
       "logoUrl": "https://bk.tencent.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["国产", "开源商业", "智能观测", "信创"],
+      "tags": [
+        "国产",
+        "开源商业",
+        "智能观测",
+        "信创"
+      ],
       "order": 26
     },
     {
@@ -2042,7 +2169,11 @@
       "url": "https://www.tingyun.com",
       "logoUrl": "https://www.tingyun.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["国产", "APM", "应用性能"],
+      "tags": [
+        "国产",
+        "APM",
+        "应用性能"
+      ],
       "order": 27
     },
     {
@@ -2052,7 +2183,11 @@
       "url": "https://www.transight.com",
       "logoUrl": "https://www.transight.com/favicon.ico",
       "category": "monitoring",
-      "tags": ["国产", "全链路", "业务监控"],
+      "tags": [
+        "国产",
+        "全链路",
+        "业务监控"
+      ],
       "order": 28
     },
     {
@@ -2062,7 +2197,11 @@
       "url": "https://julius.ai",
       "logoUrl": "https://julius.ai/favicon.ico",
       "category": "data",
-      "tags": ["数据可视化", "自然语言", "预测分析"],
+      "tags": [
+        "数据可视化",
+        "自然语言",
+        "预测分析"
+      ],
       "order": 1
     },
     {
@@ -2072,7 +2211,11 @@
       "url": "https://hex.tech",
       "logoUrl": "https://hex.tech/favicon.ico",
       "category": "data",
-      "tags": ["协作", "数据科学", "笔记本"],
+      "tags": [
+        "协作",
+        "数据科学",
+        "笔记本"
+      ],
       "order": 2
     },
     {
@@ -2082,7 +2225,11 @@
       "url": "https://www.akkio.com",
       "logoUrl": "https://www.akkio.com/favicon.ico",
       "category": "data",
-      "tags": ["无代码", "预测模型", "业务分析"],
+      "tags": [
+        "无代码",
+        "预测模型",
+        "业务分析"
+      ],
       "order": 3
     },
     {
@@ -2092,7 +2239,11 @@
       "url": "https://github.com/gventuri/pandas-ai",
       "logoUrl": "https://github.com/favicon.ico",
       "category": "data",
-      "tags": ["开源", "Python", "数据查询"],
+      "tags": [
+        "开源",
+        "Python",
+        "数据查询"
+      ],
       "order": 4
     },
     {
@@ -2102,7 +2253,11 @@
       "url": "https://www.thoughtspot.com",
       "logoUrl": "https://www.thoughtspot.com/favicon.ico",
       "category": "data",
-      "tags": ["企业级", "BI", "自然语言搜索"],
+      "tags": [
+        "企业级",
+        "BI",
+        "自然语言搜索"
+      ],
       "order": 5
     },
     {
@@ -2112,7 +2267,11 @@
       "url": "https://www.polymersearch.com",
       "logoUrl": "https://www.polymersearch.com/favicon.ico",
       "category": "data",
-      "tags": ["仪表盘", "自动洞察", "无代码"],
+      "tags": [
+        "仪表盘",
+        "自动洞察",
+        "无代码"
+      ],
       "order": 6
     },
     {
@@ -2122,7 +2281,11 @@
       "url": "https://powerdrill.ai",
       "logoUrl": "https://powerdrill.ai/favicon.ico",
       "category": "data",
-      "tags": ["报告生成", "多数据源", "快速查询"],
+      "tags": [
+        "报告生成",
+        "多数据源",
+        "快速查询"
+      ],
       "order": 7
     },
     {
@@ -2132,7 +2295,12 @@
       "url": "https://github.com/AntGroup/Agentar",
       "logoUrl": "https://github.com/favicon.ico",
       "category": "data",
-      "tags": ["开源", "Text-to-SQL", "企业级", "自然语言查询"],
+      "tags": [
+        "开源",
+        "Text-to-SQL",
+        "企业级",
+        "自然语言查询"
+      ],
       "order": 8
     },
     {
@@ -2142,7 +2310,12 @@
       "url": "https://github.com/vanna-ai/vanna",
       "logoUrl": "https://github.com/favicon.ico",
       "category": "data",
-      "tags": ["开源", "RAG", "Text-to-SQL", "本地部署"],
+      "tags": [
+        "开源",
+        "RAG",
+        "Text-to-SQL",
+        "本地部署"
+      ],
       "order": 9
     },
     {
@@ -2152,7 +2325,12 @@
       "url": "https://www.wrenai.com",
       "logoUrl": "https://www.wrenai.com/favicon.ico",
       "category": "data",
-      "tags": ["Excel插件", "无代码", "商业分析", "自然语言"],
+      "tags": [
+        "Excel插件",
+        "无代码",
+        "商业分析",
+        "自然语言"
+      ],
       "order": 10
     },
     {
@@ -2162,18 +2340,13 @@
       "url": "https://www.taosdata.com",
       "logoUrl": "https://www.taosdata.com/favicon.ico",
       "category": "data",
-      "tags": ["时序数据", "预测分析", "SQL集成", "异常检测"],
+      "tags": [
+        "时序数据",
+        "预测分析",
+        "SQL集成",
+        "异常检测"
+      ],
       "order": 11
-    },
-    {
-      "id": "napkin-ai",
-      "name": "Napkin AI",
-      "description": "文字描述快速转思维导图、流程图等可视化图表，便于整理思路和展示（从productivity移入）",
-      "url": "https://www.napkin.ai",
-      "logoUrl": "https://www.napkin.ai/favicon.ico",
-      "category": "data",
-      "tags": ["可视化", "思维导图", "快速生成", "思路整理"],
-      "order": 13
     },
     {
       "id": "writesonic",
@@ -2182,7 +2355,11 @@
       "url": "https://writesonic.com",
       "logoUrl": "https://writesonic.com/favicon.ico",
       "category": "writing",
-      "tags": ["SEO", "社交媒体", "多语言"],
+      "tags": [
+        "SEO",
+        "社交媒体",
+        "多语言"
+      ],
       "order": 2
     },
     {
@@ -2192,7 +2369,11 @@
       "url": "https://www.copy.ai",
       "logoUrl": "https://www.copy.ai/favicon.ico",
       "category": "writing",
-      "tags": ["营销文案", "快速生成", "模板丰富"],
+      "tags": [
+        "营销文案",
+        "快速生成",
+        "模板丰富"
+      ],
       "order": 3
     },
     {
@@ -2202,7 +2383,11 @@
       "url": "https://rytr.me",
       "logoUrl": "https://rytr.me/favicon.ico",
       "category": "writing",
-      "tags": ["性价比", "多语言", "短文"],
+      "tags": [
+        "性价比",
+        "多语言",
+        "短文"
+      ],
       "order": 4
     },
     {
@@ -2212,7 +2397,11 @@
       "url": "https://www.sudowrite.com",
       "logoUrl": "https://www.sudowrite.com/favicon.ico",
       "category": "writing",
-      "tags": ["创意写作", "小说", "故事生成"],
+      "tags": [
+        "创意写作",
+        "小说",
+        "故事生成"
+      ],
       "order": 5
     },
     {
@@ -2222,7 +2411,11 @@
       "url": "https://anyword.com",
       "logoUrl": "https://anyword.com/favicon.ico",
       "category": "writing",
-      "tags": ["营销", "性能预测", "A/B测试"],
+      "tags": [
+        "营销",
+        "性能预测",
+        "A/B测试"
+      ],
       "order": 6
     },
     {
@@ -2232,7 +2425,11 @@
       "url": "https://www.frase.io",
       "logoUrl": "https://www.frase.io/favicon.ico",
       "category": "writing",
-      "tags": ["SEO", "内容大纲", "研究"],
+      "tags": [
+        "SEO",
+        "内容大纲",
+        "研究"
+      ],
       "order": 7
     },
     {
@@ -2242,7 +2439,12 @@
       "url": "https://boardmix.cn",
       "logoUrl": "https://boardmix.cn/favicon.ico",
       "category": "writing",
-      "tags": ["白板协作", "大纲生成", "团队共创", "思维导图"],
+      "tags": [
+        "白板协作",
+        "大纲生成",
+        "团队共创",
+        "思维导图"
+      ],
       "order": 8
     },
     {
@@ -2252,7 +2454,12 @@
       "url": "https://www.wordtune.com",
       "logoUrl": "https://www.wordtune.com/favicon.ico",
       "category": "writing",
-      "tags": ["文本润色", "改写", "语法优化", "语气调整"],
+      "tags": [
+        "文本润色",
+        "改写",
+        "语法优化",
+        "语气调整"
+      ],
       "order": 9
     },
     {
@@ -2262,7 +2469,12 @@
       "url": "https://jenni.ai",
       "logoUrl": "https://jenni.ai/favicon.ico",
       "category": "writing",
-      "tags": ["创意写作", "段落扩写", "灵感激发", "续写"],
+      "tags": [
+        "创意写作",
+        "段落扩写",
+        "灵感激发",
+        "续写"
+      ],
       "order": 10
     },
     {
@@ -2272,7 +2484,12 @@
       "url": "https://simplified.com",
       "logoUrl": "https://simplified.com/favicon.ico",
       "category": "writing",
-      "tags": ["多语言", "SEO", "内容营销", "排版一体"],
+      "tags": [
+        "多语言",
+        "SEO",
+        "内容营销",
+        "排版一体"
+      ],
       "order": 11
     },
     {
@@ -2282,7 +2499,11 @@
       "url": "https://you.com",
       "logoUrl": "https://you.com/favicon.ico",
       "category": "search",
-      "tags": ["多模态", "自定义", "聊天搜索"],
+      "tags": [
+        "多模态",
+        "自定义",
+        "聊天搜索"
+      ],
       "order": 2
     },
     {
@@ -2292,7 +2513,11 @@
       "url": "https://www.phind.com",
       "logoUrl": "https://www.phind.com/favicon.ico",
       "category": "search",
-      "tags": ["开发者", "代码搜索", "技术问答"],
+      "tags": [
+        "开发者",
+        "代码搜索",
+        "技术问答"
+      ],
       "order": 3
     },
     {
@@ -2302,7 +2527,11 @@
       "url": "https://consensus.app",
       "logoUrl": "https://consensus.app/favicon.ico",
       "category": "search",
-      "tags": ["学术", "论文搜索", "证据分析"],
+      "tags": [
+        "学术",
+        "论文搜索",
+        "证据分析"
+      ],
       "order": 4
     },
     {
@@ -2312,7 +2541,11 @@
       "url": "https://elicit.org",
       "logoUrl": "https://elicit.org/favicon.ico",
       "category": "search",
-      "tags": ["科研", "文献总结", "数据提取"],
+      "tags": [
+        "科研",
+        "文献总结",
+        "数据提取"
+      ],
       "order": 5
     },
     {
@@ -2322,7 +2555,11 @@
       "url": "https://scite.ai",
       "logoUrl": "https://scite.ai/favicon.ico",
       "category": "search",
-      "tags": ["引用分析", "学术", "可靠性"],
+      "tags": [
+        "引用分析",
+        "学术",
+        "可靠性"
+      ],
       "order": 6
     },
     {
@@ -2332,7 +2569,11 @@
       "url": "https://kagi.com",
       "logoUrl": "https://kagi.com/favicon.ico",
       "category": "search",
-      "tags": ["付费", "高质量", "隐私"],
+      "tags": [
+        "付费",
+        "高质量",
+        "隐私"
+      ],
       "order": 7
     },
     {
@@ -2342,7 +2583,12 @@
       "url": "https://search.brave.com",
       "logoUrl": "https://search.brave.com/favicon.ico",
       "category": "search",
-      "tags": ["隐私保护", "深度报告", "浏览器集成", "多媒体"],
+      "tags": [
+        "隐私保护",
+        "深度报告",
+        "浏览器集成",
+        "多媒体"
+      ],
       "order": 9
     },
     {
@@ -2352,8 +2598,69 @@
       "url": "https://www.perplexity.ai/comet",
       "logoUrl": "https://www.perplexity.ai/favicon.ico",
       "category": "search",
-      "tags": ["AI浏览器", "网页自动化", "智能体", "侧边栏助手"],
+      "tags": [
+        "AI浏览器",
+        "网页自动化",
+        "智能体",
+        "侧边栏助手"
+      ],
       "order": 10
+    },
+    {
+      "id": "open-devin",
+      "name": "OpenDevin",
+      "description": "开源版 Devin 软件工程代理，旨在复制并增强自主AI软件工程师的能力",
+      "url": "https://github.com/AI-App/OpenDevin.OpenDevin",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "AI代理",
+        "软件工程"
+      ],
+      "order": 21
+    },
+    {
+      "id": "berri-ai",
+      "name": "Berri AI",
+      "description": "构建面向自身数据的ChatGPT应用平台，提供可视化流程与API支持",
+      "url": "https://berri.ai",
+      "logoUrl": "https://berri.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "数据",
+        "ChatGPT",
+        "应用构建"
+      ],
+      "order": 19
+    },
+    {
+      "id": "reka-ai",
+      "name": "Reka AI",
+      "description": "多模态AI平台，用于构建跨文本、图像、视频和音频的智能模型",
+      "url": "https://reka.ai",
+      "logoUrl": "https://reka.ai/favicon.ico",
+      "category": "other",
+      "tags": [
+        "多模态",
+        "AI平台",
+        "模型构建"
+      ],
+      "order": 9
+    },
+    {
+      "id": "paddlenlp",
+      "name": "PaddleNLP",
+      "description": "飞桨开源的大语言模型NLP开发套件，支持高效训练与推理",
+      "url": "https://github.com/PaddlePaddle/PaddleNLP",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "开源",
+        "NLP",
+        "LLM"
+      ],
+      "order": 26
     }
   ]
 }
