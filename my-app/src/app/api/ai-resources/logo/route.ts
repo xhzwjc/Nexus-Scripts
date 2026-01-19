@@ -23,8 +23,7 @@ export async function GET(request: NextRequest) {
 
         ensureLogosDir();
 
-        // 检查各种可能的扩展名
-        const extensions = ['.png', '.jpg', '.jpeg', '.ico', '.svg', '.webp'];
+        const extensions = ['.png', '.jpg', '.jpeg', '.ico', '.svg', '.webp', '.gif'];
         for (const ext of extensions) {
             const filePath = path.join(LOGOS_DIR, `${id}${ext}`);
             if (fs.existsSync(filePath)) {
@@ -42,23 +41,81 @@ export async function GET(request: NextRequest) {
     }
 }
 
-// POST: 下载并保存logo到本地（带验证）
+// 尝试下载单个 URL 并验证
+async function tryDownload(id: string, url: string): Promise<{ success: boolean; path?: string; size?: number; error?: string }> {
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'image/*,*/*;q=0.8',
+            },
+            signal: AbortSignal.timeout(6000)
+        });
+
+        if (!response.ok) {
+            return { success: false, error: `HTTP ${response.status}` };
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+
+        // 拒绝 HTML/JSON 响应
+        if (contentType.includes('text/html') || contentType.includes('application/json')) {
+            return { success: false, error: 'HTML response' };
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+
+        // 验证文件大小
+        if (buffer.length < 100) {
+            return { success: false, error: 'Too small' };
+        }
+
+        // 检查是否是 HTML
+        const headerStr = buffer.slice(0, 100).toString('utf8').toLowerCase();
+        if (headerStr.includes('<!doctype') || headerStr.includes('<html')) {
+            return { success: false, error: 'HTML content' };
+        }
+
+        // 检测格式
+        let ext = detectImageFormat(buffer);
+        if (!ext) {
+            if (contentType.includes('svg')) ext = '.svg';
+            else if (contentType.includes('ico') || contentType.includes('icon')) ext = '.ico';
+            else if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = '.jpg';
+            else if (contentType.includes('webp')) ext = '.webp';
+            else if (contentType.includes('gif')) ext = '.gif';
+            else ext = '.png';
+        }
+
+        const filePath = path.join(LOGOS_DIR, `${id}${ext}`);
+        fs.writeFileSync(filePath, buffer);
+
+        return {
+            success: true,
+            path: `/ai-logos/${id}${ext}`,
+            size: buffer.length
+        };
+    } catch {
+        return { success: false, error: 'Network error' };
+    }
+}
+
+// POST: 下载并保存logo（支持多来源备用）
 export async function POST(request: NextRequest) {
     try {
-        const { id, logoUrl } = await request.json();
+        const { id, logoUrl, siteUrl } = await request.json();
 
-        if (!id || !logoUrl) {
-            return NextResponse.json({ error: 'Missing id or logoUrl' }, { status: 400 });
+        if (!id) {
+            return NextResponse.json({ error: 'Missing id' }, { status: 400 });
         }
 
         ensureLogosDir();
 
-        // 先检查是否已存在
+        // 检查是否已存在有效文件
         const extensions = ['.png', '.jpg', '.jpeg', '.ico', '.svg', '.webp', '.gif'];
         for (const ext of extensions) {
             const existingPath = path.join(LOGOS_DIR, `${id}${ext}`);
             if (fs.existsSync(existingPath)) {
-                // 检查已存在文件是否有效（大于100字节）
                 const stats = fs.statSync(existingPath);
                 if (stats.size > 100) {
                     return NextResponse.json({
@@ -67,85 +124,59 @@ export async function POST(request: NextRequest) {
                         cached: true
                     });
                 } else {
-                    // 删除无效的旧文件
                     fs.unlinkSync(existingPath);
                 }
             }
         }
 
-        // 下载logo（8秒超时，增加一点时间）
-        const response = await fetch(logoUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'image/*,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9',
-            },
-            signal: AbortSignal.timeout(8000)
-        });
-
-        if (!response.ok) {
-            return NextResponse.json({
-                success: false,
-                error: `HTTP ${response.status}`
-            });
+        // 提取域名
+        let domain = '';
+        if (siteUrl) {
+            try {
+                domain = new URL(siteUrl).hostname;
+            } catch { /* ignore */ }
         }
 
-        const contentType = response.headers.get('content-type') || '';
+        // 构建尝试的 URL 列表
+        const urlsToTry: string[] = [];
 
-        // 验证 Content-Type 是图片
-        const isImageType = contentType.includes('image') ||
-            contentType.includes('icon') ||
-            contentType.includes('svg');
+        // 1. 使用 logoUrl（如果不是 github.com/favicon）
+        if (logoUrl && !logoUrl.includes('github.com/favicon')) {
+            urlsToTry.push(logoUrl);
+        }
 
-        if (!isImageType && !contentType.includes('octet-stream')) {
-            // 如果明确不是图片类型（例如 text/html），跳过
-            if (contentType.includes('text/html') || contentType.includes('application/json')) {
-                return NextResponse.json({
-                    success: false,
-                    error: `Invalid content-type: ${contentType}`
-                });
+        // 2. GitHub 项目使用 OpenGraph 图片
+        if (siteUrl && siteUrl.includes('github.com/')) {
+            const match = siteUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+            if (match) {
+                urlsToTry.push(`https://opengraph.githubassets.com/1/${match[1]}/${match[2]}`);
             }
         }
 
-        const buffer = Buffer.from(await response.arrayBuffer());
-
-        // 验证文件大小（至少100字节，过小通常是空白或错误）
-        if (buffer.length < 100) {
-            return NextResponse.json({
-                success: false,
-                error: `File too small: ${buffer.length} bytes`
-            });
+        // 3. 网站常见 favicon 路径
+        if (domain && !domain.includes('github.com')) {
+            urlsToTry.push(`https://${domain}/favicon.ico`);
+            urlsToTry.push(`https://${domain}/favicon.png`);
+            urlsToTry.push(`https://${domain}/apple-touch-icon.png`);
         }
 
-        // 检查是否是 HTML 响应（很多网站返回 HTML 错误页而不是 404）
-        const headerStr = buffer.slice(0, 100).toString('utf8').toLowerCase();
-        if (headerStr.includes('<!doctype') || headerStr.includes('<html') || headerStr.includes('<head')) {
-            return NextResponse.json({
-                success: false,
-                error: 'Response is HTML, not image'
-            });
+        // 4. 公共 favicon 服务
+        if (domain) {
+            urlsToTry.push(`https://icons.duckduckgo.com/ip3/${domain}.ico`);
+            urlsToTry.push(`https://www.google.com/s2/favicons?domain=${domain}&sz=128`);
         }
 
-        // 根据文件魔术字节检测真实格式
-        let ext = detectImageFormat(buffer);
-
-        // 如果无法检测格式，使用 content-type
-        if (!ext) {
-            if (contentType.includes('svg')) ext = '.svg';
-            else if (contentType.includes('ico') || contentType.includes('icon')) ext = '.ico';
-            else if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = '.jpg';
-            else if (contentType.includes('webp')) ext = '.webp';
-            else if (contentType.includes('gif')) ext = '.gif';
-            else ext = '.png'; // 默认
+        // 逐个尝试
+        for (const url of urlsToTry) {
+            const result = await tryDownload(id, url);
+            if (result.success) {
+                return NextResponse.json(result);
+            }
         }
-
-        const filePath = path.join(LOGOS_DIR, `${id}${ext}`);
-        fs.writeFileSync(filePath, buffer);
 
         return NextResponse.json({
-            success: true,
-            path: `/ai-logos/${id}${ext}`,
-            size: buffer.length
+            success: false,
+            error: 'All sources failed'
         });
     } catch (error) {
         return NextResponse.json({
@@ -159,28 +190,28 @@ export async function POST(request: NextRequest) {
 function detectImageFormat(buffer: Buffer): string | null {
     if (buffer.length < 4) return null;
 
-    // PNG: 89 50 4E 47
+    // PNG
     if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
         return '.png';
     }
-    // JPEG: FF D8 FF
+    // JPEG
     if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
         return '.jpg';
     }
-    // GIF: 47 49 46 38
+    // GIF
     if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38) {
         return '.gif';
     }
-    // WebP: 52 49 46 46 ... 57 45 42 50
+    // WebP
     if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
         buffer.length > 11 && buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
         return '.webp';
     }
-    // ICO: 00 00 01 00
+    // ICO
     if (buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x01 && buffer[3] === 0x00) {
         return '.ico';
     }
-    // SVG: 检查是否包含 <svg
+    // SVG
     const str = buffer.slice(0, 200).toString('utf8');
     if (str.includes('<svg') || str.includes('<?xml')) {
         return '.svg';
@@ -200,8 +231,7 @@ export async function DELETE(request: NextRequest) {
 
         ensureLogosDir();
 
-        // 查找并删除匹配的文件
-        const extensions = ['.png', '.jpg', '.jpeg', '.ico', '.svg', '.webp'];
+        const extensions = ['.png', '.jpg', '.jpeg', '.ico', '.svg', '.webp', '.gif'];
         let deleted = false;
 
         for (const ext of extensions) {

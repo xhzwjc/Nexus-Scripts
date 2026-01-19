@@ -83,7 +83,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                 const res = await fetch('/api/ai-resources/logo', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: resource.id, logoUrl: resource.logoUrl })
+                    body: JSON.stringify({ id: resource.id, logoUrl: resource.logoUrl, siteUrl: resource.url })
                 });
                 const result = await res.json();
 
