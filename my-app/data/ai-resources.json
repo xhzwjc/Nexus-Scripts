@@ -2661,6 +2661,160 @@
         "LLM"
       ],
       "order": 26
+    },
+    {
+      "id": "manus",
+      "name": "Manus",
+      "description": "通用全栈智能体，可自主执行研究、编码到部署的全链路任务",
+      "url": "https://manus.im",
+      "logoUrl": "https://manus.im/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "自主代理",
+        "全栈",
+        "任务执行"
+      ],
+      "order": 50
+    },
+    {
+      "id": "pydantic-ai",
+      "name": "PydanticAI",
+      "description": "基于Python类型安全的生产级Agent构建框架",
+      "url": "https://ai.pydantic.dev",
+      "logoUrl": "https://ai.pydantic.dev/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "类型安全",
+        "框架"
+      ],
+      "order": 51
+    },
+    {
+      "id": "lm-studio",
+      "name": "LM Studio",
+      "description": "企业级本地大模型运行与管理桌面端工具",
+      "url": "https://lmstudio.ai",
+      "logoUrl": "https://lmstudio.ai/favicon.ico",
+      "category": "other",
+      "tags": [
+        "本地部署",
+        "LLM",
+        "桌面端"
+      ],
+      "order": 52
+    },
+    {
+      "id": "smythos",
+      "name": "SmythOS",
+      "description": "可视化多智能体操作系统与编排平台",
+      "url": "https://smythos.com",
+      "logoUrl": "https://smythos.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "操作系统",
+        "可视化",
+        "多代理"
+      ],
+      "order": 53
+    },
+    {
+      "id": "ag2-ai",
+      "name": "AG2",
+      "description": "AutoGen社区驱动版，专注于进阶的多智能体协作",
+      "url": "https://ag2.ai",
+      "logoUrl": "https://ag2.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "AutoGen",
+        "社区版"
+      ],
+      "order": 54
+    },
+    {
+      "id": "wegic",
+      "name": "Wegic",
+      "description": "AI驱动的网页设计与开发生成器",
+      "url": "https://wegic.ai",
+      "logoUrl": "https://wegic.ai/favicon.ico",
+      "category": "design",
+      "tags": [
+        "网页设计",
+        "生成式UI",
+        "无代码"
+      ],
+      "order": 55
+    },
+    {
+      "id": "fliki",
+      "name": "Fliki",
+      "description": "文字转视频营销工具，快速生成社交媒体短视频",
+      "url": "https://fliki.ai",
+      "logoUrl": "https://fliki.ai/favicon.ico",
+      "category": "video",
+      "tags": [
+        "营销视频",
+        "TTS",
+        "剪辑"
+      ],
+      "order": 56
+    },
+    {
+      "id": "sourcetable",
+      "name": "Sourcetable",
+      "description": "AI驱动的下一代智能电子表格",
+      "url": "https://sourcetable.com",
+      "logoUrl": "https://sourcetable.com/favicon.ico",
+      "category": "data",
+      "tags": [
+        "电子表格",
+        "数据分析",
+        "协作"
+      ],
+      "order": 57
+    },
+    {
+      "id": "khanmigo",
+      "name": "Khanmigo",
+      "description": "Khan Academy推出的苏格拉底式AI辅导老师",
+      "url": "https://www.khanacademy.org/khanmigo",
+      "logoUrl": "https://www.khanacademy.org/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "教育",
+        "辅导",
+        "个性化"
+      ],
+      "order": 58
+    },
+    {
+      "id": "base44",
+      "name": "Base44",
+      "description": "AI驱动的后端生成与全栈开发平台",
+      "url": "https://base44.com",
+      "logoUrl": "https://base44.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "后端",
+        "全栈",
+        "生成器"
+      ],
+      "order": 59
+    },
+    {
+      "id": "optimizely",
+      "name": "Optimizely One",
+      "description": "AI驱动的营销生命周期优化与A/B测试平台",
+      "url": "https://www.optimizely.com",
+      "logoUrl": "https://www.optimizely.com/favicon.ico",
+      "category": "data",
+      "tags": [
+        "营销",
+        "A/B测试",
+        "优化"
+      ],
+      "order": 60
     }
   ]
 }
