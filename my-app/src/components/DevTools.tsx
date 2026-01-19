@@ -18,7 +18,9 @@ import {
     AlertCircle,
     Languages,
     ArrowLeft,
-    Unlock
+    Unlock,
+    ChevronRight,
+    ChevronDown
 } from 'lucide-react';
 import { toast } from 'sonner';
 import CryptoJS from 'crypto-js';
@@ -307,6 +309,9 @@ export default function DevTools({ onBack }: DevToolsProps) {
     const [decryptOutput, setDecryptOutput] = useState('');
     const [decryptError, setDecryptError] = useState('');
 
+    // State - JSON Tree (collapsible)
+    const [jsonCollapsed, setJsonCollapsed] = useState<Set<string>>(new Set());
+
     // Default encryption key (same as team-resources-data.ts)
     const DEFAULT_ENCRYPTION_KEY = 'ScriptHub@TeamResources#2024!Secure';
 
@@ -344,6 +349,65 @@ export default function DevTools({ onBack }: DevToolsProps) {
             setJsonError((e as Error).message);
             setJsonOutput('');
         }
+    };
+
+    // JSON Tree toggle
+    const toggleJsonNode = (path: string) => {
+        setJsonCollapsed(prev => {
+            const next = new Set(prev);
+            if (next.has(path)) {
+                next.delete(path);
+            } else {
+                next.add(path);
+            }
+            return next;
+        });
+    };
+
+    // Render collapsible JSON
+    const renderJsonTree = (data: unknown, path: string = 'root', indent: number = 0): React.ReactNode => {
+        if (data === null) return <span className="text-purple-600">null</span>;
+        if (typeof data === 'boolean') return <span className="text-orange-600">{String(data)}</span>;
+        if (typeof data === 'number') return <span className="text-blue-600">{data}</span>;
+        if (typeof data === 'string') return <span className="text-green-600">&quot;{data}&quot;</span>;
+
+        const isArray = Array.isArray(data);
+        const entries = isArray ? data.map((v, i) => [i, v] as [number, unknown]) : Object.entries(data as object);
+        const isCollapsed = jsonCollapsed.has(path);
+
+        if (entries.length === 0) {
+            return <span className="text-slate-500">{isArray ? '[]' : '{}'}</span>;
+        }
+
+        return (
+            <span>
+                <button
+                    onClick={() => toggleJsonNode(path)}
+                    className="inline-flex items-center text-slate-400 hover:text-blue-600 mr-1"
+                >
+                    {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                </button>
+                <span className="text-slate-500">{isArray ? '[' : '{'}</span>
+                {isCollapsed ? (
+                    <span className="text-slate-400 text-xs ml-1">
+                        {entries.length} {isArray ? 'items' : 'keys'}...
+                    </span>
+                ) : (
+                    <div className="ml-0 border-l border-slate-200/50 pl-2">
+                        {entries.map(([key, value], idx) => (
+                            <div key={String(key)} className="flex">
+                                {!isArray && <span className="text-red-600">&quot;{key}&quot;</span>}
+                                {!isArray && <span className="text-slate-500">: </span>}
+                                {isArray && <span className="text-slate-400 mr-2">{key}:</span>}
+                                {renderJsonTree(value, `${path}.${key}`, indent + 1)}
+                                {idx < entries.length - 1 && <span className="text-slate-500">,</span>}
+                            </div>
+                        ))}
+                    </div>
+                )}
+                <span className="text-slate-500">{isArray ? ']' : '}'}</span>
+            </span>
+        );
     };
 
     // Timestamp Handler
@@ -595,12 +659,27 @@ export default function DevTools({ onBack }: DevToolsProps) {
                             <div className="flex flex-col gap-2 overflow-hidden">
                                 <label className="text-xs font-medium text-slate-500 ml-1 shrink-0">{t.json.output}</label>
                                 <div className="flex-1 relative overflow-hidden">
-                                    <textarea
-                                        readOnly
-                                        value={jsonError || jsonOutput}
-                                        className={`h-full w-full font-mono text-xs resize-none p-3 bg-slate-50 border border-slate-200 rounded-md overflow-auto ${jsonError ? 'text-red-500 border-red-200' : 'text-slate-700'}`}
-                                        style={{ minHeight: 0 }}
-                                    />
+                                    {jsonError ? (
+                                        <div className="h-full w-full font-mono text-xs p-3 bg-red-50 border border-red-200 rounded-md overflow-auto text-red-500">
+                                            {jsonError}
+                                        </div>
+                                    ) : jsonOutput ? (
+                                        <div className="h-full w-full font-mono text-xs p-3 bg-slate-50 border border-slate-200 rounded-md overflow-auto text-slate-700">
+                                            {(() => {
+                                                try {
+                                                    const parsed = JSON.parse(jsonOutput);
+                                                    return renderJsonTree(parsed);
+                                                } catch {
+                                                    // If not valid JSON, show raw text
+                                                    return <pre>{jsonOutput}</pre>;
+                                                }
+                                            })()}
+                                        </div>
+                                    ) : (
+                                        <div className="h-full w-full font-mono text-xs p-3 bg-slate-50 border border-slate-200 rounded-md overflow-auto text-slate-400">
+                                            {t.json.placeholder}
+                                        </div>
+                                    )}
                                     {jsonOutput && !jsonError && (
                                         <Button
                                             size="icon"
@@ -615,7 +694,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                             </div>
                         </div>
                         <div className="flex gap-2 mt-4 justify-end shrink-0">
-                            <Button variant="ghost" onClick={() => { setJsonInput(''); setJsonOutput(''); }} >{t.json.clear}</Button>
+                            <Button variant="ghost" onClick={() => { setJsonInput(''); setJsonOutput(''); setJsonCollapsed(new Set()); }} >{t.json.clear}</Button>
                             <Button variant="outline" onClick={handleJsonMinify}>{t.json.minify}</Button>
                             <Button onClick={handleJsonFormat} className="bg-blue-600 hover:bg-blue-700 text-white">{t.json.format}</Button>
                         </div>
