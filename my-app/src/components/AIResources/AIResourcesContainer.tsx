@@ -2,10 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Image from 'next/image';
-import { Search, ExternalLink, Settings, ArrowLeft, Sparkles, X, Folder, Download } from 'lucide-react';
-import * as LucideIcons from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Search, Settings, ArrowLeft, X, Download, ChevronRight } from 'lucide-react';
 import { AIResource, AIResourcesData, INITIAL_AI_RESOURCES } from '@/lib/ai-resources-data';
 import { AIResourceEditor } from '@/components/AIResources/AIResourceEditor';
 import { toast } from 'sonner';
@@ -14,12 +11,6 @@ interface AIResourcesContainerProps {
     onBack: () => void;
     isAdmin?: boolean;
 }
-
-// 动态获取Lucide图标
-const getIcon = (iconName: string) => {
-    const icons = LucideIcons as unknown as Record<string, React.ComponentType<{ className?: string }>>;
-    return icons[iconName] || Folder;
-};
 
 export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesContainerProps) {
     const [data, setData] = useState<AIResourcesData>(INITIAL_AI_RESOURCES);
@@ -35,17 +26,14 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
     useEffect(() => {
         const loadAll = async () => {
             try {
-                // 1. 加载资源数据
                 const dataRes = await fetch('/api/ai-resources/data');
                 if (dataRes.ok) {
                     const jsonData = await dataRes.json();
-                    // 验证数据结构
                     if (jsonData && Array.isArray(jsonData.categories) && Array.isArray(jsonData.resources)) {
                         setData(jsonData);
                     }
                 }
 
-                // 2. 获取本地logo列表
                 const logoListRes = await fetch('/api/ai-resources/logo-list');
                 if (logoListRes.ok) {
                     const logoListData = await logoListRes.json();
@@ -60,7 +48,6 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
         loadAll();
     }, []);
 
-    // 刷新logo列表（用于上传后刷新）
     const refreshLogos = async () => {
         try {
             const logoListRes = await fetch('/api/ai-resources/logo-list');
@@ -71,17 +58,13 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
         }
     };
 
-    // 自动下载缺失的logo
     const downloadMissingLogos = async () => {
         if (isDownloading) return;
 
-        // 找出缺失logo的资源
-        const missingLogos = data.resources.filter(
-            r => r.logoUrl && !logoCache[r.id]
-        );
+        const missingLogos = data.resources.filter(r => r.logoUrl && !logoCache[r.id]);
 
         if (missingLogos.length === 0) {
-            toast.info('所有icon已存在，无需下载');
+            toast.info('所有图标已存在');
             return;
         }
 
@@ -90,11 +73,12 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
 
         let successCount = 0;
         let failCount = 0;
+        let completed = 0;
 
-        for (let i = 0; i < missingLogos.length; i++) {
-            const resource = missingLogos[i];
-            setDownloadProgress({ current: i + 1, total: missingLogos.length });
+        // 并行下载，每批10个
+        const BATCH_SIZE = 10;
 
+        const downloadOne = async (resource: AIResource) => {
             try {
                 const res = await fetch('/api/ai-resources/logo', {
                     method: 'POST',
@@ -112,29 +96,32 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
             } catch {
                 failCount++;
             }
+            completed++;
+            setDownloadProgress({ current: completed, total: missingLogos.length });
+        };
+
+        // 分批并行下载
+        for (let i = 0; i < missingLogos.length; i += BATCH_SIZE) {
+            const batch = missingLogos.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(downloadOne));
         }
 
         setIsDownloading(false);
-        toast.success(`下载完成：成功 ${successCount} 个，失败 ${failCount} 个`);
+        toast.success(`完成：${successCount} 成功，${failCount} 失败`);
         await refreshLogos();
     };
 
-    // 获取logo路径（只从本地缓存获取）
     const getLogo = (resource: AIResource): string | null => {
         return logoCache[resource.id] || null;
     };
 
-
-    // 搜索过滤
     const filteredResources = useMemo(() => {
         let resources = data.resources;
 
-        // 分类过滤
         if (activeCategory !== 'all') {
             resources = resources.filter(r => r.category === activeCategory);
         }
 
-        // 搜索过滤
         if (searchQuery.trim()) {
             const query = searchQuery.toLowerCase();
             resources = resources.filter(r =>
@@ -144,11 +131,9 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
             );
         }
 
-        // 按order排序
         return resources.sort((a, b) => (a.order || 99) - (b.order || 99));
     }, [data.resources, activeCategory, searchQuery]);
 
-    // 按分类分组资源
     const groupedResources = useMemo(() => {
         if (activeCategory !== 'all') {
             return { [activeCategory]: filteredResources };
@@ -164,7 +149,6 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
         return groups;
     }, [filteredResources, activeCategory]);
 
-    // 保存数据
     const handleSave = async (updatedData: AIResourcesData) => {
         try {
             const res = await fetch('/api/ai-resources/save', {
@@ -176,7 +160,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
             if (res.ok) {
                 setData(updatedData);
                 setIsEditing(false);
-                toast.success('保存成功');
+                toast.success('已保存');
             } else {
                 toast.error('保存失败');
             }
@@ -187,8 +171,8 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
 
     if (isLoading) {
         return (
-            <div className="h-full flex items-center justify-center">
-                <div className="text-slate-500">加载中...</div>
+            <div className="h-full flex items-center justify-center bg-[#f5f5f7]">
+                <div className="text-neutral-400 text-sm">加载中...</div>
             </div>
         );
     }
@@ -204,138 +188,139 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
     }
 
     return (
-        <div className="h-full flex flex-col bg-gradient-to-br from-slate-50 to-blue-50">
-            {/* 顶部导航栏 */}
-            <div className="flex-shrink-0 bg-white/80 backdrop-blur-sm border-b border-slate-200 px-6 py-4">
+        <div className="h-full flex flex-col bg-[#f5f5f7]">
+            {/* 顶部导航栏 - iOS 26 毛玻璃风格 */}
+            <div className="flex-shrink-0 bg-white/60 backdrop-blur-xl border-b border-black/5 px-5 py-3">
                 <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <Button variant="ghost" size="icon" onClick={onBack} className="text-slate-500">
-                            <ArrowLeft className="w-5 h-5" />
-                        </Button>
-                        <div className="flex items-center gap-2">
-                            <Sparkles className="w-5 h-5 text-blue-500" />
-                            <h1 className="text-xl font-bold text-slate-800">AI资源导航</h1>
-                        </div>
+                    {/* 左侧：返回 + 标题 */}
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={onBack}
+                            className="flex items-center gap-1 text-neutral-500 hover:text-neutral-800 transition-colors"
+                        >
+                            <ArrowLeft className="w-4 h-4" />
+                            <span className="text-sm">返回</span>
+                        </button>
+                        <div className="w-px h-4 bg-neutral-200" />
+                        <h1 className="text-base font-semibold text-neutral-800">AI 工具库</h1>
                     </div>
 
-                    <div className="flex items-center gap-4">
-                        {/* 搜索框 */}
+                    {/* 右侧：搜索 + 管理 */}
+                    <div className="flex items-center gap-3">
+                        {/* 搜索框 - 极简胶囊样式 */}
                         <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                            <Input
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                            <input
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="搜索工具..."
-                                className="pl-9 w-64 bg-white"
+                                placeholder="搜索..."
+                                className="pl-9 pr-8 w-56 h-8 bg-neutral-100/80 border-0 rounded-lg text-sm 
+                                         placeholder:text-neutral-400 focus:outline-none focus:bg-white 
+                                         focus:ring-1 focus:ring-neutral-200 transition-all"
                             />
                             {searchQuery && (
                                 <button
                                     onClick={() => setSearchQuery('')}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
                                 >
-                                    <X className="w-4 h-4" />
+                                    <X className="w-3.5 h-3.5" />
                                 </button>
                             )}
                         </div>
 
-                        {/* 管理按钮 */}
+                        {/* 管理按钮 - 仅管理员可见 */}
                         {isAdmin && (
                             <div className="flex items-center gap-2">
-                                {/* 下载Icon按钮 */}
-                                <Button
-                                    variant="outline"
+                                <button
                                     onClick={downloadMissingLogos}
                                     disabled={isDownloading}
-                                    className="gap-2"
+                                    className="flex items-center gap-1.5 px-3 h-8 text-sm text-neutral-600 
+                                             hover:text-neutral-900 hover:bg-neutral-100 rounded-lg transition-colors
+                                             disabled:opacity-50"
                                 >
                                     {isDownloading ? (
                                         <>
-                                            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                                            {downloadProgress.current}/{downloadProgress.total}
+                                            <div className="w-3.5 h-3.5 border-2 border-neutral-400 border-t-transparent rounded-full animate-spin" />
+                                            <span>{downloadProgress.current}/{downloadProgress.total}</span>
                                         </>
                                     ) : (
                                         <>
-                                            <Download className="w-4 h-4" />
-                                            下载Icon
+                                            <Download className="w-3.5 h-3.5" />
+                                            <span>图标</span>
                                         </>
                                     )}
-                                </Button>
-                                <Button variant="outline" onClick={() => setIsEditing(true)} className="gap-2">
-                                    <Settings className="w-4 h-4" />
-                                    管理
-                                </Button>
+                                </button>
+                                <button
+                                    onClick={() => setIsEditing(true)}
+                                    className="flex items-center gap-1.5 px-3 h-8 text-sm text-neutral-600 
+                                             hover:text-neutral-900 hover:bg-neutral-100 rounded-lg transition-colors"
+                                >
+                                    <Settings className="w-3.5 h-3.5" />
+                                    <span>管理</span>
+                                </button>
                             </div>
                         )}
                     </div>
                 </div>
 
-                {/* 分类标签 */}
-                <div className="flex items-center gap-2 mt-4 overflow-x-auto pb-2">
+                {/* 分类标签 - 极简风格 */}
+                <div className="flex items-center gap-1 mt-3 overflow-x-auto pb-1 scrollbar-none">
                     <button
                         onClick={() => setActiveCategory('all')}
-                        className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${activeCategory === 'all'
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-white text-slate-600 hover:bg-slate-100'
+                        className={`px-3 py-1.5 rounded-lg text-[13px] font-medium whitespace-nowrap transition-all ${activeCategory === 'all'
+                            ? 'bg-neutral-800 text-white'
+                            : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100'
                             }`}
                     >
                         全部
                     </button>
-                    {data.categories.sort((a, b) => a.order - b.order).map(cat => {
-                        const Icon = getIcon(cat.icon);
-                        return (
-                            <button
-                                key={cat.id}
-                                onClick={() => setActiveCategory(cat.id)}
-                                className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${activeCategory === cat.id
-                                    ? 'bg-blue-500 text-white'
-                                    : 'bg-white text-slate-600 hover:bg-slate-100'
-                                    }`}
-                            >
-                                <Icon className="w-3.5 h-3.5" />
-                                {cat.name}
-                            </button>
-                        );
-                    })}
+                    {data.categories.sort((a, b) => a.order - b.order).map(cat => (
+                        <button
+                            key={cat.id}
+                            onClick={() => setActiveCategory(cat.id)}
+                            className={`px-3 py-1.5 rounded-lg text-[13px] font-medium whitespace-nowrap transition-all ${activeCategory === cat.id
+                                ? 'bg-neutral-800 text-white'
+                                : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100'
+                                }`}
+                        >
+                            {cat.name}
+                        </button>
+                    ))}
                 </div>
             </div>
 
             {/* 资源网格 */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-5">
                 {Object.keys(groupedResources).length === 0 ? (
-                    <div className="text-center py-12 text-slate-500">
-                        没有找到匹配的资源
+                    <div className="text-center py-16 text-neutral-400 text-sm">
+                        没有找到匹配的工具
                     </div>
                 ) : (
-                    <div className="space-y-8">
+                    <div className="space-y-6">
                         {data.categories
                             .filter(cat => groupedResources[cat.id]?.length > 0)
                             .sort((a, b) => a.order - b.order)
-                            .map(cat => {
-                                const Icon = getIcon(cat.icon);
-                                return (
-                                    <div key={cat.id}>
-                                        {activeCategory === 'all' && (
-                                            <div className="flex items-center gap-2 mb-4">
-                                                <Icon className="w-5 h-5 text-slate-600" />
-                                                <h2 className="text-lg font-semibold text-slate-800">{cat.name}</h2>
-                                                <span className="text-sm text-slate-400">
-                                                    ({groupedResources[cat.id].length})
-                                                </span>
-                                            </div>
-                                        )}
+                            .map(cat => (
+                                <div key={cat.id}>
+                                    {/* 分类标题 - 极简小号 */}
+                                    {activeCategory === 'all' && (
+                                        <h2 className="text-[12px] font-medium text-neutral-400 uppercase tracking-wider mb-3 px-1">
+                                            {cat.name} · {groupedResources[cat.id].length}
+                                        </h2>
+                                    )}
 
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                                            {groupedResources[cat.id].map(resource => (
-                                                <ResourceCard
-                                                    key={resource.id}
-                                                    resource={resource}
-                                                    logo={getLogo(resource)}
-                                                />
-                                            ))}
-                                        </div>
+                                    {/* 卡片网格 */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+                                        {groupedResources[cat.id].map(resource => (
+                                            <ResourceCard
+                                                key={resource.id}
+                                                resource={resource}
+                                                logo={getLogo(resource)}
+                                            />
+                                        ))}
                                     </div>
-                                );
-                            })}
+                                </div>
+                            ))}
                     </div>
                 )}
             </div>
@@ -343,11 +328,10 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
     );
 }
 
-// 资源卡片组件
+// 资源卡片组件 - iOS 26 毛玻璃风格
 function ResourceCard({ resource, logo }: { resource: AIResource; logo: string | null }) {
     const [imgError, setImgError] = useState(false);
 
-    // 当logo变化时重置错误状态
     useEffect(() => {
         if (logo) {
             setImgError(false);
@@ -358,57 +342,65 @@ function ResourceCard({ resource, logo }: { resource: AIResource; logo: string |
         window.open(resource.url, '_blank', 'noopener,noreferrer');
     };
 
-    // 渲染logo内容
     const renderLogo = () => {
-        // 有logo且没有错误
         if (logo && !imgError) {
             return (
                 <Image
                     src={logo}
                     alt={resource.name}
-                    width={32}
-                    height={32}
+                    width={28}
+                    height={28}
                     className="object-contain"
                     onError={() => setImgError(true)}
                     unoptimized
                 />
             );
         }
-        // 默认图标
-        return <Sparkles className="w-6 h-6 text-blue-400" />;
+        // 默认使用首字母
+        return (
+            <span className="text-sm font-medium text-neutral-400">
+                {resource.name.charAt(0).toUpperCase()}
+            </span>
+        );
     };
 
     return (
         <button
             onClick={handleClick}
-            className="group flex items-start gap-4 p-4 bg-white rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-lg hover:shadow-blue-100/50 transition-all duration-200 text-left w-full"
+            className="group flex items-center gap-3 p-3 bg-white/70 backdrop-blur-sm rounded-xl 
+                     border border-black/5 hover:bg-white hover:shadow-sm 
+                     transition-all duration-150 text-left w-full"
         >
             {/* Logo */}
-            <div className="flex-shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center overflow-hidden relative">
+            <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-neutral-100 flex items-center justify-center overflow-hidden">
                 {renderLogo()}
             </div>
 
             {/* 内容 */}
             <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
+                <div className="flex items-center gap-1.5">
+                    <h3 className="text-[15px] font-medium text-neutral-800 truncate group-hover:text-neutral-600 transition-colors">
                         {resource.name}
                     </h3>
-                    <ExternalLink className="w-3.5 h-3.5 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <ChevronRight className="w-3 h-3 text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                 </div>
-                <p className="text-sm text-slate-500 mt-0.5 line-clamp-2">
+                <p className="text-[13px] text-neutral-400 mt-0.5 truncate">
                     {resource.description}
                 </p>
+                {/* Tags - 极简风格 */}
                 {resource.tags && resource.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                        {resource.tags.slice(0, 3).map(tag => (
+                    <div className="flex items-center gap-1 mt-1.5 overflow-hidden">
+                        {resource.tags.slice(0, 2).map(tag => (
                             <span
                                 key={tag}
-                                className="px-2 py-0.5 text-xs bg-slate-100 text-slate-500 rounded-full"
+                                className="px-1.5 py-0.5 text-[11px] bg-neutral-100 text-neutral-400 rounded"
                             >
                                 {tag}
                             </span>
                         ))}
+                        {resource.tags.length > 2 && (
+                            <span className="text-[11px] text-neutral-300">+{resource.tags.length - 2}</span>
+                        )}
                     </div>
                 )}
             </div>

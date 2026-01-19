@@ -39,6 +39,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
     const [editingResource, setEditingResource] = useState<AIResource | null>(null);
     const [editingCategory, setEditingCategory] = useState<AICategory | null>(null);
     const [logoCache, setLogoCache] = useState<Record<string, string>>({});
+    const [logosToDelete, setLogosToDelete] = useState<Set<string>>(new Set());
 
     // 加载logo列表
     useEffect(() => {
@@ -164,6 +165,28 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
         }
     };
 
+    // 保存时同时删除标记的logo
+    const handleSaveWithLogos = async () => {
+        // 删除标记的logo
+        if (logosToDelete.size > 0) {
+            const deletePromises = Array.from(logosToDelete).map(async (id) => {
+                try {
+                    await fetch('/api/ai-resources/logo', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id })
+                    });
+                } catch {
+                    // ignore individual errors
+                }
+            });
+            await Promise.all(deletePromises);
+            toast.success(`已删除 ${logosToDelete.size} 个图标`);
+        }
+        // 保存数据
+        onSave(editedData);
+    };
+
     return (
         <div className="h-full flex flex-col bg-slate-50">
             {/* 顶部工具栏 */}
@@ -180,9 +203,9 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                         <Button variant="outline" onClick={onCancel}>
                             取消
                         </Button>
-                        <Button onClick={() => onSave(editedData)} className="bg-blue-500 hover:bg-blue-600 gap-2">
+                        <Button onClick={handleSaveWithLogos} className="bg-blue-500 hover:bg-blue-600 gap-2">
                             <Save className="w-4 h-4" />
-                            保存
+                            保存{logosToDelete.size > 0 && ` (删除${logosToDelete.size}图标)`}
                         </Button>
                     </div>
                 </div>
@@ -262,16 +285,52 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center gap-3">
                                                     <GripVertical className="w-4 h-4 text-slate-300 cursor-move" />
-                                                    {/* Icon */}
-                                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center overflow-hidden border border-slate-200 flex-shrink-0">
-                                                        {logoCache[resource.id] ? (
-                                                            <img
-                                                                src={logoCache[resource.id]}
-                                                                alt=""
-                                                                className="w-5 h-5 object-contain"
-                                                            />
-                                                        ) : (
-                                                            <LucideIcons.Sparkles className="w-4 h-4 text-slate-300" />
+                                                    {/* Icon with delete button */}
+                                                    <div className="relative group/logo">
+                                                        <div className={`w-8 h-8 rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center overflow-hidden border flex-shrink-0 ${logosToDelete.has(resource.id) ? 'border-red-300 opacity-50' : 'border-slate-200'
+                                                            }`}>
+                                                            {logoCache[resource.id] && !logosToDelete.has(resource.id) ? (
+                                                                <img
+                                                                    src={logoCache[resource.id]}
+                                                                    alt=""
+                                                                    className="w-5 h-5 object-contain"
+                                                                />
+                                                            ) : (
+                                                                <LucideIcons.Sparkles className="w-4 h-4 text-slate-300" />
+                                                            )}
+                                                        </div>
+                                                        {/* X button on hover */}
+                                                        {logoCache[resource.id] && !logosToDelete.has(resource.id) && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setLogosToDelete(prev => new Set([...prev, resource.id]));
+                                                                }}
+                                                                className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full 
+                                                                         flex items-center justify-center opacity-0 group-hover/logo:opacity-100 
+                                                                         transition-opacity hover:bg-red-600"
+                                                                title="删除图标"
+                                                            >
+                                                                <X className="w-2.5 h-2.5" />
+                                                            </button>
+                                                        )}
+                                                        {/* Undo button for marked logos */}
+                                                        {logosToDelete.has(resource.id) && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setLogosToDelete(prev => {
+                                                                        const next = new Set(prev);
+                                                                        next.delete(resource.id);
+                                                                        return next;
+                                                                    });
+                                                                }}
+                                                                className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 text-white rounded-full 
+                                                                         flex items-center justify-center hover:bg-green-600"
+                                                                title="撤销删除"
+                                                            >
+                                                                <Check className="w-2.5 h-2.5" />
+                                                            </button>
                                                         )}
                                                     </div>
                                                     <span className="font-medium text-slate-800">{resource.name}</span>
