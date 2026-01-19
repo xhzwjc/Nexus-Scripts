@@ -173,6 +173,50 @@
       "order": 1
     },
     {
+      "id": "google-antigravity",
+      "name": "Google Antigravity",
+      "description": "Google代理优先的AI原生IDE，支持自主代理构建软件",
+      "url": "https://antigravity.google",
+      "logoUrl": "https://antigravity.google/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "Google",
+        "IDE",
+        "自主代理",
+        "Gemini"
+      ],
+      "order": 1
+    },
+    {
+      "id": "prometheus",
+      "name": "Prometheus + Grafana",
+      "description": "开源 / Pull模式，云原生监控事实标准，与Kubernetes集成极佳，适合动态服务发现",
+      "url": "https://prometheus.io",
+      "logoUrl": "https://prometheus.io/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "开源",
+        "云原生",
+        "Kubernetes",
+        "微服务"
+      ],
+      "order": 1
+    },
+    {
+      "id": "julius-ai",
+      "name": "Julius AI",
+      "description": "自然语言数据分析师，支持Excel/CSV上传、自动可视化与预测",
+      "url": "https://julius.ai",
+      "logoUrl": "https://julius.ai/favicon.ico",
+      "category": "data",
+      "tags": [
+        "数据可视化",
+        "自然语言",
+        "预测分析"
+      ],
+      "order": 1
+    },
+    {
       "id": "claude",
       "name": "Claude",
       "description": "Anthropic的AI助手",
@@ -265,6 +309,78 @@
       "order": 2
     },
     {
+      "id": "trae",
+      "name": "Trae",
+      "description": "字节跳动AI代理团队平台，支持智能工具集成与软件工程代理",
+      "url": "https://www.trae.ai",
+      "logoUrl": "https://www.trae.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "字节",
+        "代理团队",
+        "IDE",
+        "工具调用"
+      ],
+      "order": 2
+    },
+    {
+      "id": "zabbix",
+      "name": "Zabbix",
+      "description": "开源 / Agent, SNMP, IPMI, JMX功能全面、历史悠久、支持深度自定义和自动发现",
+      "url": "https://www.zabbix.com",
+      "logoUrl": "https://www.zabbix.com/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "开源",
+        "企业级",
+        "自动发现",
+        "混合IT"
+      ],
+      "order": 2
+    },
+    {
+      "id": "hex-magic",
+      "name": "Hex",
+      "description": "协作式AI数据笔记本，支持SQL/Python与团队共享",
+      "url": "https://hex.tech",
+      "logoUrl": "https://hex.tech/favicon.ico",
+      "category": "data",
+      "tags": [
+        "协作",
+        "数据科学",
+        "笔记本"
+      ],
+      "order": 2
+    },
+    {
+      "id": "writesonic",
+      "name": "Writesonic",
+      "description": "多功能AI写作平台，擅长SEO优化与社交媒体内容",
+      "url": "https://writesonic.com",
+      "logoUrl": "https://writesonic.com/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "SEO",
+        "社交媒体",
+        "多语言"
+      ],
+      "order": 2
+    },
+    {
+      "id": "you-com",
+      "name": "You.com",
+      "description": "多模态AI搜索与聊天，支持自定义App模式",
+      "url": "https://you.com",
+      "logoUrl": "https://you.com/favicon.ico",
+      "category": "search",
+      "tags": [
+        "多模态",
+        "自定义",
+        "聊天搜索"
+      ],
+      "order": 2
+    },
+    {
       "id": "gemini",
       "name": "Gemini",
       "description": "Google的多模态AI",
@@ -339,6 +455,91 @@
       "tags": [
         "音乐",
         "创作"
+      ],
+      "order": 3
+    },
+    {
+      "id": "poe-aggregator",
+      "name": "Poe",
+      "description": "多模型聚合与自定义机器人",
+      "url": "https://poe.com",
+      "logoUrl": "https://poe.com/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "聚合",
+        "自定义",
+        "API"
+      ],
+      "order": 3
+    },
+    {
+      "id": "crewai",
+      "name": "CrewAI",
+      "description": "领先的多代理协作框架，构建AI团队执行复杂任务",
+      "url": "https://www.crewai.com",
+      "logoUrl": "https://www.crewai.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "多代理",
+        "开源",
+        "工作流"
+      ],
+      "order": 3
+    },
+    {
+      "id": "netdata",
+      "name": "Netdata",
+      "description": "开源 / 实时采集实时性能监控，仪表盘华丽，几乎零配置启动，资源占用低",
+      "url": "https://www.netdata.cloud",
+      "logoUrl": "https://www.netdata.cloud/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "开源",
+        "实时监控",
+        "零配置",
+        "单机诊断"
+      ],
+      "order": 3
+    },
+    {
+      "id": "akkio",
+      "name": "Akkio",
+      "description": "无代码预测建模，适合业务用户快速构建ML模型",
+      "url": "https://www.akkio.com",
+      "logoUrl": "https://www.akkio.com/favicon.ico",
+      "category": "data",
+      "tags": [
+        "无代码",
+        "预测模型",
+        "业务分析"
+      ],
+      "order": 3
+    },
+    {
+      "id": "copy-ai",
+      "name": "Copy.ai",
+      "description": "快速生成营销文案、邮件与产品描述",
+      "url": "https://www.copy.ai",
+      "logoUrl": "https://www.copy.ai/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "营销文案",
+        "快速生成",
+        "模板丰富"
+      ],
+      "order": 3
+    },
+    {
+      "id": "phind",
+      "name": "Phind",
+      "description": "开发者专用AI搜索引擎，擅长代码与技术问题",
+      "url": "https://www.phind.com",
+      "logoUrl": "https://www.phind.com/favicon.ico",
+      "category": "search",
+      "tags": [
+        "开发者",
+        "代码搜索",
+        "技术问答"
       ],
       "order": 3
     },
@@ -425,6 +626,104 @@
       "order": 4
     },
     {
+      "id": "descript",
+      "name": "Descript",
+      "description": "AI音频视频编辑与Overdub",
+      "url": "https://www.descript.com",
+      "logoUrl": "https://www.descript.com/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "播客编辑",
+        "语音克隆"
+      ],
+      "order": 4
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "description": "超高速AI推理平台",
+      "url": "https://groq.com",
+      "logoUrl": "https://groq.com/favicon.ico",
+      "category": "other",
+      "tags": [
+        "推理",
+        "速度",
+        "API"
+      ],
+      "order": 4
+    },
+    {
+      "id": "autogen",
+      "name": "AutoGen",
+      "description": "Microsoft多代理对话框架，支持自定义代理协作",
+      "url": "https://microsoft.github.io/autogen",
+      "logoUrl": "https://microsoft.github.io/autogen/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "Microsoft",
+        "多代理",
+        "开源"
+      ],
+      "order": 4
+    },
+    {
+      "id": "nagios",
+      "name": "Nagios",
+      "description": "开源 / 插件式监控界的“元老”，以稳定性和强大的插件生态著称",
+      "url": "https://www.nagios.org",
+      "logoUrl": "https://www.nagios.org/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "开源",
+        "插件生态",
+        "传统IT",
+        "稳定"
+      ],
+      "order": 4
+    },
+    {
+      "id": "pandas-ai",
+      "name": "Pandas AI",
+      "description": "在Pandas代码中集成AI，自然语言查询DataFrame",
+      "url": "https://github.com/gventuri/pandas-ai",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "data",
+      "tags": [
+        "开源",
+        "Python",
+        "数据查询"
+      ],
+      "order": 4
+    },
+    {
+      "id": "rytr",
+      "name": "Rytr",
+      "description": "性价比高AI写作工具，支持40+用例与多语言",
+      "url": "https://rytr.me",
+      "logoUrl": "https://rytr.me/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "性价比",
+        "多语言",
+        "短文"
+      ],
+      "order": 4
+    },
+    {
+      "id": "consensus",
+      "name": "Consensus",
+      "description": "学术论文AI搜索引擎，提供证据级答案",
+      "url": "https://consensus.app",
+      "logoUrl": "https://consensus.app/favicon.ico",
+      "category": "search",
+      "tags": [
+        "学术",
+        "论文搜索",
+        "证据分析"
+      ],
+      "order": 4
+    },
+    {
       "id": "kimi",
       "name": "Kimi",
       "description": "月之暗面长文本AI",
@@ -464,6 +763,143 @@
       "order": 5
     },
     {
+      "id": "sora",
+      "name": "Sora",
+      "description": "OpenAI文本到视频生成",
+      "url": "https://openai.com/sora",
+      "logoUrl": "https://openai.com/favicon.ico",
+      "category": "video",
+      "tags": [
+        "OpenAI",
+        "高真实度"
+      ],
+      "order": 5
+    },
+    {
+      "id": "uizard",
+      "name": "Uizard",
+      "description": "AI从草图/文本生成UI设计",
+      "url": "https://uizard.io",
+      "logoUrl": "https://uizard.io/favicon.ico",
+      "category": "design",
+      "tags": [
+        "UI原型",
+        "快速设计"
+      ],
+      "order": 5
+    },
+    {
+      "id": "jasper",
+      "name": "Jasper",
+      "description": "AI营销内容写作助手",
+      "url": "https://www.jasper.ai",
+      "logoUrl": "https://www.jasper.ai/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "内容营销",
+        "长文写作"
+      ],
+      "order": 5
+    },
+    {
+      "id": "playht",
+      "name": "PlayHT",
+      "description": "高自然度AI语音合成",
+      "url": "https://play.ht",
+      "logoUrl": "https://play.ht/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "TTS",
+        "语音克隆"
+      ],
+      "order": 5
+    },
+    {
+      "id": "langgraph",
+      "name": "LangGraph",
+      "description": "LangChain的状态机代理工作流框架，构建可靠代理循环",
+      "url": "https://www.langchain.com/langgraph",
+      "logoUrl": "https://www.langchain.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "LangChain",
+        "状态机",
+        "工作流"
+      ],
+      "order": 5
+    },
+    {
+      "id": "huggingface",
+      "name": "Hugging Face",
+      "description": "全球最大的AI模型与数据集开源社区",
+      "url": "https://huggingface.co",
+      "logoUrl": "https://huggingface.co/favicon.ico",
+      "category": "other",
+      "tags": [
+        "开源",
+        "模型库",
+        "基础设施"
+      ],
+      "order": 5
+    },
+    {
+      "id": "uptime-kuma",
+      "name": "Uptime Kuma",
+      "description": "开源 / HTTP, TCP, ICMP, DNS等轻量级、专注于服务可用性和状态监控，部署简单，界面直观",
+      "url": "https://uptime.kuma.pet",
+      "logoUrl": "https://uptime.kuma.pet/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "开源",
+        "可用性监控",
+        "轻量级",
+        "个人项目"
+      ],
+      "order": 5
+    },
+    {
+      "id": "thoughtspot",
+      "name": "ThoughtSpot",
+      "description": "企业级自然语言搜索BI平台，支持实时数据洞察",
+      "url": "https://www.thoughtspot.com",
+      "logoUrl": "https://www.thoughtspot.com/favicon.ico",
+      "category": "data",
+      "tags": [
+        "企业级",
+        "BI",
+        "自然语言搜索"
+      ],
+      "order": 5
+    },
+    {
+      "id": "sudowrite",
+      "name": "Sudowrite",
+      "description": "创意写作专用AI，擅长小说、剧本与故事扩展",
+      "url": "https://www.sudowrite.com",
+      "logoUrl": "https://www.sudowrite.com/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "创意写作",
+        "小说",
+        "故事生成"
+      ],
+      "order": 5
+    },
+    {
+      "id": "elicit",
+      "name": "Elicit",
+      "description": "科研文献助手，支持论文总结与数据提取",
+      "url": "https://elicit.org",
+      "logoUrl": "https://elicit.org/favicon.ico",
+      "category": "search",
+      "tags": [
+        "科研",
+        "文献总结",
+        "数据提取"
+      ],
+      "order": 5
+    },
+    {
       "id": "doubao",
       "name": "豆包",
       "description": "字节跳动AI助手",
@@ -490,6 +926,157 @@
       "order": 6
     },
     {
+      "id": "tabnine",
+      "name": "Tabnine",
+      "description": "AI代码补全助手",
+      "url": "https://www.tabnine.com",
+      "logoUrl": "https://www.tabnine.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "代码补全",
+        "隐私保护"
+      ],
+      "order": 6
+    },
+    {
+      "id": "veo",
+      "name": "Veo",
+      "description": "Google高物理一致性视频生成",
+      "url": "https://deepmind.google/technologies/veo/",
+      "logoUrl": "https://deepmind.google/favicon.ico",
+      "category": "video",
+      "tags": [
+        "Google",
+        "物理模拟"
+      ],
+      "order": 6
+    },
+    {
+      "id": "galileo-ai",
+      "name": "Galileo AI",
+      "description": "文本到专业UI设计",
+      "url": "https://www.usegalileo.ai",
+      "logoUrl": "https://www.usegalileo.ai/favicon.ico",
+      "category": "design",
+      "tags": [
+        "专业设计",
+        "产品UI"
+      ],
+      "order": 6
+    },
+    {
+      "id": "murf",
+      "name": "Murf.ai",
+      "description": "专业级AI语音工作室",
+      "url": "https://murf.ai",
+      "logoUrl": "https://murf.ai/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "语音合成",
+        "配音"
+      ],
+      "order": 6
+    },
+    {
+      "id": "dify",
+      "name": "Dify",
+      "description": "开源AI应用与代理构建平台，低代码快速部署代理工作流",
+      "url": "https://dify.ai",
+      "logoUrl": "https://dify.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "低代码",
+        "工作流"
+      ],
+      "order": 6
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama",
+      "description": "在本地轻松运行Llama等大型语言模型",
+      "url": "https://ollama.com",
+      "logoUrl": "https://ollama.com/public/icon-32x32.png",
+      "category": "other",
+      "tags": [
+        "本地部署",
+        "开源",
+        "LLM"
+      ],
+      "order": 6
+    },
+    {
+      "id": "jsdelivr-design",
+      "name": "即时设计",
+      "description": "国产专业UI设计工具，内置AI辅助设计功能",
+      "url": "https://js.design",
+      "logoUrl": "https://js.design/favicon.ico",
+      "category": "design",
+      "tags": [
+        "国产",
+        "UI设计",
+        "协作"
+      ],
+      "order": 6
+    },
+    {
+      "id": "hertzbeat",
+      "name": "Apache HertzBeat",
+      "description": "开源 / 无代理(Agentless)新一代一体化平台，开箱即用，无需在被监控端部署代理",
+      "url": "https://hertzbeat.apache.org",
+      "logoUrl": "https://hertzbeat.apache.org/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "开源",
+        "无代理",
+        "开箱即用",
+        "中小团队"
+      ],
+      "order": 6
+    },
+    {
+      "id": "polymer",
+      "name": "Polymer",
+      "description": "AI驱动数据仪表盘，自动生成洞察与可视化",
+      "url": "https://www.polymersearch.com",
+      "logoUrl": "https://www.polymersearch.com/favicon.ico",
+      "category": "data",
+      "tags": [
+        "仪表盘",
+        "自动洞察",
+        "无代码"
+      ],
+      "order": 6
+    },
+    {
+      "id": "anyword",
+      "name": "Anyword",
+      "description": "数据驱动营销文案生成，带性能预测评分",
+      "url": "https://anyword.com",
+      "logoUrl": "https://anyword.com/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "营销",
+        "性能预测",
+        "A/B测试"
+      ],
+      "order": 6
+    },
+    {
+      "id": "scite",
+      "name": "Scite",
+      "description": "智能引用分析，显示论文被支持/质疑情况",
+      "url": "https://scite.ai",
+      "logoUrl": "https://scite.ai/favicon.ico",
+      "category": "search",
+      "tags": [
+        "引用分析",
+        "学术",
+        "可靠性"
+      ],
+      "order": 6
+    },
+    {
       "id": "tongyi",
       "name": "通义千问",
       "description": "阿里巴巴AI助手",
@@ -499,6 +1086,157 @@
       "tags": [
         "国产",
         "阿里"
+      ],
+      "order": 7
+    },
+    {
+      "id": "codewhisperer",
+      "name": "Amazon CodeWhisperer",
+      "description": "亚马逊AI代码生成工具",
+      "url": "https://aws.amazon.com/codewhisperer/",
+      "logoUrl": "https://aws.amazon.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "亚马逊",
+        "代码建议"
+      ],
+      "order": 7
+    },
+    {
+      "id": "synthesia",
+      "name": "Synthesia",
+      "description": "AI数字人头像视频",
+      "url": "https://www.synthesia.io",
+      "logoUrl": "https://www.synthesia.io/favicon.ico",
+      "category": "video",
+      "tags": [
+        "数字人",
+        "企业培训"
+      ],
+      "order": 7
+    },
+    {
+      "id": "fireflies",
+      "name": "Fireflies.ai",
+      "description": "AI会议笔记与行动项提取",
+      "url": "https://fireflies.ai",
+      "logoUrl": "https://fireflies.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "会议助手",
+        "自动化笔记"
+      ],
+      "order": 7
+    },
+    {
+      "id": "lindy",
+      "name": "Lindy",
+      "description": "无代码AI代理构建器，支持自定义自动化与多代理任务",
+      "url": "https://www.lindy.ai",
+      "logoUrl": "https://www.lindy.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "无代码",
+        "自动化",
+        "多任务"
+      ],
+      "order": 7
+    },
+    {
+      "id": "adobe-ai-illustrator",
+      "name": "Adobe Illustrator AI",
+      "description": "专业矢量设计工具，集成Firefly AI生成功能",
+      "url": "https://www.adobe.com/cn/products/illustrator.html",
+      "logoUrl": "https://www.adobe.com/favicon.ico",
+      "category": "design",
+      "tags": [
+        "矢量设计",
+        "专业",
+        "AI生成"
+      ],
+      "order": 7
+    },
+    {
+      "id": "adobe-audition-ai",
+      "name": "Adobe Audition AI",
+      "description": "专业音频编辑工具，AI降噪与音频修复功能强大",
+      "url": "https://www.adobe.com/cn/products/audition.html",
+      "logoUrl": "https://www.adobe.com/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "专业编辑",
+        "AI降噪",
+        "音频修复"
+      ],
+      "order": 7
+    },
+    {
+      "id": "modelscope",
+      "name": "ModelScope",
+      "description": "阿里云开源模型社区，汇聚国产优质AI模型",
+      "url": "https://modelscope.cn",
+      "logoUrl": "https://modelscope.cn/favicon.ico",
+      "category": "other",
+      "tags": [
+        "国产",
+        "开源社区",
+        "模型托管"
+      ],
+      "order": 7
+    },
+    {
+      "id": "checkmk",
+      "name": "Checkmk",
+      "description": "开源(RAW版免费) / 自动发现强，Zabbix替代，适合中大型企业",
+      "url": "https://checkmk.com",
+      "logoUrl": "https://checkmk.com/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "开源",
+        "自动发现",
+        "企业级"
+      ],
+      "order": 7
+    },
+    {
+      "id": "powerdrill",
+      "name": "Powerdrill AI",
+      "description": "快速数据查询与报告生成，支持多数据源连接",
+      "url": "https://powerdrill.ai",
+      "logoUrl": "https://powerdrill.ai/favicon.ico",
+      "category": "data",
+      "tags": [
+        "报告生成",
+        "多数据源",
+        "快速查询"
+      ],
+      "order": 7
+    },
+    {
+      "id": "frase",
+      "name": "Frase",
+      "description": "SEO内容优化工具，自动生成大纲与文章",
+      "url": "https://www.frase.io",
+      "logoUrl": "https://www.frase.io/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "SEO",
+        "内容大纲",
+        "研究"
+      ],
+      "order": 7
+    },
+    {
+      "id": "kagi",
+      "name": "Kagi",
+      "description": "付费高质量AI增强搜索引擎，无广告追踪",
+      "url": "https://kagi.com",
+      "logoUrl": "https://kagi.com/favicon.ico",
+      "category": "search",
+      "tags": [
+        "付费",
+        "高质量",
+        "隐私"
       ],
       "order": 7
     },
@@ -516,18 +1254,156 @@
       "order": 8
     },
     {
-      "id": "resource_1768545027378",
-      "name": "Grok",
-      "description": "xAI 的智能对话助手",
-      "url": "https://grok.com/",
-      "logoUrl": "",
-      "category": "chat",
+      "id": "cody",
+      "name": "Cody",
+      "description": "Sourcegraph代码库AI助手",
+      "url": "https://sourcegraph.com/cody",
+      "logoUrl": "https://sourcegraph.com/favicon.ico",
+      "category": "code",
       "tags": [
-        "对话",
-        "实时搜索",
-        "xAI"
+        "代码搜索",
+        "企业级"
       ],
-      "order": 35
+      "order": 8
+    },
+    {
+      "id": "flux",
+      "name": "Flux",
+      "description": "Black Forest Labs高质量图像模型",
+      "url": "https://blackforestlabs.ai",
+      "logoUrl": "https://blackforestlabs.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "高质量",
+        "提示遵循"
+      ],
+      "order": 8
+    },
+    {
+      "id": "hailuo",
+      "name": "Hailuo AI",
+      "description": "MiniMax高质量视频生成",
+      "url": "https://hailuoai.com",
+      "logoUrl": "https://hailuoai.com/favicon.ico",
+      "category": "video",
+      "tags": [
+        "国产",
+        "长视频"
+      ],
+      "order": 8
+    },
+    {
+      "id": "notebooklm",
+      "name": "NotebookLM",
+      "description": "Google AI驱动的研究笔记工具",
+      "url": "https://notebooklm.google",
+      "logoUrl": "https://notebooklm.google/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "Google",
+        "研究总结"
+      ],
+      "order": 8
+    },
+    {
+      "id": "bardeen",
+      "name": "Bardeen",
+      "description": "浏览器AI自动化代理，支持网页操作与工作流执行",
+      "url": "https://www.bardeen.ai",
+      "logoUrl": "https://www.bardeen.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "浏览器代理",
+        "自动化",
+        "无代码"
+      ],
+      "order": 8
+    },
+    {
+      "id": "adobe-express",
+      "name": "Adobe Express",
+      "description": "Adobe AI驱动的快速设计平台",
+      "url": "https://express.adobe.com",
+      "logoUrl": "https://express.adobe.com/favicon.ico",
+      "category": "design",
+      "tags": [
+        "Adobe",
+        "海报",
+        "社交媒体设计"
+      ],
+      "order": 8
+    },
+    {
+      "id": "voice-ai",
+      "name": "Voice.ai",
+      "description": "实时语音克隆与变声工具，支持多种音色模拟",
+      "url": "https://voice.ai",
+      "logoUrl": "https://voice.ai/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "语音克隆",
+        "实时变声",
+        "音色模拟"
+      ],
+      "order": 8
+    },
+    {
+      "id": "wandb",
+      "name": "Weights & Biases",
+      "description": "AI模型训练与实验管理平台，支持可视化跟踪",
+      "url": "https://wandb.ai",
+      "logoUrl": "https://wandb.ai/favicon.ico",
+      "category": "other",
+      "tags": [
+        "模型训练",
+        "实验管理",
+        "可视化"
+      ],
+      "order": 8
+    },
+    {
+      "id": "icinga",
+      "name": "Icinga 2",
+      "description": "开源 / Nagios叉子，UI更好，模块化设计",
+      "url": "https://icinga.com",
+      "logoUrl": "https://icinga.com/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "开源",
+        "模块化",
+        "Nagios替代"
+      ],
+      "order": 8
+    },
+    {
+      "id": "agentar-sql",
+      "name": "Agentar SQL",
+      "description": "蚂蚁数科开源的数据分析智能体，可将自然语言精准转换为SQL查询，企业级准确率高",
+      "url": "https://github.com/AntGroup/Agentar",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "data",
+      "tags": [
+        "开源",
+        "Text-to-SQL",
+        "企业级",
+        "自然语言查询"
+      ],
+      "order": 8
+    },
+    {
+      "id": "boardmix-ai",
+      "name": "Boardmix AI",
+      "description": "在线协作白板集成AI写作，根据主题生成文章大纲和内容，支持思维导图",
+      "url": "https://boardmix.cn",
+      "logoUrl": "https://boardmix.cn/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "白板协作",
+        "大纲生成",
+        "团队共创",
+        "思维导图"
+      ],
+      "order": 8
     },
     {
       "id": "microsoft-copilot",
@@ -540,6 +1416,160 @@
         "微软",
         "生产力",
         "多模态"
+      ],
+      "order": 9
+    },
+    {
+      "id": "bolt",
+      "name": "Bolt.new",
+      "description": "AI快速原型开发工具",
+      "url": "https://bolt.new",
+      "logoUrl": "https://bolt.new/favicon.ico",
+      "category": "code",
+      "tags": [
+        "原型",
+        "快速开发"
+      ],
+      "order": 9
+    },
+    {
+      "id": "grammarly",
+      "name": "Grammarly",
+      "description": "AI写作语法与风格优化",
+      "url": "https://www.grammarly.com",
+      "logoUrl": "https://www.grammarly.com/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "写作助手",
+        "语法检查"
+      ],
+      "order": 9
+    },
+    {
+      "id": "multion",
+      "name": "MultiOn",
+      "description": "浏览器自主AI代理，可执行复杂网页任务",
+      "url": "https://multion.ai",
+      "logoUrl": "https://multion.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "浏览器代理",
+        "自主执行"
+      ],
+      "order": 9
+    },
+    {
+      "id": "capcut-ai",
+      "name": "剪映AI",
+      "description": "国内头部视频剪辑工具，内置AI生成与剪辑功能",
+      "url": "https://www.capcut.cn",
+      "logoUrl": "https://www.capcut.cn/favicon.ico",
+      "category": "video",
+      "tags": [
+        "国产",
+        "视频剪辑",
+        "AI生成"
+      ],
+      "order": 9
+    },
+    {
+      "id": "figjam-ai",
+      "name": "FigJam AI",
+      "description": "Figma协作式AI设计与头脑风暴工具",
+      "url": "https://www.figma.com/figjam",
+      "logoUrl": "https://static.figma.com/app/icon/1/favicon.ico",
+      "category": "design",
+      "tags": [
+        "协作",
+        "原型",
+        "头脑风暴"
+      ],
+      "order": 9
+    },
+    {
+      "id": "whisper",
+      "name": "Whisper",
+      "description": "OpenAI开源语音转文字工具",
+      "url": "https://openai.com/research/whisper",
+      "logoUrl": "https://openai.com/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "开源",
+        "语音转文字",
+        "多语言"
+      ],
+      "order": 9
+    },
+    {
+      "id": "signoz",
+      "name": "SigNoz",
+      "description": "开源 / OpenTelemetry原生全栈可观测性平台，Datadog开源替代",
+      "url": "https://signoz.io",
+      "logoUrl": "https://signoz.io/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "开源",
+        "OpenTelemetry",
+        "全栈"
+      ],
+      "order": 9
+    },
+    {
+      "id": "vanna-ai",
+      "name": "Vanna AI",
+      "description": "开源生成式BI框架，通过RAG将自然语言转换为SQL，支持本地部署与多种数据库",
+      "url": "https://github.com/vanna-ai/vanna",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "data",
+      "tags": [
+        "开源",
+        "RAG",
+        "Text-to-SQL",
+        "本地部署"
+      ],
+      "order": 9
+    },
+    {
+      "id": "wordtune",
+      "name": "Wordtune",
+      "description": "专注文本润色与改写，优化句子结构、调整语气，适合文章后期打磨",
+      "url": "https://www.wordtune.com",
+      "logoUrl": "https://www.wordtune.com/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "文本润色",
+        "改写",
+        "语法优化",
+        "语气调整"
+      ],
+      "order": 9
+    },
+    {
+      "id": "brave-search",
+      "name": "Brave Search (Ask Brave)",
+      "description": "Brave浏览器内置隐私保护AI搜索，生成带多媒体深度报告，短期自动删除记录",
+      "url": "https://search.brave.com",
+      "logoUrl": "https://search.brave.com/favicon.ico",
+      "category": "search",
+      "tags": [
+        "隐私保护",
+        "深度报告",
+        "浏览器集成",
+        "多媒体"
+      ],
+      "order": 9
+    },
+    {
+      "id": "reka-ai",
+      "name": "Reka AI",
+      "description": "多模态AI平台，用于构建跨文本、图像、视频和音频的智能模型",
+      "url": "https://reka.ai",
+      "logoUrl": "https://reka.ai/favicon.ico",
+      "category": "other",
+      "tags": [
+        "多模态",
+        "AI平台",
+        "模型构建"
       ],
       "order": 9
     },
@@ -558,6 +1588,148 @@
       "order": 10
     },
     {
+      "id": "devin",
+      "name": "Devin",
+      "description": "Cognition AI软件工程代理，可自主规划与编码",
+      "url": "https://devin.ai",
+      "logoUrl": "https://devin.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "软件工程",
+        "自主代理"
+      ],
+      "order": 10
+    },
+    {
+      "id": "jetbrains-ai",
+      "name": "JetBrains AI Assistant",
+      "description": "集成于IDEA等IDE的AI编程助手",
+      "url": "https://www.jetbrains.com/ai/",
+      "logoUrl": "https://www.jetbrains.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "IDE集成",
+        "代码补全",
+        "调试"
+      ],
+      "order": 10
+    },
+    {
+      "id": "playground-ai",
+      "name": "Playground AI",
+      "description": "免费易用的在线AI绘图工具，支持多种模型",
+      "url": "https://playgroundai.com",
+      "logoUrl": "https://playgroundai.com/favicon.ico",
+      "category": "image",
+      "tags": [
+        "免费",
+        "在线绘图",
+        "多模型"
+      ],
+      "order": 10
+    },
+    {
+      "id": "deepbrain-ai",
+      "name": "DeepBrain AI",
+      "description": "企业级数字人视频生成平台，支持多语言口播",
+      "url": "https://www.deepbrain.io",
+      "logoUrl": "https://www.deepbrain.io/favicon.ico",
+      "category": "video",
+      "tags": [
+        "数字人",
+        "企业级",
+        "口播"
+      ],
+      "order": 10
+    },
+    {
+      "id": "feishu-ai",
+      "name": "飞书AI",
+      "description": "企业协作平台内置的AI助手，支持文档总结与会议纪要",
+      "url": "https://www.feishu.cn",
+      "logoUrl": "https://www.feishu.cn/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "国产",
+        "企业协作",
+        "文档总结"
+      ],
+      "order": 10
+    },
+    {
+      "id": "lovo-ai",
+      "name": "Lovo.ai",
+      "description": "高质量AI语音合成与配音平台",
+      "url": "https://lovo.ai",
+      "logoUrl": "https://lovo.ai/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "语音合成",
+        "配音",
+        "多音色"
+      ],
+      "order": 10
+    },
+    {
+      "id": "librenms",
+      "name": "LibreNMS",
+      "description": "开源 / 网络+服务器监控，自动发现强",
+      "url": "https://www.librenms.org",
+      "logoUrl": "https://www.librenms.org/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "开源",
+        "网络监控",
+        "自动发现"
+      ],
+      "order": 10
+    },
+    {
+      "id": "wren-ai",
+      "name": "Wren AI",
+      "description": "开箱即用AI分析工具，Excel/Google Sheets插件，支持自然语言数据分析",
+      "url": "https://www.wrenai.com",
+      "logoUrl": "https://www.wrenai.com/favicon.ico",
+      "category": "data",
+      "tags": [
+        "Excel插件",
+        "无代码",
+        "商业分析",
+        "自然语言"
+      ],
+      "order": 10
+    },
+    {
+      "id": "jenni-ai",
+      "name": "Jenni AI",
+      "description": "擅长段落扩展、续写与创意内容生成，适合突破写作瓶颈寻找灵感",
+      "url": "https://jenni.ai",
+      "logoUrl": "https://jenni.ai/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "创意写作",
+        "段落扩写",
+        "灵感激发",
+        "续写"
+      ],
+      "order": 10
+    },
+    {
+      "id": "comet-perplexity",
+      "name": "Comet (by Perplexity)",
+      "description": "Perplexity推出的AI驱动浏览器，可感知页面内容提供侧边栏助手并自动执行多步骤任务",
+      "url": "https://www.perplexity.ai/comet",
+      "logoUrl": "https://www.perplexity.ai/favicon.ico",
+      "category": "search",
+      "tags": [
+        "AI浏览器",
+        "网页自动化",
+        "智能体",
+        "侧边栏助手"
+      ],
+      "order": 10
+    },
+    {
       "id": "pi-ai",
       "name": "Pi",
       "description": "Inflection的个人AI伴侣",
@@ -567,6 +1739,108 @@
       "tags": [
         "对话",
         "情感支持"
+      ],
+      "order": 11
+    },
+    {
+      "id": "openhands",
+      "name": "OpenHands",
+      "description": "开源自主AI软件工程代理，可独立编写、执行、调试代码",
+      "url": "https://www.all-hands.dev",
+      "logoUrl": "https://www.all-hands.dev/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "软件工程",
+        "自主代理",
+        "代码执行"
+      ],
+      "order": 11
+    },
+    {
+      "id": "codellama",
+      "name": "CodeLlama",
+      "description": "Meta开源的高性能代码生成大模型",
+      "url": "https://ai.meta.com/codellama/",
+      "logoUrl": "https://ai.meta.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "开源",
+        "本地部署",
+        "代码生成"
+      ],
+      "order": 11
+    },
+    {
+      "id": "meitu-ai",
+      "name": "美图秀秀AI绘画",
+      "description": "国内大众向AI绘图工具，风格化效果丰富",
+      "url": "https://pc.meitu.com",
+      "logoUrl": "https://pc.meitu.com/favicon.ico",
+      "category": "image",
+      "tags": [
+        "国产",
+        "大众向",
+        "风格化"
+      ],
+      "order": 11
+    },
+    {
+      "id": "todoist-ai",
+      "name": "Todoist AI",
+      "description": "AI驱动的任务管理工具，支持智能规划与优先级排序",
+      "url": "https://todoist.com",
+      "logoUrl": "https://todoist.com/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "任务管理",
+        "智能规划",
+        "效率"
+      ],
+      "order": 11
+    },
+    {
+      "id": "datadog",
+      "name": "Datadog",
+      "description": "SaaS商业 / 统一平台功能强大的统一可观测性平台，整合指标、日志、追踪和应用性能监控(APM)",
+      "url": "https://www.datadoghq.com",
+      "logoUrl": "https://www.datadoghq.com/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "SaaS",
+        "全栈可观测性",
+        "APM",
+        "云原生"
+      ],
+      "order": 11
+    },
+    {
+      "id": "tdgpt",
+      "name": "TDgpt",
+      "description": "TDengine时序数据库内置AI智能体，一行SQL调用预测、异常检测等复杂能力",
+      "url": "https://www.taosdata.com",
+      "logoUrl": "https://www.taosdata.com/favicon.ico",
+      "category": "data",
+      "tags": [
+        "时序数据",
+        "预测分析",
+        "SQL集成",
+        "异常检测"
+      ],
+      "order": 11
+    },
+    {
+      "id": "simplified-ai-writer",
+      "name": "Simplified AI Writer",
+      "description": "集写作、排版与营销于一体的平台，支持多语言内容生成和SEO优化",
+      "url": "https://simplified.com",
+      "logoUrl": "https://simplified.com/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "多语言",
+        "SEO",
+        "内容营销",
+        "排版一体"
       ],
       "order": 11
     },
@@ -584,252 +1858,162 @@
       "order": 12
     },
     {
-      "id": "tabnine",
-      "name": "Tabnine",
-      "description": "AI代码补全助手",
-      "url": "https://www.tabnine.com",
-      "logoUrl": "https://www.tabnine.com/favicon.ico",
-      "category": "code",
+      "id": "auto-gpt",
+      "name": "Auto-GPT",
+      "description": "经典自主AI代理框架，可链式分解并执行复杂任务",
+      "url": "https://agpt.co",
+      "logoUrl": "https://agpt.co/favicon.ico",
+      "category": "agent",
       "tags": [
-        "代码补全",
-        "隐私保护"
+        "开源",
+        "自主代理",
+        "任务分解",
+        "工具调用"
       ],
-      "order": 6
+      "order": 12
     },
     {
-      "id": "codewhisperer",
-      "name": "Amazon CodeWhisperer",
-      "description": "亚马逊AI代码生成工具",
-      "url": "https://aws.amazon.com/codewhisperer/",
-      "logoUrl": "https://aws.amazon.com/favicon.ico",
-      "category": "code",
+      "id": "dynatrace",
+      "name": "Dynatrace",
+      "description": "SaaS商业 / AI驱动以AI驱动根因分析著称，自动化程度高，提供全栈式监控和用户体验管理",
+      "url": "https://www.dynatrace.com",
+      "logoUrl": "https://www.dynatrace.com/favicon.ico",
+      "category": "monitoring",
       "tags": [
-        "亚马逊",
-        "代码建议"
+        "SaaS",
+        "AI根因分析",
+        "自动化",
+        "大型企业"
       ],
-      "order": 7
+      "order": 12
     },
     {
-      "id": "cody",
-      "name": "Cody",
-      "description": "Sourcegraph代码库AI助手",
-      "url": "https://sourcegraph.com/cody",
-      "logoUrl": "https://sourcegraph.com/favicon.ico",
-      "category": "code",
+      "id": "otter-ai",
+      "name": "Otter.ai",
+      "description": "AI会议实时转录与总结",
+      "url": "https://otter.ai",
+      "logoUrl": "https://otter.ai/favicon.ico",
+      "category": "productivity",
       "tags": [
-        "代码搜索",
-        "企业级"
+        "会议",
+        "转录",
+        "总结"
       ],
-      "order": 8
+      "order": 13
     },
     {
-      "id": "bolt",
-      "name": "Bolt.new",
-      "description": "AI快速原型开发工具",
-      "url": "https://bolt.new",
-      "logoUrl": "https://bolt.new/favicon.ico",
-      "category": "code",
+      "id": "metagpt",
+      "name": "MetaGPT",
+      "description": "多代理协作框架，模拟软件公司角色团队开发项目",
+      "url": "https://github.com/geekan/MetaGPT",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "agent",
       "tags": [
-        "原型",
-        "快速开发"
+        "多代理",
+        "开源",
+        "软件开发",
+        "角色协作"
       ],
-      "order": 9
+      "order": 13
     },
     {
-      "id": "flux",
-      "name": "Flux",
-      "description": "Black Forest Labs高质量图像模型",
-      "url": "https://blackforestlabs.ai",
-      "logoUrl": "https://blackforestlabs.ai/favicon.ico",
-      "category": "image",
+      "id": "xinghuo",
+      "name": "讯飞星火",
+      "description": "科大讯飞推出的多模态认知大模型",
+      "url": "https://xinghuo.xfyun.cn",
+      "logoUrl": "https://xinghuo.xfyun.cn/favicon.ico",
+      "category": "chat",
       "tags": [
-        "高质量",
-        "提示遵循"
+        "国产",
+        "多模态",
+        "认知推理"
       ],
-      "order": 8
+      "order": 13
     },
     {
-      "id": "sora",
-      "name": "Sora",
-      "description": "OpenAI文本到视频生成",
-      "url": "https://openai.com/sora",
-      "logoUrl": "https://openai.com/favicon.ico",
-      "category": "video",
+      "id": "newrelic",
+      "name": "New Relic",
+      "description": "SaaS商业 / 全栈可观测性，APM强，AI洞察升级",
+      "url": "https://newrelic.com",
+      "logoUrl": "https://newrelic.com/favicon.ico",
+      "category": "monitoring",
       "tags": [
-        "OpenAI",
-        "高真实度"
+        "SaaS",
+        "APM",
+        "全栈"
       ],
-      "order": 5
+      "order": 13
     },
     {
-      "id": "veo",
-      "name": "Veo",
-      "description": "Google高物理一致性视频生成",
-      "url": "https://deepmind.google/technologies/veo/",
-      "logoUrl": "https://deepmind.google/favicon.ico",
-      "category": "video",
-      "tags": [
-        "Google",
-        "物理模拟"
-      ],
-      "order": 6
-    },
-    {
-      "id": "synthesia",
-      "name": "Synthesia",
-      "description": "AI数字人头像视频",
-      "url": "https://www.synthesia.io",
-      "logoUrl": "https://www.synthesia.io/favicon.ico",
-      "category": "video",
-      "tags": [
-        "数字人",
-        "企业培训"
-      ],
-      "order": 7
-    },
-    {
-      "id": "hailuo",
-      "name": "Hailuo AI",
-      "description": "MiniMax高质量视频生成",
-      "url": "https://hailuoai.com",
+      "id": "hailuo-minimax",
+      "name": "Hailuo MiniMax",
+      "description": "MiniMax 长时长高质量视频",
+      "url": "https://hailuoai.com/video",
       "logoUrl": "https://hailuoai.com/favicon.ico",
       "category": "video",
       "tags": [
         "国产",
-        "长视频"
+        "长视频",
+        "运动一致"
       ],
-      "order": 8
+      "order": 14
     },
     {
-      "id": "uizard",
-      "name": "Uizard",
-      "description": "AI从草图/文本生成UI设计",
-      "url": "https://uizard.io",
-      "logoUrl": "https://uizard.io/favicon.ico",
-      "category": "design",
+      "id": "coze",
+      "name": "Coze (扣子)",
+      "description": "字节跳动推出的一站式AI Bot开发平台",
+      "url": "https://www.coze.cn",
+      "logoUrl": "https://sf-coze-web-cdn.coze.cn/obj/coze-web-cn/obric/coze/favicon.ico",
+      "category": "agent",
       "tags": [
-        "UI原型",
-        "快速设计"
+        "字节",
+        "低代码",
+        "Bot开发"
       ],
-      "order": 5
+      "order": 14
     },
     {
-      "id": "galileo-ai",
-      "name": "Galileo AI",
-      "description": "文本到专业UI设计",
-      "url": "https://www.usegalileo.ai",
-      "logoUrl": "https://www.usegalileo.ai/favicon.ico",
-      "category": "design",
-      "tags": [
-        "专业设计",
-        "产品UI"
-      ],
-      "order": 6
-    },
-    {
-      "id": "jasper",
-      "name": "Jasper",
-      "description": "AI营销内容写作助手",
-      "url": "https://www.jasper.ai",
-      "logoUrl": "https://www.jasper.ai/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "内容营销",
-        "长文写作"
-      ],
-      "order": 5
-    },
-    {
-      "id": "fireflies",
-      "name": "Fireflies.ai",
-      "description": "AI会议笔记与行动项提取",
-      "url": "https://fireflies.ai",
-      "logoUrl": "https://fireflies.ai/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "会议助手",
-        "自动化笔记"
-      ],
-      "order": 7
-    },
-    {
-      "id": "notebooklm",
-      "name": "NotebookLM",
-      "description": "Google AI驱动的研究笔记工具",
-      "url": "https://notebooklm.google",
-      "logoUrl": "https://notebooklm.google/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "Google",
-        "研究总结"
-      ],
-      "order": 8
-    },
-    {
-      "id": "grammarly",
-      "name": "Grammarly",
-      "description": "AI写作语法与风格优化",
-      "url": "https://www.grammarly.com",
-      "logoUrl": "https://www.grammarly.com/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "写作助手",
-        "语法检查"
-      ],
-      "order": 9
-    },
-    {
-      "id": "descript",
-      "name": "Descript",
-      "description": "AI音频视频编辑与Overdub",
-      "url": "https://www.descript.com",
-      "logoUrl": "https://www.descript.com/favicon.ico",
-      "category": "audio",
-      "tags": [
-        "播客编辑",
-        "语音克隆"
-      ],
-      "order": 4
-    },
-    {
-      "id": "playht",
-      "name": "PlayHT",
-      "description": "高自然度AI语音合成",
-      "url": "https://play.ht",
-      "logoUrl": "https://play.ht/favicon.ico",
-      "category": "audio",
-      "tags": [
-        "TTS",
-        "语音克隆"
-      ],
-      "order": 5
-    },
-    {
-      "id": "murf",
-      "name": "Murf.ai",
-      "description": "专业级AI语音工作室",
-      "url": "https://murf.ai",
-      "logoUrl": "https://murf.ai/favicon.ico",
-      "category": "audio",
-      "tags": [
-        "语音合成",
-        "配音"
-      ],
-      "order": 6
-    },
-    {
-      "id": "groq-chat",
-      "name": "GroqChat",
-      "description": "超快速推理AI对话",
-      "url": "https://chat.groq.com",
-      "logoUrl": "https://groq.com/favicon.ico",
+      "id": "wudao",
+      "name": "智元悟道",
+      "description": "智元奇点研发的大语言模型，擅长长文本与逻辑推理",
+      "url": "https://www.agispark.com",
+      "logoUrl": "https://www.agispark.com/favicon.ico",
       "category": "chat",
       "tags": [
-        "速度",
-        "推理",
-        "开源模型"
+        "国产",
+        "长文本",
+        "逻辑推理"
       ],
-      "order": 17
+      "order": 14
+    },
+    {
+      "id": "langchain",
+      "name": "LangChain",
+      "description": "构建大模型应用的核心框架，支持工具调用与链管理",
+      "url": "https://www.langchain.com",
+      "logoUrl": "https://www.langchain.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "工具链",
+        "应用框架"
+      ],
+      "order": 14
+    },
+    {
+      "id": "solarwinds",
+      "name": "SolarWinds",
+      "description": "商业 / 网络与系统在网络性能监控(NPM)方面表现突出，提供详细的设备级和路径级分析",
+      "url": "https://www.solarwinds.com",
+      "logoUrl": "https://www.solarwinds.com/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "商业",
+        "网络监控",
+        "设备级分析",
+        "传统IT"
+      ],
+      "order": 14
     },
     {
       "id": "aider",
@@ -842,6 +2026,63 @@
         "开源",
         "终端",
         "编程"
+      ],
+      "order": 15
+    },
+    {
+      "id": "adobe-firefly",
+      "name": "Adobe Firefly",
+      "description": "Adobe集成专业AI图像生成",
+      "url": "https://firefly.adobe.com",
+      "logoUrl": "https://firefly.adobe.com/favicon.ico",
+      "category": "image",
+      "tags": [
+        "Adobe",
+        "专业",
+        "编辑集成"
+      ],
+      "order": 15
+    },
+    {
+      "id": "viggle",
+      "name": "Viggle",
+      "description": "图像/角色驱动动画视频",
+      "url": "https://viggle.ai",
+      "logoUrl": "https://viggle.ai/favicon.ico",
+      "category": "video",
+      "tags": [
+        "动图",
+        "角色控制",
+        "混合同步"
+      ],
+      "order": 15
+    },
+    {
+      "id": "agentgpt",
+      "name": "AgentGPT",
+      "description": "可视化自主AI代理构建平台，无需代码即可创建任务代理",
+      "url": "https://agentgpt.reworkd.ai",
+      "logoUrl": "https://agentgpt.reworkd.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "可视化",
+        "无代码",
+        "自主代理"
+      ],
+      "order": 15
+    },
+    {
+      "id": "manageengine-opmanager",
+      "name": "ManageEngine OpManager",
+      "description": "商业 / 基础设施全面的服务器、网络、虚拟化监控，提供一体化的IT运维管理",
+      "url": "https://www.manageengine.com/network-monitoring/",
+      "logoUrl": "https://www.manageengine.com/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "商业",
+        "基础设施",
+        "ITSM整合",
+        "中小企业"
       ],
       "order": 15
     },
@@ -860,33 +2101,6 @@
       "order": 16
     },
     {
-      "id": "augment",
-      "name": "Augment",
-      "description": "AI代码补全与重构助手",
-      "url": "https://www.augmentcode.com",
-      "logoUrl": "https://www.augmentcode.com/favicon.ico",
-      "category": "code",
-      "tags": [
-        "补全",
-        "大型代码库"
-      ],
-      "order": 17
-    },
-    {
-      "id": "adobe-firefly",
-      "name": "Adobe Firefly",
-      "description": "Adobe集成专业AI图像生成",
-      "url": "https://firefly.adobe.com",
-      "logoUrl": "https://firefly.adobe.com/favicon.ico",
-      "category": "image",
-      "tags": [
-        "Adobe",
-        "专业",
-        "编辑集成"
-      ],
-      "order": 15
-    },
-    {
       "id": "recraft",
       "name": "Recraft",
       "description": "矢量与设计风格AI绘图",
@@ -901,329 +2115,87 @@
       "order": 16
     },
     {
-      "id": "hailuo-minimax",
-      "name": "Hailuo MiniMax",
-      "description": "MiniMax 长时长高质量视频",
-      "url": "https://hailuoai.com/video",
-      "logoUrl": "https://hailuoai.com/favicon.ico",
-      "category": "video",
-      "tags": [
-        "国产",
-        "长视频",
-        "运动一致"
-      ],
-      "order": 14
-    },
-    {
-      "id": "viggle",
-      "name": "Viggle",
-      "description": "图像/角色驱动动画视频",
-      "url": "https://viggle.ai",
-      "logoUrl": "https://viggle.ai/favicon.ico",
-      "category": "video",
-      "tags": [
-        "动图",
-        "角色控制",
-        "混合同步"
-      ],
-      "order": 15
-    },
-    {
-      "id": "otter-ai",
-      "name": "Otter.ai",
-      "description": "AI会议实时转录与总结",
-      "url": "https://otter.ai",
-      "logoUrl": "https://otter.ai/favicon.ico",
+      "id": "monica",
+      "name": "Monica",
+      "description": "全能AI浏览器助手，整合多种主流模型",
+      "url": "https://monica.im",
+      "logoUrl": "https://monica.im/favicon.ico",
       "category": "productivity",
       "tags": [
-        "会议",
-        "转录",
-        "总结"
-      ],
-      "order": 13
-    },
-    {
-      "id": "poe-aggregator",
-      "name": "Poe",
-      "description": "多模型聚合与自定义机器人",
-      "url": "https://poe.com",
-      "logoUrl": "https://poe.com/favicon.ico",
-      "category": "chat",
-      "tags": [
+        "浏览器插件",
         "聚合",
-        "自定义",
-        "API"
+        "助手"
       ],
-      "order": 3
+      "order": 16
     },
     {
-      "id": "groq",
-      "name": "Groq",
-      "description": "超高速AI推理平台",
-      "url": "https://groq.com",
-      "logoUrl": "https://groq.com/favicon.ico",
-      "category": "other",
-      "tags": [
-        "推理",
-        "速度",
-        "API"
-      ],
-      "order": 4
-    },
-    {
-      "id": "google-antigravity",
-      "name": "Google Antigravity",
-      "description": "Google代理优先的AI原生IDE，支持自主代理构建软件",
-      "url": "https://antigravity.google",
-      "logoUrl": "https://antigravity.google/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "Google",
-        "IDE",
-        "自主代理",
-        "Gemini"
-      ],
-      "order": 1
-    },
-    {
-      "id": "trae",
-      "name": "Trae",
-      "description": "字节跳动AI代理团队平台，支持智能工具集成与软件工程代理",
-      "url": "https://www.trae.ai",
-      "logoUrl": "https://www.trae.ai/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "字节",
-        "代理团队",
-        "IDE",
-        "工具调用"
-      ],
-      "order": 2
-    },
-    {
-      "id": "crewai",
-      "name": "CrewAI",
-      "description": "领先的多代理协作框架，构建AI团队执行复杂任务",
-      "url": "https://www.crewai.com",
-      "logoUrl": "https://www.crewai.com/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "多代理",
-        "开源",
-        "工作流"
-      ],
-      "order": 3
-    },
-    {
-      "id": "autogen",
-      "name": "AutoGen",
-      "description": "Microsoft多代理对话框架，支持自定义代理协作",
-      "url": "https://microsoft.github.io/autogen",
-      "logoUrl": "https://microsoft.github.io/autogen/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "Microsoft",
-        "多代理",
-        "开源"
-      ],
-      "order": 4
-    },
-    {
-      "id": "langgraph",
-      "name": "LangGraph",
-      "description": "LangChain的状态机代理工作流框架，构建可靠代理循环",
-      "url": "https://www.langchain.com/langgraph",
-      "logoUrl": "https://www.langchain.com/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "LangChain",
-        "状态机",
-        "工作流"
-      ],
-      "order": 5
-    },
-    {
-      "id": "dify",
-      "name": "Dify",
-      "description": "开源AI应用与代理构建平台，低代码快速部署代理工作流",
-      "url": "https://dify.ai",
-      "logoUrl": "https://dify.ai/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "开源",
-        "低代码",
-        "工作流"
-      ],
-      "order": 6
-    },
-    {
-      "id": "lindy",
-      "name": "Lindy",
-      "description": "无代码AI代理构建器，支持自定义自动化与多代理任务",
-      "url": "https://www.lindy.ai",
-      "logoUrl": "https://www.lindy.ai/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "无代码",
-        "自动化",
-        "多任务"
-      ],
-      "order": 7
-    },
-    {
-      "id": "bardeen",
-      "name": "Bardeen",
-      "description": "浏览器AI自动化代理，支持网页操作与工作流执行",
-      "url": "https://www.bardeen.ai",
-      "logoUrl": "https://www.bardeen.ai/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "浏览器代理",
-        "自动化",
-        "无代码"
-      ],
-      "order": 8
-    },
-    {
-      "id": "multion",
-      "name": "MultiOn",
-      "description": "浏览器自主AI代理，可执行复杂网页任务",
-      "url": "https://multion.ai",
-      "logoUrl": "https://multion.ai/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "浏览器代理",
-        "自主执行"
-      ],
-      "order": 9
-    },
-    {
-      "id": "devin",
-      "name": "Devin",
-      "description": "Cognition AI软件工程代理，可自主规划与编码",
-      "url": "https://devin.ai",
-      "logoUrl": "https://devin.ai/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "软件工程",
-        "自主代理"
-      ],
-      "order": 10
-    },
-    {
-      "id": "openhands",
-      "name": "OpenHands",
-      "description": "开源自主AI软件工程代理，可独立编写、执行、调试代码",
-      "url": "https://www.all-hands.dev",
-      "logoUrl": "https://www.all-hands.dev/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "开源",
-        "软件工程",
-        "自主代理",
-        "代码执行"
-      ],
-      "order": 11
-    },
-    {
-      "id": "auto-gpt",
-      "name": "Auto-GPT",
-      "description": "经典自主AI代理框架，可链式分解并执行复杂任务",
-      "url": "https://agpt.co",
-      "logoUrl": "https://agpt.co/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "开源",
-        "自主代理",
-        "任务分解",
-        "工具调用"
-      ],
-      "order": 12
-    },
-    {
-      "id": "metagpt",
-      "name": "MetaGPT",
-      "description": "多代理协作框架，模拟软件公司角色团队开发项目",
-      "url": "https://github.com/geekan/MetaGPT",
+      "id": "babyagi",
+      "name": "BabyAGI",
+      "description": "经典轻量级自主AI代理框架",
+      "url": "https://github.com/yoheinakajima/babyagi",
       "logoUrl": "https://github.com/favicon.ico",
       "category": "agent",
       "tags": [
-        "多代理",
         "开源",
-        "软件开发",
-        "角色协作"
+        "自主代理",
+        "任务管理"
       ],
-      "order": 13
+      "order": 16
     },
     {
-      "id": "coze",
-      "name": "Coze (扣子)",
-      "description": "字节跳动推出的一站式AI Bot开发平台",
-      "url": "https://www.coze.cn",
-      "logoUrl": "https://sf-coze-web-cdn.coze.cn/obj/coze-web-cn/obric/coze/favicon.ico",
-      "category": "agent",
+      "id": "pictory-ai",
+      "name": "Pictory.ai",
+      "description": "文本转视频与视频编辑AI工具",
+      "url": "https://pictory.ai",
+      "logoUrl": "https://pictory.ai/favicon.ico",
+      "category": "video",
       "tags": [
-        "字节",
-        "低代码",
-        "Bot开发"
+        "文本转视频",
+        "剪辑",
+        "自媒体"
       ],
-      "order": 14
+      "order": 16
     },
     {
-      "id": "lovable",
-      "name": "Lovable",
-      "description": "新一代AI全栈开发工具，超越GPT-4o的编码能力",
-      "url": "https://lovable.dev",
-      "logoUrl": "https://lovable.dev/favicon.ico",
-      "category": "code",
+      "id": "splunk",
+      "name": "Splunk",
+      "description": "商业 / 日志分析+安全监控强，大企业首选",
+      "url": "https://www.splunk.com",
+      "logoUrl": "https://www.splunk.com/favicon.ico",
+      "category": "monitoring",
       "tags": [
-        "全栈",
-        "Web开发",
-        "可视化"
+        "商业",
+        "日志分析",
+        "安全监控"
       ],
-      "order": 18
+      "order": 16
     },
     {
-      "id": "huggingface",
-      "name": "Hugging Face",
-      "description": "全球最大的AI模型与数据集开源社区",
-      "url": "https://huggingface.co",
-      "logoUrl": "https://huggingface.co/favicon.ico",
-      "category": "other",
-      "tags": [
-        "开源",
-        "模型库",
-        "基础设施"
-      ],
-      "order": 5
-    },
-    {
-      "id": "ollama",
-      "name": "Ollama",
-      "description": "在本地轻松运行Llama等大型语言模型",
-      "url": "https://ollama.com",
-      "logoUrl": "https://ollama.com/public/icon-32x32.png",
-      "category": "other",
-      "tags": [
-        "本地部署",
-        "开源",
-        "LLM"
-      ],
-      "order": 6
-    },
-    {
-      "id": "chatglm",
-      "name": "智谱清言",
-      "description": "智谱AI推出的新一代认知智能大模型",
-      "url": "https://chatglm.cn",
-      "logoUrl": "https://chatglm.cn/img/icons/favicon-32x32.png",
+      "id": "groq-chat",
+      "name": "GroqChat",
+      "description": "超快速推理AI对话",
+      "url": "https://chat.groq.com",
+      "logoUrl": "https://groq.com/favicon.ico",
       "category": "chat",
       "tags": [
-        "国产",
-        "智谱AI",
-        "GLM"
+        "速度",
+        "推理",
+        "开源模型"
       ],
-      "order": 18
+      "order": 17
+    },
+    {
+      "id": "augment",
+      "name": "Augment",
+      "description": "AI代码补全与重构助手",
+      "url": "https://www.augmentcode.com",
+      "logoUrl": "https://www.augmentcode.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "补全",
+        "大型代码库"
+      ],
+      "order": 17
     },
     {
       "id": "civitai",
@@ -1240,6 +2212,76 @@
       "order": 17
     },
     {
+      "id": "taskingai",
+      "name": "TaskingAI",
+      "description": "轻量级AI代理开发与部署平台",
+      "url": "https://www.tasking.ai",
+      "logoUrl": "https://www.tasking.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "低代码",
+        "代理部署",
+        "工具调用"
+      ],
+      "order": 17
+    },
+    {
+      "id": "invideo-ai",
+      "name": "InVideo AI",
+      "description": "快速生成营销与社交平台视频",
+      "url": "https://invideo.io/ai",
+      "logoUrl": "https://invideo.io/favicon.ico",
+      "category": "video",
+      "tags": [
+        "营销视频",
+        "模板",
+        "快速生成"
+      ],
+      "order": 17
+    },
+    {
+      "id": "appdynamics",
+      "name": "AppDynamics",
+      "description": "商业 / 业务事务追踪强，企业级APM",
+      "url": "https://www.appdynamics.com",
+      "logoUrl": "https://www.appdynamics.com/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "商业",
+        "APM",
+        "业务追踪"
+      ],
+      "order": 17
+    },
+    {
+      "id": "lovable",
+      "name": "Lovable",
+      "description": "新一代AI全栈开发工具，超越GPT-4o的编码能力",
+      "url": "https://lovable.dev",
+      "logoUrl": "https://lovable.dev/favicon.ico",
+      "category": "code",
+      "tags": [
+        "全栈",
+        "Web开发",
+        "可视化"
+      ],
+      "order": 18
+    },
+    {
+      "id": "chatglm",
+      "name": "智谱清言",
+      "description": "智谱AI推出的新一代认知智能大模型",
+      "url": "https://chatglm.cn",
+      "logoUrl": "https://chatglm.cn/img/icons/favicon-32x32.png",
+      "category": "chat",
+      "tags": [
+        "国产",
+        "智谱AI",
+        "GLM"
+      ],
+      "order": 18
+    },
+    {
       "id": "liblib",
       "name": "LiblibAI",
       "description": "中国领先的AI原创图片与模型社区",
@@ -1254,18 +2296,46 @@
       "order": 18
     },
     {
-      "id": "monica",
-      "name": "Monica",
-      "description": "全能AI浏览器助手，整合多种主流模型",
-      "url": "https://monica.im",
-      "logoUrl": "https://monica.im/favicon.ico",
+      "id": "clickup-ai",
+      "name": "ClickUp AI",
+      "description": "AI驱动的项目管理与协作平台",
+      "url": "https://clickup.com/ai",
+      "logoUrl": "https://clickup.com/favicon.ico",
       "category": "productivity",
       "tags": [
-        "浏览器插件",
-        "聚合",
-        "助手"
+        "项目管理",
+        "协作",
+        "自动化"
       ],
-      "order": 16
+      "order": 18
+    },
+    {
+      "id": "dspy",
+      "name": "DSPy",
+      "description": "优化AI代理提示与管道的编程框架（2025-2026大幅流行）",
+      "url": "https://dspy.ai",
+      "logoUrl": "https://dspy.ai/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "提示优化",
+        "代理编程"
+      ],
+      "order": 18
+    },
+    {
+      "id": "logicmonitor",
+      "name": "LogicMonitor",
+      "description": "SaaS商业 / 混合云、多站点监控，预配置模板多",
+      "url": "https://www.logicmonitor.com",
+      "logoUrl": "https://www.logicmonitor.com/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "SaaS",
+        "混合云",
+        "模板丰富"
+      ],
+      "order": 18
     },
     {
       "id": "marscode",
@@ -1296,34 +2366,6 @@
       "order": 19
     },
     {
-      "id": "xinghuo",
-      "name": "讯飞星火",
-      "description": "科大讯飞推出的多模态认知大模型",
-      "url": "https://xinghuo.xfyun.cn",
-      "logoUrl": "https://xinghuo.xfyun.cn/favicon.ico",
-      "category": "chat",
-      "tags": [
-        "国产",
-        "多模态",
-        "认知推理"
-      ],
-      "order": 13
-    },
-    {
-      "id": "wudao",
-      "name": "智元悟道",
-      "description": "智元奇点研发的大语言模型，擅长长文本与逻辑推理",
-      "url": "https://www.agispark.com",
-      "logoUrl": "https://www.agispark.com/favicon.ico",
-      "category": "chat",
-      "tags": [
-        "国产",
-        "长文本",
-        "逻辑推理"
-      ],
-      "order": 14
-    },
-    {
       "id": "character-ai",
       "name": "Character.AI",
       "description": "个性化角色对话AI平台",
@@ -1334,6 +2376,48 @@
         "角色对话",
         "互动",
         "娱乐"
+      ],
+      "order": 19
+    },
+    {
+      "id": "semantic-kernel",
+      "name": "Semantic Kernel",
+      "description": "Microsoft企业级AI代理编排框架，支持插件与记忆",
+      "url": "https://github.com/microsoft/semantic-kernel",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "Microsoft",
+        "企业级",
+        "插件系统"
+      ],
+      "order": 19
+    },
+    {
+      "id": "site24x7",
+      "name": "Site24x7",
+      "description": "SaaS商业 / 全栈+网站监控，性价比高",
+      "url": "https://www.site24x7.com",
+      "logoUrl": "https://www.site24x7.com/favicon.ico",
+      "category": "monitoring",
+      "tags": [
+        "SaaS",
+        "网站监控",
+        "性价比"
+      ],
+      "order": 19
+    },
+    {
+      "id": "berri-ai",
+      "name": "Berri AI",
+      "description": "构建面向自身数据的ChatGPT应用平台，提供可视化流程与API支持",
+      "url": "https://berri.ai",
+      "logoUrl": "https://berri.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "数据",
+        "ChatGPT",
+        "应用构建"
       ],
       "order": 19
     },
@@ -1350,412 +2434,6 @@
         "自定义"
       ],
       "order": 20
-    },
-    {
-      "id": "jetbrains-ai",
-      "name": "JetBrains AI Assistant",
-      "description": "集成于IDEA等IDE的AI编程助手",
-      "url": "https://www.jetbrains.com/ai/",
-      "logoUrl": "https://www.jetbrains.com/favicon.ico",
-      "category": "code",
-      "tags": [
-        "IDE集成",
-        "代码补全",
-        "调试"
-      ],
-      "order": 10
-    },
-    {
-      "id": "codellama",
-      "name": "CodeLlama",
-      "description": "Meta开源的高性能代码生成大模型",
-      "url": "https://ai.meta.com/codellama/",
-      "logoUrl": "https://ai.meta.com/favicon.ico",
-      "category": "code",
-      "tags": [
-        "开源",
-        "本地部署",
-        "代码生成"
-      ],
-      "order": 11
-    },
-    {
-      "id": "langchain",
-      "name": "LangChain",
-      "description": "构建大模型应用的核心框架，支持工具调用与链管理",
-      "url": "https://www.langchain.com",
-      "logoUrl": "https://www.langchain.com/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "开源",
-        "工具链",
-        "应用框架"
-      ],
-      "order": 14
-    },
-    {
-      "id": "agentgpt",
-      "name": "AgentGPT",
-      "description": "可视化自主AI代理构建平台，无需代码即可创建任务代理",
-      "url": "https://agentgpt.reworkd.ai",
-      "logoUrl": "https://agentgpt.reworkd.ai/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "可视化",
-        "无代码",
-        "自主代理"
-      ],
-      "order": 15
-    },
-    {
-      "id": "babyagi",
-      "name": "BabyAGI",
-      "description": "经典轻量级自主AI代理框架",
-      "url": "https://github.com/yoheinakajima/babyagi",
-      "logoUrl": "https://github.com/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "开源",
-        "自主代理",
-        "任务管理"
-      ],
-      "order": 16
-    },
-    {
-      "id": "taskingai",
-      "name": "TaskingAI",
-      "description": "轻量级AI代理开发与部署平台",
-      "url": "https://www.tasking.ai",
-      "logoUrl": "https://www.tasking.ai/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "低代码",
-        "代理部署",
-        "工具调用"
-      ],
-      "order": 17
-    },
-    {
-      "id": "playground-ai",
-      "name": "Playground AI",
-      "description": "免费易用的在线AI绘图工具，支持多种模型",
-      "url": "https://playgroundai.com",
-      "logoUrl": "https://playgroundai.com/favicon.ico",
-      "category": "image",
-      "tags": [
-        "免费",
-        "在线绘图",
-        "多模型"
-      ],
-      "order": 10
-    },
-    {
-      "id": "meitu-ai",
-      "name": "美图秀秀AI绘画",
-      "description": "国内大众向AI绘图工具，风格化效果丰富",
-      "url": "https://pc.meitu.com",
-      "logoUrl": "https://pc.meitu.com/favicon.ico",
-      "category": "image",
-      "tags": [
-        "国产",
-        "大众向",
-        "风格化"
-      ],
-      "order": 11
-    },
-    {
-      "id": "kaiber-ai",
-      "name": "Kaiber AI",
-      "description": "AI音乐可视化与艺术视频生成",
-      "url": "https://kaiber.ai",
-      "logoUrl": "https://kaiber.ai/favicon.ico",
-      "category": "video",
-      "tags": [
-        "音乐可视化",
-        "艺术创作",
-        "动态图像"
-      ],
-      "order": 21
-    },
-    {
-      "id": "capcut-ai",
-      "name": "剪映AI",
-      "description": "国内头部视频剪辑工具，内置AI生成与剪辑功能",
-      "url": "https://www.capcut.cn",
-      "logoUrl": "https://www.capcut.cn/favicon.ico",
-      "category": "video",
-      "tags": [
-        "国产",
-        "视频剪辑",
-        "AI生成"
-      ],
-      "order": 9
-    },
-    {
-      "id": "deepbrain-ai",
-      "name": "DeepBrain AI",
-      "description": "企业级数字人视频生成平台，支持多语言口播",
-      "url": "https://www.deepbrain.io",
-      "logoUrl": "https://www.deepbrain.io/favicon.ico",
-      "category": "video",
-      "tags": [
-        "数字人",
-        "企业级",
-        "口播"
-      ],
-      "order": 10
-    },
-    {
-      "id": "pictory-ai",
-      "name": "Pictory.ai",
-      "description": "文本转视频与视频编辑AI工具",
-      "url": "https://pictory.ai",
-      "logoUrl": "https://pictory.ai/favicon.ico",
-      "category": "video",
-      "tags": [
-        "文本转视频",
-        "剪辑",
-        "自媒体"
-      ],
-      "order": 16
-    },
-    {
-      "id": "invideo-ai",
-      "name": "InVideo AI",
-      "description": "快速生成营销与社交平台视频",
-      "url": "https://invideo.io/ai",
-      "logoUrl": "https://invideo.io/favicon.ico",
-      "category": "video",
-      "tags": [
-        "营销视频",
-        "模板",
-        "快速生成"
-      ],
-      "order": 17
-    },
-    {
-      "id": "jsdelivr-design",
-      "name": "即时设计",
-      "description": "国产专业UI设计工具，内置AI辅助设计功能",
-      "url": "https://js.design",
-      "logoUrl": "https://js.design/favicon.ico",
-      "category": "design",
-      "tags": [
-        "国产",
-        "UI设计",
-        "协作"
-      ],
-      "order": 6
-    },
-    {
-      "id": "adobe-ai-illustrator",
-      "name": "Adobe Illustrator AI",
-      "description": "专业矢量设计工具，集成Firefly AI生成功能",
-      "url": "https://www.adobe.com/cn/products/illustrator.html",
-      "logoUrl": "https://www.adobe.com/favicon.ico",
-      "category": "design",
-      "tags": [
-        "矢量设计",
-        "专业",
-        "AI生成"
-      ],
-      "order": 7
-    },
-    {
-      "id": "adobe-express",
-      "name": "Adobe Express",
-      "description": "Adobe AI驱动的快速设计平台",
-      "url": "https://express.adobe.com",
-      "logoUrl": "https://express.adobe.com/favicon.ico",
-      "category": "design",
-      "tags": [
-        "Adobe",
-        "海报",
-        "社交媒体设计"
-      ],
-      "order": 8
-    },
-    {
-      "id": "figjam-ai",
-      "name": "FigJam AI",
-      "description": "Figma协作式AI设计与头脑风暴工具",
-      "url": "https://www.figma.com/figjam",
-      "logoUrl": "https://static.figma.com/app/icon/1/favicon.ico",
-      "category": "design",
-      "tags": [
-        "协作",
-        "原型",
-        "头脑风暴"
-      ],
-      "order": 9
-    },
-    {
-      "id": "feishu-ai",
-      "name": "飞书AI",
-      "description": "企业协作平台内置的AI助手，支持文档总结与会议纪要",
-      "url": "https://www.feishu.cn",
-      "logoUrl": "https://www.feishu.cn/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "国产",
-        "企业协作",
-        "文档总结"
-      ],
-      "order": 10
-    },
-    {
-      "id": "todoist-ai",
-      "name": "Todoist AI",
-      "description": "AI驱动的任务管理工具，支持智能规划与优先级排序",
-      "url": "https://todoist.com",
-      "logoUrl": "https://todoist.com/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "任务管理",
-        "智能规划",
-        "效率"
-      ],
-      "order": 11
-    },
-    {
-      "id": "clickup-ai",
-      "name": "ClickUp AI",
-      "description": "AI驱动的项目管理与协作平台",
-      "url": "https://clickup.com/ai",
-      "logoUrl": "https://clickup.com/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "项目管理",
-        "协作",
-        "自动化"
-      ],
-      "order": 18
-    },
-    {
-      "id": "adobe-audition-ai",
-      "name": "Adobe Audition AI",
-      "description": "专业音频编辑工具，AI降噪与音频修复功能强大",
-      "url": "https://www.adobe.com/cn/products/audition.html",
-      "logoUrl": "https://www.adobe.com/favicon.ico",
-      "category": "audio",
-      "tags": [
-        "专业编辑",
-        "AI降噪",
-        "音频修复"
-      ],
-      "order": 7
-    },
-    {
-      "id": "voice-ai",
-      "name": "Voice.ai",
-      "description": "实时语音克隆与变声工具，支持多种音色模拟",
-      "url": "https://voice.ai",
-      "logoUrl": "https://voice.ai/favicon.ico",
-      "category": "audio",
-      "tags": [
-        "语音克隆",
-        "实时变声",
-        "音色模拟"
-      ],
-      "order": 8
-    },
-    {
-      "id": "whisper",
-      "name": "Whisper",
-      "description": "OpenAI开源语音转文字工具",
-      "url": "https://openai.com/research/whisper",
-      "logoUrl": "https://openai.com/favicon.ico",
-      "category": "audio",
-      "tags": [
-        "开源",
-        "语音转文字",
-        "多语言"
-      ],
-      "order": 9
-    },
-    {
-      "id": "lovo-ai",
-      "name": "Lovo.ai",
-      "description": "高质量AI语音合成与配音平台",
-      "url": "https://lovo.ai",
-      "logoUrl": "https://lovo.ai/favicon.ico",
-      "category": "audio",
-      "tags": [
-        "语音合成",
-        "配音",
-        "多音色"
-      ],
-      "order": 10
-    },
-    {
-      "id": "modelscope",
-      "name": "ModelScope",
-      "description": "阿里云开源模型社区，汇聚国产优质AI模型",
-      "url": "https://modelscope.cn",
-      "logoUrl": "https://modelscope.cn/favicon.ico",
-      "category": "other",
-      "tags": [
-        "国产",
-        "开源社区",
-        "模型托管"
-      ],
-      "order": 7
-    },
-    {
-      "id": "wandb",
-      "name": "Weights & Biases",
-      "description": "AI模型训练与实验管理平台，支持可视化跟踪",
-      "url": "https://wandb.ai",
-      "logoUrl": "https://wandb.ai/favicon.ico",
-      "category": "other",
-      "tags": [
-        "模型训练",
-        "实验管理",
-        "可视化"
-      ],
-      "order": 8
-    },
-    {
-      "id": "zencoder",
-      "name": "Zencoder",
-      "description": "2026热门编码代理，专注代码生成与重构",
-      "url": "https://zencoder.ai",
-      "logoUrl": "https://zencoder.ai/favicon.ico",
-      "category": "code",
-      "tags": [
-        "编码代理",
-        "重构",
-        "新工具"
-      ],
-      "order": 25
-    },
-    {
-      "id": "dspy",
-      "name": "DSPy",
-      "description": "优化AI代理提示与管道的编程框架（2025-2026大幅流行）",
-      "url": "https://dspy.ai",
-      "logoUrl": "https://dspy.ai/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "开源",
-        "提示优化",
-        "代理编程"
-      ],
-      "order": 18
-    },
-    {
-      "id": "semantic-kernel",
-      "name": "Semantic Kernel",
-      "description": "Microsoft企业级AI代理编排框架，支持插件与记忆",
-      "url": "https://github.com/microsoft/semantic-kernel",
-      "logoUrl": "https://github.com/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "Microsoft",
-        "企业级",
-        "插件系统"
-      ],
-      "order": 19
     },
     {
       "id": "agentflow",
@@ -1786,282 +2464,6 @@
       "order": 20
     },
     {
-      "id": "prometheus",
-      "name": "Prometheus + Grafana",
-      "description": "开源 / Pull模式，云原生监控事实标准，与Kubernetes集成极佳，适合动态服务发现",
-      "url": "https://prometheus.io",
-      "logoUrl": "https://prometheus.io/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "开源",
-        "云原生",
-        "Kubernetes",
-        "微服务"
-      ],
-      "order": 1
-    },
-    {
-      "id": "zabbix",
-      "name": "Zabbix",
-      "description": "开源 / Agent, SNMP, IPMI, JMX功能全面、历史悠久、支持深度自定义和自动发现",
-      "url": "https://www.zabbix.com",
-      "logoUrl": "https://www.zabbix.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "开源",
-        "企业级",
-        "自动发现",
-        "混合IT"
-      ],
-      "order": 2
-    },
-    {
-      "id": "netdata",
-      "name": "Netdata",
-      "description": "开源 / 实时采集实时性能监控，仪表盘华丽，几乎零配置启动，资源占用低",
-      "url": "https://www.netdata.cloud",
-      "logoUrl": "https://www.netdata.cloud/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "开源",
-        "实时监控",
-        "零配置",
-        "单机诊断"
-      ],
-      "order": 3
-    },
-    {
-      "id": "nagios",
-      "name": "Nagios",
-      "description": "开源 / 插件式监控界的“元老”，以稳定性和强大的插件生态著称",
-      "url": "https://www.nagios.org",
-      "logoUrl": "https://www.nagios.org/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "开源",
-        "插件生态",
-        "传统IT",
-        "稳定"
-      ],
-      "order": 4
-    },
-    {
-      "id": "uptime-kuma",
-      "name": "Uptime Kuma",
-      "description": "开源 / HTTP, TCP, ICMP, DNS等轻量级、专注于服务可用性和状态监控，部署简单，界面直观",
-      "url": "https://uptime.kuma.pet",
-      "logoUrl": "https://uptime.kuma.pet/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "开源",
-        "可用性监控",
-        "轻量级",
-        "个人项目"
-      ],
-      "order": 5
-    },
-    {
-      "id": "hertzbeat",
-      "name": "Apache HertzBeat",
-      "description": "开源 / 无代理(Agentless)新一代一体化平台，开箱即用，无需在被监控端部署代理",
-      "url": "https://hertzbeat.apache.org",
-      "logoUrl": "https://hertzbeat.apache.org/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "开源",
-        "无代理",
-        "开箱即用",
-        "中小团队"
-      ],
-      "order": 6
-    },
-    {
-      "id": "checkmk",
-      "name": "Checkmk",
-      "description": "开源(RAW版免费) / 自动发现强，Zabbix替代，适合中大型企业",
-      "url": "https://checkmk.com",
-      "logoUrl": "https://checkmk.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "开源",
-        "自动发现",
-        "企业级"
-      ],
-      "order": 7
-    },
-    {
-      "id": "icinga",
-      "name": "Icinga 2",
-      "description": "开源 / Nagios叉子，UI更好，模块化设计",
-      "url": "https://icinga.com",
-      "logoUrl": "https://icinga.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "开源",
-        "模块化",
-        "Nagios替代"
-      ],
-      "order": 8
-    },
-    {
-      "id": "signoz",
-      "name": "SigNoz",
-      "description": "开源 / OpenTelemetry原生全栈可观测性平台，Datadog开源替代",
-      "url": "https://signoz.io",
-      "logoUrl": "https://signoz.io/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "开源",
-        "OpenTelemetry",
-        "全栈"
-      ],
-      "order": 9
-    },
-    {
-      "id": "librenms",
-      "name": "LibreNMS",
-      "description": "开源 / 网络+服务器监控，自动发现强",
-      "url": "https://www.librenms.org",
-      "logoUrl": "https://www.librenms.org/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "开源",
-        "网络监控",
-        "自动发现"
-      ],
-      "order": 10
-    },
-    {
-      "id": "datadog",
-      "name": "Datadog",
-      "description": "SaaS商业 / 统一平台功能强大的统一可观测性平台，整合指标、日志、追踪和应用性能监控(APM)",
-      "url": "https://www.datadoghq.com",
-      "logoUrl": "https://www.datadoghq.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "SaaS",
-        "全栈可观测性",
-        "APM",
-        "云原生"
-      ],
-      "order": 11
-    },
-    {
-      "id": "dynatrace",
-      "name": "Dynatrace",
-      "description": "SaaS商业 / AI驱动以AI驱动根因分析著称，自动化程度高，提供全栈式监控和用户体验管理",
-      "url": "https://www.dynatrace.com",
-      "logoUrl": "https://www.dynatrace.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "SaaS",
-        "AI根因分析",
-        "自动化",
-        "大型企业"
-      ],
-      "order": 12
-    },
-    {
-      "id": "newrelic",
-      "name": "New Relic",
-      "description": "SaaS商业 / 全栈可观测性，APM强，AI洞察升级",
-      "url": "https://newrelic.com",
-      "logoUrl": "https://newrelic.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "SaaS",
-        "APM",
-        "全栈"
-      ],
-      "order": 13
-    },
-    {
-      "id": "solarwinds",
-      "name": "SolarWinds",
-      "description": "商业 / 网络与系统在网络性能监控(NPM)方面表现突出，提供详细的设备级和路径级分析",
-      "url": "https://www.solarwinds.com",
-      "logoUrl": "https://www.solarwinds.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "商业",
-        "网络监控",
-        "设备级分析",
-        "传统IT"
-      ],
-      "order": 14
-    },
-    {
-      "id": "manageengine-opmanager",
-      "name": "ManageEngine OpManager",
-      "description": "商业 / 基础设施全面的服务器、网络、虚拟化监控，提供一体化的IT运维管理",
-      "url": "https://www.manageengine.com/network-monitoring/",
-      "logoUrl": "https://www.manageengine.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "商业",
-        "基础设施",
-        "ITSM整合",
-        "中小企业"
-      ],
-      "order": 15
-    },
-    {
-      "id": "splunk",
-      "name": "Splunk",
-      "description": "商业 / 日志分析+安全监控强，大企业首选",
-      "url": "https://www.splunk.com",
-      "logoUrl": "https://www.splunk.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "商业",
-        "日志分析",
-        "安全监控"
-      ],
-      "order": 16
-    },
-    {
-      "id": "appdynamics",
-      "name": "AppDynamics",
-      "description": "商业 / 业务事务追踪强，企业级APM",
-      "url": "https://www.appdynamics.com",
-      "logoUrl": "https://www.appdynamics.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "商业",
-        "APM",
-        "业务追踪"
-      ],
-      "order": 17
-    },
-    {
-      "id": "logicmonitor",
-      "name": "LogicMonitor",
-      "description": "SaaS商业 / 混合云、多站点监控，预配置模板多",
-      "url": "https://www.logicmonitor.com",
-      "logoUrl": "https://www.logicmonitor.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "SaaS",
-        "混合云",
-        "模板丰富"
-      ],
-      "order": 18
-    },
-    {
-      "id": "site24x7",
-      "name": "Site24x7",
-      "description": "SaaS商业 / 全栈+网站监控，性价比高",
-      "url": "https://www.site24x7.com",
-      "logoUrl": "https://www.site24x7.com/favicon.ico",
-      "category": "monitoring",
-      "tags": [
-        "SaaS",
-        "网站监控",
-        "性价比"
-      ],
-      "order": 19
-    },
-    {
       "id": "uptimerobot-pingdom",
       "name": "UptimeRobot / Pingdom",
       "description": "SaaS / 合成监控专注于外部网站和应用可用性监控，多地点探测，配置简单",
@@ -2077,6 +2479,20 @@
       "order": 20
     },
     {
+      "id": "kaiber-ai",
+      "name": "Kaiber AI",
+      "description": "AI音乐可视化与艺术视频生成",
+      "url": "https://kaiber.ai",
+      "logoUrl": "https://kaiber.ai/favicon.ico",
+      "category": "video",
+      "tags": [
+        "音乐可视化",
+        "艺术创作",
+        "动态图像"
+      ],
+      "order": 21
+    },
+    {
       "id": "betterstack",
       "name": "Better Stack",
       "description": "SaaS商业 / 现代日志+指标监控，简洁便宜",
@@ -2087,6 +2503,20 @@
         "SaaS",
         "日志指标",
         "新兴"
+      ],
+      "order": 21
+    },
+    {
+      "id": "open-devin",
+      "name": "OpenDevin",
+      "description": "开源版 Devin 软件工程代理，旨在复制并增强自主AI软件工程师的能力",
+      "url": "https://github.com/AI-App/OpenDevin.OpenDevin",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "AI代理",
+        "软件工程"
       ],
       "order": 21
     },
@@ -2134,6 +2564,20 @@
       "order": 24
     },
     {
+      "id": "zencoder",
+      "name": "Zencoder",
+      "description": "2026热门编码代理，专注代码生成与重构",
+      "url": "https://zencoder.ai",
+      "logoUrl": "https://zencoder.ai/favicon.ico",
+      "category": "code",
+      "tags": [
+        "编码代理",
+        "重构",
+        "新工具"
+      ],
+      "order": 25
+    },
+    {
       "id": "huawei-monitoring",
       "name": "华为云监控 (CES)",
       "description": "云平台集成 / 国产化最强，适合政企信创项目",
@@ -2159,6 +2603,20 @@
         "开源商业",
         "智能观测",
         "信创"
+      ],
+      "order": 26
+    },
+    {
+      "id": "paddlenlp",
+      "name": "PaddleNLP",
+      "description": "飞桨开源的大语言模型NLP开发套件，支持高效训练与推理",
+      "url": "https://github.com/PaddlePaddle/PaddleNLP",
+      "logoUrl": "https://github.com/favicon.ico",
+      "category": "code",
+      "tags": [
+        "开源",
+        "NLP",
+        "LLM"
       ],
       "order": 26
     },
@@ -2191,476 +2649,18 @@
       "order": 28
     },
     {
-      "id": "julius-ai",
-      "name": "Julius AI",
-      "description": "自然语言数据分析师，支持Excel/CSV上传、自动可视化与预测",
-      "url": "https://julius.ai",
-      "logoUrl": "https://julius.ai/favicon.ico",
-      "category": "data",
+      "id": "resource_1768545027378",
+      "name": "Grok",
+      "description": "xAI 的智能对话助手",
+      "url": "https://grok.com/",
+      "logoUrl": "",
+      "category": "chat",
       "tags": [
-        "数据可视化",
-        "自然语言",
-        "预测分析"
+        "对话",
+        "实时搜索",
+        "xAI"
       ],
-      "order": 1
-    },
-    {
-      "id": "hex-magic",
-      "name": "Hex",
-      "description": "协作式AI数据笔记本，支持SQL/Python与团队共享",
-      "url": "https://hex.tech",
-      "logoUrl": "https://hex.tech/favicon.ico",
-      "category": "data",
-      "tags": [
-        "协作",
-        "数据科学",
-        "笔记本"
-      ],
-      "order": 2
-    },
-    {
-      "id": "akkio",
-      "name": "Akkio",
-      "description": "无代码预测建模，适合业务用户快速构建ML模型",
-      "url": "https://www.akkio.com",
-      "logoUrl": "https://www.akkio.com/favicon.ico",
-      "category": "data",
-      "tags": [
-        "无代码",
-        "预测模型",
-        "业务分析"
-      ],
-      "order": 3
-    },
-    {
-      "id": "pandas-ai",
-      "name": "Pandas AI",
-      "description": "在Pandas代码中集成AI，自然语言查询DataFrame",
-      "url": "https://github.com/gventuri/pandas-ai",
-      "logoUrl": "https://github.com/favicon.ico",
-      "category": "data",
-      "tags": [
-        "开源",
-        "Python",
-        "数据查询"
-      ],
-      "order": 4
-    },
-    {
-      "id": "thoughtspot",
-      "name": "ThoughtSpot",
-      "description": "企业级自然语言搜索BI平台，支持实时数据洞察",
-      "url": "https://www.thoughtspot.com",
-      "logoUrl": "https://www.thoughtspot.com/favicon.ico",
-      "category": "data",
-      "tags": [
-        "企业级",
-        "BI",
-        "自然语言搜索"
-      ],
-      "order": 5
-    },
-    {
-      "id": "polymer",
-      "name": "Polymer",
-      "description": "AI驱动数据仪表盘，自动生成洞察与可视化",
-      "url": "https://www.polymersearch.com",
-      "logoUrl": "https://www.polymersearch.com/favicon.ico",
-      "category": "data",
-      "tags": [
-        "仪表盘",
-        "自动洞察",
-        "无代码"
-      ],
-      "order": 6
-    },
-    {
-      "id": "powerdrill",
-      "name": "Powerdrill AI",
-      "description": "快速数据查询与报告生成，支持多数据源连接",
-      "url": "https://powerdrill.ai",
-      "logoUrl": "https://powerdrill.ai/favicon.ico",
-      "category": "data",
-      "tags": [
-        "报告生成",
-        "多数据源",
-        "快速查询"
-      ],
-      "order": 7
-    },
-    {
-      "id": "agentar-sql",
-      "name": "Agentar SQL",
-      "description": "蚂蚁数科开源的数据分析智能体，可将自然语言精准转换为SQL查询，企业级准确率高",
-      "url": "https://github.com/AntGroup/Agentar",
-      "logoUrl": "https://github.com/favicon.ico",
-      "category": "data",
-      "tags": [
-        "开源",
-        "Text-to-SQL",
-        "企业级",
-        "自然语言查询"
-      ],
-      "order": 8
-    },
-    {
-      "id": "vanna-ai",
-      "name": "Vanna AI",
-      "description": "开源生成式BI框架，通过RAG将自然语言转换为SQL，支持本地部署与多种数据库",
-      "url": "https://github.com/vanna-ai/vanna",
-      "logoUrl": "https://github.com/favicon.ico",
-      "category": "data",
-      "tags": [
-        "开源",
-        "RAG",
-        "Text-to-SQL",
-        "本地部署"
-      ],
-      "order": 9
-    },
-    {
-      "id": "wren-ai",
-      "name": "Wren AI",
-      "description": "开箱即用AI分析工具，Excel/Google Sheets插件，支持自然语言数据分析",
-      "url": "https://www.wrenai.com",
-      "logoUrl": "https://www.wrenai.com/favicon.ico",
-      "category": "data",
-      "tags": [
-        "Excel插件",
-        "无代码",
-        "商业分析",
-        "自然语言"
-      ],
-      "order": 10
-    },
-    {
-      "id": "tdgpt",
-      "name": "TDgpt",
-      "description": "TDengine时序数据库内置AI智能体，一行SQL调用预测、异常检测等复杂能力",
-      "url": "https://www.taosdata.com",
-      "logoUrl": "https://www.taosdata.com/favicon.ico",
-      "category": "data",
-      "tags": [
-        "时序数据",
-        "预测分析",
-        "SQL集成",
-        "异常检测"
-      ],
-      "order": 11
-    },
-    {
-      "id": "writesonic",
-      "name": "Writesonic",
-      "description": "多功能AI写作平台，擅长SEO优化与社交媒体内容",
-      "url": "https://writesonic.com",
-      "logoUrl": "https://writesonic.com/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "SEO",
-        "社交媒体",
-        "多语言"
-      ],
-      "order": 2
-    },
-    {
-      "id": "copy-ai",
-      "name": "Copy.ai",
-      "description": "快速生成营销文案、邮件与产品描述",
-      "url": "https://www.copy.ai",
-      "logoUrl": "https://www.copy.ai/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "营销文案",
-        "快速生成",
-        "模板丰富"
-      ],
-      "order": 3
-    },
-    {
-      "id": "rytr",
-      "name": "Rytr",
-      "description": "性价比高AI写作工具，支持40+用例与多语言",
-      "url": "https://rytr.me",
-      "logoUrl": "https://rytr.me/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "性价比",
-        "多语言",
-        "短文"
-      ],
-      "order": 4
-    },
-    {
-      "id": "sudowrite",
-      "name": "Sudowrite",
-      "description": "创意写作专用AI，擅长小说、剧本与故事扩展",
-      "url": "https://www.sudowrite.com",
-      "logoUrl": "https://www.sudowrite.com/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "创意写作",
-        "小说",
-        "故事生成"
-      ],
-      "order": 5
-    },
-    {
-      "id": "anyword",
-      "name": "Anyword",
-      "description": "数据驱动营销文案生成，带性能预测评分",
-      "url": "https://anyword.com",
-      "logoUrl": "https://anyword.com/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "营销",
-        "性能预测",
-        "A/B测试"
-      ],
-      "order": 6
-    },
-    {
-      "id": "frase",
-      "name": "Frase",
-      "description": "SEO内容优化工具，自动生成大纲与文章",
-      "url": "https://www.frase.io",
-      "logoUrl": "https://www.frase.io/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "SEO",
-        "内容大纲",
-        "研究"
-      ],
-      "order": 7
-    },
-    {
-      "id": "boardmix-ai",
-      "name": "Boardmix AI",
-      "description": "在线协作白板集成AI写作，根据主题生成文章大纲和内容，支持思维导图",
-      "url": "https://boardmix.cn",
-      "logoUrl": "https://boardmix.cn/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "白板协作",
-        "大纲生成",
-        "团队共创",
-        "思维导图"
-      ],
-      "order": 8
-    },
-    {
-      "id": "wordtune",
-      "name": "Wordtune",
-      "description": "专注文本润色与改写，优化句子结构、调整语气，适合文章后期打磨",
-      "url": "https://www.wordtune.com",
-      "logoUrl": "https://www.wordtune.com/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "文本润色",
-        "改写",
-        "语法优化",
-        "语气调整"
-      ],
-      "order": 9
-    },
-    {
-      "id": "jenni-ai",
-      "name": "Jenni AI",
-      "description": "擅长段落扩展、续写与创意内容生成，适合突破写作瓶颈寻找灵感",
-      "url": "https://jenni.ai",
-      "logoUrl": "https://jenni.ai/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "创意写作",
-        "段落扩写",
-        "灵感激发",
-        "续写"
-      ],
-      "order": 10
-    },
-    {
-      "id": "simplified-ai-writer",
-      "name": "Simplified AI Writer",
-      "description": "集写作、排版与营销于一体的平台，支持多语言内容生成和SEO优化",
-      "url": "https://simplified.com",
-      "logoUrl": "https://simplified.com/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "多语言",
-        "SEO",
-        "内容营销",
-        "排版一体"
-      ],
-      "order": 11
-    },
-    {
-      "id": "you-com",
-      "name": "You.com",
-      "description": "多模态AI搜索与聊天，支持自定义App模式",
-      "url": "https://you.com",
-      "logoUrl": "https://you.com/favicon.ico",
-      "category": "search",
-      "tags": [
-        "多模态",
-        "自定义",
-        "聊天搜索"
-      ],
-      "order": 2
-    },
-    {
-      "id": "phind",
-      "name": "Phind",
-      "description": "开发者专用AI搜索引擎，擅长代码与技术问题",
-      "url": "https://www.phind.com",
-      "logoUrl": "https://www.phind.com/favicon.ico",
-      "category": "search",
-      "tags": [
-        "开发者",
-        "代码搜索",
-        "技术问答"
-      ],
-      "order": 3
-    },
-    {
-      "id": "consensus",
-      "name": "Consensus",
-      "description": "学术论文AI搜索引擎，提供证据级答案",
-      "url": "https://consensus.app",
-      "logoUrl": "https://consensus.app/favicon.ico",
-      "category": "search",
-      "tags": [
-        "学术",
-        "论文搜索",
-        "证据分析"
-      ],
-      "order": 4
-    },
-    {
-      "id": "elicit",
-      "name": "Elicit",
-      "description": "科研文献助手，支持论文总结与数据提取",
-      "url": "https://elicit.org",
-      "logoUrl": "https://elicit.org/favicon.ico",
-      "category": "search",
-      "tags": [
-        "科研",
-        "文献总结",
-        "数据提取"
-      ],
-      "order": 5
-    },
-    {
-      "id": "scite",
-      "name": "Scite",
-      "description": "智能引用分析，显示论文被支持/质疑情况",
-      "url": "https://scite.ai",
-      "logoUrl": "https://scite.ai/favicon.ico",
-      "category": "search",
-      "tags": [
-        "引用分析",
-        "学术",
-        "可靠性"
-      ],
-      "order": 6
-    },
-    {
-      "id": "kagi",
-      "name": "Kagi",
-      "description": "付费高质量AI增强搜索引擎，无广告追踪",
-      "url": "https://kagi.com",
-      "logoUrl": "https://kagi.com/favicon.ico",
-      "category": "search",
-      "tags": [
-        "付费",
-        "高质量",
-        "隐私"
-      ],
-      "order": 7
-    },
-    {
-      "id": "brave-search",
-      "name": "Brave Search (Ask Brave)",
-      "description": "Brave浏览器内置隐私保护AI搜索，生成带多媒体深度报告，短期自动删除记录",
-      "url": "https://search.brave.com",
-      "logoUrl": "https://search.brave.com/favicon.ico",
-      "category": "search",
-      "tags": [
-        "隐私保护",
-        "深度报告",
-        "浏览器集成",
-        "多媒体"
-      ],
-      "order": 9
-    },
-    {
-      "id": "comet-perplexity",
-      "name": "Comet (by Perplexity)",
-      "description": "Perplexity推出的AI驱动浏览器，可感知页面内容提供侧边栏助手并自动执行多步骤任务",
-      "url": "https://www.perplexity.ai/comet",
-      "logoUrl": "https://www.perplexity.ai/favicon.ico",
-      "category": "search",
-      "tags": [
-        "AI浏览器",
-        "网页自动化",
-        "智能体",
-        "侧边栏助手"
-      ],
-      "order": 10
-    },
-    {
-      "id": "open-devin",
-      "name": "OpenDevin",
-      "description": "开源版 Devin 软件工程代理，旨在复制并增强自主AI软件工程师的能力",
-      "url": "https://github.com/AI-App/OpenDevin.OpenDevin",
-      "logoUrl": "https://github.com/favicon.ico",
-      "category": "agent",
-      "tags": [
-        "开源",
-        "AI代理",
-        "软件工程"
-      ],
-      "order": 21
-    },
-    {
-      "id": "berri-ai",
-      "name": "Berri AI",
-      "description": "构建面向自身数据的ChatGPT应用平台，提供可视化流程与API支持",
-      "url": "https://berri.ai",
-      "logoUrl": "https://berri.ai/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "数据",
-        "ChatGPT",
-        "应用构建"
-      ],
-      "order": 19
-    },
-    {
-      "id": "reka-ai",
-      "name": "Reka AI",
-      "description": "多模态AI平台，用于构建跨文本、图像、视频和音频的智能模型",
-      "url": "https://reka.ai",
-      "logoUrl": "https://reka.ai/favicon.ico",
-      "category": "other",
-      "tags": [
-        "多模态",
-        "AI平台",
-        "模型构建"
-      ],
-      "order": 9
-    },
-    {
-      "id": "paddlenlp",
-      "name": "PaddleNLP",
-      "description": "飞桨开源的大语言模型NLP开发套件，支持高效训练与推理",
-      "url": "https://github.com/PaddlePaddle/PaddleNLP",
-      "logoUrl": "https://github.com/favicon.ico",
-      "category": "code",
-      "tags": [
-        "开源",
-        "NLP",
-        "LLM"
-      ],
-      "order": 26
+      "order": 35
     },
     {
       "id": "manus",
