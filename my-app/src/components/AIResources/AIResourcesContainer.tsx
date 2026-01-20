@@ -174,8 +174,8 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
 
     if (isLoading) {
         return (
-            <div className="h-full flex items-center justify-center bg-[#f5f5f7]">
-                <div className="text-neutral-400 text-sm">{t.common.loading}</div>
+            <div className="h-full flex items-center justify-center bg-background/50">
+                <div className="text-muted-foreground text-sm">{t.common.loading}</div>
             </div>
         );
     }
@@ -191,40 +191,40 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
     }
 
     return (
-        <div className="h-full flex flex-col bg-[#f5f5f7]">
+        <div className="h-full flex flex-col bg-muted/30">
             {/* 顶部导航栏 - iOS 26 毛玻璃风格 */}
-            <div className="flex-shrink-0 bg-white/60 backdrop-blur-xl border-b border-black/5 px-5 py-3">
+            <div className="flex-shrink-0 bg-background/60 backdrop-blur-xl border-b border-border px-5 py-3">
                 <div className="flex items-center justify-between">
                     {/* 左侧：返回 + 标题 */}
                     <div className="flex items-center gap-3">
                         <button
                             onClick={onBack}
-                            className="flex items-center gap-1 text-neutral-500 hover:text-neutral-800 transition-colors"
+                            className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
                         >
                             <ArrowLeft className="w-4 h-4" />
                             <span className="text-sm">{tr.back}</span>
                         </button>
-                        <div className="w-px h-4 bg-neutral-200" />
-                        <h1 className="text-base font-semibold text-neutral-800">{tr.title}</h1>
+                        <div className="w-px h-4 bg-border" />
+                        <h1 className="text-base font-semibold text-foreground">{tr.title}</h1>
                     </div>
 
                     {/* 右侧：搜索 + 管理 */}
                     <div className="flex items-center gap-3">
                         {/* 搜索框 - 极简胶囊样式 */}
                         <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                             <input
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 placeholder={tr.searchPlaceholder}
-                                className="pl-9 pr-8 w-56 h-8 bg-neutral-100/80 border-0 rounded-lg text-sm 
-                                         placeholder:text-neutral-400 focus:outline-none focus:bg-white 
-                                         focus:ring-1 focus:ring-neutral-200 transition-all"
+                                className="pl-9 pr-8 w-56 h-8 bg-muted/80 border-0 rounded-lg text-sm 
+                                         placeholder:text-muted-foreground focus:outline-none focus:bg-background 
+                                         focus:ring-1 focus:ring-ring transition-all"
                             />
                             {searchQuery && (
                                 <button
                                     onClick={() => setSearchQuery('')}
-                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                                 >
                                     <X className="w-3.5 h-3.5" />
                                 </button>
@@ -237,8 +237,8 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                                 <button
                                     onClick={downloadMissingLogos}
                                     disabled={isDownloading}
-                                    className="flex items-center gap-1.5 px-3 h-8 text-sm text-neutral-600 
-                                             hover:text-neutral-900 hover:bg-neutral-100 rounded-lg transition-colors
+                                    className="flex items-center gap-1.5 px-3 h-8 text-sm text-muted-foreground 
+                                             hover:text-foreground hover:bg-muted rounded-lg transition-colors
                                              disabled:opacity-50"
                                 >
                                     {isDownloading ? (
@@ -255,8 +255,8 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                                 </button>
                                 <button
                                     onClick={() => setIsEditing(true)}
-                                    className="flex items-center gap-1.5 px-3 h-8 text-sm text-neutral-600 
-                                             hover:text-neutral-900 hover:bg-neutral-100 rounded-lg transition-colors"
+                                    className="flex items-center gap-1.5 px-3 h-8 text-sm text-muted-foreground 
+                                             hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                                 >
                                     <Settings className="w-3.5 h-3.5" />
                                     <span>{tr.manage}</span>
@@ -271,8 +271,8 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                     <button
                         onClick={() => setActiveCategory('all')}
                         className={`px-3 py-1.5 rounded-lg text-[13px] font-medium whitespace-nowrap transition-all ${activeCategory === 'all'
-                            ? 'bg-neutral-800 text-white'
-                            : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100'
+                            ? 'bg-foreground text-background'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                             }`}
                     >
                         {tr.allCategory}
@@ -282,8 +282,8 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                             key={cat.id}
                             onClick={() => setActiveCategory(cat.id)}
                             className={`px-3 py-1.5 rounded-lg text-[13px] font-medium whitespace-nowrap transition-all ${activeCategory === cat.id
-                                ? 'bg-neutral-800 text-white'
-                                : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100'
+                                ? 'bg-foreground text-background'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                                 }`}
                         >
                             {cat.name}
@@ -295,7 +295,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
             {/* 资源网格 */}
             <div className="flex-1 overflow-y-auto p-5">
                 {Object.keys(groupedResources).length === 0 ? (
-                    <div className="text-center py-16 text-neutral-400 text-sm">
+                    <div className="text-center py-16 text-muted-foreground text-sm">
                         {tr.noResults}
                     </div>
                 ) : (
@@ -307,7 +307,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                                 <div key={cat.id}>
                                     {/* 分类标题 - 极简小号 */}
                                     {activeCategory === 'all' && (
-                                        <h2 className="text-[12px] font-medium text-neutral-400 uppercase tracking-wider mb-3 px-1">
+                                        <h2 className="text-[12px] font-medium text-muted-foreground uppercase tracking-wider mb-3 px-1">
                                             {cat.name} · {groupedResources[cat.id].length}
                                         </h2>
                                     )}
@@ -361,7 +361,7 @@ function ResourceCard({ resource, logo }: { resource: AIResource; logo: string |
         }
         // 默认使用首字母
         return (
-            <span className="text-sm font-medium text-neutral-400">
+            <span className="text-sm font-medium text-muted-foreground">
                 {resource.name.charAt(0).toUpperCase()}
             </span>
         );
@@ -370,24 +370,26 @@ function ResourceCard({ resource, logo }: { resource: AIResource; logo: string |
     return (
         <button
             onClick={handleClick}
-            className="group flex items-center gap-3 p-3 bg-white/70 backdrop-blur-sm rounded-xl 
-                     border border-black/5 hover:bg-white hover:shadow-sm 
+            className="group flex items-center gap-3 p-3 bg-card/70 backdrop-blur-sm rounded-xl 
+                     border border-border/40 hover:bg-card hover:shadow-sm 
                      transition-all duration-150 text-left w-full"
         >
-            {/* Logo */}
-            <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-neutral-100 flex items-center justify-center overflow-hidden">
-                {renderLogo()}
+            {/* Logo with Gradient Border */}
+            <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 p-0.5 shadow-sm group-hover:from-blue-500/40 group-hover:to-purple-500/40 transition-all duration-300">
+                <div className="w-full h-full rounded-[10px] bg-white flex items-center justify-center overflow-hidden relative">
+                    {renderLogo()}
+                </div>
             </div>
 
             {/* 内容 */}
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                    <h3 className="text-[15px] font-medium text-neutral-800 truncate group-hover:text-neutral-600 transition-colors">
+                    <h3 className="text-[15px] font-medium text-card-foreground truncate group-hover:text-primary transition-colors">
                         {resource.name}
                     </h3>
-                    <ChevronRight className="w-3 h-3 text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                    <ChevronRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                 </div>
-                <p className="text-[13px] text-neutral-400 mt-0.5 truncate">
+                <p className="text-[13px] text-muted-foreground mt-0.5 truncate">
                     {resource.description}
                 </p>
                 {/* Tags - 极简风格 */}
@@ -396,13 +398,13 @@ function ResourceCard({ resource, logo }: { resource: AIResource; logo: string |
                         {resource.tags.slice(0, 2).map(tag => (
                             <span
                                 key={tag}
-                                className="px-1.5 py-0.5 text-[11px] bg-neutral-100 text-neutral-400 rounded"
+                                className="px-1.5 py-0.5 text-[11px] bg-muted text-muted-foreground rounded"
                             >
                                 {tag}
                             </span>
                         ))}
                         {resource.tags.length > 2 && (
-                            <span className="text-[11px] text-neutral-300">+{resource.tags.length - 2}</span>
+                            <span className="text-[11px] text-muted-foreground/60">+{resource.tags.length - 2}</span>
                         )}
                     </div>
                 )}

@@ -44,9 +44,9 @@ export function ResourceLock({ onUnlock }: ResourceLockProps) {
 
     return (
         <div className="flex items-center justify-center h-full min-h-[60vh] animate-in zoom-in-95 duration-500">
-            <Card className="w-full max-w-md p-8 bg-white/80 backdrop-blur-md shadow-xl border-slate-200">
+            <Card className="w-full max-w-md p-8 bg-[var(--glass-bg)] backdrop-blur-md shadow-xl border-[var(--border-subtle)]">
                 <div className="flex flex-col items-center gap-6">
-                    <div className={`p-4 rounded-full bg-slate-50 transition-colors duration-300 ${error ? 'bg-red-50' : ''}`}>
+                    <div className={`p-4 rounded-full bg-[var(--bg-muted)] transition-colors duration-300 ${error ? 'bg-red-50 dark:bg-red-900/20' : ''}`}>
                         {error ? (
                             <Lock className="w-8 h-8 text-red-500" />
                         ) : (
@@ -55,8 +55,8 @@ export function ResourceLock({ onUnlock }: ResourceLockProps) {
                     </div>
 
                     <div className="text-center space-y-2">
-                        <h2 className="text-2xl font-bold text-slate-800">{tr.title}</h2>
-                        <p className="text-slate-500 text-sm">
+                        <h2 className="text-2xl font-bold text-[var(--text-primary)]">{tr.title}</h2>
+                        <p className="text-[var(--text-secondary)] text-sm">
                             {tr.lockDescription}
                         </p>
                     </div>
@@ -72,7 +72,7 @@ export function ResourceLock({ onUnlock }: ResourceLockProps) {
                                 className={`pl-10 h-11 text-lg transition-all ${error ? 'border-red-300 focus-visible:ring-red-200' : ''}`}
                                 autoFocus
                             />
-                            <Lock className="w-4 h-4 absolute left-3 top-3.5 text-slate-400" />
+                            <Lock className="w-4 h-4 absolute left-3 top-3.5 text-[var(--text-tertiary)]" />
                         </div>
 
                         <Button

@@ -191,15 +191,15 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
     };
 
     return (
-        <div className="h-full flex flex-col bg-slate-50">
+        <div className="h-full flex flex-col bg-muted/30">
             {/* 顶部工具栏 */}
-            <div className="flex-shrink-0 bg-white border-b border-slate-200 px-6 py-4">
+            <div className="flex-shrink-0 bg-background border-b border-border px-6 py-4">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                         <Button variant="ghost" size="icon" onClick={onCancel}>
                             <ArrowLeft className="w-5 h-5" />
                         </Button>
-                        <h1 className="text-xl font-bold text-slate-800">{tr.manageTitle}</h1>
+                        <h1 className="text-xl font-bold text-foreground">{tr.manageTitle}</h1>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -218,8 +218,8 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                     <button
                         onClick={() => setActiveTab('resources')}
                         className={`px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === 'resources'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'text-slate-600 hover:bg-slate-100'
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-muted-foreground hover:bg-muted'
                             }`}
                     >
                         {tr.resourcesTab}
@@ -227,8 +227,8 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                     <button
                         onClick={() => setActiveTab('categories')}
                         className={`px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === 'categories'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'text-slate-600 hover:bg-slate-100'
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-muted-foreground hover:bg-muted'
                             }`}
                     >
                         {tr.categoriesTab}
@@ -243,7 +243,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                         {/* 工具栏 */}
                         <div className="flex items-center gap-4 mb-4">
                             <div className="relative flex-1 max-w-md">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                 <Input
                                     ref={searchInputRef}
                                     value={searchQuery}
@@ -271,10 +271,10 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                         </div>
 
                         {/* 资源列表 */}
-                        <div className="flex-1 overflow-y-auto bg-white rounded-xl border border-slate-200">
+                        <div className="flex-1 overflow-y-auto bg-card rounded-xl border border-border">
                             <table className="w-full">
-                                <thead className="bg-slate-50 sticky top-0">
-                                    <tr className="text-left text-sm text-slate-600">
+                                <thead className="bg-muted/50 sticky top-0">
+                                    <tr className="text-left text-sm text-muted-foreground">
                                         <th className="px-4 py-3 font-medium">{tr.name}</th>
                                         <th className="px-4 py-3 font-medium">{tr.description}</th>
                                         <th className="px-4 py-3 font-medium">{tr.category}</th>
@@ -282,15 +282,15 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                                         <th className="px-4 py-3 font-medium w-24">{tr.actions}</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody className="divide-y divide-border">
                                     {getFilteredResources().map(resource => (
-                                        <tr key={resource.id} className="hover:bg-slate-50">
+                                        <tr key={resource.id} className="hover:bg-muted/30">
                                             <td className="px-4 py-3">
                                                 <div className="flex items-center gap-3">
                                                     <GripVertical className="w-4 h-4 text-slate-300 cursor-move" />
                                                     {/* Icon with delete button */}
                                                     <div className="relative group/logo">
-                                                        <div className={`w-8 h-8 rounded-lg bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center overflow-hidden border flex-shrink-0 ${logosToDelete.has(resource.id) ? 'border-red-300 opacity-50' : 'border-slate-200'
+                                                        <div className={`w-8 h-8 rounded-lg bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center overflow-hidden border flex-shrink-0 ${logosToDelete.has(resource.id) ? 'border-destructive/50 opacity-50' : 'border-border'
                                                             }`}>
                                                             {logoCache[resource.id] && !logosToDelete.has(resource.id) ? (
                                                                 <img
@@ -299,7 +299,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                                                                     className="w-5 h-5 object-contain"
                                                                 />
                                                             ) : (
-                                                                <LucideIcons.Sparkles className="w-4 h-4 text-slate-300" />
+                                                                <LucideIcons.Sparkles className="w-4 h-4 text-muted-foreground/50" />
                                                             )}
                                                         </div>
                                                         {/* X button on hover */}
@@ -336,14 +336,14 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                                                             </button>
                                                         )}
                                                     </div>
-                                                    <span className="font-medium text-slate-800">{resource.name}</span>
+                                                    <span className="font-medium text-foreground">{resource.name}</span>
                                                 </div>
                                             </td>
-                                            <td className="px-4 py-3 text-sm text-slate-600 max-w-xs truncate">
+                                            <td className="px-4 py-3 text-sm text-muted-foreground max-w-xs truncate">
                                                 {resource.description}
                                             </td>
                                             <td className="px-4 py-3">
-                                                <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-full">
+                                                <span className="px-2 py-1 bg-muted text-muted-foreground text-xs rounded-full">
                                                     {editedData.categories.find(c => c.id === resource.category)?.name || resource.category}
                                                 </span>
                                             </td>
@@ -379,7 +379,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                             </table>
 
                             {getFilteredResources().length === 0 && (
-                                <div className="text-center py-12 text-slate-500">
+                                <div className="text-center py-12 text-muted-foreground">
                                     {tr.noResourcesFound}
                                 </div>
                             )}
@@ -388,17 +388,17 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                 ) : (
                     <div className="h-full flex flex-col">
                         <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-lg font-semibold text-slate-800">{tr.categoryList}</h2>
+                            <h2 className="text-lg font-semibold text-foreground">{tr.categoryList}</h2>
                             <Button onClick={handleAddCategory} className="gap-2 bg-green-500 hover:bg-green-600">
                                 <Plus className="w-4 h-4" />
                                 {tr.addCategory}
                             </Button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto bg-white rounded-xl border border-slate-200">
+                        <div className="flex-1 overflow-y-auto bg-card rounded-xl border border-border">
                             <table className="w-full">
-                                <thead className="bg-slate-50 sticky top-0">
-                                    <tr className="text-left text-sm text-slate-600">
+                                <thead className="bg-muted/50 sticky top-0">
+                                    <tr className="text-left text-sm text-muted-foreground">
                                         <th className="px-4 py-3 font-medium">{tr.icon}</th>
                                         <th className="px-4 py-3 font-medium">{tr.name}</th>
                                         <th className="px-4 py-3 font-medium">ID</th>
@@ -407,31 +407,31 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                                         <th className="px-4 py-3 font-medium w-24">{tr.actions}</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody className="divide-y divide-border">
                                     {editedData.categories.sort((a, b) => a.order - b.order).map(category => {
                                         const Icon = getIcon(category.icon);
                                         const resourceCount = editedData.resources.filter(r => r.category === category.id).length;
                                         return (
-                                            <tr key={category.id} className="hover:bg-slate-50">
+                                            <tr key={category.id} className="hover:bg-muted/30">
                                                 <td className="px-4 py-3">
                                                     <div className="flex items-center gap-2">
-                                                        <GripVertical className="w-4 h-4 text-slate-300 cursor-move" />
-                                                        <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                                                            <Icon className="w-4 h-4 text-blue-600" />
+                                                        <GripVertical className="w-4 h-4 text-muted-foreground/50 cursor-move" />
+                                                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                                                            <Icon className="w-4 h-4 text-primary" />
                                                         </div>
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-3 font-medium text-slate-800">
+                                                <td className="px-4 py-3 font-medium text-foreground">
                                                     {category.name}
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-500">
+                                                <td className="px-4 py-3 text-sm text-muted-foreground">
                                                     {category.id}
                                                 </td>
-                                                <td className="px-4 py-3 text-sm text-slate-600">
+                                                <td className="px-4 py-3 text-sm text-muted-foreground">
                                                     {category.order}
                                                 </td>
                                                 <td className="px-4 py-3">
-                                                    <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-full">
+                                                    <span className="px-2 py-1 bg-muted text-muted-foreground text-xs rounded-full">
                                                         {tr.resourceCount.replace('{count}', String(resourceCount))}
                                                     </span>
                                                 </td>
@@ -574,10 +574,10 @@ function ResourceEditModal({
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-                    <h2 className="text-lg font-semibold text-slate-800">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto animate-fadeIn">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                    <h2 className="text-lg font-semibold text-foreground">
                         {resource.id.startsWith('resource_') ? tr.addResourceTitle : tr.editResourceTitle}
                     </h2>
                     <Button variant="ghost" size="icon" onClick={onCancel}>
@@ -587,7 +587,7 @@ function ResourceEditModal({
 
                 <div className="p-6 space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.nameRequired}</label>
+                        <label className="block text-sm font-medium text-foreground mb-1">{tr.nameRequired}</label>
                         <Input
                             value={form.name}
                             onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
@@ -596,7 +596,7 @@ function ResourceEditModal({
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.description}</label>
+                        <label className="block text-sm font-medium text-foreground mb-1">{tr.description}</label>
                         <Input
                             value={form.description}
                             onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
@@ -605,7 +605,7 @@ function ResourceEditModal({
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.urlRequired}</label>
+                        <label className="block text-sm font-medium text-foreground mb-1">{tr.urlRequired}</label>
                         <Input
                             value={form.url}
                             onChange={(e) => setForm(prev => ({ ...prev, url: e.target.value }))}
@@ -614,10 +614,10 @@ function ResourceEditModal({
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.iconLabel}</label>
+                        <label className="block text-sm font-medium text-foreground mb-1">{tr.iconLabel}</label>
                         <div className="flex items-center gap-4">
                             {/* Icon预览 */}
-                            <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center overflow-hidden border border-slate-200">
+                            <div className="w-16 h-16 rounded-xl bg-white flex items-center justify-center overflow-hidden border border-border">
                                 {iconPath && !imgError ? (
                                     <img
                                         src={iconPath}
@@ -651,7 +651,7 @@ function ResourceEditModal({
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.category}</label>
+                        <label className="block text-sm font-medium text-foreground mb-1">{tr.category}</label>
                         <select
                             value={form.category}
                             onChange={(e) => setForm(prev => ({ ...prev, category: e.target.value }))}
@@ -664,7 +664,7 @@ function ResourceEditModal({
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.tagsLabel}</label>
+                        <label className="block text-sm font-medium text-foreground mb-1">{tr.tagsLabel}</label>
                         <Input
                             value={tagsInput}
                             onChange={(e) => setTagsInput(e.target.value)}
@@ -673,7 +673,7 @@ function ResourceEditModal({
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.orderLabel}</label>
+                        <label className="block text-sm font-medium text-foreground mb-1">{tr.orderLabel}</label>
                         <Input
                             type="number"
                             value={form.order || 99}
@@ -682,7 +682,9 @@ function ResourceEditModal({
                     </div>
                 </div>
 
-                <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-200">
+
+
+                <div className="flex justify-end gap-2 px-6 py-4 border-t border-border">
                     <Button variant="outline" onClick={onCancel}>{tr.cancel}</Button>
                     <Button onClick={handleSave} className="bg-blue-500 hover:bg-blue-600 gap-2">
                         <Check className="w-4 h-4" />
@@ -690,7 +692,7 @@ function ResourceEditModal({
                     </Button>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
 
@@ -717,10 +719,10 @@ function CategoryEditModal({
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-                    <h2 className="text-lg font-semibold text-slate-800">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-md mx-4 animate-fadeIn">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                    <h2 className="text-lg font-semibold text-foreground">
                         {category.id.startsWith('cat_') ? tr.addCategoryTitle : tr.editCategoryTitle}
                     </h2>
                     <Button variant="ghost" size="icon" onClick={onCancel}>
@@ -730,7 +732,7 @@ function CategoryEditModal({
 
                 <div className="p-6 space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.nameRequired}</label>
+                        <label className="block text-sm font-medium text-foreground mb-1">{tr.nameRequired}</label>
                         <Input
                             value={form.name}
                             onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
@@ -739,7 +741,7 @@ function CategoryEditModal({
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.icon}</label>
+                        <label className="block text-sm font-medium text-foreground mb-1">{tr.icon}</label>
                         <div className="grid grid-cols-6 gap-2 mt-2">
                             {AVAILABLE_ICONS.map(iconName => {
                                 const Icon = getIcon(iconName);
@@ -748,8 +750,8 @@ function CategoryEditModal({
                                         key={iconName}
                                         onClick={() => setForm(prev => ({ ...prev, icon: iconName }))}
                                         className={`p-2 rounded-lg border-2 transition-colors ${form.icon === iconName
-                                            ? 'border-blue-500 bg-blue-50'
-                                            : 'border-slate-200 hover:border-slate-300'
+                                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                                            : 'border-border hover:border-foreground/20'
                                             }`}
                                     >
                                         <Icon className="w-5 h-5 mx-auto text-slate-600" />
@@ -760,7 +762,7 @@ function CategoryEditModal({
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.orderLabel}</label>
+                        <label className="block text-sm font-medium text-foreground mb-1">{tr.orderLabel}</label>
                         <Input
                             type="number"
                             value={form.order}
@@ -769,7 +771,9 @@ function CategoryEditModal({
                     </div>
                 </div>
 
-                <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-200">
+
+
+                <div className="flex justify-end gap-2 px-6 py-4 border-t border-border">
                     <Button variant="outline" onClick={onCancel}>{tr.cancel}</Button>
                     <Button onClick={handleSave} className="bg-blue-500 hover:bg-blue-600 gap-2">
                         <Check className="w-4 h-4" />
@@ -777,6 +781,6 @@ function CategoryEditModal({
                     </Button>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }

@@ -173,7 +173,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
         new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(val);
 
     return (
-        <div className="min-h-screen bg-slate-50/50 p-6">
+        <div className="min-h-screen bg-[var(--background-secondary)]/50 p-6">
             <div className="max-w-7xl mx-auto space-y-6">
                 {/* Header */}
                 <div className="flex items-center justify-between">
@@ -181,7 +181,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                         <ArrowLeft className="w-4 h-4 mr-2" />
                         {tr.back}
                     </Button>
-                    <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+                    <h1 className="text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
                         {tr.title}
                     </h1>
                 </div>
@@ -389,7 +389,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                 <div className="rounded-md border">
                                     <Table>
                                         <TableHeader>
-                                            <TableRow className="bg-slate-50">
+                                            <TableRow className="bg-[var(--background-secondary)]">
                                                 <TableHead>{tr.tables.headers.taxName}</TableHead>
                                                 <TableHead className="text-right">{tr.tables.headers.uninvoiced}</TableHead>
                                                 <TableHead className="text-right">{tr.tables.headers.invoiced}</TableHead>
@@ -465,7 +465,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                 <div className="rounded-md border">
                                     <Table>
                                         <TableHeader>
-                                            <TableRow className="bg-slate-50">
+                                            <TableRow className="bg-[var(--background-secondary)]">
                                                 <TableHead>{tr.tables.headers.entName}</TableHead>
                                                 <TableHead>{tr.tables.headers.taxName}</TableHead>
                                                 <TableHead className="text-right">{tr.tables.headers.uninvoiced}</TableHead>
@@ -548,13 +548,13 @@ function MonthlyItem({
     const [isOpen, setIsOpen] = useState(false);
 
     return (
-        <div className="border rounded-md overflow-hidden bg-white">
+        <div className="border rounded-md overflow-hidden bg-[var(--card-bg)]">
             <div
-                className="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                className="flex items-center justify-between p-3 cursor-pointer hover:bg-[var(--background-secondary)] transition-colors"
                 onClick={() => setIsOpen(!isOpen)}
             >
                 <div className="flex items-center space-x-2">
-                    <span className="font-medium text-slate-800">{item.month}</span>
+                    <span className="font-medium text-[var(--text-primary)]">{item.month}</span>
                     <Badge variant="secondary" className="text-xs font-normal">
                         {tr.charts.records.replace('{count}', item.details.length.toString())}
                     </Badge>
@@ -568,7 +568,7 @@ function MonthlyItem({
                             {tr.charts.serviceFee.replace('{amount}', formatCurrency(item.service_amount))}
                         </span>
                     </div>
-                    {isOpen ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                    {isOpen ? <ChevronUp className="h-4 w-4 text-[var(--text-tertiary)]" /> : <ChevronDown className="h-4 w-4 text-[var(--text-tertiary)]" />}
                 </div>
             </div>
 
@@ -579,7 +579,7 @@ function MonthlyItem({
             </div>
 
             {isOpen && (
-                <div className="border-t bg-slate-50/50 p-3">
+                <div className="border-t bg-[var(--background-secondary)]/50 p-3">
                     <Table>
                         <TableHeader>
                             <TableRow className="hover:bg-transparent">
@@ -591,7 +591,7 @@ function MonthlyItem({
                         </TableHeader>
                         <TableBody>
                             {item.details.map((detail, idx) => (
-                                <TableRow key={idx} className="hover:bg-slate-100/50">
+                                <TableRow key={idx} className="hover:bg-[var(--background-secondary)]/80">
                                     <TableCell className="py-2 text-xs font-medium">{detail.enterprise_name}</TableCell>
                                     <TableCell className="py-2 text-xs text-muted-foreground">{detail.tax_address}</TableCell>
                                     <TableCell className="py-2 text-xs text-right font-mono">

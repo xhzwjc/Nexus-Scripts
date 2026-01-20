@@ -336,25 +336,25 @@ export default function CommissionScript({ onBack }: { onBack: () => void }) {
 
     // KPI 卡片数据（避免动态类名）
     const kpis = [
-        { label: commission.kpi.totalProfit, value: summaryMetrics?.total_profit ?? 0, cls: 'bg-blue-50 text-blue-600' },
-        { label: commission.kpi.monthCommission, value: summaryMetrics?.monthly_profit ?? 0, cls: 'bg-emerald-50 text-emerald-600' },
-        { label: commission.kpi.dailyCommission, value: summaryMetrics?.daily_profit ?? 0, cls: 'bg-purple-50 text-purple-600' },
+        { label: commission.kpi.totalProfit, value: summaryMetrics?.total_profit ?? 0, cls: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' },
+        { label: commission.kpi.monthCommission, value: summaryMetrics?.monthly_profit ?? 0, cls: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400' },
+        { label: commission.kpi.dailyCommission, value: summaryMetrics?.daily_profit ?? 0, cls: 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400' },
         {
             label: commission.kpi.profitStatus,
             value: summaryMetrics ? (summaryMetrics.is_profitable ? commission.kpi.profitable : commission.kpi.loss) : '-',
-            cls: 'bg-amber-50 text-amber-600'
+            cls: 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
         },
-        { label: commission.kpi.totalPay, value: summaryMetrics?.total_pay_amount ?? 0, cls: 'bg-indigo-50 text-indigo-600' },
-        { label: commission.kpi.dailyPay, value: summaryMetrics?.daily_pay_amount ?? 0, cls: 'bg-rose-50 text-rose-600' },
+        { label: commission.kpi.totalPay, value: summaryMetrics?.total_pay_amount ?? 0, cls: 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400' },
+        { label: commission.kpi.dailyPay, value: summaryMetrics?.daily_pay_amount ?? 0, cls: 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400' },
         {
             label: commission.kpi.totalCount,
             value: summaryMetrics ? `${summaryMetrics.total_count} ${commission.kpi.countSuffix}` : '-',
-            cls: 'bg-teal-50 text-teal-600'
+            cls: 'bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400'
         },
         {
             label: commission.kpi.matchRate,
             value: summaryMetrics ? `${summaryMetrics.match_rate}%` : '-',
-            cls: summaryMetrics && summaryMetrics.mismatch_count > 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600',
+            cls: summaryMetrics && summaryMetrics.mismatch_count > 0 ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400',
         },
     ];
 
@@ -608,7 +608,7 @@ export default function CommissionScript({ onBack }: { onBack: () => void }) {
                         {/* KPI 汇总（加载时骨架） */}
                         <Card>
                             <CardHeader>
-                                <CardTitle>渠道汇总统计</CardTitle>
+                                <CardTitle>{commission.kpi.title}</CardTitle>
                             </CardHeader>
                             <CardContent>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -689,7 +689,7 @@ export default function CommissionScript({ onBack }: { onBack: () => void }) {
 
                                 <div className="overflow-x-auto rounded-md border">
                                     <Table className="text-sm">
-                                        <TableHeader className="sticky top-0 bg-white z-10">
+                                        <TableHeader className="sticky top-0 bg-[var(--card-bg)] z-10 shadow-sm">
                                             <TableRow>
                                                 <SortableHead label={commission.table.taxName} field="tax_name" />
                                                 <SortableHead label={commission.table.actualPay} field="actual_amount" />
@@ -713,7 +713,7 @@ export default function CommissionScript({ onBack }: { onBack: () => void }) {
                                                 analysisPaginatedDetails.map((detail) => (
                                                     <TableRow
                                                         key={detail.id}
-                                                        className={!detail.is_matched ? 'bg-red-50' : undefined}
+                                                        className={!detail.is_matched ? 'bg-red-50 dark:bg-red-900/10' : undefined}
                                                     >
                                                         <TableCell className="max-w-[260px] truncate"
                                                             title={detail.tax_name}>
@@ -960,7 +960,7 @@ export default function CommissionScript({ onBack }: { onBack: () => void }) {
                                 ) : (
                                     <>
                                         <div
-                                            className="mb-6 p-4 bg-gray-50 rounded-lg grid grid-cols-2 md:grid-cols-3 gap-4">
+                                            className="mb-6 p-4 bg-gray-50 dark:bg-muted/50 rounded-lg grid grid-cols-2 md:grid-cols-3 gap-4">
                                             {Object.entries({
                                                 [commission.enterpriseAnalysis.fields.name]: currentEnterprise.enterprise_name,
                                                 [commission.enterpriseAnalysis.fields.id]: `${currentEnterprise.enterprise_id} `,

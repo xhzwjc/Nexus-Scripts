@@ -7,6 +7,7 @@ import { HeaderHealthIndicator } from '../TeamResources/HeaderHealthIndicator';
 import { useI18n } from '@/lib/i18n';
 import type { WeatherState, ViewType, User } from '@/lib/types';
 import type { HealthCheckState } from '../TeamResources/HeaderHealthIndicator';
+import { ThemeSwitcher } from '../ui/ThemeSwitcher';
 
 interface SearchResult {
     id: string;
@@ -61,10 +62,10 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
     const { t } = useI18n();
 
     return (
-        <header className="h-16 px-8 flex items-center justify-between border-b border-slate-200/50 bg-white/40 backdrop-blur-sm sticky top-0 z-30 shrink-0">
+        <header className="h-16 px-8 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--glass-bg)] backdrop-blur-sm sticky top-0 z-30 shrink-0">
             {/* Search Bar */}
             <div className="search-bar flex-1 max-w-md relative">
-                <Search className="w-[18px] h-[18px] text-slate-400" />
+                <Search className="w-[18px] h-[18px] text-[var(--text-tertiary)]" />
                 <input
                     type="text"
                     placeholder={t.header.searchPlaceholder}
@@ -76,6 +77,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                     onFocus={() => homeSearchQuery.trim() && setShowSearchResults(true)}
                     onBlur={() => setTimeout(() => setShowSearchResults(false), 200)}
                 />
+
                 {/* 搜索结果下拉 */}
                 {showSearchResults && searchResults.length > 0 && (
                     <div className="search-dropdown">
@@ -97,15 +99,15 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                                     {result.type === 'cm' ? <Settings className="w-4 h-4" /> : <Cloud className="w-4 h-4" />}
                                 </div>
                                 <div>
-                                    <p className="text-sm font-medium text-slate-700">{result.name}</p>
-                                    <p className="text-xs text-slate-500">{result.desc}</p>
+                                    <p className="text-sm font-medium text-[var(--text-primary)]">{result.name}</p>
+                                    <p className="text-xs text-[var(--text-secondary)]">{result.desc}</p>
                                 </div>
                             </div>
                         ))}
                     </div>
                 )}
                 {showSearchResults && searchResults.length === 0 && homeSearchQuery.trim() && (
-                    <div className="search-dropdown p-4 text-center text-sm text-slate-500">
+                    <div className="search-dropdown p-4 text-center text-sm text-[var(--text-secondary)]">
                         {t.header.noResults}
                     </div>
                 )}
@@ -129,17 +131,22 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                     onRefresh={onRefreshWeather}
                 />
 
-                <div className="h-6 w-px bg-slate-200 mx-1"></div>
+                <div className="h-6 w-px bg-[var(--border-strong)] mx-1"></div>
+
+                {/* Add ThemeSwitcher here */}
+                <ThemeSwitcher />
+
+                <div className="h-6 w-px bg-[var(--border-strong)] mx-1"></div>
 
                 <button
-                    className="p-2 text-slate-500 hover:text-slate-700 transition-colors"
+                    className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                     onClick={() => setCurrentView('help')}
                     title={t.header.helpTitle}
                 >
                     <CircleHelp className="w-5 h-5" />
                 </button>
                 <button
-                    className="p-2 text-slate-500 hover:text-slate-700 transition-colors"
+                    className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                     onClick={handleLock}
                     title={t.header.lockTitle}
                 >
@@ -149,12 +156,12 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                 {/* Language Switcher */}
                 <LanguageSwitcher variant="compact" />
 
-                <div className="h-8 w-px bg-slate-200"></div>
+                <div className="h-8 w-px bg-[var(--border-strong)]"></div>
 
                 <div className="user-profile">
                     <div className="text-right">
-                        <p className="text-xs text-slate-400 leading-none">{t.header.organization}</p>
-                        <p className="text-sm font-medium text-slate-700">{currentUser?.name} <span className="text-teal-600 text-xs ml-1">{t.header.online}</span></p>
+                        <p className="text-xs text-[var(--text-tertiary)] leading-none">{t.header.organization}</p>
+                        <p className="text-sm font-medium text-[var(--text-primary)]">{currentUser?.name} <span className="text-[var(--status-success)] text-xs ml-1">{t.header.online}</span></p>
                     </div>
                     <div className="user-avatar">
                         {currentUser?.name?.charAt(0) || 'U'}

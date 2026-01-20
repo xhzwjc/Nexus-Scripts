@@ -452,9 +452,9 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
     // 如果正在加载，显示进度
     if (isLoading) {
         return (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-full border border-blue-200">
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
                 <RefreshCw className="w-3.5 h-3.5 text-blue-500 animate-spin" />
-                <span className="text-xs text-blue-700">
+                <span className="text-xs text-blue-700 dark:text-blue-300">
                     {tr.checking} {state.checkedEnvs}/{state.totalEnvs}
                 </span>
             </div>
@@ -465,13 +465,13 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
     if (isError) {
         return (
             <button
-                className="flex items-center gap-2 px-3 py-1.5 bg-yellow-50 rounded-full border border-yellow-200 hover:bg-yellow-100 transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 bg-yellow-50 dark:bg-yellow-900/20 rounded-full border border-yellow-200 dark:border-yellow-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
                 onClick={runHealthCheck}
                 title={tr.retryTooltip}
             >
-                <ShieldAlert className="w-3.5 h-3.5 text-yellow-600" />
-                <span className="text-xs text-yellow-700">{tr.checkFailed}</span>
-                <RefreshCw className="w-3 h-3 text-yellow-600" />
+                <ShieldAlert className="w-3.5 h-3.5 text-yellow-600 dark:text-yellow-400" />
+                <span className="text-xs text-yellow-700 dark:text-yellow-300">{tr.checkFailed}</span>
+                <RefreshCw className="w-3 h-3 text-yellow-600 dark:text-yellow-400" />
             </button>
         );
     }
@@ -482,17 +482,17 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
             <div className="relative" ref={containerRef}>
                 <button
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors ${expiredCount > 0
-                        ? 'bg-red-50 border-red-200 hover:bg-red-100'
-                        : 'bg-yellow-50 border-yellow-200 hover:bg-yellow-100'
+                        ? 'bg-destructive/10 border-destructive/20 hover:bg-destructive/20'
+                        : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30'
                         }`}
                     onClick={() => setExpanded(!expanded)}
                 >
                     {expiredCount > 0 ? (
-                        <ShieldX className="w-3.5 h-3.5 text-red-500" />
+                        <ShieldX className="w-3.5 h-3.5 text-destructive" />
                     ) : (
-                        <ShieldAlert className="w-3.5 h-3.5 text-yellow-600" />
+                        <ShieldAlert className="w-3.5 h-3.5 text-yellow-600 dark:text-yellow-400" />
                     )}
-                    <span className={`text-xs font-medium ${expiredCount > 0 ? 'text-red-700' : 'text-yellow-700'
+                    <span className={`text-xs font-medium ${expiredCount > 0 ? 'text-destructive' : 'text-yellow-700 dark:text-yellow-300'
                         }`}>
                         {state.issues.length}{tr.issues}
                     </span>
@@ -501,11 +501,11 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
 
                 {/* 下拉详情 */}
                 {expanded && (
-                    <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-[400px] overflow-y-auto">
-                        <div className="p-3 border-b border-slate-100 flex items-center justify-between">
-                            <span className="text-sm font-medium text-slate-700">{tr.certIssues}</span>
+                    <div className="absolute right-0 top-full mt-2 w-80 bg-popover border border-border rounded-lg shadow-lg z-50 max-h-[400px] overflow-y-auto">
+                        <div className="p-3 border-b border-border flex items-center justify-between">
+                            <span className="text-sm font-medium text-popover-foreground">{tr.certIssues}</span>
                             <button
-                                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                                className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     setExpanded(false);
@@ -518,26 +518,26 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                         </div>
                         <div className="p-2 space-y-1.5">
                             {state.issues.map((issue, idx) => (
-                                <div key={idx} className="flex items-center gap-2 text-xs p-2 bg-slate-50 rounded hover:bg-slate-100">
-                                    <span className={`px-1.5 py-0.5 rounded font-medium shrink-0 ${issue.env === 'prod' ? 'bg-red-100 text-red-700' :
-                                        issue.env === 'test' ? 'bg-yellow-100 text-yellow-700' :
-                                            'bg-blue-100 text-blue-700'
+                                <div key={idx} className="flex items-center gap-2 text-xs p-2 bg-muted/50 hover:bg-muted rounded transition-colors">
+                                    <span className={`px-1.5 py-0.5 rounded font-medium shrink-0 ${issue.env === 'prod' ? 'bg-destructive/15 text-destructive' :
+                                        issue.env === 'test' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' :
+                                            'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
                                         }`}>
                                         {issue.envLabel}
                                     </span>
-                                    <span className="font-medium text-slate-700 truncate">{issue.systemName}</span>
+                                    <span className="font-medium text-foreground truncate">{issue.systemName}</span>
                                     <a
                                         href={issue.url}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="ml-auto text-blue-500 hover:text-blue-700"
+                                        className="ml-auto text-primary hover:text-primary/80 transition-colors"
                                         onClick={(e) => e.stopPropagation()}
                                     >
                                         <ExternalLink className="w-3 h-3" />
                                     </a>
-                                    <span className={`font-medium shrink-0 ${!issue.accessible ? 'text-red-600' :
-                                        issue.daysRemaining !== undefined && issue.daysRemaining <= 0 ? 'text-red-600' :
-                                            'text-yellow-600'
+                                    <span className={`font-medium shrink-0 ${!issue.accessible ? 'text-destructive' :
+                                        issue.daysRemaining !== undefined && issue.daysRemaining <= 0 ? 'text-destructive' :
+                                            'text-yellow-600 dark:text-yellow-400'
                                         }`}>
                                         {!issue.accessible ? tr.inaccessible :
                                             issue.daysRemaining !== undefined && issue.daysRemaining <= 0 ? tr.expired :

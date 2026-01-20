@@ -807,6 +807,7 @@ export const enUS: Translations = {
                 execSuccess: 'Commission calculation completed',
             },
             kpi: {
+                title: 'Channel Summary Statistics',
                 totalProfit: 'Total Profit',
                 monthCommission: 'Monthly Comm.',
                 dailyCommission: 'Daily Comm.',
@@ -1468,5 +1469,13 @@ export const enUS: Translations = {
         zh: '中文',
         en: 'English',
         switchTo: 'Switch Language',
+    },
+
+    // Theme
+    theme: {
+        light: 'Light Mode',
+        dark: 'Dark Mode',
+        system: 'System',
+        toggle: 'Toggle Theme'
     },
 };

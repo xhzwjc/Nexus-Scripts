@@ -21,20 +21,20 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     const { t } = useI18n();
 
     return (
-        <aside className="dashboard-sidebar w-[260px] h-screen flex flex-col py-6 px-4 z-40 bg-white/75 backdrop-blur-xl border-r border-white/50 shadow-sm shrink-0">
+        <aside className="dashboard-sidebar w-[260px] h-screen flex flex-col py-6 px-4 z-40 bg-[var(--glass-bg)] backdrop-blur-xl border-r border-[var(--sidebar-border)] shadow-sm shrink-0">
             {/* Logo */}
             <div className="flex items-center gap-2.5 px-3 mb-8">
                 <div className="w-8 h-8 bg-gradient-to-br from-teal-500 to-teal-600 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-lg">
                     S
                 </div>
-                <span className="font-semibold text-slate-800 text-[15px]">
-                    ScriptHub <span className="font-normal text-slate-500">Dashboard</span>
+                <span className="font-semibold text-[var(--text-primary)] text-[15px]">
+                    ScriptHub <span className="font-normal text-[var(--text-secondary)]">Dashboard</span>
                 </span>
             </div>
 
             {/* MAIN 导航区 - 工作区域 */}
             <div className="mb-6">
-                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-3 mb-3">{t.nav.workspace}</p>
+                <p className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider px-3 mb-3">{t.nav.workspace}</p>
                 <nav className="space-y-1">
                     <div
                         className={`sidebar-nav-item ${currentView === 'home' ? 'active' : ''}`}
@@ -78,7 +78,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
 
             {/* 系统支持 */}
             <div className="mb-6">
-                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-3 mb-3">{t.nav.support}</p>
+                <p className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider px-3 mb-3">{t.nav.support}</p>
                 <nav className="space-y-1">
                     <div
                         className={`sidebar-nav-item ${currentView === 'help' ? 'active' : ''}`}
@@ -96,7 +96,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
 
             {/* 账号管理 */}
             <div className="mb-6">
-                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-3 mb-3">{t.nav.account}</p>
+                <p className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider px-3 mb-3">{t.nav.account}</p>
                 <nav className="space-y-1">
                     <div className="sidebar-nav-item" onClick={() => setShowLogoutConfirm(true)}>
                         <LogOut className="w-[18px] h-[18px]" />
@@ -112,11 +112,11 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                         <div className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></div>
                         <span className="text-[13px]">{t.nav.systemRunning}</span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                    <ChevronRight className="w-4 h-4 text-[var(--text-tertiary)]" />
                 </div>
                 <div className="pl-8 mt-2">
-                    <div className="flex items-center gap-2 py-2 text-[13px] text-slate-500">
-                        <Server className="w-4 h-4 text-slate-400" />
+                    <div className="flex items-center gap-2 py-2 text-[13px] text-[var(--text-secondary)]">
+                        <Server className="w-4 h-4 text-[var(--text-tertiary)]" />
                         <span>ScriptHub v2.0-stable</span>
                     </div>
                 </div>
@@ -129,10 +129,10 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                         <div className="w-2 h-2 rounded-full bg-green-500"></div>
                         <span className="text-[13px]">{t.nav.serviceNormal}</span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                    <ChevronRight className="w-4 h-4 text-[var(--text-tertiary)]" />
                 </div>
                 <div className="pl-8 mt-2">
-                    <div className="flex items-center gap-2 py-2 text-[13px] text-slate-500">
+                    <div className="flex items-center gap-2 py-2 text-[13px] text-[var(--text-secondary)]">
                         <CheckCircle className="w-4 h-4 text-green-500" />
                         <span>{t.nav.allNodesOnline}</span>
                     </div>

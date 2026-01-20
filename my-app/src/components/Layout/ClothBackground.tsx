@@ -1,15 +1,9 @@
-import React, {useEffect, useRef} from 'react';
-
-// ================= 定义类型接口 =================
-// 放在组件外面，或者单独的文件里，这样 TypeScript 就能识别了
-// interface PointProps {
-//     x: number;
-//     y: number;
-//     fixed: boolean;
-// }
+import React, { useEffect, useRef } from 'react';
+import { useTheme } from '@/lib/theme';
 
 export const ClothBackground: React.FC = () => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const { resolvedTheme } = useTheme();
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -34,7 +28,6 @@ export const ClothBackground: React.FC = () => {
 
         // ================= 类定义 (包含完整的 TS 类型) =================
         class Point {
-            // 在这里显式声明属性类型，否则 TS 会报错
             x: number;
             y: number;
             oldX: number;
@@ -69,7 +62,6 @@ export const ClothBackground: React.FC = () => {
         }
 
         class Spring {
-            // ✅ 显式声明属性类型
             p1: Point;
             p2: Point;
             restLength: number;
@@ -91,11 +83,10 @@ export const ClothBackground: React.FC = () => {
                 if (dist === 0) return;
 
                 const force = (dist - this.restLength) * stiffness;
-                // ✅ 显式定义局部变量类型 (虽然 TS 通常能推断，但写出来更稳)
                 const fx = (dx / dist) * force;
                 const fy = (dy / dist) * force;
 
-                const mass = 1; // 假设质量为1
+                const mass = 1;
 
                 if (!this.p1.fixed) {
                     this.p1.x += fx / mass;
@@ -109,7 +100,6 @@ export const ClothBackground: React.FC = () => {
         }
 
         // ================= 数据初始化 =================
-        // ✅ 关键修复：显式告诉 TS 这两个数组里装的是什么
         let points: Point[] = [];
         let springs: Spring[] = [];
 
@@ -132,7 +122,6 @@ export const ClothBackground: React.FC = () => {
                 for (let x = 0; x <= gridSizeX; x++) {
                     const idx = y * (gridSizeX + 1) + x;
                     if (x < gridSizeX) {
-                        // 确保点存在再创建弹簧
                         if (points[idx] && points[idx + 1]) {
                             springs.push(new Spring(points[idx], points[idx + 1]));
                         }
@@ -146,7 +135,7 @@ export const ClothBackground: React.FC = () => {
                 }
             }
 
-            // 3. 扰动 (窗帘下落效果)
+            // 3. 扰动
             points.forEach(p => {
                 if (!p.fixed) {
                     p.y = -Math.random() * 100 - 50;
@@ -197,7 +186,6 @@ export const ClothBackground: React.FC = () => {
             points.forEach(p => {
                 if (p.fixed) return;
 
-                // 鼠标交互
                 const dx = mouseX - p.x;
                 const dy = mouseY - p.y;
                 const dist = Math.hypot(dx, dy);
@@ -208,7 +196,6 @@ export const ClothBackground: React.FC = () => {
                     p.y += mouseVY * influence;
                 }
 
-                // 风场效果
                 const windStrength = 0.02;
                 const yRatio = p.y / height;
                 const wave = Math.sin(time + p.originalX * 0.01 + p.y * 0.01);
@@ -230,7 +217,11 @@ export const ClothBackground: React.FC = () => {
             if (!ctx) return;
             ctx.clearRect(0, 0, width, height);
 
-            ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+            // Theme-aware stroke color
+            ctx.strokeStyle = resolvedTheme === 'dark'
+                ? 'rgba(148, 163, 184, 0.1)'
+                : 'rgba(148, 163, 184, 0.2)';
+
             ctx.lineWidth = 1;
 
             ctx.beginPath();
@@ -253,18 +244,19 @@ export const ClothBackground: React.FC = () => {
         window.addEventListener('mousemove', handleMouseMove);
         window.addEventListener('mousedown', handleMouseDown);
         window.addEventListener('mouseup', handleMouseUp);
+        window.addEventListener('resize', handleResize);
 
         init();
         loop();
 
-        const handleResize = () => {
+        function handleResize() {
+            if (!canvas) return;
             width = window.innerWidth;
             height = window.innerHeight;
             canvas.width = width;
             canvas.height = height;
             init();
         };
-        window.addEventListener('resize', handleResize);
 
         return () => {
             window.removeEventListener('mousemove', handleMouseMove);
@@ -273,13 +265,13 @@ export const ClothBackground: React.FC = () => {
             window.removeEventListener('resize', handleResize);
             cancelAnimationFrame(animationFrameId);
         };
-    }, []);
+    }, [resolvedTheme]); // Re-run effect when theme changes to update stroke color
 
     return (
         <canvas
             ref={canvasRef}
             className="fixed inset-0 w-full h-full pointer-events-auto z-0"
-            style={{background: 'linear-gradient(135deg, #f8fafb 0%, #f1f5f9 100%)'}}
+            style={{ background: 'var(--page-bg-gradient)' }}
         />
     );
 };

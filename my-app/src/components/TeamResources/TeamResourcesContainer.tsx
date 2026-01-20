@@ -167,11 +167,11 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
 
     if (isLocked) {
         return (
-            <div className="relative h-full bg-slate-100 p-6">
+            <div className="relative h-full bg-[var(--page-bg)] p-6">
                 <Button
                     variant="ghost"
                     onClick={onBack}
-                    className="absolute top-6 left-6 z-10 gap-2 text-slate-500 hover:text-slate-900"
+                    className="absolute top-6 left-6 z-10 gap-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 >
                     <ArrowLeft className="w-4 h-4" />
                     {tr.back}

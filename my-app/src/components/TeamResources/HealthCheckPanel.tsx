@@ -79,27 +79,27 @@ function getOverallStatus(envResults: EnvCheckResult[]): 'healthy' | 'warning' |
 const statusConfig = {
     healthy: {
         icon: ShieldCheck,
-        color: 'text-green-600',
-        bg: 'bg-green-50',
-        border: 'border-green-200',
+        color: 'text-green-600 dark:text-green-400',
+        bg: 'bg-green-50 dark:bg-green-900/20',
+        border: 'border-green-200 dark:border-green-800',
     },
     warning: {
         icon: ShieldAlert,
-        color: 'text-yellow-600',
-        bg: 'bg-yellow-50',
-        border: 'border-yellow-200',
+        color: 'text-yellow-600 dark:text-yellow-400',
+        bg: 'bg-yellow-50 dark:bg-yellow-900/20',
+        border: 'border-yellow-200 dark:border-yellow-800',
     },
     danger: {
         icon: ShieldX,
-        color: 'text-red-600',
-        bg: 'bg-red-50',
-        border: 'border-red-200',
+        color: 'text-red-600 dark:text-red-400',
+        bg: 'bg-red-50 dark:bg-red-900/20',
+        border: 'border-red-200 dark:border-red-800',
     },
     unknown: {
         icon: Shield,
-        color: 'text-slate-400',
-        bg: 'bg-slate-50',
-        border: 'border-slate-200',
+        color: 'text-muted-foreground',
+        bg: 'bg-muted',
+        border: 'border-border',
     },
 };
 
@@ -255,16 +255,16 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <Card className="w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col bg-white">
+            <Card className="w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col bg-[var(--card-bg)]">
                 {/* Header */}
-                <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+                <div className="p-6 border-b border-[var(--border-subtle)] flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-blue-100 rounded-lg">
-                            <Shield className="w-6 h-6 text-blue-600" />
+                        <div className="p-2 bg-primary/10 rounded-lg">
+                            <Shield className="w-6 h-6 text-primary" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-slate-800">{tr.healthCheckTitle}</h2>
-                            <p className="text-sm text-slate-500">{tr.healthCheckDesc}</p>
+                            <h2 className="text-xl font-bold text-[var(--text-primary)]">{tr.healthCheckTitle}</h2>
+                            <p className="text-sm text-[var(--text-secondary)]">{tr.healthCheckDesc}</p>
                         </div>
                     </div>
                     <Button variant="ghost" size="icon" onClick={onClose}>
@@ -273,7 +273,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                 </div>
 
                 {/* Actions */}
-                <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+                <div className="p-4 border-b border-[var(--border-subtle)] bg-[var(--bg-muted)]">
                     <div className="flex items-center justify-between">
                         <div className="text-sm text-slate-600">
                             {tr.systemsCount.replace('{count}', String(systems.length))}
@@ -282,7 +282,6 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                         <Button
                             onClick={startCheck}
                             disabled={isChecking || systems.length === 0}
-                            className="bg-blue-600 hover:bg-blue-700"
                         >
                             <RefreshCw className={`w-4 h-4 mr-2 ${isChecking ? 'animate-spin' : ''}`} />
                             {isChecking ? tr.checking : tr.startCheck}
@@ -292,13 +291,13 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                     {/* Progress */}
                     {isChecking && (
                         <div className="mt-4">
-                            <div className="flex justify-between text-xs text-slate-500 mb-1">
+                            <div className="flex justify-between text-xs text-[var(--text-secondary)] mb-1">
                                 <span>{tr.progressLabel}</span>
                                 <span>{progress.current}/{progress.total}</span>
                             </div>
-                            <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                            <div className="h-2 bg-muted rounded-full overflow-hidden">
                                 <div
-                                    className="h-full bg-blue-600 transition-all duration-300"
+                                    className="h-full bg-primary transition-all duration-300"
                                     style={{ width: `${(progress.current / progress.total) * 100}%` }}
                                 />
                             </div>
@@ -309,7 +308,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                 {/* Results */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
                     {totalChecked === 0 ? (
-                        <div className="text-center py-12 text-slate-400">
+                        <div className="text-center py-12 text-[var(--text-tertiary)]">
                             <Shield className="w-12 h-12 mx-auto mb-4 opacity-50" />
                             <p>{tr.clickToStart}</p>
                         </div>
@@ -384,8 +383,8 @@ function ResultItem({ result }: { result: SystemHealthResult }) {
                 <div className="flex items-start gap-3">
                     <StatusIcon className={`w-5 h-5 mt-0.5 ${config.color}`} />
                     <div>
-                        <div className="font-medium text-slate-800">{result.systemName}</div>
-                        <div className="text-xs text-slate-500 mb-2">{result.groupName}</div>
+                        <div className="font-medium text-[var(--text-primary)]">{result.systemName}</div>
+                        <div className="text-xs text-[var(--text-secondary)] mb-2">{result.groupName}</div>
 
                         {/* 显示所有环境URL */}
                         <div className="space-y-1">
@@ -408,7 +407,7 @@ function EnvResultRow({ envResult }: { envResult: EnvCheckResult }) {
         healthy: 'text-green-600',
         warning: 'text-yellow-600',
         danger: 'text-red-600',
-        unknown: 'text-slate-400',
+        unknown: 'text-[var(--text-tertiary)]',
     };
 
     const formatDays = (days?: number) => {
@@ -420,9 +419,9 @@ function EnvResultRow({ envResult }: { envResult: EnvCheckResult }) {
 
     return (
         <div className="flex items-center gap-2 text-xs">
-            <span className={`font-medium px-1.5 py-0.5 rounded ${envResult.env === 'prod' ? 'bg-red-100 text-red-700' :
-                envResult.env === 'test' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-blue-100 text-blue-700'
+            <span className={`font-medium px-1.5 py-0.5 rounded ${envResult.env === 'prod' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                envResult.env === 'test' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                    'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                 }`}>
                 {envResult.envLabel}
             </span>
@@ -430,7 +429,7 @@ function EnvResultRow({ envResult }: { envResult: EnvCheckResult }) {
                 href={envResult.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-1"
+                className="text-primary hover:underline flex items-center gap-1"
             >
                 <ExternalLink className="w-3 h-3" />
                 {envResult.url.length > 45 ? envResult.url.slice(0, 45) + '...' : envResult.url}

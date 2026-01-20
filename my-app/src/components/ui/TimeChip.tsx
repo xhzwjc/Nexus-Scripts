@@ -40,8 +40,8 @@ export const TimeChip: React.FC<TimeChipProps> = ({ name, now }) => {
             <span className="whitespace-nowrap tabular-nums font-mono">
                 {parts.hour.toString().padStart(2, '0')}:{parts.minute}:{parts.second}
             </span>
-            <span className="text-muted-foreground hidden sm:inline">{parts.weekday}</span>
-            <span className="text-muted-foreground hidden lg:inline">| {greeting}{name ? `, ${name}` : ''}</span>
+            <span className="text-gray-500 dark:text-gray-100 hidden sm:inline">{parts.weekday}</span>
+            <span className="text-gray-500 dark:text-gray-100 hidden lg:inline">| {greeting}{name ? `, ${name}` : ''}</span>
         </StatusChip>
     );
 };

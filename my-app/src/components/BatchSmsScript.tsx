@@ -704,7 +704,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                     <TableCell>
                                                         <Badge
                                                             variant={isAllowed(t.code) ? 'secondary' : 'outline'}
-                                                            className={isAllowed(t.code) ? 'bg-green-100 text-green-800 hover:bg-green-200' : ''}
+                                                            className={isAllowed(t.code) ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/40' : ''}
                                                         >
                                                             {isAllowed(t.code) ? bs.template.table.allowed : bs.template.table.restricted}
                                                         </Badge>
@@ -925,7 +925,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                                 <TableCell>
                                                                     {result.result.code === 0 ? (
                                                                         <Badge variant="secondary"
-                                                                            className="bg-green-100 text-green-800">
+                                                                            className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
                                                                             {t.scripts.taskAutomation.table.success}
                                                                         </Badge>
                                                                     ) : (
@@ -946,7 +946,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                                 <TableRow>
                                                                     <TableCell colSpan={3}>
                                                                         <div
-                                                                            className="p-3 bg-gray-50 rounded-md text-sm animate-in fade-in-50 duration-200">
+                                                                            className="p-3 bg-muted/50 rounded-md text-sm animate-in fade-in-50 duration-200">
                                                                             <pre className="whitespace-pre-wrap">
                                                                                 {JSON.stringify(result.result, null, 2)}
                                                                             </pre>
@@ -1037,7 +1037,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                 return (
                                                     <div
                                                         key={t.code}
-                                                        className={`p-3 border rounded-md cursor-pointer transition-all duration-200 ${checked ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
+                                                        className={`p-3 border rounded-md cursor-pointer transition-all duration-200 ${checked ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-sm' : 'border-gray-200 dark:border-border hover:border-blue-300 hover:bg-blue-50/50 dark:hover:bg-blue-900/10'
                                                             }`}
                                                         onClick={() => toggleTemplateSelection(t.code)}
                                                     >
@@ -1166,7 +1166,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                                 <TableCell>
                                                                     {result.result.code === 0 ? (
                                                                         <Badge variant="secondary"
-                                                                            className="bg-green-100 text-green-800">
+                                                                            className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
                                                                             {t.scripts.taskAutomation.table.success}
                                                                         </Badge>
                                                                     ) : (
@@ -1187,7 +1187,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                                 <TableRow>
                                                                     <TableCell colSpan={4}>
                                                                         <div
-                                                                            className="p-3 bg-gray-50 rounded-md text-sm animate-in fade-in-50 duration-200">
+                                                                            className="p-3 bg-muted/50 rounded-md text-sm animate-in fade-in-50 duration-200">
                                                                             <pre className="whitespace-pre-wrap">
                                                                                 {JSON.stringify(result.result, null, 2)}
                                                                             </pre>
@@ -1326,13 +1326,13 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                 <CardContent>
                                     <div
                                         className={`p-4 rounded-md ${resendResult.success
-                                            ? 'bg-green-50 border border-green-200'
-                                            : 'bg-red-50 border border-red-200'
+                                            ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+                                            : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
                                             }`}
                                     >
                                         <div>
                                             <p
-                                                className={`font-medium ${resendResult.success ? 'text-green-800' : 'text-red-800'
+                                                className={`font-medium ${resendResult.success ? 'text-green-800 dark:text-green-300' : 'text-red-800 dark:text-red-300'
                                                     }`}
                                             >
                                                 {resendResult.success ? bs.messages.resendSuccess : bs.messages.resendFail}
@@ -1341,7 +1341,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                             {Array.isArray(resendResult.data) && resendResult.data.length > 0 && (
                                                 <div className="mt-3">
                                                     <p className="text-xs text-muted-foreground mb-1">{bs.resend.details}</p>
-                                                    <pre className="text-sm bg-gray-50 p-2 rounded whitespace-pre-wrap">
+                                                    <pre className="text-sm bg-muted text-foreground p-2 rounded whitespace-pre-wrap">
                                                         {JSON.stringify(resendResult.data, null, 2)}
                                                     </pre>
                                                 </div>

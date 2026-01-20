@@ -49,24 +49,24 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
     };
 
     return (
-        <div className="flex h-full bg-slate-50">
+        <div className="flex h-full bg-[var(--page-bg)]">
             {/* 侧边栏 - 集团列表 */}
-            <div className="w-64 bg-white border-r border-slate-200 flex flex-col pt-4 pb-4">
+            <div className="w-64 bg-[var(--glass-bg)] border-r border-[var(--border-subtle)] flex flex-col pt-4 pb-4">
                 <div className="px-4 mb-6 flex items-center justify-between">
-                    <Button variant="ghost" size="icon" onClick={onBack} className="-ml-2 text-slate-500">
+                    <Button variant="ghost" size="icon" onClick={onBack} className="-ml-2 text-[var(--text-secondary)]">
                         <ArrowLeft className="w-5 h-5" />
                     </Button>
-                    <span className="font-bold text-slate-800">{tr.viewerTitle}</span>
+                    <span className="font-bold text-[var(--text-primary)]">{tr.viewerTitle}</span>
                     <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => setShowHealthCheck(true)} className="text-slate-400 hover:text-green-500" title={tr.healthCheck}>
+                        <Button variant="ghost" size="icon" onClick={() => setShowHealthCheck(true)} className="text-muted-foreground hover:text-green-600 dark:hover:text-green-400" title={tr.healthCheck}>
                             <Shield className="w-4 h-4" />
                         </Button>
                         {isAdmin && (
-                            <Button variant="ghost" size="icon" onClick={onManage} className="text-slate-400 hover:text-blue-500" title={tr.manageResources}>
+                            <Button variant="ghost" size="icon" onClick={onManage} className="text-muted-foreground hover:text-primary transition-colors" title={tr.manageResources}>
                                 <Settings className="w-4 h-4" />
                             </Button>
                         )}
-                        <Button variant="ghost" size="icon" onClick={onLock} className="text-slate-400 hover:text-red-500" title={tr.lock}>
+                        <Button variant="ghost" size="icon" onClick={onLock} className="text-muted-foreground hover:text-destructive transition-colors" title={tr.lock}>
                             <Lock className="w-4 h-4" />
                         </Button>
                     </div>
@@ -74,10 +74,10 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
 
                 <div className="px-4 mb-4">
                     <div className="relative">
-                        <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                        <Search className="w-4 h-4 absolute left-3 top-2.5 text-[var(--text-tertiary)]" />
                         <Input
                             placeholder={tr.searchPlaceholder}
-                            className="pl-9 h-9 bg-slate-50 border-slate-200"
+                            className="pl-9 h-9 bg-[var(--input-bg)] border-[var(--border-subtle)] text-[var(--text-primary)]"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -92,28 +92,32 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                             className={`
                                 w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
                                 ${activeGroup === group.id
-                                    ? 'bg-blue-50 text-blue-700'
-                                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                                    ? 'bg-primary/10 text-primary'
+                                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                                 }
                             `}
                         >
                             {group.logo ? (
-                                <div className="w-8 h-8 rounded-lg overflow-hidden bg-white border border-slate-200 flex-shrink-0">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img
-                                        src={group.logo}
-                                        alt={group.name}
-                                        className="w-full h-full object-contain"
-                                    />
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 p-0.5 flex-shrink-0 group-hover:from-blue-500/40 group-hover:to-purple-500/40 transition-all duration-300">
+                                    <div className="w-full h-full rounded-[10px] bg-white overflow-hidden flex items-center justify-center">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                            src={group.logo}
+                                            alt={group.name}
+                                            className="w-full h-full object-contain"
+                                        />
+                                    </div>
                                 </div>
                             ) : (
-                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${groupColors[group.id] || 'text-slate-600 bg-slate-100'}`}>
-                                    <Building2 className="w-4 h-4" />
+                                <div className={`w-10 h-10 rounded-xl bg-gradient-to-br p-0.5 flex-shrink-0 ${groupColors[group.id]?.replace('text-', 'from-').replace('bg-', 'to-') || 'from-slate-200 to-slate-100 dark:from-slate-800 dark:to-slate-900'} group-hover:shadow-sm transition-all duration-300`}>
+                                    <div className="w-full h-full rounded-[10px] bg-card flex items-center justify-center text-muted-foreground">
+                                        <Building2 className="w-5 h-5" />
+                                    </div>
                                 </div>
                             )}
                             <div className="flex-1 text-left">
                                 <div>{group.name}</div>
-                                <div className="text-xs text-slate-400 font-normal">{group.systems.length} {tr.systems}</div>
+                                <div className="text-xs text-muted-foreground font-normal">{group.systems.length} {tr.systems}</div>
                             </div>
                         </button>
                     ))}
@@ -124,15 +128,15 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
             <div className="flex-1 overflow-y-auto p-8">
                 <div className="max-w-6xl mx-auto">
                     {searchQuery && (
-                        <h2 className="text-lg font-semibold text-slate-800 mb-6">
+                        <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-6">
                             &ldquo;{searchQuery}&rdquo;{tr.searchResults}
                         </h2>
                     )}
 
                     {!searchQuery && currentGroup && (
                         <div className="mb-8">
-                            <h1 className="text-2xl font-bold text-slate-900 mb-2">{currentGroup.name}</h1>
-                            <p className="text-slate-500">{tr.manageDescription.replace('{name}', currentGroup.name)}</p>
+                            <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">{currentGroup.name}</h1>
+                            <p className="text-[var(--text-secondary)]">{tr.manageDescription.replace('{name}', currentGroup.name)}</p>
                         </div>
                     )}
 
@@ -142,14 +146,14 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                         ))}
 
                         {filteredGroups.length === 0 && (
-                            <div className="col-span-full text-center py-20 text-slate-400">
+                            <div className="col-span-full text-center py-20 text-muted-foreground">
                                 {tr.noSystems}
                             </div>
                         )}
 
                         {!searchQuery && currentGroup?.systems.length === 0 && (
-                            <div className="col-span-full text-center py-20 text-slate-400">
-                                <FolderOpen className="w-12 h-12 mx-auto mb-4 text-slate-300" />
+                            <div className="col-span-full text-center py-20 text-muted-foreground">
+                                <FolderOpen className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
                                 <p>{tr.noSystemsInGroup}</p>
                                 {isAdmin && (
                                     <Button variant="outline" className="mt-4" onClick={onManage}>
@@ -163,12 +167,14 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
             </div>
 
             {/* Health Check Panel */}
-            {showHealthCheck && (
-                <HealthCheckPanel
-                    groups={data}
-                    onClose={() => setShowHealthCheck(false)}
-                />
-            )}
-        </div>
+            {
+                showHealthCheck && (
+                    <HealthCheckPanel
+                        groups={data}
+                        onClose={() => setShowHealthCheck(false)}
+                    />
+                )
+            }
+        </div >
     );
 }

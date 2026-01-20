@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
@@ -105,10 +105,16 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     const [showValidation, setShowValidation] = useState(false);
     const [previewImage, setPreviewImage] = useState<string | null>(null);
 
+    // Keep track of drafts for cleanup
+    const draftsRef = useRef<Record<string, FormDraft>>({});
+    useEffect(() => {
+        draftsRef.current = drafts;
+    }, [drafts]);
+
     // Cleanup preview URLs on unmount
     useEffect(() => {
         return () => {
-            Object.values(drafts).forEach(draft => {
+            Object.values(draftsRef.current).forEach(draft => {
                 draft.attachments.forEach(a => {
                     if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
                 });
@@ -603,47 +609,47 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     const renderLogin = () => (
         <div className="max-w-md mx-auto mt-20 animate-in fade-in zoom-in-95 duration-500">
             <Card
-                className="border-0 shadow-2xl bg-white/60 backdrop-blur-3xl ring-1 ring-white/40 rounded-[40px] overflow-hidden">
+                className="border-0 shadow-2xl bg-[var(--glass-bg)] backdrop-blur-3xl ring-1 ring-[var(--border-subtle)]/40 rounded-[40px] overflow-hidden">
                 <CardHeader className="text-center pb-2 pt-8">
                     <div
-                        className="mx-auto w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-4 shadow-[0_8px_24px_rgba(59,130,246,0.15)]">
-                        <User className="h-8 w-8 text-blue-600" />
+                        className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-4 shadow-[0_8px_24px_rgba(var(--primary-rgb),0.15)]">
+                        <User className="h-8 w-8 text-primary" />
                     </div>
-                    <CardTitle className="text-2xl font-bold text-slate-800 tracking-tight">{dt.login.title}</CardTitle>
-                    <CardDescription className="text-slate-500 font-medium">{dt.login.desc}</CardDescription>
+                    <CardTitle className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">{dt.login.title}</CardTitle>
+                    <CardDescription className="text-[var(--text-secondary)] font-medium">{dt.login.desc}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6 px-8 pb-10">
                     <div className="space-y-2">
-                        <Label className="text-slate-600 font-semibold text-xs ml-1">{dt.login.envLabel}</Label>
+                        <Label className="text-[var(--text-secondary)] font-semibold text-xs ml-1">{dt.login.envLabel}</Label>
                         <Select value={environment} onValueChange={setEnvironment}>
                             <SelectTrigger
-                                className="rounded-2xl border-white/40 bg-white/50 h-10 ring-0 focus:ring-2 focus:ring-blue-500/10 shadow-sm transition-all hover:bg-white/80">
+                                className="rounded-2xl border-[var(--border-subtle)]/40 bg-[var(--card-bg)]/50 h-10 ring-0 focus:ring-2 focus:ring-primary/10 shadow-sm transition-all hover:bg-[var(--card-bg)]/80">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent
-                                className="rounded-xl border-white/20 bg-white/80 backdrop-blur-xl shadow-xl">
+                                className="rounded-xl border-[var(--border-subtle)]/20 bg-[var(--card-bg)]/80 backdrop-blur-xl shadow-xl">
                                 <SelectItem value="test"
-                                    className="rounded-lg my-1 mx-1 focus:bg-blue-50 focus:text-blue-600 cursor-pointer">Test Env</SelectItem>
+                                    className="rounded-lg my-1 mx-1 focus:bg-primary/5 focus:text-primary cursor-pointer">Test Env</SelectItem>
                                 <SelectItem value="prod"
-                                    className="rounded-lg my-1 mx-1 focus:bg-blue-50 focus:text-blue-600 cursor-pointer">Prod Env</SelectItem>
+                                    className="rounded-lg my-1 mx-1 focus:bg-primary/5 focus:text-primary cursor-pointer">Prod Env</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
 
                     <div className="space-y-2">
-                        <Label className="text-slate-600 font-semibold text-xs ml-1">{dt.login.mobileLabel}</Label>
+                        <Label className="text-[var(--text-secondary)] font-semibold text-xs ml-1">{dt.login.mobileLabel}</Label>
                         <Textarea
                             placeholder={dt.login.mobilePlaceholder}
                             rows={8}
-                            className="rounded-2xl border-white/40 bg-white/50 font-mono text-sm resize-none ring-0 focus:ring-2 focus:ring-blue-500/10 shadow-inner p-4 transition-all focus:bg-white/80"
+                            className="rounded-2xl border-[var(--border-subtle)]/40 bg-[var(--card-bg)]/50 font-mono text-sm resize-none ring-0 focus:ring-2 focus:ring-primary/10 shadow-inner p-4 transition-all focus:bg-[var(--card-bg)]/80"
                             value={mobileInput}
                             onChange={e => setMobileInput(e.target.value)}
                         />
-                        <p className="text-[10px] text-slate-400 text-right pr-2">{dt.login.mobileHint}</p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] text-right pr-2">{dt.login.mobileHint}</p>
                     </div>
 
                     <Button
-                        className="w-full h-12 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white shadow-[0_8px_20px_rgba(37,99,235,0.25)] hover:shadow-[0_12px_28px_rgba(37,99,235,0.35)] active:scale-[0.97] transition-all duration-300 font-medium text-base"
+                        className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_8px_20px_rgba(var(--primary-rgb),0.25)] hover:shadow-[0_12px_28px_rgba(var(--primary-rgb),0.35)] active:scale-[0.97] transition-all duration-300 font-medium text-base"
                         onClick={handleLogin}
                         disabled={isLoggingIn}
                     >
@@ -661,9 +667,9 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         <div className="flex flex-col lg:grid lg:grid-cols-4 gap-6 lg:h-[calc(100vh-140px)] p-2">
             {/* Sidebar: Users Tree */}
             <Card
-                className="lg:col-span-1 flex flex-col min-h-[400px] h-auto lg:h-full border-0 bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.06)]">
-                <CardHeader className="py-5 px-5 border-b border-slate-200/50 bg-white/40 backdrop-blur-md">
-                    <CardTitle className="text-sm font-semibold text-slate-800 tracking-tight">{dt.process.teamTitle}
+                className="lg:col-span-1 flex flex-col min-h-[400px] h-auto lg:h-full border-0 bg-[var(--glass-bg)] backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-[var(--border-subtle)]/20 rounded-[32px] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.06)]">
+                <CardHeader className="py-5 px-5 border-b border-[var(--border-subtle)]/50 bg-[var(--card-bg)]/40 backdrop-blur-md">
+                    <CardTitle className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">{dt.process.teamTitle}
                         ({users.length})</CardTitle>
                 </CardHeader>
                 <div className="flex-1 overflow-y-auto min-h-0">
@@ -675,8 +681,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                     {/* User Header */}
                                     <div
                                         className={`group flex items-center p-3 mx-2 mt-2 rounded-2xl cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] border border-transparent ${isExpanded
-                                            ? 'bg-white/80 shadow-[0_8px_16px_rgba(0,0,0,0.06)] backdrop-blur-md border-white/40'
-                                            : 'hover:bg-white/50 hover:shadow-sm text-slate-600'
+                                            ? 'bg-[var(--card-bg)]/80 shadow-[0_8px_16px_rgba(0,0,0,0.06)] backdrop-blur-md border-[var(--border-subtle)]/40'
+                                            : 'hover:bg-[var(--card-bg)]/50 hover:shadow-sm text-[var(--text-secondary)]'
                                             }`}
                                         onClick={() => toggleUserExpand(user.mobile)}
                                     >
@@ -688,20 +694,20 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         </Avatar>
                                         <div className="flex-1 min-w-0">
                                             <div
-                                                className="font-medium text-sm truncate text-slate-800 tracking-tight">{user.realname}</div>
+                                                className="font-medium text-sm truncate text-[var(--text-primary)] tracking-tight">{user.realname}</div>
                                             <div
-                                                className="text-[11px] text-slate-500 truncate font-medium">{user.mobile}</div>
+                                                className="text-[11px] text-[var(--text-tertiary)] truncate font-medium">{user.mobile}</div>
                                         </div>
                                         <Badge variant="secondary"
-                                            className="ml-1 text-[10px] h-5 bg-slate-100/50 text-slate-600 backdrop-blur-sm border-0">{user.tasks.length}</Badge>
-                                        {isExpanded ? <ChevronDown className="h-4 w-4 text-slate-400 ml-1" /> :
-                                            <ChevronRight className="h-4 w-4 text-slate-400 ml-1" />}
+                                            className="ml-1 text-[10px] h-5 bg-[var(--background-secondary)]/50 text-[var(--text-secondary)] backdrop-blur-sm border-0">{user.tasks.length}</Badge>
+                                        {isExpanded ? <ChevronDown className="h-4 w-4 text-[var(--text-tertiary)] ml-1" /> :
+                                            <ChevronRight className="h-4 w-4 text-[var(--text-tertiary)] ml-1" />}
                                     </div>
 
                                     {/* Task List (Accordion) */}
                                     <div
                                         className={`overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${isExpanded ? 'max-h-[500px] opacity-100 py-1' : 'max-h-0 opacity-0 py-0'}`}>
-                                        <div className="ml-3 pl-3 border-l-2 border-slate-200/50 space-y-1">
+                                        <div className="ml-3 pl-3 border-l-2 border-[var(--border-subtle)]/50 space-y-1">
                                             {user.tasks.length === 0 ? (
                                                 <div
                                                     className="py-2 text-xs text-muted-foreground pl-2 italic">{dt.process.noTasks}</div>
@@ -711,8 +717,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                                         key={`${task.taskId}-${task.taskAssignId}-${idx}`}
                                                         style={{ animationDelay: `${idx * 30}ms` }}
                                                         className={`group relative p-3 rounded-2xl text-xs cursor-pointer border transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98] ${activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile
-                                                            ? 'bg-blue-500/10 border-blue-200/50 text-blue-700 shadow-[0_4px_12px_rgba(59,130,246,0.15)] backdrop-blur-md'
-                                                            : 'border-transparent text-slate-600 hover:bg-white/60 hover:text-slate-900 hover:shadow-sm'
+                                                            ? 'bg-primary/10 border-primary/20 text-primary shadow-[0_4px_12px_rgba(var(--primary-rgb),0.15)] backdrop-blur-md'
+                                                            : 'border-transparent text-[var(--text-secondary)] hover:bg-[var(--card-bg)]/60 hover:text-[var(--text-primary)] hover:shadow-sm'
                                                             }`}
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -723,7 +729,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                                         {/* Active Indicator (Glowing Dot) */}
                                                         {activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile && (
                                                             <div
-                                                                className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1 h-3 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.6)]" />
+                                                                className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1 h-3 bg-primary rounded-full shadow-[0_0_8px_rgba(var(--primary-rgb),0.6)]" />
                                                         )}
                                                         <div
                                                             className={`font-semibold line-clamp-1 break-all pr-1 text-[13px] ${activeTaskAssignId === task.taskAssignId && activeUserMobile === user.mobile ? 'pl-2' : ''} transition-[padding] duration-300`}>{task.taskName}</div>
@@ -741,16 +747,16 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                         })}
                     </div>
                 </div>
-                <div className="p-4 border-t border-white/20 bg-white/40 backdrop-blur-md">
+                <div className="p-4 border-t border-[var(--border-subtle)]/20 bg-[var(--card-bg)]/40 backdrop-blur-md">
                     <Button
                         variant="outline"
                         size="sm"
-                        className="w-full text-xs h-9 rounded-xl border-white/40 bg-white/50 hover:bg-white/80 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-95 shadow-sm hover:shadow-md text-slate-700"
+                        className="w-full text-xs h-9 rounded-xl border-[var(--border-subtle)]/40 bg-[var(--card-bg)]/50 hover:bg-[var(--card-bg)]/80 transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-95 shadow-sm hover:shadow-md text-[var(--text-primary)]"
                         onClick={handleRefreshTasks}
                         disabled={isLoggingIn}
                     >
-                        {isLoggingIn ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin text-blue-500" /> :
-                            <RefreshCw className="mr-2 h-3.5 w-3.5 text-blue-500" />}
+                        {isLoggingIn ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin text-primary" /> :
+                            <RefreshCw className="mr-2 h-3.5 w-3.5 text-primary" />}
                         {dt.process.refreshBtn}
                     </Button>
                 </div>
@@ -758,21 +764,21 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
             {/* Main: Form Area */}
             <Card
-                className="lg:col-span-3 min-h-[600px] h-auto lg:h-full lg:overflow-hidden flex flex-col bg-white/60 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-white/20 rounded-[32px] border-0 transition-all duration-500 hover:shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
+                className="lg:col-span-3 min-h-[600px] h-auto lg:h-full lg:overflow-hidden flex flex-col bg-[var(--glass-bg)] backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-[var(--border-subtle)]/20 rounded-[32px] border-0 transition-all duration-500 hover:shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
                 <CardHeader
-                    className="py-5 px-6 border-b border-slate-200/50 bg-white/40 backdrop-blur-md sticky top-0 z-10">
+                    className="py-5 px-6 border-b border-[var(--border-subtle)]/50 bg-[var(--card-bg)]/40 backdrop-blur-md sticky top-0 z-10">
                     <div className="flex items-center justify-between overflow-hidden">
                         <div className="flex-1 min-w-0 pr-6">
                             <div className="flex items-center space-x-2">
                                 <CardTitle
-                                    className="text-xl font-bold tracking-tight text-slate-800 truncate leading-relaxed"
+                                    className="text-xl font-bold tracking-tight text-[var(--text-primary)] truncate leading-relaxed"
                                     title={activeTask ? (currentDraft?.reportName || activeTask.taskName) : ''}>
                                     {activeTask ? (currentDraft?.reportName || activeTask.taskName) : dt.process.selectTask}
                                 </CardTitle>
                                 {activeTask && <Badge variant="outline"
-                                    className="text-[10px] px-1.5 h-5 border-blue-200 text-blue-600 bg-blue-50/50 rounded-md shrink-0">{dt.process.statusRunning}</Badge>}
+                                    className="text-[10px] px-1.5 h-5 border-primary/30 text-primary bg-primary/5 rounded-md shrink-0">{dt.process.statusRunning}</Badge>}
                             </div>
-                            <CardDescription className="truncate font-medium text-slate-500 mt-1"
+                            <CardDescription className="truncate font-medium text-muted-foreground mt-1"
                                 title={activeTask ? `${activeUser?.realname} - ${activeTask.taskDesc}` : ''}>
                                 {activeTask ? (
                                     <span className="flex items-center">
@@ -865,7 +871,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                     <div className="flex flex-wrap gap-4">
                                         {currentDraft.attachments.filter(a => a.isPic === 1).map((item, idx) => (
                                             <div key={idx}
-                                                className="relative w-24 h-24 border rounded-lg flex items-center justify-center bg-slate-50 group overflow-hidden shadow-sm">
+                                                className="relative w-24 h-24 border border-border rounded-lg flex items-center justify-center bg-muted/50 group overflow-hidden shadow-sm">
                                                 {item.uploading ? (
                                                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                                                 ) : item.error ? (
@@ -881,13 +887,13 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                                         onClick={() => item.previewUrl && setPreviewImage(item.previewUrl)}
                                                     />
                                                 ) : (
-                                                    <ImageIcon className="h-8 w-8 text-slate-300" />
+                                                    <ImageIcon className="h-8 w-8 text-muted-foreground/30" />
                                                 )}
                                                 <button
-                                                    className="absolute -top-2 -right-2 bg-white rounded-full p-1 shadow border opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-slate-100"
+                                                    className="absolute -top-2 -right-2 bg-background rounded-full p-1 shadow border border-border opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-muted"
                                                     onClick={() => removeAttachment(currentDraft.attachments.indexOf(item))}
                                                 >
-                                                    <X className="h-3 w-3 text-slate-500" />
+                                                    <X className="h-3 w-3 text-muted-foreground" />
                                                 </button>
                                                 {!item.previewUrl && !item.uploading && !item.error && <span
                                                     className="absolute bottom-0 text-[8px] w-full text-center truncate px-1 bg-white/80">{item.fileName}</span>}
@@ -895,9 +901,9 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         ))}
                                         {currentDraft.attachments.filter(a => a.isPic === 1).length < 9 && (
                                             <Label htmlFor="upload-pic"
-                                                className="w-24 h-24 border border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors border-slate-300">
-                                                <Upload className="h-6 w-6 text-slate-400 mb-1" />
-                                                <span className="text-xs text-slate-500">{dt.process.form.uploadImg}</span>
+                                                className="w-24 h-24 border border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-muted/50 transition-colors border-border">
+                                                <Upload className="h-6 w-6 text-muted-foreground/50 mb-1" />
+                                                <span className="text-xs text-muted-foreground">{dt.process.form.uploadImg}</span>
                                                 <input id="upload-pic" type="file" accept="image/*" multiple
                                                     className="hidden" onChange={e => handleFileUpload(e, true)} />
                                             </Label>
@@ -915,10 +921,10 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                     <div className="space-y-2">
                                         {currentDraft.attachments.filter(a => a.isPic === 0).map((item, idx) => (
                                             <div key={idx}
-                                                className="flex items-center justify-between p-3 border rounded-lg bg-slate-50/50 hover:bg-slate-50 transition-colors group">
+                                                className="flex items-center justify-between p-3 border border-border rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors group">
                                                 <div className="flex items-center space-x-3 overflow-hidden">
                                                     <div
-                                                        className="w-8 h-8 rounded bg-blue-50 flex items-center justify-center flex-shrink-0 text-blue-500">
+                                                        className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center flex-shrink-0 text-primary">
                                                         <FileIcon className="h-4 w-4" />
                                                     </div>
                                                     <div className="flex flex-col min-w-0">
@@ -934,7 +940,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                                     {item.error &&
                                                         <span className="text-red-500 text-xs mr-2">{item.error}</span>}
                                                     <Button variant="ghost" size="icon"
-                                                        className="h-8 w-8 text-slate-400 hover:text-red-500"
+                                                        className="h-8 w-8 text-muted-foreground/50 hover:text-red-500"
                                                         onClick={() => removeAttachment(currentDraft.attachments.indexOf(item))}>
                                                         <X className="h-4 w-4" />
                                                     </Button>
@@ -944,8 +950,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         {currentDraft.attachments.filter(a => a.isPic === 0).length < 6 && (
                                             <Label htmlFor="upload-file" className="block w-full">
                                                 <div
-                                                    className="w-full h-12 border border-dashed rounded-lg flex items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors border-slate-300">
-                                                    <span className="text-sm text-slate-500 flex items-center"><Upload
+                                                    className="w-full h-12 border border-dashed rounded-lg flex items-center justify-center cursor-pointer hover:bg-muted/50 transition-colors border-border">
+                                                    <span className="text-sm text-muted-foreground flex items-center"><Upload
                                                         className="h-4 w-4 mr-2" /> {dt.process.form.uploadFile}</span>
                                                 </div>
                                                 <input id="upload-file" type="file" accept="*" multiple
@@ -959,8 +965,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                     </div>
                 ) : (
                     <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground space-y-4">
-                        <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center">
-                            <User className="h-8 w-8 text-slate-300" />
+                        <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                            <User className="h-8 w-8 text-muted-foreground/30" />
                         </div>
                         <p>{dt.process.noSelectTask}</p>
                     </div>
@@ -968,7 +974,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
                 {/* Footer Action */}
                 {activeTaskAssignId && (
-                    <div className="p-4 border-t bg-slate-50/50 flex justify-end">
+                    <div className="p-4 border-t border-border/50 bg-muted/20 flex justify-end">
                         <Button className="w-40" onClick={handleSubmit} disabled={isSubmitting}>
                             {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> :
                                 <CheckCircle className="mr-2 h-4 w-4" />}

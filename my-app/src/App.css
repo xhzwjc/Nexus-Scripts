@@ -1,19 +1,18 @@
 /* ============================================
    ScriptHub Dashboard - iOS 26 Glassmorphism Style
    企业级管理系统首页 - 高级、克制、企业感
+   Theme-aware version with CSS variables
    ============================================ */
 
-/* 基础背景 - 浅色偏白/极浅灰 */
+/* 基础背景 - 使用 CSS 变量 */
 .colorful-background {
     min-height: 100vh;
-    /* 原本的 gradient 被移除，交由 Canvas 组件处理，或者设为 transparent */
-    background: transparent;
+    background: var(--page-bg);
     position: relative;
-    /* 确保内容在 canvas 之上 */
     z-index: 1;
 }
 
-/* 如果你觉得网格太单调，可以保留下面这两个光斑，但要降低 opacity */
+/* 光斑效果 - 根据主题调整 */
 .colorful-background::before {
     content: '';
     position: fixed;
@@ -21,11 +20,13 @@
     right: -10%;
     width: 600px;
     height: 600px;
-    /* 降低透明度 0.06 -> 0.03 */
     background: radial-gradient(circle, rgba(20, 184, 166, 0.03) 0%, transparent 70%);
     pointer-events: none;
     z-index: -1;
-    /* 确保在内容之下 */
+}
+
+.dark .colorful-background::before {
+    background: radial-gradient(circle, rgba(45, 212, 191, 0.05) 0%, transparent 70%);
 }
 
 .colorful-background::after {
@@ -35,21 +36,24 @@
     left: -5%;
     width: 500px;
     height: 500px;
-    /* 降低透明度 0.04 -> 0.02 */
     background: radial-gradient(circle, rgba(59, 130, 246, 0.02) 0%, transparent 70%);
     pointer-events: none;
     z-index: -1;
+}
+
+.dark .colorful-background::after {
+    background: radial-gradient(circle, rgba(96, 165, 250, 0.04) 0%, transparent 70%);
 }
 
 /* ============================================
    侧边栏 - 玻璃拟态
    ============================================ */
 .dashboard-sidebar {
-    background: rgba(255, 255, 255, 0.75);
+    background: var(--glass-bg);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border-right: 1px solid rgba(255, 255, 255, 0.5);
-    box-shadow: 4px 0 32px rgba(0, 0, 0, 0.03);
+    border-right: 1px solid var(--glass-border);
+    box-shadow: 4px 0 32px var(--glass-shadow);
 }
 
 .sidebar-nav-item {
@@ -60,21 +64,25 @@
     border-radius: 14px;
     font-size: 14px;
     font-weight: 500;
-    color: #64748b;
+    color: var(--text-secondary);
     cursor: pointer;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar-nav-item:hover {
     background: rgba(20, 184, 166, 0.06);
-    color: #0d9488;
+    color: var(--accent-color);
     transform: translateX(2px);
 }
 
+.dark .sidebar-nav-item:hover {
+    background: rgba(45, 212, 191, 0.1);
+}
+
 .sidebar-nav-item.active {
-    background: rgba(255, 255, 255, 0.9);
-    color: #0f172a;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(255, 255, 255, 0.8) inset;
+    background: var(--glass-bg-solid);
+    color: var(--text-primary);
+    box-shadow: 0 2px 12px var(--glass-shadow), 0 0 0 1px var(--glass-border) inset;
     font-weight: 600;
 }
 
@@ -86,30 +94,30 @@
 .sidebar-nav-item.disabled:hover {
     background: transparent;
     transform: none;
-    color: #64748b;
+    color: var(--text-secondary);
 }
 
 /* ============================================
    玻璃卡片通用样式
    ============================================ */
 .glass-card {
-    background: rgba(255, 255, 255, 0.8);
+    background: var(--glass-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.6);
+    border: 1px solid var(--glass-border);
     box-shadow:
-        0 4px 24px rgba(0, 0, 0, 0.04),
-        0 1px 3px rgba(0, 0, 0, 0.02),
-        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        0 4px 24px var(--glass-shadow),
+        0 1px 3px var(--glass-shadow),
+        inset 0 1px 0 var(--glass-border);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .glass-card:hover {
     box-shadow:
-        0 8px 32px rgba(0, 0, 0, 0.06),
-        0 2px 6px rgba(0, 0, 0, 0.03),
-        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+        0 8px 32px var(--glass-shadow),
+        0 2px 6px var(--glass-shadow),
+        inset 0 1px 0 var(--glass-border);
     transform: translateY(-2px);
 }
 
@@ -117,18 +125,18 @@
    数据概览卡片
    ============================================ */
 .stat-card {
-    background: rgba(255, 255, 255, 0.85);
+    background: var(--glass-bg-solid);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.7);
-    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.03);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 2px 16px var(--glass-shadow);
     padding: 20px 24px;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .stat-card:hover {
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 4px 20px var(--glass-shadow);
     transform: translateY(-1px);
 }
 
@@ -140,19 +148,19 @@
     align-items: center;
     gap: 10px;
     padding: 10px 18px;
-    background: rgba(255, 255, 255, 0.85);
+    background: var(--glass-bg-solid);
     backdrop-filter: blur(12px);
     border-radius: 12px;
-    border: 1px solid rgba(226, 232, 240, 0.6);
+    border: 1px solid var(--border-subtle);
     font-size: 13px;
-    color: #475569;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+    color: var(--text-secondary);
+    box-shadow: 0 2px 8px var(--glass-shadow);
     transition: all 0.2s ease;
 }
 
 .status-badge:hover {
-    background: rgba(255, 255, 255, 0.95);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    background: var(--glass-bg-solid);
+    box-shadow: 0 4px 12px var(--glass-shadow);
 }
 
 .status-badge .icon {
@@ -168,21 +176,21 @@
    系统卡片
    ============================================ */
 .system-card {
-    background: rgba(255, 255, 255, 0.88);
+    background: var(--glass-bg-solid);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
     border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.7);
+    border: 1px solid var(--glass-border);
     box-shadow:
-        0 4px 24px rgba(0, 0, 0, 0.04),
-        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+        0 4px 24px var(--glass-shadow),
+        inset 0 1px 0 var(--glass-border);
     transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .system-card:hover {
     box-shadow:
-        0 12px 40px rgba(0, 0, 0, 0.08),
-        inset 0 1px 0 rgba(255, 255, 255, 1);
+        0 12px 40px var(--glass-shadow),
+        inset 0 1px 0 var(--glass-border);
     transform: translateY(-4px);
 }
 
@@ -190,7 +198,7 @@
    按钮样式
    ============================================ */
 .btn-teal-gradient {
-    background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+    background: var(--accent-gradient);
     color: white;
     border: none;
     border-radius: 12px;
@@ -217,9 +225,9 @@
 }
 
 .btn-outline-gray {
-    background: rgba(255, 255, 255, 0.6);
-    color: #64748b;
-    border: 1px solid #e2e8f0;
+    background: var(--glass-bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-strong);
     border-radius: 12px;
     padding: 14px 24px;
     font-weight: 500;
@@ -233,17 +241,17 @@
 }
 
 .btn-outline-gray:hover {
-    background: rgba(255, 255, 255, 0.9);
-    border-color: #cbd5e1;
-    color: #475569;
+    background: var(--glass-bg-solid);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
 }
 
 /* ============================================
    搜索栏
    ============================================ */
 .search-bar {
-    background: rgba(241, 245, 249, 0.7);
-    border: 1px solid rgba(226, 232, 240, 0.5);
+    background: var(--glass-bg);
+    border: 1px solid var(--border-subtle);
     border-radius: 12px;
     padding: 10px 16px;
     display: flex;
@@ -255,9 +263,13 @@
 }
 
 .search-bar:focus-within {
-    background: rgba(255, 255, 255, 0.95);
-    border-color: #14b8a6;
+    background: var(--glass-bg-solid);
+    border-color: var(--accent-color);
     box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.08);
+}
+
+.dark .search-bar:focus-within {
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
 }
 
 .search-bar input {
@@ -265,12 +277,12 @@
     background: transparent;
     outline: none;
     font-size: 14px;
-    color: #334155;
+    color: var(--text-primary);
     width: 100%;
 }
 
 .search-bar input::placeholder {
-    color: #94a3b8;
+    color: var(--text-tertiary);
 }
 
 /* 搜索结果下拉 */
@@ -279,11 +291,11 @@
     top: calc(100% + 8px);
     left: 0;
     right: 0;
-    background: rgba(255, 255, 255, 0.98);
+    background: var(--glass-bg-solid);
     backdrop-filter: blur(20px);
     border-radius: 14px;
-    border: 1px solid rgba(226, 232, 240, 0.8);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    border: 1px solid var(--border-subtle);
+    box-shadow: 0 8px 32px var(--glass-shadow);
     z-index: 100;
     overflow: hidden;
 }
@@ -295,10 +307,15 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    color: var(--text-primary);
 }
 
 .search-result-item:hover {
     background: rgba(20, 184, 166, 0.06);
+}
+
+.dark .search-result-item:hover {
+    background: rgba(45, 212, 191, 0.1);
 }
 
 /* ============================================
@@ -314,7 +331,7 @@
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+    background: var(--accent-gradient);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -331,8 +348,8 @@
     right: 0;
     width: 12px;
     height: 12px;
-    background: #22c55e;
-    border: 2px solid white;
+    background: var(--status-success);
+    border: 2px solid var(--page-bg);
     border-radius: 50%;
 }
 
@@ -343,7 +360,7 @@
     position: fixed;
     inset: 0;
     z-index: 1000;
-    background: linear-gradient(135deg, #f0fdfa 0%, #ecfeff 50%, #f0f9ff 100%);
+    background: var(--page-bg-gradient);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -363,11 +380,15 @@
     pointer-events: none;
 }
 
+.dark .lock-screen::before {
+    background: radial-gradient(circle, rgba(45, 212, 191, 0.12) 0%, transparent 70%);
+}
+
 .lock-avatar {
     width: 80px;
     height: 80px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+    background: var(--accent-gradient);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -378,11 +399,11 @@
 }
 
 .lock-input-wrapper {
-    background: rgba(255, 255, 255, 0.9);
+    background: var(--glass-bg-solid);
     backdrop-filter: blur(20px);
     border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.8);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 4px 24px var(--glass-shadow);
     padding: 8px;
     display: flex;
     gap: 8px;
@@ -396,10 +417,15 @@
     padding: 12px 16px;
     font-size: 14px;
     outline: none;
+    color: var(--text-primary);
+}
+
+.lock-input-wrapper input::placeholder {
+    color: var(--text-tertiary);
 }
 
 .lock-input-wrapper button {
-    background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+    background: var(--accent-gradient);
     color: white;
     border: none;
     border-radius: 10px;
@@ -418,7 +444,7 @@
    ============================================ */
 .version-badge {
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--text-tertiary);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
@@ -471,4 +497,11 @@
 
 .animate-fadeIn {
     animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* ============================================
+   Dark mode specific overrides
+   ============================================ */
+.dark .colorful-background {
+    background: var(--page-bg);
 }

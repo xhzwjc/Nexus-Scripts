@@ -87,25 +87,25 @@ export const WeatherChip: React.FC<WeatherChipProps> = ({
             <span className="whitespace-nowrap">{displayLabel}</span>
             <span className="text-muted-foreground">·</span>
             {state.loading && !state.data ? (
-                <span className="text-muted-foreground">{tr.loading}</span>
+                <span className="text-gray-500 dark:text-gray-100">{tr.loading}</span>
             ) : state.error && !state.data ? (
-                <span className="text-muted-foreground">{tr.unavailable}</span>
+                <span className="text-gray-500 dark:text-gray-100">{tr.unavailable}</span>
             ) : state.data ? (
                 <>
                     {getWeatherIcon(state.data.code)}
-                    <span className="whitespace-nowrap tabular-nums font-mono">{state.data.temp}°C</span>
-                    <span className="hidden sm:inline">{state.data.desc}</span>
-                    <span className="text-muted-foreground hidden md:inline">·</span>
-                    <span className="text-muted-foreground hidden md:inline">
+                    <span className="whitespace-nowrap tabular-nums font-mono dark:text-gray-100">{state.data.temp}°C</span>
+                    <span className="hidden sm:inline dark:text-gray-100">{state.data.desc}</span>
+                    <span className="text-gray-400 dark:text-gray-500 hidden md:inline">·</span>
+                    <span className="text-gray-500 dark:text-gray-100 hidden md:inline">
                         <Wind className="inline w-3 h-3 mr-1" />
                         {state.data.wind} km/h
                     </span>
-                    <span className="text-muted-foreground hidden lg:inline">
+                    <span className="text-gray-500 dark:text-gray-100 hidden lg:inline">
                         <Droplets className="inline w-3 h-3 mx-1" />
                         {state.data.humidity}%
                     </span>
                     {refreshing &&
-                        <Loader2 className="w-3 h-3 ml-1 animate-spin text-muted-foreground" aria-label={tr.refreshing} />}
+                        <Loader2 className="w-3 h-3 ml-1 animate-spin text-gray-500 dark:text-gray-100" aria-label={tr.refreshing} />}
                 </>
             ) : null}
 

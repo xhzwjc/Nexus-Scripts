@@ -415,7 +415,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                     {isDropdownOpen && (
                                         <div
                                             ref={dropdownRef}
-                                            className="absolute z-10 mt-1 w-full rounded-md border bg-white shadow-lg max-h-60 overflow-auto"
+                                            className="absolute z-10 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-lg max-h-60 overflow-auto"
                                         >
                                             {isFetchingEnterprises ? (
                                                 <div className="flex justify-center p-4">
@@ -438,7 +438,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                                     .map(enterprise => (
                                                         <div
                                                             key={enterprise.tenant_id}
-                                                            className="cursor-pointer px-4 py-2 hover:bg-gray-100 text-sm"
+                                                            className="cursor-pointer px-4 py-2 hover:bg-accent hover:text-accent-foreground text-sm"
                                                             onClick={() => {
                                                                 setTenantId(enterprise.tenant_id.toString());
                                                                 setSelectedEnterprise(enterprise);
@@ -580,7 +580,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                     paginatedResults.map((result) => (
                                         <TableRow
                                             key={result.tax_location_id}
-                                            className={`odd:bg-muted/30 ${!result.is_correct ? 'bg-red-50 hover:bg-red-100' : ''
+                                            className={`odd:bg-muted/30 ${!result.is_correct ? 'bg-red-50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-900/20' : ''
                                                 }`}
                                         >
                                             <TableCell className="tabular-nums">{result.tax_location_id}</TableCell>
@@ -612,7 +612,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                             <TableCell>
                                                 <Badge
                                                     variant={result.is_correct ? 'secondary' : 'destructive'}
-                                                    className={result.is_correct ? 'bg-emerald-100 text-emerald-800' : undefined}
+                                                    className={result.is_correct ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300' : undefined}
                                                 >
                                                     {result.is_correct ? balance.table.correct : balance.table.abnormal}
                                                 </Badge>

@@ -95,17 +95,17 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
     };
 
     return (
-        <Card className="flex flex-col overflow-hidden border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
+        <Card className="flex flex-col overflow-hidden border-[var(--border-subtle)] shadow-sm hover:shadow-md transition-shadow bg-[var(--card-bg)]">
             {/* Header */}
-            <div className="p-5 border-b border-slate-100 flex items-start justify-between bg-slate-50/50">
+            <div className="p-5 border-b border-[var(--border-subtle)] flex items-start justify-between bg-[var(--card-bg-muted)]">
                 <div className="flex gap-3">
-                    <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm flex items-center justify-center w-10 h-10 relative">
+                    <div className="p-2 bg-white rounded-lg border border-[var(--border-subtle)] shadow-sm flex items-center justify-center w-10 h-10 relative">
                         {/* 默认显示集团logo或Database图标 */}
                         {groupLogo && faviconError ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={groupLogo} alt="" className="w-5 h-5 object-contain" />
                         ) : (
-                            <Database className={`w-5 h-5 text-blue-600 transition-opacity duration-300 ${faviconUrl && !faviconError ? 'opacity-0' : 'opacity-100'}`} />
+                            <Database className={`w-5 h-5 text-primary transition-opacity duration-300 ${faviconUrl && !faviconError ? 'opacity-0' : 'opacity-100'}`} />
                         )}
                         {/* Favicon 加载成功后覆盖显示 */}
                         {faviconUrl && !faviconError && (
@@ -124,8 +124,8 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                         )}
                     </div>
                     <div>
-                        <h3 className="font-bold text-slate-800 text-base">{system.name}</h3>
-                        <p className="text-xs text-slate-500 mt-0.5">{system.description || tr.noDescription}</p>
+                        <h3 className="font-bold text-[var(--text-primary)] text-base">{system.name}</h3>
+                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">{system.description || tr.noDescription}</p>
                     </div>
                 </div>
             </div>
@@ -135,7 +135,7 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
 
                 {/* Environment Tabs */}
                 <Tabs value={env} onValueChange={(v) => setEnv(v as Environment)} className="w-full">
-                    <TabsList className="w-full grid grid-cols-3 mb-4 bg-slate-100/80">
+                    <TabsList className="w-full grid grid-cols-3 mb-4 bg-[var(--bg-muted)]">
                         <TabsTrigger value="dev" disabled={!system.environments.dev}>
                             {envLabels.dev}
                         </TabsTrigger>
@@ -151,7 +151,7 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                 {currentEnv ? (
                     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                         {/* URL Link */}
-                        <div className="flex items-center gap-2 p-3 bg-blue-50/50 border border-blue-100 rounded-lg text-sm text-blue-700 hover:bg-blue-50 transition-colors group">
+                        <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg text-sm text-primary hover:bg-primary/10 transition-colors group">
                             <Globe className="w-4 h-4 shrink-0" />
                             <a href={currentEnv.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate font-medium hover:underline">
                                 {currentEnv.url}
@@ -159,7 +159,7 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                             <Button
                                 size="icon"
                                 variant="ghost"
-                                className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                                className="h-6 w-6 opacity-0 group-hover:opacity-100 hover:bg-primary/20 hover:text-primary"
                                 onClick={() => copyToClipboard(currentEnv.url, 'URL')}
                             >
                                 <Copy className="w-3 h-3" />
@@ -171,31 +171,31 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                         <div className="space-y-2">
                             {currentEnv.creds.length > 0 ? (
                                 currentEnv.creds.map(cred => (
-                                    <div key={cred.id} className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200 group">
-                                        <div className="w-16 shrink-0 text-xs font-medium text-slate-500">{cred.label}</div>
+                                    <div key={cred.id} className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-muted)] border border-[var(--border-subtle)] group">
+                                        <div className="w-16 shrink-0 text-xs font-medium text-[var(--text-secondary)]">{cred.label}</div>
 
                                         <div className="flex-1 flex items-center gap-2 min-w-0">
                                             {/* Username */}
-                                            <div className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-slate-200">
-                                                <User className="w-3 h-3 text-slate-400" />
-                                                <span className="text-sm font-mono text-slate-700 truncate max-w-[100px]">
+                                            <div className="flex items-center gap-1 bg-[var(--card-bg)] px-2 py-1 rounded border border-[var(--border-subtle)]">
+                                                <User className="w-3 h-3 text-muted-foreground" />
+                                                <span className="text-sm font-mono text-foreground truncate max-w-[100px]">
                                                     {cred.username}
                                                 </span>
                                                 <Button
                                                     size="icon"
                                                     variant="ghost"
-                                                    className="h-5 w-5 ml-1"
+                                                    className="h-5 w-5 ml-1 text-muted-foreground hover:text-foreground"
                                                     onClick={() => copyToClipboard(cred.username, tr.username)}
                                                 >
                                                     <Copy className="w-3 h-3" />
                                                 </Button>
                                             </div>
 
-                                            <span className="text-slate-300">/</span>
+                                            <span className="text-muted-foreground/30">/</span>
 
                                             {/* Password */}
-                                            <div className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-slate-200 flex-1 min-w-0">
-                                                <span className="text-sm font-mono text-slate-700 truncate">
+                                            <div className="flex items-center gap-1 bg-[var(--card-bg)] px-2 py-1 rounded border border-[var(--border-subtle)] flex-1 min-w-0">
+                                                <span className="text-sm font-mono text-foreground truncate">
                                                     {cred.password ? (revealedCreds[cred.id] ? cred.password : '••••••••') : tr.notSet}
                                                 </span>
                                                 {cred.password && (
@@ -203,7 +203,7 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                                                         <Button
                                                             size="icon"
                                                             variant="ghost"
-                                                            className="h-5 w-5 ml-auto"
+                                                            className="h-5 w-5 ml-auto text-muted-foreground hover:text-foreground"
                                                             onClick={() => toggleReveal(cred.id)}
                                                         >
                                                             {revealedCreds[cred.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
@@ -211,7 +211,7 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                                                         <Button
                                                             size="icon"
                                                             variant="ghost"
-                                                            className="h-5 w-5"
+                                                            className="h-5 w-5 text-muted-foreground hover:text-foreground"
                                                             onClick={() => copyToClipboard(cred.password || '', tr.password)}
                                                         >
                                                             <Copy className="w-3 h-3" />
@@ -223,14 +223,14 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                                     </div>
                                 ))
                             ) : (
-                                <div className="text-center py-4 text-sm text-slate-400 italic">
+                                <div className="text-center py-4 text-sm text-muted-foreground italic">
                                     {tr.noCredentials}
                                 </div>
                             )}
                         </div>
                     </div>
                 ) : (
-                    <div className="py-8 text-center text-slate-400 text-sm">
+                    <div className="py-8 text-center text-[var(--text-tertiary)] text-sm">
                         {tr.envNotConfigured}
                     </div>
                 )}

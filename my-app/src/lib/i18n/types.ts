@@ -780,6 +780,7 @@ export interface Translations {
         execSuccess: string;
       };
       kpi: {
+        title: string;
         totalProfit: string;
         monthCommission: string;
         dailyCommission: string;
@@ -1441,5 +1442,13 @@ export interface Translations {
     zh: string;
     en: string;
     switchTo: string;
+  };
+
+  // Theme
+  theme: {
+    light: string;
+    dark: string;
+    system: string;
+    toggle: string;
   };
 }

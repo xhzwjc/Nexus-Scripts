@@ -915,7 +915,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                 </div>
 
                                 <Separator />
-                                <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded">
+                                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 px-4 py-3 rounded">
                                     <p className="font-bold">{tr.generate.preview.title}</p>
                                     <p className="mt-1 text-sm">
                                         {tr.generate.preview.yearMonth} <span className="font-semibold">{yearMonth || t.common.notSelected}</span>
@@ -969,7 +969,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                 </div>
 
                                 <div
-                                    className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex items-start mt-4">
+                                    className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 px-4 py-3 rounded flex items-start mt-4">
                                     <FileText size={18} className="mr-2 mt-0.5 flex-shrink-0" />
                                     <div>
                                         <p className="font-medium">{tr.generate.instructions.title}</p>

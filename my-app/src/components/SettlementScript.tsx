@@ -294,7 +294,7 @@ export default function SettlementScript({ onBack }: { onBack: () => void }) {
                     {/* 左侧表单 */}
                     <div className="lg:col-span-2 space-y-6">
                         <Card>
-                            <CardHeader><CardTitle>执行参数配置</CardTitle></CardHeader>
+                            <CardHeader><CardTitle>{settlement.config.title}</CardTitle></CardHeader>
                             <CardContent className="space-y-4">
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div>

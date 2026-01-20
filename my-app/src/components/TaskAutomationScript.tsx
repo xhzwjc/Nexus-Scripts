@@ -828,7 +828,7 @@ export default function TaskAutomationScript({ onBack }: TaskAutomationScriptPro
 
                                                             {expandedPhone === phone.mobile && (
                                                                 <div
-                                                                    className="mt-2 p-3 bg-gray-50 rounded-md text-sm space-y-4">
+                                                                    className="mt-2 p-3 bg-muted/50 rounded-md text-sm space-y-4">
                                                                     {getStepsForMode(mode).map(({ key, label }) => (
                                                                         <div key={key}>
                                                                             <p className="font-medium">{label}步骤：</p>
@@ -840,7 +840,7 @@ export default function TaskAutomationScript({ onBack }: TaskAutomationScriptPro
                                                                                     <div className="mt-1">
                                                                                         <p className="font-medium">结算单数据：</p>
                                                                                         <pre
-                                                                                            className="bg-gray-100 p-2 rounded overflow-x-auto text-xs">
+                                                                                            className="bg-muted p-2 rounded overflow-x-auto text-xs text-foreground">
                                                                                             {formatStepData(phone.steps[key], key)}
                                                                                         </pre>
                                                                                     </div>
@@ -855,7 +855,7 @@ export default function TaskAutomationScript({ onBack }: TaskAutomationScriptPro
                                                                                 </>
                                                                             ) : (
                                                                                 <pre
-                                                                                    className="bg-gray-100 p-2 rounded overflow-x-auto text-xs">
+                                                                                    className="bg-muted p-2 rounded overflow-x-auto text-xs text-foreground">
                                                                                     {formatStepData(phone.steps[key], key)}
                                                                                 </pre>
                                                                             )}
@@ -934,7 +934,7 @@ export default function TaskAutomationScript({ onBack }: TaskAutomationScriptPro
                                                     <TableCell>
                                                         {phone.status === 'success' && (
                                                             <Badge variant="secondary"
-                                                                className="bg-green-100 text-green-800">
+                                                                className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
                                                                 执行成功
                                                             </Badge>
                                                         )}
@@ -955,13 +955,13 @@ export default function TaskAutomationScript({ onBack }: TaskAutomationScriptPro
                                                 {expandedPhone === phone.mobile && (
                                                     <TableRow>
                                                         <TableCell colSpan={3}>
-                                                            <div className="p-4 bg-gray-50 rounded-md space-y-4">
+                                                            <div className="p-4 bg-muted/50 rounded-md space-y-4">
                                                                 {getStepsForMode(mode).map(({ key, label }) => (
                                                                     <div key={key}>
                                                                         <h4 className="font-medium mb-2">{label}信息</h4>
                                                                         {mode === '3' && key === 'get_balance_id' ? (
                                                                             <div
-                                                                                className="bg-gray-100 p-3 rounded overflow-x-auto">
+                                                                                className="bg-muted p-3 rounded overflow-x-auto text-foreground">
                                                                                 <p className="mb-1">
                                                                                     <span
                                                                                         className="font-medium">状态码：</span>
@@ -988,7 +988,7 @@ export default function TaskAutomationScript({ onBack }: TaskAutomationScriptPro
                                                                             </div>
                                                                         ) : (
                                                                             <pre
-                                                                                className="bg-gray-100 p-2 rounded overflow-x-auto text-xs">
+                                                                                className="bg-muted p-2 rounded overflow-x-auto text-xs text-foreground">
                                                                                 {formatStepData(phone.steps[key], key)}
                                                                             </pre>
                                                                         )}

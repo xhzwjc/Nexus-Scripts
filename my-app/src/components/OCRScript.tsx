@@ -268,7 +268,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6 md:p-12 font-sans text-slate-900">
+        <div className="min-h-screen bg-[var(--background)] p-6 md:p-12 font-sans text-[var(--text-primary)]">
             {/* 顶栏：标题与返回 */}
             <div className="max-w-7xl mx-auto mb-8 flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -276,15 +276,15 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                         variant="outline"
                         size="icon"
                         onClick={handleBackClick}
-                        className="h-10 w-10 rounded-full border-slate-200 bg-white shadow-sm hover:bg-slate-50 hover:text-slate-900 transition-all"
+                        className="h-10 w-10 rounded-full border-[var(--border-subtle)] bg-[var(--card-bg)] shadow-sm hover:bg-[var(--background-secondary)] hover:text-[var(--text-primary)] transition-all"
                     >
                         <ArrowLeft className="h-5 w-5" />
                     </Button>
                     <div>
-                        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
+                        <h1 className="text-3xl font-extrabold tracking-tight text-[var(--text-primary)]">
                             {ocr.title}
                         </h1>
-                        <p className="text-sm font-medium text-slate-500 mt-1">
+                        <p className="text-sm font-medium text-[var(--text-secondary)] mt-1">
                             {ocr.subtitle}
                         </p>
                     </div>
@@ -293,7 +293,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                 {isRunning && (
                     <div className="flex items-center gap-3">
                         {/* 进度显示 */}
-                        <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-full text-sm font-medium">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 text-primary rounded-full text-sm font-medium">
                             <Loader2 className="w-4 h-4 animate-spin" />
                             {progress ? (
                                 <span>{ocr.status.processing.replace('{current}', String(progress.current)).replace('{total}', String(progress.total))}</span>
@@ -326,8 +326,8 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                 {/* 左侧：配置与操作区域 */}
                 <div className="lg:col-span-5 space-y-6">
                     {/* 文件上传卡片 */}
-                    <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm ring-1 ring-slate-900/5 overflow-hidden">
-                        <CardHeader className="pb-4 border-b border-slate-100 bg-white/50">
+                    <Card className="border-0 shadow-xl bg-[var(--glass-bg)] backdrop-blur-sm ring-1 ring-[var(--border-subtle)]/5 overflow-hidden">
+                        <CardHeader className="pb-4 border-b border-[var(--border-subtle)] bg-[var(--card-bg)]/50">
                             <CardTitle className="flex items-center gap-2 text-lg">
                                 <FileText className="w-5 h-5 text-blue-600" />
                                 {ocr.form.dataSource}
@@ -339,33 +339,33 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                         <CardContent className="space-y-6 pt-6">
                             {/* Excel 上传 */}
                             <div className="space-y-2">
-                                <Label className="text-sm font-semibold text-slate-700">{ocr.form.excelLabel}</Label>
+                                <Label className="text-sm font-semibold text-[var(--text-primary)]">{ocr.form.excelLabel}</Label>
                                 <div className="group relative">
                                     <div className={`
                                         relative flex flex-col items-center justify-center w-full h-32 rounded-xl border-2 border-dashed transition-all duration-200
                                         ${excelFile
-                                            ? 'border-green-500/50 bg-green-50/50'
-                                            : 'border-slate-200 bg-slate-50/50 hover:border-blue-400 hover:bg-blue-50/50'
+                                            ? 'border-green-500/50 bg-green-500/10'
+                                            : 'border-border bg-muted/30 hover:border-primary/50 hover:bg-primary/5'
                                         }
                                     `}>
                                         <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
                                             {excelFile ? (
                                                 <>
                                                     <FileText className="w-8 h-8 text-green-600 mb-2" />
-                                                    <p className="text-sm font-medium text-green-700 truncate max-w-full px-4">
+                                                    <p className="text-sm font-medium text-green-600 dark:text-green-400 truncate max-w-full px-4">
                                                         {excelFile.name}
                                                     </p>
-                                                    <p className="text-xs text-green-600 mt-1">
+                                                    <p className="text-xs text-green-600 dark:text-green-400 mt-1">
                                                         {(excelFile.size / 1024).toFixed(1)} KB
                                                     </p>
                                                 </>
                                             ) : (
                                                 <>
-                                                    <FileText className="w-8 h-8 text-slate-400 mb-2 group-hover:text-blue-500 transition-colors" />
-                                                    <p className="text-sm text-slate-600 font-medium">
+                                                    <FileText className="w-8 h-8 text-muted-foreground/50 mb-2 group-hover:text-primary transition-colors" />
+                                                    <p className="text-sm text-[var(--text-secondary)] font-medium">
                                                         {ocr.form.excelPlaceholder}
                                                     </p>
-                                                    <p className="text-xs text-slate-400 mt-1">
+                                                    <p className="text-xs text-[var(--text-tertiary)] mt-1">
                                                         {ocr.form.excelHint}
                                                     </p>
                                                 </>
@@ -384,36 +384,36 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
 
                             {/* 文件夹上传 */}
                             <div className="space-y-2">
-                                <Label className="text-sm font-semibold text-slate-700">
+                                <Label className="text-sm font-semibold text-[var(--text-primary)]">
                                     {ocr.form.imagesLabel}
-                                    <span className="ml-1 text-xs font-normal text-slate-500">{ocr.form.imagesHint}</span>
+                                    <span className="ml-1 text-xs font-normal text-[var(--text-secondary)]">{ocr.form.imagesHint}</span>
                                 </Label>
                                 <div className="group relative">
                                     <div className={`
                                         relative flex flex-col items-center justify-center w-full h-32 rounded-xl border-2 border-dashed transition-all duration-200
                                         ${imageFiles.length > 0
-                                            ? 'border-green-500/50 bg-green-50/50'
-                                            : 'border-slate-200 bg-slate-50/50 hover:border-blue-400 hover:bg-blue-50/50'
+                                            ? 'border-green-500/50 bg-green-500/10'
+                                            : 'border-border bg-muted/30 hover:border-primary/50 hover:bg-primary/5'
                                         }
                                     `}>
                                         <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
                                             {imageFiles.length > 0 ? (
                                                 <>
                                                     <Folder className="w-8 h-8 text-green-600 mb-2" />
-                                                    <p className="text-sm font-medium text-green-700">
+                                                    <p className="text-sm font-medium text-green-600 dark:text-green-400">
                                                         {ocr.form.selectedFiles.replace('{count}', String(imageFiles.length))}
                                                     </p>
-                                                    <p className="text-xs text-green-600 mt-1">
+                                                    <p className="text-xs text-green-600 dark:text-green-400 mt-1">
                                                         {ocr.form.totalSize.replace('{size}', getTotalSize())}
                                                     </p>
                                                 </>
                                             ) : (
                                                 <>
-                                                    <Folder className="w-8 h-8 text-slate-400 mb-2 group-hover:text-blue-500 transition-colors" />
-                                                    <p className="text-sm text-slate-600 font-medium">
+                                                    <Folder className="w-8 h-8 text-muted-foreground/50 mb-2 group-hover:text-primary transition-colors" />
+                                                    <p className="text-sm text-[var(--text-secondary)] font-medium">
                                                         {ocr.form.folderPlaceholder}
                                                     </p>
-                                                    <p className="text-xs text-slate-400 mt-1">
+                                                    <p className="text-xs text-[var(--text-tertiary)] mt-1">
                                                         {ocr.form.folderHint}
                                                     </p>
                                                 </>
@@ -430,7 +430,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                     </div>
                                 </div>
                                 {imageFiles.length > 500 && (
-                                    <div className="flex items-start gap-2 p-3 mt-2 bg-amber-50 border border-amber-100 rounded-lg text-amber-800 text-xs">
+                                    <div className="flex items-start gap-2 p-3 mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-600 dark:text-amber-400 text-xs">
                                         <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                                         <span>
                                             {ocr.form.largeFileWarning.replace('{count}', String(imageFiles.length))}
@@ -442,32 +442,32 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                     </Card>
 
                     {/* 运行模式 & 按钮 */}
-                    <Card className="border-0 shadow-lg bg-white overflow-hidden">
+                    <Card className="border-0 shadow-lg bg-[var(--card-bg)] overflow-hidden">
                         {/* 运行模式 & 启动按钮 */}
                         {/* 运行模式 & 启动按钮 */}
                         <CardContent className="p-6 space-y-6">
                             <div className="space-y-6">
                                 <div className="space-y-4">
-                                    <Label className="text-sm font-semibold text-slate-700">{ocr.mode.label}</Label>
+                                    <Label className="text-sm font-semibold text-[var(--text-primary)]">{ocr.mode.label}</Label>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div
                                             className={`
                                             cursor-pointer relative flex items-start gap-3 p-4 rounded-xl border-2 transition-all duration-200
                                             ${mode === '1'
-                                                    ? 'border-blue-500 bg-blue-50/50 shadow-sm'
-                                                    : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
+                                                    ? 'border-primary bg-primary/5 shadow-sm'
+                                                    : 'border-border bg-card hover:border-primary/30 hover:bg-muted/50'
                                                 }
                                         `}
                                             onClick={() => !isRunning && setMode('1')}
                                         >
-                                            <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center ${mode === '1' ? 'border-blue-500' : 'border-slate-300'}`}>
-                                                {mode === '1' && <div className="w-2 h-2 rounded-full bg-blue-500" />}
+                                            <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center ${mode === '1' ? 'border-primary' : 'border-border'}`}>
+                                                {mode === '1' && <div className="w-2 h-2 rounded-full bg-primary" />}
                                             </div>
                                             <div>
-                                                <p className={`font-semibold text-sm ${mode === '1' ? 'text-blue-700' : 'text-slate-700'}`}>
+                                                <p className={`font-semibold text-sm ${mode === '1' ? 'text-primary' : 'text-[var(--text-primary)]'}`}>
                                                     {ocr.mode.excelFirst}
                                                 </p>
-                                                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                                                <p className="text-xs text-[var(--text-secondary)] mt-1 leading-relaxed">
                                                     {ocr.mode.excelFirstDesc}
                                                 </p>
                                             </div>
@@ -477,20 +477,20 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                             className={`
                                             cursor-pointer relative flex items-start gap-3 p-4 rounded-xl border-2 transition-all duration-200
                                             ${mode === '2'
-                                                    ? 'border-blue-500 bg-blue-50/50 shadow-sm'
-                                                    : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
+                                                    ? 'border-primary bg-primary/5 shadow-sm'
+                                                    : 'border-border bg-card hover:border-primary/30 hover:bg-muted/50'
                                                 }
                                         `}
                                             onClick={() => !isRunning && setMode('2')}
                                         >
-                                            <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center ${mode === '2' ? 'border-blue-500' : 'border-slate-300'}`}>
-                                                {mode === '2' && <div className="w-2 h-2 rounded-full bg-blue-500" />}
+                                            <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center ${mode === '2' ? 'border-primary' : 'border-border'}`}>
+                                                {mode === '2' && <div className="w-2 h-2 rounded-full bg-primary" />}
                                             </div>
                                             <div>
-                                                <p className={`font-semibold text-sm ${mode === '2' ? 'text-blue-700' : 'text-slate-700'}`}>
+                                                <p className={`font-semibold text-sm ${mode === '2' ? 'text-primary' : 'text-[var(--text-primary)]'}`}>
                                                     {ocr.mode.imagesFirst}
                                                 </p>
-                                                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                                                <p className="text-xs text-[var(--text-secondary)] mt-1 leading-relaxed">
                                                     {ocr.mode.imagesFirstDesc}
                                                 </p>
                                             </div>
@@ -499,7 +499,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                 </div>
                                 <div className="pt-2">
                                     <Button
-                                        className="w-full h-12 text-lg font-medium shadow-blue-500/20 shadow-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition-all rounded-xl"
+                                        className="w-full h-12 text-lg font-medium shadow-primary/20 shadow-lg bg-primary hover:bg-primary/90 transition-all rounded-xl"
                                         onClick={handleRun}
                                         disabled={isRunning || !excelFile || imageFiles.length === 0}
                                     >
@@ -521,19 +521,19 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                             {/* 进度条区域 */}
                             {isRunning && progress && (
                                 <div className="space-y-2 pt-2">
-                                    <div className="flex justify-between text-sm text-slate-600">
+                                    <div className="flex justify-between text-sm text-[var(--text-secondary)]">
                                         <span>{ocr.status.progressLabel}</span>
                                         <span className="font-mono font-medium">
                                             {progress.current} / {progress.total}
                                         </span>
                                     </div>
-                                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                    <div className="h-2 bg-[var(--background-secondary)] rounded-full overflow-hidden">
                                         <div
-                                            className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300 ease-out"
+                                            className="h-full bg-primary transition-all duration-300 ease-out"
                                             style={{ width: `${(progress.current / progress.total) * 100}%` }}
                                         />
                                     </div>
-                                    <p className="text-xs text-slate-500 text-center">
+                                    <p className="text-xs text-[var(--text-secondary)] text-center">
                                         {ocr.status.remaining.replace('{count}', String(progress.total - progress.current))}
                                     </p>
                                 </div>
@@ -548,9 +548,9 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                     {/* 结果下载卡片 (动态出现) */}
                     {downloadUrl && (
                         <div className="animate-in fade-in slide-in-from-top-4 duration-500 mt-8">
-                            <div className="bg-green-50 border border-green-200 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+                            <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
                                 <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center shrink-0">
+                                    <div className="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center shrink-0">
                                         <Download className="w-6 h-6 text-green-600" />
                                     </div>
                                     <div>

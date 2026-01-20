@@ -51,10 +51,10 @@ function SortableGroupItem({ group, isActive, onClick, onDelete }: {
             ref={setNodeRef}
             style={style}
             onClick={onClick}
-            className={`p-2 rounded-md cursor-pointer text-sm font-medium flex items-center gap-2 group ${isActive ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-100 text-slate-700'}`}
+            className={`p-2 rounded-md cursor-pointer text-sm font-medium flex items-center gap-2 group ${isActive ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-muted-foreground'}`}
         >
             <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing touch-none">
-                <GripVertical className="w-3 h-3 text-slate-400" />
+                <GripVertical className="w-3 h-3 text-[var(--text-tertiary)]" />
             </div>
             <Building2 className="w-4 h-4" />
             <span className="flex-1 truncate">{group.name}</span>
@@ -89,10 +89,10 @@ function SortableSystemItem({ system, isActive, onClick, onDelete }: {
             ref={setNodeRef}
             style={style}
             onClick={onClick}
-            className={`p-2 rounded-md cursor-pointer text-sm flex items-center gap-2 group ${isActive ? 'bg-white shadow-sm border border-blue-200 text-blue-700' : 'hover:bg-white text-slate-700'}`}
+            className={`p-2 rounded-md cursor-pointer text-sm flex items-center gap-2 group ${isActive ? 'bg-card shadow-sm border border-primary/20 text-primary' : 'hover:bg-card text-muted-foreground'}`}
         >
             <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing touch-none">
-                <GripVertical className="w-3 h-3 text-slate-400" />
+                <GripVertical className="w-3 h-3 text-[var(--text-tertiary)]" />
             </div>
             <Database className="w-4 h-4" />
             <span className="flex-1 truncate">{system.name}</span>
@@ -329,18 +329,18 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
     };
 
     return (
-        <div className="h-full flex flex-col bg-slate-50">
+        <div className="h-full flex flex-col bg-[var(--page-bg)]">
             {/* 顶部工具栏 */}
-            <div className="h-16 flex items-center justify-between px-6 bg-white border-b border-slate-200">
+            <div className="h-16 flex items-center justify-between px-6 bg-[var(--card-bg)] border-b border-[var(--border-subtle)]">
                 <div className="flex items-center gap-3">
                     <Button variant="ghost" size="icon" onClick={onCancel}>
                         <ArrowLeft className="w-5 h-5" />
                     </Button>
-                    <h2 className="text-lg font-bold text-slate-800">{tr.resourceManage}</h2>
+                    <h2 className="text-lg font-bold text-[var(--text-primary)]">{tr.resourceManage}</h2>
                 </div>
                 <div className="flex gap-2">
                     <Button variant="outline" onClick={onCancel}>{tr.cancel}</Button>
-                    <Button onClick={handleSaveClick} className="bg-blue-600 hover:bg-blue-700">
+                    <Button onClick={handleSaveClick}>
                         <Save className="w-4 h-4 mr-2" />
                         {tr.saveChanges}
                     </Button>
@@ -349,9 +349,9 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
 
             <div className="flex-1 flex overflow-hidden">
                 {/* 左侧：集团列表 */}
-                <div className="w-56 bg-white border-r border-slate-200 p-4 flex flex-col">
+                <div className="w-56 bg-[var(--card-bg)] border-r border-[var(--border-subtle)] p-4 flex flex-col">
                     <div className="flex items-center justify-between mb-3">
-                        <Label className="text-slate-500 font-medium text-xs uppercase">{tr.groupList}</Label>
+                        <Label className="text-[var(--text-secondary)] font-medium text-xs uppercase">{tr.groupList}</Label>
                         <Button variant="ghost" size="icon" onClick={handleAddGroup} className="h-6 w-6">
                             <Plus className="w-4 h-4" />
                         </Button>
@@ -374,9 +374,9 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                 </div>
 
                 {/* 中间：系统列表 */}
-                <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
+                <div className="w-64 bg-[var(--bg-muted)] border-r border-[var(--border-subtle)] p-4 flex flex-col">
                     <div className="flex items-center justify-between mb-3">
-                        <Label className="text-slate-500 font-medium text-xs uppercase">{tr.systemList}</Label>
+                        <Label className="text-[var(--text-secondary)] font-medium text-xs uppercase">{tr.systemList}</Label>
                         <Button variant="ghost" size="icon" onClick={handleAddSystem} className="h-6 w-6" disabled={!currentGroup}>
                             <Plus className="w-4 h-4" />
                         </Button>
@@ -392,9 +392,9 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
 
                             {/* LOGO 上传 */}
                             <div className="space-y-2">
-                                <Label className="text-xs text-slate-500">{tr.logoOptional}</Label>
+                                <Label className="text-xs text-[var(--text-secondary)]">{tr.logoOptional}</Label>
                                 {currentGroup.logo ? (
-                                    <div className="relative w-full h-16 bg-white rounded-lg border border-slate-200 overflow-hidden group">
+                                    <div className="relative w-full h-16 bg-white rounded-lg border border-[var(--border-subtle)] overflow-hidden group">
                                         <img
                                             src={currentGroup.logo}
                                             alt="Group Logo"
@@ -403,7 +403,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                         <Button
                                             size="icon"
                                             variant="ghost"
-                                            className="absolute top-1 right-1 h-5 w-5 bg-white/80 opacity-0 group-hover:opacity-100 text-red-500"
+                                            className="absolute top-1 right-1 h-5 w-5 bg-white/80 dark:bg-black/50 opacity-0 group-hover:opacity-100 text-red-500"
                                             onClick={handleRemoveLogo}
                                         >
                                             <X className="w-3 h-3" />
@@ -411,12 +411,12 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                     </div>
                                 ) : (
                                     <div
-                                        className="w-full h-16 bg-white rounded-lg border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition-colors"
+                                        className="w-full h-16 bg-[var(--card-bg)] rounded-lg border-2 border-dashed border-[var(--border-subtle)] flex items-center justify-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors"
                                         onClick={() => logoInputRef.current?.click()}
                                     >
                                         <div className="text-center">
-                                            <Upload className="w-4 h-4 mx-auto text-slate-400" />
-                                            <span className="text-xs text-slate-400">{tr.clickToUpload}</span>
+                                            <Upload className="w-4 h-4 mx-auto text-muted-foreground" />
+                                            <span className="text-xs text-muted-foreground">{tr.clickToUpload}</span>
                                         </div>
                                     </div>
                                 )}
@@ -446,7 +446,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                 </SortableContext>
                             </DndContext>
                         ) : (
-                            <div className="text-center py-8 text-slate-400 text-sm">
+                            <div className="text-center py-8 text-[var(--text-tertiary)] text-sm">
                                 {tr.noSystemsAddHint}
                             </div>
                         )}
@@ -513,7 +513,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                                 </div>
 
                                                 {currentSystem.environments[env]?.creds.map(cred => (
-                                                    <div key={cred.id} className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg">
+                                                    <div key={cred.id} className="flex items-center gap-2 p-3 bg-[var(--bg-muted)] rounded-lg">
                                                         <Input
                                                             value={cred.label}
                                                             onChange={(e) => handleUpdateCredential(env, cred.id, 'label', e.target.value)}
@@ -545,7 +545,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                                 ))}
 
                                                 {(!currentSystem.environments[env] || currentSystem.environments[env]!.creds.length === 0) && (
-                                                    <div className="text-center py-4 text-slate-400 text-sm">
+                                                    <div className="text-center py-4 text-[var(--text-tertiary)] text-sm">
                                                         {tr.noCredentialsYet}
                                                     </div>
                                                 )}
@@ -557,7 +557,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
-                                                        className="w-full text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600"
+                                                        className="w-full text-destructive border-destructive/20 hover:bg-destructive/10 hover:text-destructive"
                                                         onClick={() => handleClearEnvironment(env)}
                                                     >
                                                         <Trash2 className="w-3 h-3 mr-2" />
@@ -571,7 +571,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                             </Tabs>
                         </div>
                     ) : (
-                        <div className="h-full flex items-center justify-center text-slate-400">
+                        <div className="h-full flex items-center justify-center text-[var(--text-tertiary)]">
                             {tr.selectSystemToEdit}
                         </div>
                     )}

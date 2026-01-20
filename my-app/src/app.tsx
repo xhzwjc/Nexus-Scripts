@@ -24,7 +24,7 @@ import dynamic from 'next/dynamic';
 
 // Loading 组件 - 使用静态文本避免在 I18nProvider 外调用 hook
 const LoadingComponent = () => (
-    <div className="flex h-full items-center justify-center text-slate-400 p-8">
+    <div className="flex h-full items-center justify-center text-muted-foreground p-8">
         <Loader2 className="h-8 w-8 animate-spin" />
         <span className="ml-2">Loading...</span>
     </div>
@@ -70,12 +70,16 @@ import {
     getEndOfDayTimestamp
 } from './lib/config';
 
+import { ThemeProvider } from '@/lib/theme';
+
 /* ============== 主应用 ============== */
 export default function App() {
     return (
-        <I18nProvider>
-            <AppContent />
-        </I18nProvider>
+        <ThemeProvider>
+            <I18nProvider>
+                <AppContent />
+            </I18nProvider>
+        </ThemeProvider>
     );
 }
 
@@ -447,7 +451,7 @@ function AppContent() {
 
     // ============== 加载状态 ==============
     if (isLoading) return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="min-h-screen bg-muted/30 flex items-center justify-center">
             <Loader2 className="w-10 h-10 text-primary animate-spin" />
         </div>
     );
@@ -457,7 +461,7 @@ function AppContent() {
         return (
             <div className="min-h-screen colorful-background flex items-center justify-center p-6">
                 <Toaster richColors position="top-center" />
-                <Card className="w-full max-w-md animate-fadeIn shadow-xl border-0 bg-white/90 backdrop-blur">
+                <Card className="w-full max-w-md animate-fadeIn shadow-xl border-0 bg-card/90 backdrop-blur">
                     <CardHeader className="text-center">
                         <CardTitle className="text-2xl flex items-center justify-center gap-2">
                             <Lock className="w-5 h-5" /> {t.auth.title}
@@ -496,10 +500,10 @@ function AppContent() {
             <div className="max-w-7xl">
                 {/* 问候语 */}
                 <div className="mb-10">
-                    <h1 className="text-3xl font-bold text-slate-800 tracking-tight mb-2">
+                    <h1 className="text-3xl font-bold text-foreground tracking-tight mb-2">
                         {timeGreeting}, {currentUser?.name}.
                     </h1>
-                    <p className="text-slate-500 text-base">
+                    <p className="text-muted-foreground text-base">
                         {t.home.systemNormal}
                     </p>
                 </div>
@@ -507,12 +511,12 @@ function AppContent() {
                 {/* 状态徽章行 */}
                 <div className="flex items-center gap-4 mb-10">
                     <div className="status-badge">
-                        <div className="icon bg-teal-50 text-teal-600">
+                        <div className="icon bg-primary/10 text-primary">
                             <CheckCircle className="w-4 h-4" />
                         </div>
-                        <span className="font-semibold text-slate-700">{totalScripts}</span>
-                        <span className="text-slate-500">{t.home.availableResources}</span>
-                        <span className="text-teal-600 text-xs ml-1">{t.home.ready}</span>
+                        <span className="font-semibold text-foreground">{totalScripts}</span>
+                        <span className="text-muted-foreground">{t.home.availableResources}</span>
+                        <span className="text-primary text-xs ml-1">{t.home.ready}</span>
                     </div>
                     {/* 系统健康徽章 */}
                     {(() => {
@@ -528,12 +532,12 @@ function AppContent() {
                         if (!hasPermission) {
                             return (
                                 <div className="status-badge">
-                                    <div className="icon bg-green-50 text-green-600">
+                                    <div className="icon bg-green-500/10 text-green-600 dark:text-green-400">
                                         <Server className="w-4 h-4" />
                                     </div>
-                                    <span className="text-slate-500">{t.home.systemHealth}</span>
-                                    <span className="font-semibold text-slate-700">100%</span>
-                                    <Badge className="bg-green-100 text-green-700 border-0 text-[10px] px-1.5 py-0">{t.home.stable}</Badge>
+                                    <span className="text-muted-foreground">{t.home.systemHealth}</span>
+                                    <span className="font-semibold text-foreground">100%</span>
+                                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0 text-[10px] px-1.5 py-0">{t.home.stable}</Badge>
                                 </div>
                             );
                         }
@@ -542,12 +546,12 @@ function AppContent() {
                         if (isLoading || isIdle) {
                             return (
                                 <div className="status-badge">
-                                    <div className="icon bg-blue-50 text-blue-600">
+                                    <div className="icon bg-blue-500/10 text-blue-600 dark:text-blue-400">
                                         <Server className="w-4 h-4 animate-spin" />
                                     </div>
-                                    <span className="text-slate-500">{t.home.systemHealth}</span>
-                                    <div className="w-8 h-4 bg-slate-200 rounded animate-pulse" />
-                                    <Badge className="bg-blue-100 text-blue-700 border-0 text-[10px] px-1.5 py-0">
+                                    <span className="text-muted-foreground">{t.home.systemHealth}</span>
+                                    <div className="w-8 h-4 bg-muted rounded animate-pulse" />
+                                    <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-0 text-[10px] px-1.5 py-0">
                                         {isLoading ? `${healthCheckState.checkedEnvs}/${healthCheckState.totalEnvs}` : t.home.detecting}
                                     </Badge>
                                 </div>
@@ -558,12 +562,12 @@ function AppContent() {
                         if (isError) {
                             return (
                                 <div className="status-badge">
-                                    <div className="icon bg-yellow-50 text-yellow-600">
+                                    <div className="icon bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
                                         <Server className="w-4 h-4" />
                                     </div>
-                                    <span className="text-slate-500">{t.home.systemHealth}</span>
-                                    <span className="font-semibold text-slate-700">100%</span>
-                                    <Badge className="bg-yellow-100 text-yellow-700 border-0 text-[10px] px-1.5 py-0">{t.home.detectFailed}</Badge>
+                                    <span className="text-muted-foreground">{t.home.systemHealth}</span>
+                                    <span className="font-semibold text-foreground">100%</span>
+                                    <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border-0 text-[10px] px-1.5 py-0">{t.home.detectFailed}</Badge>
                                 </div>
                             );
                         }
@@ -572,14 +576,14 @@ function AppContent() {
                         if (hasIssues) {
                             return (
                                 <div className="status-badge">
-                                    <div className={`icon ${percent < 90 ? 'bg-red-50 text-red-600' : 'bg-yellow-50 text-yellow-600'}`}>
+                                    <div className={`icon ${percent < 90 ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'}`}>
                                         <Server className="w-4 h-4" />
                                     </div>
-                                    <span className="text-slate-500">{t.home.systemHealth}</span>
-                                    <span className={`font-semibold ${percent < 90 ? 'text-red-600' : 'text-yellow-600'}`}>
+                                    <span className="text-muted-foreground">{t.home.systemHealth}</span>
+                                    <span className={`font-semibold ${percent < 90 ? 'text-red-600 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
                                         {percent}%
                                     </span>
-                                    <Badge className={`border-0 text-[10px] px-1.5 py-0 ${percent < 90 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                    <Badge className={`border-0 text-[10px] px-1.5 py-0 ${percent < 90 ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'}`}>
                                         {healthCheckState.issues.length}{t.home.issues}
                                     </Badge>
                                 </div>
@@ -589,22 +593,22 @@ function AppContent() {
                         // 检测成功 - 全部正常：显示100%
                         return (
                             <div className="status-badge">
-                                <div className="icon bg-green-50 text-green-600">
+                                <div className="icon bg-green-500/10 text-green-600 dark:text-green-400">
                                     <Server className="w-4 h-4" />
                                 </div>
-                                <span className="text-slate-500">{t.home.systemHealth}</span>
-                                <span className="font-semibold text-slate-700">100%</span>
-                                <Badge className="bg-green-100 text-green-700 border-0 text-[10px] px-1.5 py-0">{t.home.stable}</Badge>
+                                <span className="text-muted-foreground">{t.home.systemHealth}</span>
+                                <span className="font-semibold text-foreground">100%</span>
+                                <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-0 text-[10px] px-1.5 py-0">{t.home.stable}</Badge>
                             </div>
                         );
                     })()}
                     <div className="status-badge">
-                        <div className="icon bg-violet-50 text-violet-600">
+                        <div className="icon bg-violet-500/10 text-violet-600 dark:text-violet-400">
                             <Server className="w-4 h-4" />
                         </div>
-                        <span className="text-slate-500">{t.home.totalExecuted}</span>
-                        <span className="font-semibold text-slate-700">1.2k</span>
-                        <a href="#" className="text-teal-600 text-xs hover:underline">{t.home.completed}</a>
+                        <span className="text-muted-foreground">{t.home.totalExecuted}</span>
+                        <span className="font-semibold text-foreground">1.2k</span>
+                        <a href="#" className="text-primary text-xs hover:underline">{t.home.completed}</a>
                     </div>
                 </div>
 
@@ -615,16 +619,16 @@ function AppContent() {
                         {/* CM 核心业务系统 */}
                         <div className="system-card p-6 cursor-pointer flex flex-col h-[280px]" onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}>
                             <div className="flex justify-between items-start mb-4">
-                                <div className="w-12 h-12 bg-teal-50 rounded-xl flex items-center justify-center">
-                                    <Settings className="w-6 h-6 text-teal-600" />
+                                <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
+                                    <Settings className="w-6 h-6 text-primary" />
                                 </div>
-                                <Badge className="bg-green-50 text-green-700 border border-green-200 text-[11px] px-2">
+                                <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800 text-[11px] px-2">
                                     <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 inline-block"></span>
                                     {t.home.cmSystem.running}
                                 </Badge>
                             </div>
-                            <h3 className="text-xl font-bold text-slate-800 mb-2">{t.home.cmSystem.title}</h3>
-                            <p className="text-slate-500 text-sm mb-4 leading-relaxed flex-1 overflow-hidden line-clamp-3">
+                            <h3 className="text-xl font-bold text-foreground mb-2">{t.home.cmSystem.title}</h3>
+                            <p className="text-muted-foreground text-sm mb-4 leading-relaxed flex-1 overflow-hidden line-clamp-3">
                                 {t.home.cmSystem.description.replace('{count}', String(systems['chunmiao'].scripts.length))}
                             </p>
                             <button className="btn-teal-gradient w-full mt-auto">
@@ -637,19 +641,19 @@ function AppContent() {
                         {currentUser?.permissions['dev-tools'] && (
                             <div className="system-card p-6 cursor-pointer flex flex-col h-[280px]" onClick={() => setCurrentView('dev-tools')}>
                                 <div className="flex justify-between items-start mb-4">
-                                    <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
-                                        <Terminal className="w-6 h-6 text-blue-600" />
+                                    <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center">
+                                        <Terminal className="w-6 h-6 text-blue-600 dark:text-blue-400" />
                                     </div>
-                                    <Badge className="bg-blue-50 text-blue-700 border border-blue-200 text-[11px] px-2">
+                                    <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800 text-[11px] px-2">
                                         <span className="w-1.5 h-1.5 bg-blue-500 rounded-full mr-1.5 inline-block"></span>
                                         {t.home.devTools.toolset}
                                     </Badge>
                                 </div>
-                                <h3 className="text-xl font-bold text-slate-800 mb-2">{t.home.devTools.title}</h3>
-                                <p className="text-slate-500 text-sm mb-4 leading-relaxed flex-1 overflow-hidden">
+                                <h3 className="text-xl font-bold text-foreground mb-2">{t.home.devTools.title}</h3>
+                                <p className="text-muted-foreground text-sm mb-4 leading-relaxed flex-1 overflow-hidden">
                                     {t.home.devTools.description}
                                 </p>
-                                <button className="w-full mt-auto flex items-center text-blue-600 hover:text-blue-700 font-medium text-sm transition-colors">
+                                <button className="w-full mt-auto flex items-center text-primary hover:text-primary/80 font-medium text-sm transition-colors">
                                     {t.home.devTools.enterButton}
                                     <ChevronRight className="w-4 h-4 ml-1" />
                                 </button>
@@ -659,15 +663,15 @@ function AppContent() {
                         {/* HS 辅助系统 */}
                         <div className="system-card p-6 flex flex-col h-[280px]">
                             <div className="flex justify-between items-start mb-4">
-                                <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
-                                    <Cloud className="w-6 h-6 text-slate-500" />
+                                <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center">
+                                    <Cloud className="w-6 h-6 text-muted-foreground" />
                                 </div>
-                                <Badge variant="outline" className="text-slate-500 border-slate-200 text-[11px] px-2">
+                                <Badge variant="outline" className="text-muted-foreground border-border text-[11px] px-2">
                                     {t.home.hsSystem.planning}
                                 </Badge>
                             </div>
-                            <h3 className="text-xl font-bold text-slate-800 mb-2">{t.home.hsSystem.title}</h3>
-                            <p className="text-slate-500 text-sm mb-4 leading-relaxed flex-1">
+                            <h3 className="text-xl font-bold text-foreground mb-2">{t.home.hsSystem.title}</h3>
+                            <p className="text-muted-foreground text-sm mb-4 leading-relaxed flex-1">
                                 {t.home.hsSystem.description}
                             </p>
                             <button className="btn-outline-gray w-full mt-auto" disabled>
@@ -714,7 +718,7 @@ function AppContent() {
                             <ArrowLeft className="h-5 w-5" />
                         </Button>
                         <h1 className="text-2xl font-bold">{getSystemName(selectedSystem)}</h1>
-                        <Badge variant="outline" className="bg-white/50">
+                        <Badge variant="outline" className="bg-background/50">
                             {filteredScripts.length} / {scripts.length}{t.system.scriptsCount}
                         </Badge>
                     </div>
@@ -730,7 +734,7 @@ function AppContent() {
                             value={scriptQuery}
                             onChange={(event) => setScriptQuery(event.target.value)}
                             placeholder={t.system.searchPlaceholder}
-                            className="md:max-w-sm bg-white/80"
+                            className="md:max-w-sm bg-background/80"
                         />
                     )}
                 </div>
@@ -745,7 +749,7 @@ function AppContent() {
                         <Card
                             key={script.id}
                             className={`
-                                cursor-pointer hover:shadow-lg transition-all hover:-translate-y-1 bg-white/80 backdrop-blur-sm
+                                cursor-pointer hover:shadow-lg transition-all hover:-translate-y-1 bg-card/80 backdrop-blur-sm
                                 ${hasFewScripts ? 'w-full max-w-md mb-6' : ''}
                             `}
                         >
@@ -768,17 +772,17 @@ function AppContent() {
                                 <CardDescription className="mb-4 min-h-[40px]">
                                     {getScriptDesc(script.id)}
                                 </CardDescription>
-                                <Button
-                                    className="w-full"
+                                <button
+                                    className="btn-outline-gray w-full group"
                                     onClick={() => {
                                         setSelectedScript(script.id);
                                         saveRecentScript(userKey, selectedSystem, script.id);
                                         setCurrentView('script');
                                     }}
                                 >
-                                    <Play className="w-4 h-4 mr-2" />
+                                    <Play className="w-4 h-4 mr-2 text-teal-500 group-hover:text-teal-400 transition-colors" />
                                     {t.system.launchScript}
-                                </Button>
+                                </button>
                             </CardContent>
                         </Card>
                     ))}
@@ -790,7 +794,7 @@ function AppContent() {
     // ============== 主布局 ==============
     return (
         <div className="colorful-background flex h-screen overflow-hidden text-slate-600 font-sans relative">
-            <ClothBackground />
+            {/* <ClothBackground /> */}
             <Toaster richColors position="top-right" />
 
             {/* 锁屏遮罩 */}
@@ -898,7 +902,7 @@ function AppContent() {
                     toast.success(t.nav.logout);
                 }}
             />
-            <BubuMascot />
+            {/* <BubuMascot /> */}
         </div>
     );
 }

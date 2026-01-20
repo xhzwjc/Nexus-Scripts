@@ -76,6 +76,36 @@
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: oklch(0.929 0.013 255.508);
   --sidebar-ring: oklch(0.704 0.04 256.788);
+
+  /* Glass morphism */
+  --glass-bg: rgba(255, 255, 255, 0.75);
+  --glass-bg-solid: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-shadow: rgba(0, 0, 0, 0.03);
+
+  /* Text hierarchy */
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --text-tertiary: #94a3b8;
+  --text-disabled: #cbd5e1;
+
+  /* Status colors */
+  --status-success: #10b981;
+  --status-warning: #f59e0b;
+  --status-error: #ef4444;
+  --status-info: #3b82f6;
+
+  /* Accent colors */
+  --accent-color: #14b8a6;
+  --accent-gradient: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+
+  /* Border variations */
+  --border-subtle: rgba(226, 232, 240, 0.6);
+  --border-strong: #e2e8f0;
+
+  /* Page background */
+  --page-bg: #f8fafc;
+  --page-bg-gradient: linear-gradient(135deg, #f0fdfa 0%, #f8fafc 50%, #faf5ff 100%);
 }
 
 .dark {
@@ -110,12 +140,47 @@
   --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.551 0.027 264.364);
+
+  /* Glass morphism - dark */
+  --glass-bg: rgba(30, 41, 59, 0.85);
+  --glass-bg-solid: rgba(30, 41, 59, 0.98);
+  --glass-border: rgba(51, 65, 85, 0.5);
+  --glass-shadow: rgba(0, 0, 0, 0.2);
+
+  /* Text hierarchy - dark */
+  --text-primary: #f8fafc;
+  /* slate-50 - Brighter than before */
+  --text-secondary: #cbd5e1;
+  /* slate-300 - Much brighter than slate-400 */
+  --text-tertiary: #94a3b8;
+  /* slate-400 - Readable, was slate-500 */
+  --text-disabled: #64748b;
+  /* slate-500 */
+
+  /* Status colors - dark (brighter for visibility) */
+  --status-success: #34d399;
+  --status-warning: #fbbf24;
+  --status-error: #f87171;
+  --status-info: #60a5fa;
+
+  /* Accent colors - dark */
+  --accent-color: #2dd4bf;
+  --accent-gradient: linear-gradient(135deg, #2dd4bf 0%, #14b8a6 100%);
+
+  /* Border variations - dark */
+  --border-subtle: rgba(71, 85, 105, 0.5);
+  --border-strong: #475569;
+
+  /* Page background - dark */
+  --page-bg: #0f172a;
+  --page-bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #1a1a2e 100%);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }

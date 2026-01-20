@@ -806,6 +806,7 @@ export const zhCN: Translations = {
                 execSuccess: '佣金计算完成',
             },
             kpi: {
+                title: '渠道汇总统计',
                 totalProfit: '渠道总利润',
                 monthCommission: '本月佣金',
                 dailyCommission: '今日佣金',
@@ -1467,5 +1468,13 @@ export const zhCN: Translations = {
         zh: '中文',
         en: 'English',
         switchTo: '切换到英文'
+    },
+
+    // Theme
+    theme: {
+        light: '浅色模式',
+        dark: '深色模式',
+        system: '跟随系统',
+        toggle: '切换主题'
     }
 };
