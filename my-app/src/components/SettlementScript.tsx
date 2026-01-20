@@ -1,17 +1,18 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import {toast} from 'sonner';
-import {Card, CardContent, CardHeader, CardTitle} from './ui/card';
-import {Button} from './ui/button';
-import {Input} from './ui/input';
-import {Label} from './ui/label';
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/select';
-import {Badge} from './ui/badge';
-import {ScrollArea} from './ui/scroll-area';
-import {Separator} from './ui/separator';
-import {ArrowLeft, Plus, Trash2, Play, Square, RefreshCw, Clock, Info, Loader2, Copy, Trash} from 'lucide-react';
-import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from './ui/tooltip';
-import {getApiBaseUrl} from '../lib/api';
+import { toast } from 'sonner';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Badge } from './ui/badge';
+
+import { Separator } from './ui/separator';
+import { ArrowLeft, Plus, Trash2, Play, Square, RefreshCw, Clock, Info, Loader2, Copy, Trash } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { getApiBaseUrl } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 
 interface Enterprise {
     id: string;
@@ -54,7 +55,9 @@ const parseItems3 = (input: string): Record<string, string[]> => {
 
 const nowTime = () => new Date().toLocaleTimeString();
 
-export default function SettlementScript({onBack}: { onBack: () => void }) {
+export default function SettlementScript({ onBack }: { onBack: () => void }) {
+    const { t } = useI18n();
+    const { settlement } = t.scripts;
     // 执行参数
     const [mode, setMode] = useState<number | null>(null);
     const [concurrency, setConcurrency] = useState('10');
@@ -88,7 +91,7 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
     // 日志工具
     const addLog = (level: LogLevel, text: string) => {
         setLogs(prev => {
-            const next = [...prev, {ts: nowTime(), level, text}];
+            const next = [...prev, { ts: nowTime(), level, text }];
             // 限制最多 1000 条，避免无限增长
             if (next.length > 1000) next.shift();
             return next;
@@ -114,7 +117,7 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
     const removeEnterprise = (id: string) => setEnterprises(prev => prev.filter(e => e.id !== id));
 
     const updateEnterprise = (id: string, field: keyof Enterprise, value: string) =>
-        setEnterprises(prev => prev.map(e => (e.id === id ? {...e, [field]: value} : e)));
+        setEnterprises(prev => prev.map(e => (e.id === id ? { ...e, [field]: value } : e)));
 
     // 停止执行
     const stopExecution = () => {
@@ -123,14 +126,14 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
             abortRef.current = null;
         }
         setIsRunning(false);
-        addLog('INFO', '收到停止指令，已尝试中止请求');
-        toast.info('已请求停止');
+        addLog('INFO', settlement.logs.stopRequest);
+        toast.info(settlement.logs.abort);
     };
 
     // 返回确认（执行中防误触）
     const handleBack = () => {
         if (!isRunning) return onBack();
-        const ok = window.confirm('任务仍在执行中，确定要返回吗？这不会取消后台任务。');
+        const ok = window.confirm(settlement.messages.confirmBack);
         if (ok) onBack();
     };
 
@@ -155,27 +158,27 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
         if (!base) return;
 
         // 基本校验
-        if (mode === null) return toast.error('请选择执行模式');
-        if (enterprises.length === 0) return toast.error('请至少添加一个企业');
+        if (mode === null) return toast.error(settlement.messages.selectMode);
+        if (enterprises.length === 0) return toast.error(settlement.messages.addEnterprise);
 
         for (const [index, e] of enterprises.entries()) {
             const nth = index + 1;
             if (!e.token || !e.tenantId || !e.taxId) {
-                return toast.error(`企业 ${nth} 的基础信息（Token、Tenant ID、Tax ID）未填写完整`);
+                return toast.error(settlement.messages.incompleteInfo.replace('{index}', String(nth)));
             }
             if (mode === 1 && !e.items1.trim()) {
-                return toast.error(`企业 ${nth} 在模式 1 下需填写 Items1（逗号分隔批次号）`);
+                return toast.error(settlement.messages.missingItems1.replace('{index}', String(nth)));
             }
             if (mode === 2 && !e.items2.trim()) {
-                return toast.error(`企业 ${nth} 在模式 2 下需填写 Items2（逗号分隔批次号）`);
+                return toast.error(settlement.messages.missingItems2.replace('{index}', String(nth)));
             }
             if (mode === 3) {
                 if (!e.items3.trim()) {
-                    return toast.error(`企业 ${nth} 在模式 3 下需填写 Items3（批次号:结算单1,结算单2;批次号2:结算单3）`);
+                    return toast.error(settlement.messages.missingItems3.replace('{index}', String(nth)));
                 }
                 const parsed = parseItems3(e.items3);
                 if (Object.keys(parsed).length === 0) {
-                    return toast.error(`企业 ${nth} 的 Items3 格式不正确，请按示例填写：批次A:单1,单2;批次B:单3`);
+                    return toast.error(settlement.messages.invalidItems3.replace('{index}', String(nth)));
                 }
             }
         }
@@ -199,8 +202,8 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
 
         // 启动前置
         setIsRunning(true);
-        setLogs([{ts: nowTime(), level: 'INFO', text: '开始执行结算处理脚本...'}]);
-        toast.info('执行已开始...');
+        setLogs([{ ts: nowTime(), level: 'INFO', text: settlement.logs.start }]);
+        toast.info(settlement.messages.start);
         addLog('DEBUG', `请求体:\n${JSON.stringify(requestBody, null, 2)}`);
 
         // 设置中止器
@@ -214,12 +217,12 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                 signal: abortRef.current.signal,
                 // 如需超时：timeout: 1000 * 60 * 10,
             });
-            addLog('SUCCESS', `执行完成:\n${JSON.stringify(resp.data, null, 2)}`);
-            toast.success('脚本执行成功');
+            addLog('SUCCESS', `${settlement.logs.finished}${JSON.stringify(resp.data, null, 2)}`);
+            toast.success(settlement.messages.execSuccess);
         } catch (err: unknown) {
             if (axios.isCancel(err)) {
-                addLog('INFO', '请求已被取消');
-                toast.info('请求已取消');
+                addLog('INFO', settlement.logs.aborted);
+                toast.info(settlement.logs.abort);
             } else if (axios.isAxiosError(err)) {
                 let errorMsg = err.message;
                 const data = err.response?.data;
@@ -242,15 +245,15 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                 }
 
                 addLog('ERROR', errorMsg);
-                toast.error(`执行失败: ${errorMsg}`);
+                toast.error(`${settlement.logs.error}${errorMsg}`);
             } else {
-                const msg = err instanceof Error ? err.message : '未知错误';
+                const msg = err instanceof Error ? err.message : settlement.logs.unknownError || 'Unknown Error';
                 addLog('ERROR', msg);
-                toast.error(`执行失败: ${msg}`);
+                toast.error(`${settlement.logs.error}${msg}`);
             }
         } finally {
             setIsRunning(false);
-            addLog('INFO', '执行结束');
+            addLog('INFO', settlement.logs.stopSuccess);
             abortRef.current = null;
         }
     };
@@ -261,9 +264,9 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
         const text = logs.map(l => `[${l.ts}] [${l.level}] ${l.text}`).join('\n');
         try {
             await navigator.clipboard.writeText(text);
-            toast.success('日志已复制到剪贴板');
+            toast.success(settlement.logs.copySuccess);
         } catch {
-            toast.error('复制失败，请手动选择文本复制');
+            toast.error(settlement.logs.copyFail);
         }
     };
 
@@ -272,19 +275,19 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
             <div className="max-w-6xl mx-auto">
                 <div className="mb-6">
                     <Button variant="ghost" onClick={handleBack} className="mb-4">
-                        <ArrowLeft className="w-4 h-4 mr-2"/>返回脚本列表
+                        <ArrowLeft className="w-4 h-4 mr-2" />{settlement.back}
                     </Button>
 
                     <div className="flex items-center gap-3 mb-2">
-                        <h1 className="text-2xl">结算处理脚本</h1>
-                        <Badge variant={isRunning ? 'destructive' : 'secondary'}>{isRunning ? '运行中' : '就绪'}</Badge>
+                        <h1 className="text-2xl">{settlement.title}</h1>
+                        <Badge variant={isRunning ? 'destructive' : 'secondary'}>{isRunning ? settlement.status.running : settlement.status.ready}</Badge>
                         <Badge variant={isConcurrent ? 'outline' : 'secondary'} className="flex items-center gap-1">
-                            {isConcurrent ? <RefreshCw className="w-3 h-3"/> : <Clock className="w-3 h-3"/>}
-                            {isConcurrent ? '并发' : '顺序'}模式
+                            {isConcurrent ? <RefreshCw className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                            {isConcurrent ? settlement.mode.concurrent : settlement.mode.sequential}{settlement.mode.label}
                         </Badge>
-                        <Badge variant="secondary">环境：{environment === 'prod' ? '生产' : 'Beta'}</Badge>
+                        <Badge variant="secondary">{settlement.environment.label}：{environment === 'prod' ? settlement.environment.prod : settlement.environment.beta}</Badge>
                     </div>
-                    <p className="text-muted-foreground">批量处理企业结算任务，支持并发执行和实时监控</p>
+                    <p className="text-muted-foreground">{settlement.subtitle}</p>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -295,40 +298,40 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                             <CardContent className="space-y-4">
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div>
-                                        <Label>执行模式 <span className="text-red-500">*</span></Label>
+                                        <Label>{settlement.config.selectMode} <span className="text-red-500">*</span></Label>
                                         <Select value={mode?.toString() || ''}
-                                                onValueChange={(v) => setMode(v ? parseInt(v) : null)}>
-                                            <SelectTrigger><SelectValue placeholder="选择模式"/></SelectTrigger>
+                                            onValueChange={(v) => setMode(v ? parseInt(v) : null)}>
+                                            <SelectTrigger><SelectValue placeholder={settlement.config.selectMode} /></SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="1">1 - 发起结算</SelectItem>
-                                                <SelectItem value="2">2 - 重新发起</SelectItem>
-                                                <SelectItem value="3">3 - 单个结算单</SelectItem>
+                                                <SelectItem value="1">{settlement.config.modes.settlement}</SelectItem>
+                                                <SelectItem value="2">{settlement.config.modes.reissue}</SelectItem>
+                                                <SelectItem value="3">{settlement.config.modes.single}</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
                                     <div>
-                                        <Label>并发数</Label>
+                                        <Label>{settlement.config.concurrency}</Label>
                                         <Input
                                             type="number"
                                             value={concurrency}
                                             onChange={(e) => setConcurrency(e.target.value)}
                                             min="1" max="50"
                                             disabled={!isConcurrent || isRunning}
-                                            placeholder="1-50"
+                                            placeholder={settlement.config.concurrencyPlaceholder}
                                         />
                                         {!isConcurrent &&
-                                            <p className="text-xs text-muted-foreground mt-1">顺序模式下不使用并发数</p>}
+                                            <p className="text-xs text-muted-foreground mt-1">{settlement.config.concurrencyHint}</p>}
                                     </div>
                                     <div>
                                         <Label className="flex items-center gap-1">
-                                            执行间隔(秒)
+                                            {settlement.config.interval}
                                             <TooltipProvider>
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>
-                                                        <Info className="w-4 h-4 text-blue-500 cursor-help"/>
+                                                        <Info className="w-4 h-4 text-blue-500 cursor-help" />
                                                     </TooltipTrigger>
                                                     <TooltipContent>
-                                                        <p>0 表示并发执行；大于 0 表示顺序执行，每个任务之间的间隔秒数</p>
+                                                        <p>{settlement.config.intervalHint}</p>
                                                     </TooltipContent>
                                                 </Tooltip>
                                             </TooltipProvider>
@@ -344,12 +347,12 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                                 </div>
 
                                 <div>
-                                    <Label>运行环境 <span className="text-red-500">*</span></Label>
+                                    <Label>{settlement.environment.label} <span className="text-red-500">*</span></Label>
                                     <Select value={environment} onValueChange={setEnvironment}>
-                                        <SelectTrigger><SelectValue placeholder="选择环境"/></SelectTrigger>
+                                        <SelectTrigger><SelectValue placeholder={settlement.environment.label} /></SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="test">Beta</SelectItem>
-                                            <SelectItem value="prod">生产环境</SelectItem>
+                                            <SelectItem value="test">{settlement.environment.beta}</SelectItem>
+                                            <SelectItem value="prod">{settlement.environment.prod}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -359,18 +362,17 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                         <Card>
                             <CardHeader>
                                 <div className="flex items-center justify-between">
-                                    <CardTitle>企业配置</CardTitle>
+                                    <CardTitle>{settlement.enterprise.title}</CardTitle>
                                     <Button onClick={addEnterprise} size="sm" disabled={isRunning}>
-                                        <Plus className="w-4 h-4 mr-2"/>添加企业
+                                        <Plus className="w-4 h-4 mr-2" />{settlement.enterprise.add}
                                     </Button>
                                 </div>
                             </CardHeader>
                             <CardContent>
                                 {enterprises.length === 0 ? (
                                     <div className="text-center py-8 text-muted-foreground">
-                                        <p>点击“添加企业”开始配置</p>
-                                        <p className="text-xs mt-1">模式 1/2：Items 逗号分隔；模式
-                                            3：批次号:结算单1,结算单2;批次号2:结算单3</p>
+                                        <p>{settlement.enterprise.empty}</p>
+                                        <p className="text-xs mt-1">{settlement.enterprise.emptyHint}</p>
                                     </div>
                                 ) : (
                                     <div className="space-y-4">
@@ -378,99 +380,99 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                                             <Card key={e.id} className="border-dashed">
                                                 <CardHeader className="pb-3">
                                                     <div className="flex items-center justify-between">
-                                                        <h4>企业 {index + 1} {e.name && `- ${e.name}`}</h4>
+                                                        <h4>{settlement.enterprise.item.replace('{index}', String(index + 1))} {e.name && `- ${e.name}`}</h4>
                                                         <Button variant="ghost" size="sm"
-                                                                onClick={() => removeEnterprise(e.id)}
-                                                                disabled={isRunning} aria-label="删除企业">
-                                                            <Trash2 className="w-4 h-4"/>
+                                                            onClick={() => removeEnterprise(e.id)}
+                                                            disabled={isRunning} aria-label={settlement.enterprise.remove}>
+                                                            <Trash2 className="w-4 h-4" />
                                                         </Button>
                                                     </div>
                                                 </CardHeader>
                                                 <CardContent className="space-y-3">
                                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                         <div>
-                                                            <Label>企业名称</Label>
+                                                            <Label>{settlement.enterprise.name}</Label>
                                                             <Input
                                                                 value={e.name}
                                                                 onChange={(ev) => updateEnterprise(e.id, 'name', ev.target.value)}
-                                                                placeholder="请输入企业名称"
+                                                                placeholder={settlement.enterprise.namePlaceholder}
                                                                 disabled={isRunning}
                                                             />
                                                         </div>
                                                         <div>
-                                                            <Label>Token <span className="text-red-500">*</span></Label>
+                                                            <Label>{settlement.enterprise.token} <span className="text-red-500">*</span></Label>
                                                             <Input
                                                                 value={e.token}
                                                                 onChange={(ev) => updateEnterprise(e.id, 'token', ev.target.value)}
-                                                                placeholder="请填写企业 Token"
+                                                                placeholder={settlement.enterprise.tokenPlaceholder}
                                                                 type="password"
                                                                 disabled={isRunning}
                                                             />
                                                         </div>
                                                         <div>
-                                                            <Label>Tenant ID <span
+                                                            <Label>{settlement.enterprise.tenantId} <span
                                                                 className="text-red-500">*</span></Label>
                                                             <Input
                                                                 value={e.tenantId}
                                                                 onChange={(ev) => updateEnterprise(e.id, 'tenantId', ev.target.value)}
-                                                                placeholder="请填写企业对应的租户 ID"
+                                                                placeholder={settlement.enterprise.tenantIdPlaceholder}
                                                                 disabled={isRunning}
                                                             />
                                                         </div>
                                                         <div>
-                                                            <Label>Tax ID <span
+                                                            <Label>{settlement.enterprise.taxId} <span
                                                                 className="text-red-500">*</span></Label>
                                                             <Input
                                                                 value={e.taxId}
                                                                 onChange={(ev) => updateEnterprise(e.id, 'taxId', ev.target.value)}
-                                                                placeholder="请输入税地 ID"
+                                                                placeholder={settlement.enterprise.taxIdPlaceholder}
                                                                 disabled={isRunning}
                                                             />
                                                         </div>
                                                     </div>
 
-                                                    <Separator/>
+                                                    <Separator />
 
                                                     <div className="space-y-3">
                                                         <div
                                                             className={mode === 1 ? 'border-l-2 border-blue-500 pl-2' : ''}>
                                                             <Label>
-                                                                Items1 (模式 1) {mode === 1 &&
-                                                                <span className="text-red-500">*</span>}
+                                                                {settlement.enterprise.items1} {mode === 1 &&
+                                                                    <span className="text-red-500">*</span>}
                                                             </Label>
                                                             <Input
                                                                 value={e.items1}
                                                                 onChange={(ev) => updateEnterprise(e.id, 'items1', ev.target.value)}
-                                                                placeholder="批次号1,批次号2（逗号分隔）"
+                                                                placeholder={settlement.enterprise.items1Placeholder}
                                                                 disabled={isRunning}
                                                             />
                                                         </div>
                                                         <div
                                                             className={mode === 2 ? 'border-l-2 border-blue-500 pl-2' : ''}>
                                                             <Label>
-                                                                Items2 (模式 2) {mode === 2 &&
-                                                                <span className="text-red-500">*</span>}
+                                                                {settlement.enterprise.items2} {mode === 2 &&
+                                                                    <span className="text-red-500">*</span>}
                                                             </Label>
                                                             <Input
                                                                 value={e.items2}
                                                                 onChange={(ev) => updateEnterprise(e.id, 'items2', ev.target.value)}
-                                                                placeholder="批次号1,批次号2（逗号分隔）"
+                                                                placeholder={settlement.enterprise.items2Placeholder}
                                                                 disabled={isRunning}
                                                             />
                                                         </div>
                                                         <div
                                                             className={mode === 3 ? 'border-l-2 border-blue-500 pl-2' : ''}>
                                                             <Label>
-                                                                Items3 (模式 3) {mode === 3 &&
-                                                                <span className="text-red-500">*</span>}
+                                                                {settlement.enterprise.items3} {mode === 3 &&
+                                                                    <span className="text-red-500">*</span>}
                                                             </Label>
                                                             <Input
                                                                 value={e.items3}
                                                                 onChange={(ev) => updateEnterprise(e.id, 'items3', ev.target.value)}
-                                                                placeholder="批次A:单1,单2;批次B:单3"
+                                                                placeholder={settlement.enterprise.items3Placeholder}
                                                                 disabled={isRunning}
                                                             />
-                                                            <p className="text-xs text-muted-foreground mt-1">示例：BATCH001:SETT1001,SETT1002;BATCH002:SETT2001</p>
+                                                            <p className="text-xs text-muted-foreground mt-1">{settlement.enterprise.items3Hint}</p>
                                                         </div>
                                                     </div>
                                                 </CardContent>
@@ -486,10 +488,10 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                                 {isRunning ? (
                                     <div className="flex gap-3">
                                         <Button variant="secondary" disabled className="flex-1">
-                                            <Loader2 className="w-4 h-4 mr-2 animate-spin"/>执行中...
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />{settlement.actions.processing}
                                         </Button>
                                         <Button onClick={stopExecution} variant="destructive" className="w-32">
-                                            <Square className="w-4 h-4 mr-2"/>停止
+                                            <Square className="w-4 h-4 mr-2" />{settlement.actions.stop}
                                         </Button>
                                     </div>
                                 ) : (
@@ -498,7 +500,7 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                                         disabled={!mode || enterprises.length === 0}
                                         className="w-full"
                                     >
-                                        <Play className="w-4 h-4 mr-2"/>开始执行
+                                        <Play className="w-4 h-4 mr-2" />{settlement.actions.start}
                                     </Button>
                                 )}
                             </CardContent>
@@ -510,13 +512,13 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                         <Card className="h-[calc(100vh-4rem)] overflow-hidden flex flex-col">
                             <CardHeader className="border-b">
                                 <div className="flex items-center justify-between">
-                                    <CardTitle>实时日志</CardTitle>
+                                    <CardTitle>{settlement.logs.title}</CardTitle>
                                     <div className="flex items-center gap-2">
-                                        <Button variant="ghost" size="sm" onClick={copyLogs} aria-label="复制日志">
-                                            <Copy className="w-4 h-4"/>
+                                        <Button variant="ghost" size="sm" onClick={copyLogs} aria-label={settlement.actions.copyLogs}>
+                                            <Copy className="w-4 h-4" />
                                         </Button>
-                                        <Button variant="ghost" size="sm" onClick={clearLogs} aria-label="清空日志">
-                                            <Trash className="w-4 h-4"/>
+                                        <Button variant="ghost" size="sm" onClick={clearLogs} aria-label={settlement.actions.clearLogs}>
+                                            <Trash className="w-4 h-4" />
                                         </Button>
                                     </div>
                                 </div>
@@ -531,7 +533,7 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                                 >
                                     <div className="space-y-3 px-1 max-w-full break-words whitespace-pre-wrap">
                                         {logs.length === 0 ? (
-                                            <p className="text-muted-foreground">等待执行...</p>
+                                            <p className="text-muted-foreground">{settlement.logs.waiting}</p>
                                         ) : (
                                             logs.map((log, i) => (
                                                 <div key={i} className="text-xs font-mono">
@@ -544,7 +546,7 @@ export default function SettlementScript({onBack}: { onBack: () => void }) {
                                                                 : log.level === 'DEBUG'
                                                                     ? 'text-blue-500'
                                                                     : ''
-                                                        }`}
+                                                            }`}
                                                     >
                                                         [{log.level}] {log.text}
                                                     </span>

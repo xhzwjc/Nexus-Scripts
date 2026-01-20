@@ -4,17 +4,22 @@ import React, { useMemo } from 'react';
 import { Clock } from 'lucide-react';
 import { StatusChip } from './StatusChip';
 
+import { useI18n } from '@/lib/i18n';
+
 export interface TimeChipProps {
     name?: string;
     now: Date;
 }
 
 export const TimeChip: React.FC<TimeChipProps> = ({ name, now }) => {
-    const dtf = useMemo(() => new Intl.DateTimeFormat('zh-CN', {
+    const { t, language } = useI18n();
+    const tr = t.timeChip;
+
+    const dtf = useMemo(() => new Intl.DateTimeFormat(language, {
         timeZone: 'Asia/Shanghai',
         hour: '2-digit', minute: '2-digit', second: '2-digit',
         weekday: 'short', month: '2-digit', day: '2-digit', hour12: false
-    }), []);
+    }), [language]);
 
     const parts = useMemo(() => {
         const p = dtf.formatToParts(now);
@@ -23,7 +28,11 @@ export const TimeChip: React.FC<TimeChipProps> = ({ name, now }) => {
         return { hour, minute: get('minute'), second: get('second'), weekday: get('weekday') };
     }, [dtf, now]);
 
-    const greeting = parts.hour < 6 ? '自律' : parts.hour < 12 ? '早安' : parts.hour < 14 ? '午安' : parts.hour < 18 ? '下午好' : '晚上好';
+    const greeting = parts.hour < 6 ? tr.greetings.night
+        : parts.hour < 12 ? tr.greetings.morning
+            : parts.hour < 14 ? tr.greetings.noon
+                : parts.hour < 18 ? tr.greetings.afternoon
+                    : tr.greetings.evening;
 
     return (
         <StatusChip>

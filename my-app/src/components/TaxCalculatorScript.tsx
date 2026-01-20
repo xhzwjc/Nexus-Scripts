@@ -1,6 +1,6 @@
-import React, {useState, useCallback, useEffect, useMemo, useRef} from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import {toast} from 'sonner';
+import { toast } from 'sonner';
 import {
     ArrowLeft,
     Loader2,
@@ -15,16 +15,17 @@ import {
 } from 'lucide-react';
 
 // UI Components
-import {Button} from './ui/button';
-import {Card, CardContent, CardHeader, CardTitle, CardDescription} from './ui/card';
-import {Input} from './ui/input';
-import {Label} from './ui/label';
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/select';
-import {Badge} from './ui/badge';
-import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from './ui/table';
-import {Checkbox} from './ui/checkbox';
-import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter} from './ui/dialog';
-import {getApiBaseUrl} from '../lib/api';
+import { Button } from './ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Badge } from './ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Checkbox } from './ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { getApiBaseUrl } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 
 // Types
 interface MockRecord {
@@ -34,7 +35,7 @@ interface MockRecord {
 }
 
 interface BaseTaxParams {
-    income_type: number; // 1:劳务报酬; 2:工资薪金
+    income_type: number; // 1:labor; 2:salary
     year: number;
     accumulated_special_deduction: number;
 }
@@ -81,39 +82,39 @@ interface TaxCalculationResponse {
     request_id: string;
 }
 
-// 常量：身份证号简单校验（18位二代身份证）
+// Validation Regex
 const CN_ID_REGEX =
     /^[1-9]\d{5}(18|19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[\dXx]$/;
 
 // Generate default mock records for a given year with unique IDs
 const generateDefaultMockRecords = (year: number): MockRecord[] => {
-    return Array.from({length: 12}, (_, i) => ({
+    return Array.from({ length: 12 }, (_, i) => ({
         id: `${year}-${String(i + 1).padStart(2, '0')}-${Date.now()}-${i}`,
         year_month: `${year}-${String(i + 1).padStart(2, '0')}`,
         bill_amount: 0
     }));
 };
 
-// 导出CSV功能（BOM + 安全文件名 + 释放URL + 模式适配）
-const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: boolean) => {
-    // 根据模式动态生成表头（模拟模式不含姓名列）
+// Export CSV
+const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: boolean, tr: { results: { table: Record<string, string>; fileName: string } }) => {
+    // Generate headers dynamically
     const baseHeaders = [
-        '年月',
-        '累计减除费用',
-        '累计专项扣除',
-        '累计税前收入',
-        '应纳税所得额',
-        '累计应纳税额',
-        '税率',
-        '税前',
-        '税后',
-        '当月税额',
-        '实际税负'
+        tr.results.table.yearMonth,
+        tr.results.table.deduction,
+        tr.results.table.specialDeduction,
+        tr.results.table.preTaxIncome,
+        tr.results.table.taxableIncome,
+        tr.results.table.accumulatedTax,
+        tr.results.table.taxRate,
+        tr.results.table.preTax,
+        tr.results.table.afterTax,
+        tr.results.table.monthlyTax,
+        tr.results.table.actualBurden
     ];
 
     const headers = isMockMode
         ? baseHeaders
-        : [baseHeaders[0], '姓名', ...baseHeaders.slice(1)];
+        : [baseHeaders[0], tr.results.table.name, ...baseHeaders.slice(1)];
 
     const rows = data.map(item => {
         const baseRow = [
@@ -125,7 +126,7 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: b
             item.accumulated_total_tax.toFixed(2),
             `${(item.tax_rate * 100)}%`,
             item.bill_amount,
-            (item.bill_amount - item.tax).toFixed(2), // 确保税后金额保留两位小数
+            (item.bill_amount - item.tax).toFixed(2),
             item.tax.toFixed(2),
             `${item.effective_tax_rate.toFixed(2)}%`
         ];
@@ -135,20 +136,19 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: b
             : [baseRow[0], `${item.realname?.trim() || '-'}（${item.worker_id}）`, ...baseRow.slice(1)];
     });
 
-    // 处理总计行（根据模式调整空列数量）
+    // Total row
     const totalColumns = isMockMode ? 11 : 12;
     const totalRow = Array(totalColumns).fill('');
-    totalRow[totalColumns - 2] = '总税额'; // 倒数第二列
-    totalRow[totalColumns - 1] = totalTax.toFixed(2); // 最后一列
+    totalRow[totalColumns - 2] = tr.results.table.totalTax;
+    totalRow[totalColumns - 1] = totalTax.toFixed(2);
     rows.push(totalRow);
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
 
-    // 加入 BOM，Excel 兼容中文
-    const blob = new Blob(['\ufeff' + csvContent], {type: 'text/csv;charset=utf-8;'});
+    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const safeDate = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const filename = `税额计算结果_${safeDate}.csv`;
+    const safeDate = new Date().toISOString().slice(0, 10);
+    const filename = tr.results.fileName.replace('{date}', safeDate);
 
     const link = document.createElement('a');
     link.href = url;
@@ -157,11 +157,10 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: b
     document.body.appendChild(link);
     link.click();
     link.remove();
-    // 释放 URL，避免内存泄漏
     setTimeout(() => URL.revokeObjectURL(url), 0);
 };
 
-// 验证年月格式是否为YYYY-MM
+// Validation Helper
 const isValidYearMonthFormat = (value: string): boolean => {
     const regex = /^\d{4}-\d{2}$/;
     if (!regex.test(value)) return false;
@@ -171,8 +170,11 @@ const isValidYearMonthFormat = (value: string): boolean => {
 
 type TaxCalculationItemWithId = TaxCalculationItem & { _rowId: string };
 
-export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
-    // 分别存储两种模式的参数
+export default function TaxCalculationScript({ onBack }: { onBack: () => void }) {
+    const { t } = useI18n();
+    const tr = t.scripts.taxCalculator;
+
+    // Params state
     const [mockParams, setMockParams] = useState<MockTaxParams>({
         use_mock: true,
         income_type: 1,
@@ -251,19 +253,19 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                 const parts = (r.year_month || '').split('-');
                 const mmRaw = parts[1] || '01';
                 const mm = String(Number(mmRaw) || 1).padStart(2, '0');
-                return {...r, year_month: `${prev.year}-${mm}`};
+                return { ...r, year_month: `${prev.year}-${mm}` };
             });
 
             // 同步输入框的临时值
             setTempMonthValues(prevVals => {
-                const next: Record<string, string> = {...prevVals};
+                const next: Record<string, string> = { ...prevVals };
                 updatedRecords.forEach(r => {
                     next[r.id] = r.year_month;
                 });
                 return next;
             });
 
-            return {...prev, mock_data: updatedRecords};
+            return { ...prev, mock_data: updatedRecords };
         });
     }, [activeMode, mockParams.year]);
 
@@ -289,9 +291,9 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
     const setSharedParam = useCallback(
         <K extends keyof BaseTaxParams>(key: K, value: BaseTaxParams[K]) => {
             if (activeMode === 'mock') {
-                setMockParams(prev => ({...prev, [key]: value}));
+                setMockParams(prev => ({ ...prev, [key]: value }));
             } else {
-                setRealParams(prev => ({...prev, [key]: value}));
+                setRealParams(prev => ({ ...prev, [key]: value }));
             }
         },
         [activeMode]
@@ -299,7 +301,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
 
     // 真实模式独有参数设置
     const setRealParam = useCallback(<K extends keyof RealTaxParams>(key: K, value: RealTaxParams[K]) => {
-        setRealParams(prev => ({...prev, [key]: value}));
+        setRealParams(prev => ({ ...prev, [key]: value }));
     }, []);
 
     // 切换模式处理
@@ -309,8 +311,8 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
 
     // 模拟数据相关处理函数
     const handleMonthInputChange = useCallback((recordId: string, value: string) => {
-        setTempMonthValues(prev => ({...prev, [recordId]: value}));
-        setValidationErrors(prev => ({...prev, [recordId]: false}));
+        setTempMonthValues(prev => ({ ...prev, [recordId]: value }));
+        setValidationErrors(prev => ({ ...prev, [recordId]: false }));
     }, []);
 
     // 提交年月
@@ -318,14 +320,14 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
         (index: number, record: MockRecord) => {
             const value = tempMonthValues[record.id] ?? '';
             if (!isValidYearMonthFormat(value)) {
-                setValidationErrors(prev => ({...prev, [record.id]: true}));
+                setValidationErrors(prev => ({ ...prev, [record.id]: true }));
                 return;
             }
-            setValidationErrors(prev => ({...prev, [record.id]: false}));
+            setValidationErrors(prev => ({ ...prev, [record.id]: false }));
             setMockParams(prev => {
                 const newRecords = [...prev.mock_data];
-                newRecords[index] = {...newRecords[index], year_month: value};
-                return {...prev, mock_data: newRecords};
+                newRecords[index] = { ...newRecords[index], year_month: value };
+                return { ...prev, mock_data: newRecords };
             });
         },
         [tempMonthValues]
@@ -336,15 +338,15 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
         const num = Math.max(0, parsed);
         setMockParams(prev => {
             const newRecords = [...prev.mock_data];
-            newRecords[index] = {...newRecords[index], bill_amount: Number.isFinite(num) ? num : 0};
-            return {...prev, mock_data: newRecords};
+            newRecords[index] = { ...newRecords[index], bill_amount: Number.isFinite(num) ? num : 0 };
+            return { ...prev, mock_data: newRecords };
         });
     }, []);
 
     const addMockRecord = useCallback(() => {
         setMockParams(prev => {
             if (prev.mock_data.length >= 12) {
-                toast.error('最多只能添加12个月的记录');
+                toast.error(tr.results.messages.limit12);
                 return prev;
             }
             const sortedMonths = [...prev.mock_data]
@@ -367,26 +369,26 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
 
             const ym = `${nextYear}-${String(nextMonth).padStart(2, '0')}`;
             const newRecordId = `${ym}-${Date.now()}-${prev.mock_data.length}`;
-            const newRecord: MockRecord = {id: newRecordId, year_month: ym, bill_amount: 0};
+            const newRecord: MockRecord = { id: newRecordId, year_month: ym, bill_amount: 0 };
 
-            setTempMonthValues(prevTemp => ({...prevTemp, [newRecordId]: ym}));
-            return {...prev, mock_data: [...prev.mock_data, newRecord]};
+            setTempMonthValues(prevTemp => ({ ...prevTemp, [newRecordId]: ym }));
+            return { ...prev, mock_data: [...prev.mock_data, newRecord] };
         });
-    }, []);
+    }, [tr]);
 
     const removeMockRecord = useCallback((index: number, recordId: string) => {
         setMockParams(prev => {
             const newRecords = [...prev.mock_data];
             newRecords.splice(index, 1);
-            return {...prev, mock_data: newRecords};
+            return { ...prev, mock_data: newRecords };
         });
         setTempMonthValues(prev => {
-            const copy = {...prev};
+            const copy = { ...prev };
             delete copy[recordId];
             return copy;
         });
         setValidationErrors(prev => {
-            const copy = {...prev};
+            const copy = { ...prev };
             delete copy[recordId];
             return copy;
         });
@@ -434,14 +436,14 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
 
     const applyBatchAmount = useCallback(() => {
         if (!batchAmount || batchAmount <= 0) {
-            toast.error('请输入有效的金额');
+            toast.error(tr.results.messages.invalidAmount);
             return;
         }
         setMockParams(prev => ({
             ...prev,
-            mock_data: prev.mock_data.map(r => ({...r, bill_amount: batchAmount}))
+            mock_data: prev.mock_data.map(r => ({ ...r, bill_amount: batchAmount }))
         }));
-    }, [batchAmount]);
+    }, [batchAmount, tr]);
 
     // 真实模式校验派生值
     const hasBatch = useMemo(() => !!realParams.batch_no?.trim(), [realParams.batch_no]);
@@ -460,8 +462,8 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
     const credentialFormatError = useMemo(() => {
         const v = realParams.credential_num.trim();
         if (!v) return '';
-        return CN_ID_REGEX.test(v) ? '' : '身份证号格式不正确';
-    }, [realParams.credential_num]);
+        return CN_ID_REGEX.test(v) ? '' : tr.results.messages.invalidId;
+    }, [realParams.credential_num, tr]);
 
     // 计算按钮可用性
     const canCalculate = useMemo(() => {
@@ -486,7 +488,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
 
         if (activeMode === 'real') {
             if (!realValid) {
-                toast.error('请至少填写批次号或身份证号；若填写姓名则需同时填写身份证号');
+                toast.error(tr.results.messages.ruleError);
                 return;
             }
             if (credentialFormatError) {
@@ -495,11 +497,11 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
             }
         } else {
             if (mockParams.mock_data.length === 0) {
-                toast.error('请添加至少一条模拟记录');
+                toast.error(tr.results.messages.noMock);
                 return;
             }
             if (mockParams.mock_data.some(r => !isValidYearMonthFormat(r.year_month))) {
-                toast.error('存在格式不正确的年月，请使用YYYY-MM格式（例如：2025-06）');
+                toast.error(tr.results.messages.invalidDate);
                 return;
             }
         }
@@ -516,7 +518,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
             const response = await axios.post<TaxCalculationResponse>(
                 `${baseUrl}/tax/calculate`,
                 params,
-                {signal: controller.signal}
+                { signal: controller.signal }
             );
 
             if (response.data.success) {
@@ -530,12 +532,12 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
 
                 const isEmpty = Array.isArray(response.data.data) && response.data.data.length === 0;
                 if (isEmpty) {
-                    toast.error('未查询到符合条件的记录，请核对查询条件（批次号/身份证号/姓名/金额及年月范围）后重试。');
+                    toast.error(tr.results.messages.noMatch);
                 } else {
-                    toast.success(response.data.message || `计算成功，共返回 ${response.data.data.length} 条记录`);
+                    toast.success(response.data.message || tr.results.messages.success.replace('{count}', String(response.data.data.length)));
                 }
             } else {
-                toast.error(response.data.message || '税额计算失败');
+                toast.error(response.data.message || tr.results.messages.fail);
                 setResults([]);
                 setTotalTax(0);
                 setHasCalculated(false);
@@ -545,7 +547,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                 // 请求已取消，不提示错误
                 return;
             }
-            let errorMsg = '税额计算错误，请重试';
+            let errorMsg = tr.results.messages.error;
             if (axios.isAxiosError<{ message?: string }>(err)) {
                 errorMsg = err.response?.data?.message || err.message || errorMsg;
             } else if (err instanceof Error) {
@@ -562,14 +564,14 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                 abortRef.current = null;
             }
         }
-    }, [params, activeMode, mockParams, realValid, credentialFormatError]);
+    }, [params, activeMode, mockParams, realValid, credentialFormatError, tr]);
 
     const openDetailDialog = useCallback((steps: string[], month: string) => {
-        setCurrentDetail({visible: true, steps, month});
+        setCurrentDetail({ visible: true, steps, month });
     }, []);
 
     const closeDetailDialog = useCallback(() => {
-        setCurrentDetail(prev => ({...prev, visible: false}));
+        setCurrentDetail(prev => ({ ...prev, visible: false }));
     }, []);
 
     // 年月输入边界
@@ -591,7 +593,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
         if (!isNaN(page) && page >= 1 && page <= totalPages) {
             setCurrentPage(page);
         } else {
-            toast.error(`请输入 1 到 ${totalPages} 之间的页码`);
+            toast.error(tr.results.messages.pageRange.replace('{total}', String(totalPages)));
         }
         setJumpPageInput('');
     };
@@ -608,27 +610,27 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <Button variant="ghost" onClick={onBack}>
-                        <ArrowLeft className="w-4 h-4 mr-2"/>
-                        返回脚本列表
+                        <ArrowLeft className="w-4 h-4 mr-2" />
+                        {tr.actions.back}
                     </Button>
                     <Badge variant={isCalculating ? 'destructive' : 'secondary'}>
-                        {isCalculating ? '计算中' : '就绪'}
+                        {isCalculating ? tr.status.calculating : tr.status.ready}
                     </Badge>
                 </div>
 
                 {/* Title */}
                 <div className="space-y-2">
-                    <h1 className="text-2xl font-semibold tracking-tight">税额计算工具</h1>
+                    <h1 className="text-2xl font-semibold tracking-tight">{tr.title}</h1>
                     <p className="text-muted-foreground">
-                        提供身份证号、收入类型和年度参数，计算税额明细。支持跨年输入，年月格式为YYYY-MM。
+                        {tr.description}
                     </p>
                 </div>
 
                 {/* Configuration */}
                 <Card>
                     <CardHeader>
-                        <CardTitle>参数配置</CardTitle>
-                        <CardDescription>填写必填项并选择运行环境</CardDescription>
+                        <CardTitle>{tr.config.title}</CardTitle>
+                        <CardDescription>{tr.config.description}</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -641,20 +643,20 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                         onCheckedChange={checked => handleModeChange(checked === true)}
                                         disabled={isCalculating}
                                     />
-                                    <Label htmlFor="use_mock">使用模拟数据</Label>
+                                    <Label htmlFor="use_mock">{tr.config.useMock}</Label>
                                 </div>
                             </div>
 
                             {activeMode === 'real' && (
                                 <div className="space-y-2">
                                     <Label htmlFor="batch_no">
-                                        批次号 {requiresBatchNo ? <span className="text-red-500">*</span> : ''}
+                                        {tr.config.batchNo} {requiresBatchNo ? <span className="text-red-500">*</span> : ''}
                                     </Label>
                                     <Input
                                         id="batch_no"
                                         value={realParams.batch_no || ''}
                                         onChange={e => setRealParam('batch_no', e.target.value.trim())}
-                                        placeholder="请输入批次号（可选）"
+                                        placeholder={tr.config.batchNoPlaceholder}
                                         disabled={isCalculating}
                                     />
                                 </div>
@@ -664,13 +666,13 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                             {activeMode === 'real' && (
                                 <div className="space-y-2">
                                     <Label htmlFor="credential_num">
-                                        身份证号 {requiresCredentialNum ? <span className="text-red-500">*</span> : ''}
+                                        {tr.config.taxId} {requiresCredentialNum ? <span className="text-red-500">*</span> : ''}
                                     </Label>
                                     <Input
                                         id="credential_num"
                                         value={realParams.credential_num}
                                         onChange={e => setRealParam('credential_num', e.target.value.trim())}
-                                        placeholder="请输入身份证号"
+                                        placeholder={tr.config.taxIdPlaceholder}
                                         disabled={isCalculating}
                                     />
                                     {credentialFormatError ? (
@@ -682,12 +684,12 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                             {/* Real Name */}
                             {activeMode === 'real' && (
                                 <div className="space-y-2">
-                                    <Label htmlFor="realname">真实姓名</Label>
+                                    <Label htmlFor="realname">{tr.config.realName}</Label>
                                     <Input
                                         id="realname"
                                         value={realParams.realname}
                                         onChange={e => setRealParam('realname', e.target.value)}
-                                        placeholder="（可选）输入真实姓名"
+                                        placeholder={tr.config.realNamePlaceholder}
                                         disabled={isCalculating}
                                     />
                                 </div>
@@ -695,25 +697,25 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
 
                             {/* Income Type */}
                             <div className="space-y-2">
-                                <Label htmlFor="income_type">收入类型</Label>
+                                <Label htmlFor="income_type">{tr.config.incomeType}</Label>
                                 <Select
                                     value={String(params.income_type)}
                                     onValueChange={value => setSharedParam('income_type', Number(value))}
                                     disabled={isCalculating}
                                 >
                                     <SelectTrigger id="income_type">
-                                        <SelectValue placeholder="选择收入类型"/>
+                                        <SelectValue placeholder={tr.config.incomeTypePlaceholder} />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="1">劳务报酬</SelectItem>
-                                        <SelectItem value="2">工资薪金</SelectItem>
+                                        <SelectItem value="1">{tr.config.incomeTypes.labor}</SelectItem>
+                                        <SelectItem value="2">{tr.config.incomeTypes.salary}</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
 
                             {/* Year */}
                             <div className="space-y-2">
-                                <Label htmlFor="year">申报年度</Label>
+                                <Label htmlFor="year">{tr.config.year}</Label>
                                 <Input
                                     id="year"
                                     type="number"
@@ -729,14 +731,14 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                         setSharedParam('year', clampYear(params.year));
                                     }}
                                     disabled={isCalculating}
-                                    placeholder="主要计算的年份"
+                                    placeholder={tr.config.yearPlaceholder}
                                 />
-                                <p className="text-xs text-muted-foreground">建议范围：2000 - 2100</p>
+                                <p className="text-xs text-muted-foreground">{tr.config.yearHint}</p>
                             </div>
 
                             {/* Special deduction */}
                             <div className="space-y-2">
-                                <Label htmlFor="accumulated_special_deduction">专项扣除（累计）</Label>
+                                <Label htmlFor="accumulated_special_deduction">{tr.config.deduction}</Label>
                                 <Input
                                     id="accumulated_special_deduction"
                                     type="number"
@@ -748,7 +750,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                             Math.max(0, Number(e.target.value) || 0)
                                         )
                                     }
-                                    placeholder="请输入累计专项扣除金额"
+                                    placeholder={tr.config.deductionPlaceholder}
                                     disabled={isCalculating}
                                     inputMode="decimal"
                                 />
@@ -757,19 +759,19 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                             {/* Environment */}
                             {activeMode === 'real' && (
                                 <div className="space-y-2">
-                                    <Label htmlFor="environment">运行环境</Label>
+                                    <Label htmlFor="environment">{tr.config.env}</Label>
                                     <Select
                                         value={realParams.environment}
                                         onValueChange={(value: 'test' | 'prod' | 'local') => setRealParam('environment', value)}
                                         disabled={isCalculating}
                                     >
                                         <SelectTrigger id="environment">
-                                            <SelectValue placeholder="选择运行环境"/>
+                                            <SelectValue placeholder={tr.config.envPlaceholder} />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="test">测试环境</SelectItem>
-                                            <SelectItem value="prod">生产环境</SelectItem>
-                                            <SelectItem value="local">本地环境</SelectItem>
+                                            <SelectItem value="test">{tr.config.envs.test}</SelectItem>
+                                            <SelectItem value="prod">{tr.config.envs.prod}</SelectItem>
+                                            <SelectItem value="local">{tr.config.envs.local}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -780,7 +782,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                         {activeMode === 'mock' && (
                             <div className="mt-6 space-y-4">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                    <h3 className="font-medium">模拟收入记录（{mockParams.mock_data.length}/12）</h3>
+                                    <h3 className="font-medium">{tr.mock.title}（{mockParams.mock_data.length}/12）</h3>
                                     <div className="flex items-center gap-3 w-full sm:w-auto">
                                         <div className="flex-1 sm:flex-initial">
                                             <div className="flex gap-2">
@@ -789,15 +791,15 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                                     step="0.01"
                                                     value={batchAmount || ''}
                                                     onChange={e => setBatchAmount(Math.max(0, Number(e.target.value) || 0))}
-                                                    placeholder="输入统一金额"
+                                                    placeholder={tr.mock.batchAmountPlaceholder}
                                                     disabled={isCalculating}
                                                     className="flex-1"
                                                     inputMode="decimal"
                                                 />
                                                 <Button onClick={applyBatchAmount}
-                                                        disabled={isCalculating || !batchAmount} size="sm">
-                                                    <Copy className="w-4 h-4 mr-1"/>
-                                                    全部应用
+                                                    disabled={isCalculating || !batchAmount} size="sm">
+                                                    <Copy className="w-4 h-4 mr-1" />
+                                                    {tr.mock.applyAll}
                                                 </Button>
                                             </div>
                                         </div>
@@ -807,8 +809,8 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                             onClick={addMockRecord}
                                             disabled={isCalculating || mockParams.mock_data.length >= 12}
                                         >
-                                            <Plus className="w-4 h-4 mr-1"/>
-                                            添加记录
+                                            <Plus className="w-4 h-4 mr-1" />
+                                            {tr.mock.addRecord}
                                         </Button>
                                     </div>
                                 </div>
@@ -817,7 +819,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                     {mockParams.mock_data.map((record, index) => (
                                         <div key={record.id} className="flex items-end gap-2">
                                             <div className="flex-1 space-y-1">
-                                                <Label htmlFor={`year_month_${record.id}`}>年月 {index + 1}</Label>
+                                                <Label htmlFor={`year_month_${record.id}`}>{tr.results.table.yearMonth} {index + 1}</Label>
                                                 <Input
                                                     id={`year_month_${record.id}`}
                                                     type="month"
@@ -830,15 +832,15 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                                         if (e.key === 'Enter') commitMonthValue(index, record);
                                                     }}
                                                     disabled={isCalculating}
-                                                    placeholder="例如：2025-06"
+                                                    placeholder="YYYY-MM"
                                                     className={validationErrors[record.id] ? 'border-red-500' : ''}
                                                 />
                                                 {validationErrors[record.id] && (
-                                                    <p className="text-xs text-red-500">请输入有效的年月（YYYY-MM）</p>
+                                                    <p className="text-xs text-red-500">{tr.results.messages.invalidDate}</p>
                                                 )}
                                             </div>
                                             <div className="flex-1 space-y-1">
-                                                <Label htmlFor={`bill_amount_${record.id}`}>账单金额</Label>
+                                                <Label htmlFor={`bill_amount_${record.id}`}>{tr.mock.billAmount}</Label>
                                                 <Input
                                                     id={`bill_amount_${record.id}`}
                                                     type="number"
@@ -856,7 +858,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                                 disabled={isCalculating || mockParams.mock_data.length <= 1}
                                                 aria-label="删除记录"
                                             >
-                                                <Trash2 className="w-4 h-4 text-muted-foreground"/>
+                                                <Trash2 className="w-4 h-4 text-muted-foreground" />
                                             </Button>
                                         </div>
                                     ))}
@@ -875,19 +877,19 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                             )}
                             <div className="flex gap-3">
                                 <Button variant="ghost" onClick={resetParams} disabled={isCalculating}>
-                                    <RefreshCw className="w-4 h-4 mr-2"/>
-                                    重置参数
+                                    <RefreshCw className="w-4 h-4 mr-2" />
+                                    {tr.actions.reset}
                                 </Button>
                                 <Button onClick={calculateTax} disabled={!canCalculate}>
                                     {isCalculating ? (
                                         <>
-                                            <Loader2 className="w-4 h-4 mr-2 animate-spin"/>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                                             计算中...
                                         </>
                                     ) : (
                                         <>
-                                            <CheckCircle className="w-4 h-4 mr-2"/>
-                                            开始计算
+                                            <CheckCircle className="w-4 h-4 mr-2" />
+                                            {tr.actions.calculate}
                                         </>
                                     )}
                                 </Button>
@@ -899,9 +901,9 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                 {/* Results */}
                 <Card>
                     <CardHeader>
-                        <CardTitle>计算结果</CardTitle>
+                        <CardTitle>{tr.results.title}</CardTitle>
                         <CardDescription>
-                            {hasCalculated ? `税额总计: ${totalTax.toFixed(2)}` : '还没有结果'}
+                            {hasCalculated ? `${tr.results.total}: ${totalTax.toFixed(2)}` : tr.actions.noResult}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -910,19 +912,19 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                 <Table className="w-full">
                                     <TableHeader className="sticky top-0 bg-background z-10">
                                         <TableRow>
-                                            <TableHead>年月</TableHead>
-                                            {activeMode !== 'mock' && <TableHead>姓名</TableHead>}
-                                            <TableHead>累计减除费用</TableHead>
-                                            {/*<TableHead>累计专项扣除</TableHead>*/}
-                                            <TableHead>累计税前收入</TableHead>
-                                            <TableHead>应纳税所得额</TableHead>
-                                            <TableHead>累计应纳税额</TableHead>
-                                            <TableHead>税率</TableHead>
-                                            <TableHead>税前</TableHead>
-                                            <TableHead>税后</TableHead>
-                                            <TableHead>当月税额</TableHead>
-                                            <TableHead>实际税负</TableHead>
-                                            <TableHead>详情</TableHead>
+                                            <TableHead>{tr.results.table.yearMonth}</TableHead>
+                                            {activeMode !== 'mock' && <TableHead>{tr.results.table.name}</TableHead>}
+                                            <TableHead>{tr.results.table.deduction}</TableHead>
+                                            {/*<TableHead>{tr.results.table.specialDeduction}</TableHead>*/}
+                                            <TableHead>{tr.results.table.preTaxIncome}</TableHead>
+                                            <TableHead>{tr.results.table.taxableIncome}</TableHead>
+                                            <TableHead>{tr.results.table.accumulatedTax}</TableHead>
+                                            <TableHead>{tr.results.table.taxRate}</TableHead>
+                                            <TableHead>{tr.results.table.preTax}</TableHead>
+                                            <TableHead>{tr.results.table.afterTax}</TableHead>
+                                            <TableHead>{tr.results.table.monthlyTax}</TableHead>
+                                            <TableHead>{tr.results.table.actualBurden}</TableHead>
+                                            <TableHead>{tr.actions.view}</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -948,7 +950,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                                         size="sm"
                                                         onClick={() => openDetailDialog(item.calculation_steps, item.year_month)}
                                                     >
-                                                        查看
+                                                        {tr.actions.view}
                                                     </Button>
                                                 </TableCell>
                                             </TableRow>
@@ -958,13 +960,13 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                 {/* 分页控件 */}
                                 <div className="flex items-center justify-between mt-4">
                                     <div className="flex items-center gap-2">
-                                        <span>每页显示:</span>
+                                        <span>{tr.actions.rowsPerPage}</span>
                                         <Select value={String(pageSize)} onValueChange={(v) => {
                                             setPageSize(Number(v));
                                             setCurrentPage(1);
                                         }}>
                                             <SelectTrigger className="w-[100px]">
-                                                <SelectValue/>
+                                                <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {[12, 50, 100, 500, 1000].map(size => (
@@ -982,7 +984,7 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                             disabled={currentPage === 1}
                                             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                                         >
-                                            上一页
+                                            {t.common.prev}
                                         </Button>
                                         <span>
                                             {currentPage} / {totalPages || 1}
@@ -993,18 +995,18 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                                             disabled={currentPage === totalPages || totalPages === 0}
                                             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                         >
-                                            下一页
+                                            {t.common.next}
                                         </Button>
                                         <div className="flex items-center gap-2 ml-4">
                                             <Input
                                                 type="number"
                                                 value={jumpPageInput}
                                                 onChange={e => setJumpPageInput(e.target.value)}
-                                                placeholder="页码"
+                                                placeholder={tr.actions.page}
                                                 className="w-20"
                                             />
                                             <Button size="sm" onClick={handleJumpPage}>
-                                                跳转
+                                                {tr.actions.jump}
                                             </Button>
                                         </div>
                                     </div>
@@ -1012,9 +1014,9 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                             </div>
                         ) : (
                             <div className="flex flex-col items-center justify-center py-12 text-center">
-                                <Info className="h-12 w-12 text-muted-foreground mb-4"/>
-                                <h3 className="text-lg font-medium mb-2">尚未计算</h3>
-                                <p className="text-muted-foreground max-w-md">提交参数后即可查看税额明细和计算记录。</p>
+                                <Info className="h-12 w-12 text-muted-foreground mb-4" />
+                                <h3 className="text-lg font-medium mb-2">{tr.actions.noResult}</h3>
+                                <p className="text-muted-foreground max-w-md">{tr.description}</p>
                             </div>
                         )}
                     </CardContent>
@@ -1026,16 +1028,16 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                         <CardContent>
                             <div className="flex items-center justify-between">
                                 <p className="text-sm text-muted-foreground">
-                                    总税额：<span className="text-primary font-medium">{totalTax.toFixed(2)}</span>
+                                    {tr.results.total}：<span className="text-primary font-medium">{totalTax.toFixed(2)}</span>
                                 </p>
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => exportToCSV(results, totalTax, activeMode === 'mock')}
+                                    onClick={() => exportToCSV(results, totalTax, activeMode === 'mock', tr)}
                                     disabled={!hasCalculated}
                                 >
-                                    <Download className="w-4 h-4 mr-1"/>
-                                    导出结果
+                                    <Download className="w-4 h-4 mr-1" />
+                                    {tr.results.export}
                                 </Button>
                             </div>
                         </CardContent>
@@ -1046,11 +1048,11 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
             {/* Calculation Detail Dialog */}
             <Dialog
                 open={currentDetail.visible}
-                onOpenChange={open => setCurrentDetail(prev => ({...prev, visible: open}))}
+                onOpenChange={open => setCurrentDetail(prev => ({ ...prev, visible: open }))}
             >
                 <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>{currentDetail.month} 税额计算详情</DialogTitle>
+                        <DialogTitle>{currentDetail.month} {tr.results.title}</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-2 mt-4">
                         {currentDetail.steps.map((step, index) => (
@@ -1062,8 +1064,8 @@ export default function TaxCalculationScript({onBack}: { onBack: () => void }) {
                     </div>
                     <DialogFooter className="mt-4">
                         <Button onClick={closeDetailDialog}>
-                            <X className="w-4 h-4 mr-2"/>
-                            关闭
+                            <X className="w-4 h-4 mr-2" />
+                            {tr.actions.close}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

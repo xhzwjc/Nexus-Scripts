@@ -10,7 +10,6 @@ import {
     Settings,
     Play,
     Lock,
-    AlertCircle,
     Loader2,
     Cloud,
     Server,
@@ -82,13 +81,13 @@ export default function App() {
 
 /* ============== 应用内容 ============== */
 function AppContent() {
-    const { t } = useI18n();
+    const { t, language } = useI18n();
     const [currentView, setCurrentView] = useState<ViewType>('home');
     const [selectedSystem, setSelectedSystem] = useState<string>('');
     const [selectedScript, setSelectedScript] = useState<string>('');
     const [userKey, setUserKey] = useState('');
     const [currentUser, setCurrentUser] = useState<User | null>(null);
-    const [errorMessage, setErrorMessage] = useState('');
+
     const [systems, setSystems] = useState<Record<string, SystemConfig>>(allScripts);
     const [isLoading, setIsLoading] = useState(true);
     const [isVerifying, setIsVerifying] = useState(false);
@@ -147,13 +146,13 @@ function AppContent() {
         const results: { id: string; name: string; desc: string; type: 'cm' | 'hs' }[] = [];
 
         if ('cm核心业务系统'.includes(query) || 'cm'.includes(query) || '核心'.includes(query) || '业务'.includes(query)) {
-            results.push({ id: 'chunmiao', name: 'CM 核心业务系统', desc: '包含结算、佣金验证、自动化任务调度等核心脚本', type: 'cm' });
+            results.push({ id: 'chunmiao', name: t.home.search.cm.name, desc: t.home.search.cm.desc, type: 'cm' });
         }
         if ('hs辅助系统'.includes(query) || 'hs'.includes(query) || '辅助'.includes(query)) {
-            results.push({ id: 'haoshi', name: 'HS 辅助系统', desc: '新一代数据看板与辅助工具集', type: 'hs' });
+            results.push({ id: 'haoshi', name: t.home.search.hs.name, desc: t.home.search.hs.desc, type: 'hs' });
         }
         return results;
-    }, [homeSearchQuery]);
+    }, [homeSearchQuery, t]);
 
     // 时钟
     useEffect(() => {
@@ -187,7 +186,7 @@ function AppContent() {
             window.removeEventListener('click', updateActivity);
             clearInterval(checkLock);
         };
-    }, [currentUser, isLocked, AUTO_LOCK_MS]);
+    }, [currentUser, isLocked, AUTO_LOCK_MS, t.lock.autoLockMessage]);
 
     // 手动锁屏
     const handleLock = () => {
@@ -231,7 +230,9 @@ function AppContent() {
         }
         if (!background) setWeatherRefreshing(true);
         try {
-            const res = await fetch(`https://${apiHost}/v7/weather/now?location=101010100&lang=zh`, { headers: { "X-QW-Api-Key": apiKey } });
+            // 根据当前语言设置API语言参数
+            const apiLang = language === 'en-US' ? 'en' : 'zh';
+            const res = await fetch(`https://${apiHost}/v7/weather/now?location=101010100&lang=${apiLang}`, { headers: { "X-QW-Api-Key": apiKey } });
             const data = await res.json();
             if (data.code !== "200") throw new Error(data.code);
             const parsed = {
@@ -247,12 +248,12 @@ function AppContent() {
             setWeather(prev => prev.data ? { ...prev, loading: false, error: 'err' } : {
                 loading: false,
                 error: 'err',
-                data: { temp: 25, desc: "晴", wind: 10, humidity: 50, code: "100" }
+                data: { temp: 25, desc: language === 'en-US' ? "Sunny" : "晴", wind: 10, humidity: 50, code: "100" }
             });
         } finally {
             if (!background) setWeatherRefreshing(false);
         }
-    }, []);
+    }, [language]);
 
     // 天气初始化
     useEffect(() => {
@@ -271,6 +272,15 @@ function AppContent() {
         const i = setInterval(() => refreshWeather({ background: true }), WEATHER_TTL);
         return () => clearInterval(i);
     }, [refreshWeather]);
+
+    // 语言切换时刷新天气（以获取对应语言的天气描述）
+    const prevLanguageRef = useRef(language);
+    useEffect(() => {
+        if (prevLanguageRef.current !== language) {
+            prevLanguageRef.current = language;
+            refreshWeather({ background: true });
+        }
+    }, [language, refreshWeather]);
 
     // 认证初始化
     useEffect(() => {
@@ -343,11 +353,58 @@ function AppContent() {
     };
 
     const system = systems[selectedSystem as keyof typeof systems];
-    const scripts = system?.scripts ?? [];
+    const scripts = useMemo(() => system?.scripts ?? [], [system]);
+
+    // Helper functions for translated system/script names
+    const scriptIdToKey: Record<string, keyof typeof t.scriptConfig.items> = {
+        'settlement': 'settlement',
+        'commission': 'commission',
+        'balance': 'balance',
+        'task-automation': 'taskAutomation',
+        'sms_operations_center': 'smsOperationsCenter',
+        'tax-reporting': 'taxReporting',
+        'tax-calculation': 'taxCalculation',
+        'payment-stats': 'paymentStats',
+        'delivery-tool': 'deliveryTool',
+    };
+
+    const getSystemName = (systemId: string): string => {
+        if (systemId === 'chunmiao') return t.scriptConfig.systems.chunmiao.name;
+        if (systemId === 'haoshi') return t.scriptConfig.systems.haoshi.name;
+        return systemId;
+    };
+
+    const getSystemDesc = (systemId: string): string => {
+        if (systemId === 'chunmiao') return t.scriptConfig.systems.chunmiao.description;
+        if (systemId === 'haoshi') return t.scriptConfig.systems.haoshi.description;
+        return '';
+    };
+
+    const getScriptName = (scriptId: string): string => {
+        const key = scriptIdToKey[scriptId];
+        if (key && t.scriptConfig.items[key]) {
+            return t.scriptConfig.items[key].name;
+        }
+        return scriptId;
+    };
+
+    const getScriptDesc = (scriptId: string): string => {
+        const key = scriptIdToKey[scriptId];
+        if (key && t.scriptConfig.items[key]) {
+            return t.scriptConfig.items[key].description;
+        }
+        return '';
+    };
+
     const filteredScripts = useMemo(() => {
         if (!system || !scriptQuery.trim()) return scripts;
-        return scripts.filter(s => `${s.name} ${s.description}`.toLowerCase().includes(scriptQuery.trim().toLowerCase()));
-    }, [system, scripts, scriptQuery]);
+        return scripts.filter(s => {
+            const name = getScriptName(s.id);
+            const desc = getScriptDesc(s.id);
+            return `${name} ${desc}`.toLowerCase().includes(scriptQuery.trim().toLowerCase());
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [system, scripts, scriptQuery, t.scriptConfig]);
 
     const totalScripts = useMemo(() => (
         Object.values(systems).reduce((total, sys) => total + sys.scripts.length, 0)
@@ -408,11 +465,7 @@ function AppContent() {
                         <CardDescription>{t.auth.description}</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        {errorMessage &&
-                            <div className="flex items-center gap-2 p-3 bg-red-50 text-red-600 rounded-md">
-                                <AlertCircle className="w-4 h-4" /><span>{errorMessage}</span>
-                            </div>
-                        }
+
                         <Input
                             type="password"
                             placeholder={t.auth.keyPlaceholder}
@@ -444,7 +497,7 @@ function AppContent() {
                 {/* 问候语 */}
                 <div className="mb-10">
                     <h1 className="text-3xl font-bold text-slate-800 tracking-tight mb-2">
-                        {timeGreeting}, {currentUser?.name}。
+                        {timeGreeting}, {currentUser?.name}.
                     </h1>
                     <p className="text-slate-500 text-base">
                         {t.home.systemNormal}
@@ -560,7 +613,7 @@ function AppContent() {
                     {/* 左侧：系统卡片 */}
                     <div className="flex-[3] grid grid-cols-2 gap-6">
                         {/* CM 核心业务系统 */}
-                        <div className="system-card p-6 cursor-pointer flex flex-col h-[250px]" onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}>
+                        <div className="system-card p-6 cursor-pointer flex flex-col h-[280px]" onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}>
                             <div className="flex justify-between items-start mb-4">
                                 <div className="w-12 h-12 bg-teal-50 rounded-xl flex items-center justify-center">
                                     <Settings className="w-6 h-6 text-teal-600" />
@@ -571,8 +624,8 @@ function AppContent() {
                                 </Badge>
                             </div>
                             <h3 className="text-xl font-bold text-slate-800 mb-2">{t.home.cmSystem.title}</h3>
-                            <p className="text-slate-500 text-sm mb-4 leading-relaxed flex-1 overflow-hidden">
-                                {t.home.cmSystem.description} ({systems['chunmiao'].scripts.length})
+                            <p className="text-slate-500 text-sm mb-4 leading-relaxed flex-1 overflow-hidden line-clamp-3">
+                                {t.home.cmSystem.description.replace('{count}', String(systems['chunmiao'].scripts.length))}
                             </p>
                             <button className="btn-teal-gradient w-full mt-auto">
                                 {t.home.cmSystem.enterButton}
@@ -582,7 +635,7 @@ function AppContent() {
 
                         {/* 开发者工具箱 (权限控制) */}
                         {currentUser?.permissions['dev-tools'] && (
-                            <div className="system-card p-6 cursor-pointer flex flex-col h-[250px]" onClick={() => setCurrentView('dev-tools')}>
+                            <div className="system-card p-6 cursor-pointer flex flex-col h-[280px]" onClick={() => setCurrentView('dev-tools')}>
                                 <div className="flex justify-between items-start mb-4">
                                     <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
                                         <Terminal className="w-6 h-6 text-blue-600" />
@@ -604,7 +657,7 @@ function AppContent() {
                         )}
 
                         {/* HS 辅助系统 */}
-                        <div className="system-card p-6 flex flex-col h-[250px]">
+                        <div className="system-card p-6 flex flex-col h-[280px]">
                             <div className="flex justify-between items-start mb-4">
                                 <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
                                     <Cloud className="w-6 h-6 text-slate-500" />
@@ -660,12 +713,12 @@ function AppContent() {
                         >
                             <ArrowLeft className="h-5 w-5" />
                         </Button>
-                        <h1 className="text-2xl font-bold">{system?.name}</h1>
+                        <h1 className="text-2xl font-bold">{getSystemName(selectedSystem)}</h1>
                         <Badge variant="outline" className="bg-white/50">
                             {filteredScripts.length} / {scripts.length}{t.system.scriptsCount}
                         </Badge>
                     </div>
-                    <p className="text-muted-foreground">{system?.description}</p>
+                    <p className="text-muted-foreground">{getSystemDesc(selectedSystem)}</p>
                 </div>
 
                 <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -703,7 +756,7 @@ function AppContent() {
                                             {script.icon}
                                         </div>
                                         <div>
-                                            <CardTitle className="text-lg">{script.name}</CardTitle>
+                                            <CardTitle className="text-lg">{getScriptName(script.id)}</CardTitle>
                                             <Badge className={`mt-2 border ${getStatusColor(script.status)}`}>
                                                 {script.status}
                                             </Badge>
@@ -713,7 +766,7 @@ function AppContent() {
                             </CardHeader>
                             <CardContent>
                                 <CardDescription className="mb-4 min-h-[40px]">
-                                    {script.description}
+                                    {getScriptDesc(script.id)}
                                 </CardDescription>
                                 <Button
                                     className="w-full"

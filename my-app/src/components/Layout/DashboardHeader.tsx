@@ -153,7 +153,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
 
                 <div className="user-profile">
                     <div className="text-right">
-                        <p className="text-xs text-slate-400 leading-none">DELL LAWYER</p>
+                        <p className="text-xs text-slate-400 leading-none">{t.header.organization}</p>
                         <p className="text-sm font-medium text-slate-700">{currentUser?.name} <span className="text-teal-600 text-xs ml-1">{t.header.online}</span></p>
                     </div>
                     <div className="user-avatar">

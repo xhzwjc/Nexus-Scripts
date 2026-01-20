@@ -5,12 +5,15 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { ACCESS_KEYS } from '@/lib/team-resources-data';
 import { toast } from 'sonner';
+import { useI18n } from '@/lib/i18n';
 
 interface ResourceLockProps {
     onUnlock: (isAdmin: boolean) => void;
 }
 
 export function ResourceLock({ onUnlock }: ResourceLockProps) {
+    const { t } = useI18n();
+    const tr = t.teamResources;
     const [key, setKey] = useState('');
     const [error, setError] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -23,13 +26,13 @@ export function ResourceLock({ onUnlock }: ResourceLockProps) {
         // 验证密钥
         setTimeout(() => {
             if (ACCESS_KEYS.includes(key)) {
-                toast.success('验证通过');
+                toast.success(tr.verifySuccess);
                 // wjc 是管理员密钥
                 const isAdmin = key === 'wjc';
                 onUnlock(isAdmin);
             } else {
                 setError(true);
-                toast.error('访问密钥无效');
+                toast.error(tr.invalidKey);
             }
             setLoading(false);
         }, 300);
@@ -52,9 +55,9 @@ export function ResourceLock({ onUnlock }: ResourceLockProps) {
                     </div>
 
                     <div className="text-center space-y-2">
-                        <h2 className="text-2xl font-bold text-slate-800">团队资源已锁定</h2>
+                        <h2 className="text-2xl font-bold text-slate-800">{tr.title}</h2>
                         <p className="text-slate-500 text-sm">
-                            请输入管理员提供的访问密钥以查看团队资源。
+                            {tr.lockDescription}
                         </p>
                     </div>
 
@@ -62,7 +65,7 @@ export function ResourceLock({ onUnlock }: ResourceLockProps) {
                         <div className="relative">
                             <Input
                                 type="password"
-                                placeholder="请输入访问密钥..."
+                                placeholder={tr.keyPlaceholder}
                                 value={key}
                                 onChange={(e) => { setKey(e.target.value); setError(false); }}
                                 onKeyDown={handleKeyDown}
@@ -77,7 +80,7 @@ export function ResourceLock({ onUnlock }: ResourceLockProps) {
                             onClick={handleUnlock}
                             disabled={loading || !key}
                         >
-                            {loading ? '验证中...' : '解锁资源'}
+                            {loading ? tr.verifying : tr.unlock}
                             {!loading && <ArrowRight className="w-4 h-4 ml-2" />}
                         </Button>
                     </div>

@@ -11,6 +11,7 @@ import {
     ChevronDown,
     ChevronUp
 } from 'lucide-react';
+import { useI18n } from '@/lib/i18n';
 
 // ==================== 可配置常量 ====================
 // 检测超时时间（毫秒），超过此时间视为异常中断
@@ -60,6 +61,8 @@ const DEFAULT_STATE: HealthCheckState = {
 };
 
 export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, onHealthChange }: HeaderHealthIndicatorProps) {
+    const { t } = useI18n();
+    const tr = t.headerHealth;
     const [state, setState] = useState<HealthCheckState>(DEFAULT_STATE);
     const [groups, setGroups] = useState<ResourceGroup[]>([]);
     const [expanded, setExpanded] = useState(false);
@@ -452,7 +455,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
             <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 rounded-full border border-blue-200">
                 <RefreshCw className="w-3.5 h-3.5 text-blue-500 animate-spin" />
                 <span className="text-xs text-blue-700">
-                    检测中 {state.checkedEnvs}/{state.totalEnvs}
+                    {tr.checking} {state.checkedEnvs}/{state.totalEnvs}
                 </span>
             </div>
         );
@@ -464,10 +467,10 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
             <button
                 className="flex items-center gap-2 px-3 py-1.5 bg-yellow-50 rounded-full border border-yellow-200 hover:bg-yellow-100 transition-colors"
                 onClick={runHealthCheck}
-                title="检测超时或出错，点击重试"
+                title={tr.retryTooltip}
             >
                 <ShieldAlert className="w-3.5 h-3.5 text-yellow-600" />
-                <span className="text-xs text-yellow-700">检测失败</span>
+                <span className="text-xs text-yellow-700">{tr.checkFailed}</span>
                 <RefreshCw className="w-3 h-3 text-yellow-600" />
             </button>
         );
@@ -491,7 +494,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                     )}
                     <span className={`text-xs font-medium ${expiredCount > 0 ? 'text-red-700' : 'text-yellow-700'
                         }`}>
-                        {state.issues.length}个问题
+                        {state.issues.length}{tr.issues}
                     </span>
                     {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </button>
@@ -500,7 +503,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                 {expanded && (
                     <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-[400px] overflow-y-auto">
                         <div className="p-3 border-b border-slate-100 flex items-center justify-between">
-                            <span className="text-sm font-medium text-slate-700">证书健康问题</span>
+                            <span className="text-sm font-medium text-slate-700">{tr.certIssues}</span>
                             <button
                                 className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
                                 onClick={(e) => {
@@ -510,7 +513,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                                 }}
                             >
                                 <RefreshCw className="w-3 h-3" />
-                                重新检测
+                                {tr.recheck}
                             </button>
                         </div>
                         <div className="p-2 space-y-1.5">
@@ -536,9 +539,9 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                                         issue.daysRemaining !== undefined && issue.daysRemaining <= 0 ? 'text-red-600' :
                                             'text-yellow-600'
                                         }`}>
-                                        {!issue.accessible ? '不可访问' :
-                                            issue.daysRemaining !== undefined && issue.daysRemaining <= 0 ? '已过期' :
-                                                `${issue.daysRemaining}天`}
+                                        {!issue.accessible ? tr.inaccessible :
+                                            issue.daysRemaining !== undefined && issue.daysRemaining <= 0 ? tr.expired :
+                                                `${issue.daysRemaining}${tr.days}`}
                                     </span>
                                 </div>
                             ))}

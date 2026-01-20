@@ -1,6 +1,6 @@
-import React, {useState, useEffect, useMemo, useCallback} from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import {toast} from 'sonner';
+import { toast } from 'sonner';
 import {
     Search,
     Download,
@@ -13,19 +13,20 @@ import {
 } from 'lucide-react';
 
 // UI组件
-import {Button} from './ui/button';
-import {Card, CardContent, CardHeader, CardTitle, CardDescription} from './ui/card';
-import {Input} from './ui/input';
-import {Label} from './ui/label';
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/select';
-import {Badge} from './ui/badge';
-import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from './ui/table';
-import {Tabs, TabsContent, TabsList, TabsTrigger} from './ui/tabs';
-import {Checkbox} from './ui/checkbox';
-import {Separator} from './ui/separator';
-import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from './ui/tooltip';
-import {Skeleton} from './ui/skeleton';
-import {getApiBaseUrl} from '../lib/api';
+import { Button } from './ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Badge } from './ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Checkbox } from './ui/checkbox';
+import { Separator } from './ui/separator';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { Skeleton } from './ui/skeleton';
+import { getApiBaseUrl } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 
 // 定义接口响应类型
 interface ApiResponse<T = unknown> {
@@ -103,17 +104,17 @@ interface TaxReportManagementProps {
 // 骨架屏行组件
 const SkeletonRow = () => (
     <TableRow>
-        <TableCell className="w-[80px]"><Skeleton className="h-5"/></TableCell>
-        <TableCell><Skeleton className="h-5"/></TableCell>
-        <TableCell><Skeleton className="h-5"/></TableCell>
-        <TableCell><Skeleton className="h-5"/></TableCell>
-        <TableCell><Skeleton className="h-5"/></TableCell>
-        <TableCell><Skeleton className="h-5"/></TableCell>
-        <TableCell><Skeleton className="h-5"/></TableCell>
-        <TableCell><Skeleton className="h-5"/></TableCell>
-        <TableCell><Skeleton className="h-5"/></TableCell>
-        <TableCell><Skeleton className="h-5"/></TableCell>
-        <TableCell><Skeleton className="h-5"/></TableCell>
+        <TableCell className="w-[80px]"><Skeleton className="h-5" /></TableCell>
+        <TableCell><Skeleton className="h-5" /></TableCell>
+        <TableCell><Skeleton className="h-5" /></TableCell>
+        <TableCell><Skeleton className="h-5" /></TableCell>
+        <TableCell><Skeleton className="h-5" /></TableCell>
+        <TableCell><Skeleton className="h-5" /></TableCell>
+        <TableCell><Skeleton className="h-5" /></TableCell>
+        <TableCell><Skeleton className="h-5" /></TableCell>
+        <TableCell><Skeleton className="h-5" /></TableCell>
+        <TableCell><Skeleton className="h-5" /></TableCell>
+        <TableCell><Skeleton className="h-5" /></TableCell>
     </TableRow>
 );
 
@@ -142,7 +143,6 @@ const getFilenameFromDisposition = (cd?: string, fallback = 'report.xlsx') => {
         // filename*=
         const fnStarMatch = cd.match(/filename\*\s*=\s*([^']+)''([^;]+)/i);
         if (fnStarMatch && fnStarMatch[2]) {
-            const enc = fnStarMatch[1];
             const raw = fnStarMatch[2];
             try {
                 // RFC5987 编码（通常是 UTF-8'')
@@ -166,7 +166,10 @@ const getFilenameFromDisposition = (cd?: string, fallback = 'report.xlsx') => {
     return fallback;
 };
 
-export default function TaxReportManagement({onBack}: TaxReportManagementProps) {
+export default function TaxReportManagement({ onBack }: TaxReportManagementProps) {
+    const { t } = useI18n();
+    const tr = t.scripts.taxReport;
+
     // 环境和基础状态
     const [environment, setEnvironment] = useState('prod');
     const [activeTab, setActiveTab] = useState('query');
@@ -187,7 +190,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
     const [taxData, setTaxData] = useState<TaxData[]>([]);
     const [yearMonth, setYearMonth] = useState('');
     const [amountType, setAmountType] = useState<AmountType>(1);
-    const [amountDetails, setAmountDetails] = useState<AmountDetails>({grandTotal: 0, breakdown: []});
+    const [amountDetails, setAmountDetails] = useState<AmountDetails>({ grandTotal: 0, breakdown: [] });
     const [platformCompany, setPlatformCompany] = useState('');
     const [creditCode, setCreditCode] = useState('');
 
@@ -211,22 +214,22 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
         try {
             const response = await axios.get<ApiResponse<Enterprise[]>>(
                 `${base}/enterprises/list`,
-                {params: {environment}, signal}
+                { params: { environment }, signal }
             );
             if (response.data.success) {
-                setEnterprises(response.data.data as Enterprise[]);
-                toast.success(response.data.message || '企业列表已更新');
+                setEnterprises(response.data.data || []);
+                toast.success(tr.messages.enterpriseUpdateSuccess);
             } else {
-                toast.error(response.data.message || '获取企业列表失败');
+                toast.error(response.data.message || tr.messages.enterpriseUpdateFail);
             }
         } catch (err) {
             if (axios.isCancel(err)) return;
-            console.error('获取企业列表错误:', err);
-            toast.error(err instanceof Error ? err.message : '获取企业列表时发生错误，请重试');
+            console.error(tr.messages.enterpriseErrorLog, err);
+            toast.error(err instanceof Error ? err.message : tr.messages.enterpriseError);
         } finally {
             setIsFetchingEnterprises(false);
         }
-    }, [environment]);
+    }, [environment, tr.messages.enterpriseUpdateSuccess, tr.messages.enterpriseUpdateFail, tr.messages.enterpriseErrorLog, tr.messages.enterpriseError]);
 
     // 获取税务数据
     const fetchTaxData = useCallback(async () => {
@@ -234,7 +237,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
         if (!base) return;
 
         if (!yearMonth) {
-            toast.error('请选择年月');
+            toast.error(tr.messages.yearMonthRequired);
             return;
         }
 
@@ -257,28 +260,28 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                 setCurrentPage(1);
                 setPageInput('1');
                 setServicePayStatusFilter(null);
-                toast.success(response.data.message || '获取税务数据成功');
+                toast.success(tr.messages.fetchSuccess);
             } else {
-                toast.error(response.data.message || '获取税务数据失败');
+                toast.error(response.data.message || tr.messages.fetchFail);
                 setTaxData([]);
             }
         } catch (err) {
-            console.error('获取税务数据错误:', err);
-            toast.error(err instanceof Error ? err.message : '获取税务数据时发生错误，请重试');
+            console.error(tr.messages.fetchErrorLog, err);
+            toast.error(err instanceof Error ? err.message : tr.messages.fetchError);
             setTaxData([]);
         } finally {
             setIsFetchingTaxData(false);
         }
-    }, [amountType, environment, selectedEnterpriseIds, yearMonth]);
+    }, [amountType, environment, selectedEnterpriseIds, yearMonth, tr.messages.yearMonthRequired, tr.messages.fetchSuccess, tr.messages.fetchFail, tr.messages.fetchErrorLog, tr.messages.fetchError]);
 
     // 点击“下载税务报表”前的校验
     const handleGenerateReportClick = () => {
         if (!yearMonth) {
-            toast.error('请选择年月');
+            toast.error(tr.messages.yearMonthRequired);
             return;
         }
         if (filteredTaxData.length === 0) {
-            toast.error('没有查询到数据，无法生成报表');
+            toast.error(tr.messages.noDataForReport);
             return;
         }
         setShowDownloadConfirmDialog(true);
@@ -290,7 +293,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
         if (!base) return;
 
         setShowDownloadConfirmDialog(false);
-        toast.info('报表生成中，请耐心等待...');
+        toast.info(tr.messages.generating);
         setIsGenerating(true);
         try {
             const params: GenerateReportParams = {
@@ -300,14 +303,14 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                 environment,
                 timeout: 120,
                 overwrite: true,
-                ...(platformCompany && {platform_company: platformCompany}),
-                ...(creditCode && {credit_code: creditCode}),
+                ...(platformCompany && { platform_company: platformCompany }),
+                ...(creditCode && { credit_code: creditCode }),
             };
 
             const response = await axios.post(
                 `${base}/tax/report/generate`,
                 params,
-                {responseType: 'blob', timeout: (params.timeout ?? 300) * 1000}
+                { responseType: 'blob', timeout: (params.timeout ?? 300) * 1000 }
             );
 
             const cd = response.headers['content-disposition'] as string | undefined;
@@ -320,12 +323,13 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
+            window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
 
-            toast.success(`报表生成成功，已开始下载: ${fileName}`);
+            toast.success(tr.messages.generateSuccess.replace('{fileName}', fileName));
         } catch (err) {
-            console.error('生成报表错误:', err);
-            let errorMsg = '生成报表时发生错误，请重试';
+            console.error(tr.messages.generateErrorLog, err);
+            let errorMsg = tr.messages.generateError;
             if (axios.isAxiosError(err) && err.response) {
                 const respData = err.response.data;
                 if (respData instanceof Blob) {
@@ -338,7 +342,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                     }
                 } else {
                     const errorResponse = respData as ErrorResponse;
-                    errorMsg = errorResponse?.detail || `请求错误: ${err.message}`;
+                    errorMsg = errorResponse?.detail || tr.messages.requestError.replace('{error}', err.message);
                 }
             } else if (err instanceof Error) {
                 errorMsg = err.message;
@@ -347,7 +351,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
         } finally {
             setIsGenerating(false);
         }
-    }, [amountType, environment, selectedEnterpriseIds, yearMonth, platformCompany, creditCode]);
+    }, [amountType, environment, selectedEnterpriseIds, yearMonth, platformCompany, creditCode, tr.messages.generating, tr.messages.generateSuccess, tr.messages.generateErrorLog, tr.messages.generateError, tr.messages.requestError]);
 
     // 处理企业选择
     const handleEnterpriseSelect = (enterpriseId: number) => {
@@ -384,7 +388,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
         // 重置
         setSelectedEnterpriseIds([]);
         setTaxData([]);
-        setAmountDetails({grandTotal: 0, breakdown: []});
+        setAmountDetails({ grandTotal: 0, breakdown: [] });
         setSearchAttempted(false);
         setServicePayStatusFilter(null);
         setCurrentPage(1);
@@ -407,7 +411,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
     // 金额统计（基于筛选后数据）
     useEffect(() => {
         if (!filteredTaxData.length) {
-            setAmountDetails({grandTotal: 0, breakdown: []});
+            setAmountDetails({ grandTotal: 0, breakdown: [] });
             return;
         }
         const grandTotal = filteredTaxData.reduce((sum, item) => sum + Number(item['营业额_元'] || 0), 0);
@@ -417,9 +421,9 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
             breakdownMap[key] = (breakdownMap[key] || 0) + Number(item['营业额_元'] || 0);
         });
         const breakdown = Object.entries(breakdownMap)
-            .map(([key, amount]) => ({key, amount}))
+            .map(([key, amount]) => ({ key, amount }))
             .sort((a, b) => b.amount - a.amount);
-        setAmountDetails({grandTotal, breakdown});
+        setAmountDetails({ grandTotal, breakdown });
     }, [filteredTaxData]);
 
     // 计算分页
@@ -477,13 +481,13 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
     // 已选企业名称展示
     const selectedEnterpriseNames = useMemo(() => {
         if (selectedEnterpriseIds.length === 0) {
-            return '所有企业';
+            return tr.query.enterprise.selectAll;
         }
         return selectedEnterpriseIds.map(id => {
             const enterprise = enterprises.find(e => e.id === id);
-            return enterprise ? enterprise.enterprise_name : `企业ID: ${id}`;
+            return enterprise ? enterprise.enterprise_name : `${tr.query.enterprise.id}: ${id}`;
         }).join('、');
-    }, [selectedEnterpriseIds, enterprises]);
+    }, [selectedEnterpriseIds, enterprises, tr.query.enterprise.selectAll, tr.query.enterprise.id]);
 
     return (
         <div className="min-h-screen colorful-background p-6">
@@ -493,23 +497,25 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-50/80 backdrop-blur-sm">
                     <Card className="w-full max-w-lg p-6">
                         <div className="flex justify-between items-center mb-4">
-                            <CardTitle>确认下载</CardTitle>
+                            <CardTitle>{tr.dialog.title}</CardTitle>
                             <Button variant="ghost" size="icon" onClick={() => setShowDownloadConfirmDialog(false)}>
-                                <X size={20}/>
+                                <X size={20} />
                             </Button>
                         </div>
                         <p className="text-gray-700 mb-6">
-                            确定要为 <strong>{selectedEnterpriseNames}</strong> 生成 <strong>{yearMonth}</strong> 完税报表吗？此操作可能需要一段时间。
+                            {tr.dialog.content
+                                .replace('{enterprise}', selectedEnterpriseNames)
+                                .replace('{date}', yearMonth)}
                         </p>
                         <div className="flex justify-end space-x-4">
                             <Button variant="outline" onClick={() => setShowDownloadConfirmDialog(false)}>
-                                取消
+                                {tr.dialog.cancel}
                             </Button>
                             <Button onClick={handleConfirmDownload} disabled={isGenerating}>
                                 {isGenerating ? (
-                                    <><Loader2 className="mr-2 h-4 w-4 animate-spin"/>正在生成...</>
+                                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{tr.dialog.generating}</>
                                 ) : (
-                                    <><Download className="mr-2 h-4 w-4"/>确认下载</>
+                                    <><Download className="mr-2 h-4 w-4" />{tr.dialog.confirm}</>
                                 )}
                             </Button>
                         </div>
@@ -519,18 +525,18 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
 
             <div className="max-w-6xl mx-auto px-4 py-6 colorful-background">
                 <div className="flex items-center justify-between mb-6">
-                    <h1 className="text-2xl font-bold">税务报表管理</h1>
-                    <Button variant="outline" onClick={onBack}>返回</Button>
+                    <h1 className="text-2xl font-bold">{tr.title}</h1>
+                    <Button variant="outline" onClick={onBack}>{tr.back}</Button>
                 </div>
 
                 <div className="flex justify-end mb-4">
                     <div className="flex items-center space-x-2">
-                        <Label htmlFor="environment" className="whitespace-nowrap">环境:</Label>
+                        <Label htmlFor="environment" className="whitespace-nowrap">{tr.environment.label}</Label>
                         <Select value={environment} onValueChange={setEnvironment}>
-                            <SelectTrigger id="environment" className="w-[180px]"><SelectValue placeholder="选择环境"/></SelectTrigger>
+                            <SelectTrigger id="environment" className="w-[180px]"><SelectValue placeholder={tr.environment.placeholder} /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="prod">生产环境 (prod)</SelectItem>
-                                <SelectItem value="test">Beta (test)</SelectItem>
+                                <SelectItem value="prod">{tr.environment.prod}</SelectItem>
+                                <SelectItem value="test">{tr.environment.test}</SelectItem>
                             </SelectContent>
                         </Select>
                         <Button
@@ -538,32 +544,32 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                             size="icon"
                             onClick={() => fetchEnterprises(new AbortController().signal)}
                             disabled={isFetchingEnterprises}
-                            aria-label="刷新企业列表"
+                            aria-label={tr.query.enterprise.loading}
                         >
-                            <RefreshCw size={16}/>
+                            <RefreshCw size={16} />
                         </Button>
                     </div>
                 </div>
 
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                     <TabsList className="mb-6 w-full max-w-md mx-auto grid grid-cols-2">
-                        <TabsTrigger value="query" className="flex-1">获取税务数据</TabsTrigger>
-                        <TabsTrigger value="generate" className="flex-1">生成报表（请先获取税务数据）</TabsTrigger>
+                        <TabsTrigger value="query" className="flex-1">{tr.tabs.query}</TabsTrigger>
+                        <TabsTrigger value="generate" className="flex-1">{tr.tabs.generate}</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="query" className="space-y-6">
                         <Card className="shadow-sm">
                             <CardHeader className="pb-3">
-                                <CardTitle>查询条件</CardTitle>
-                                <CardDescription>设置查询参数，获取企业税务数据</CardDescription>
+                                <CardTitle>{tr.query.title}</CardTitle>
+                                <CardDescription>{tr.query.description}</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-5">
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div className="space-y-2">
-                                        <Label htmlFor="yearMonth">年月（默认上月）</Label>
+                                        <Label htmlFor="yearMonth">{tr.query.yearMonth}</Label>
                                         <div className="relative">
                                             <Calendar size={16}
-                                                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"/>
+                                                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
                                             <Input
                                                 id="yearMonth"
                                                 type="month"
@@ -574,31 +580,34 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                         </div>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="amountType">金额类型</Label>
+                                        <Label htmlFor="amountType">{tr.query.amountType.label}</Label>
                                         <Select value={amountType.toString()}
-                                                onValueChange={(val) => setAmountType(Number(val) as AmountType)}>
+                                            onValueChange={(val) => setAmountType(Number(val) as AmountType)}>
                                             <SelectTrigger id="amountType"><SelectValue
-                                                placeholder="选择金额类型"/></SelectTrigger>
+                                                placeholder={tr.query.amountType.placeholder} /></SelectTrigger>
                                             <SelectContent>
                                                 <TooltipProvider>
                                                     <Tooltip>
-                                                        <TooltipTrigger asChild><SelectItem value="1">含服务费
-                                                            (pay_amount)</SelectItem></TooltipTrigger>
-                                                        <TooltipContent className="max-w-xs z-50">指企业的总支出金额，包含服务费<br/>例：110元（100元本金+10元服务费）</TooltipContent>
+                                                        <TooltipTrigger asChild><SelectItem value="1">{tr.query.amountType.payAmount}</SelectItem></TooltipTrigger>
+                                                        <TooltipContent className="max-w-xs z-50">
+                                                            <div dangerouslySetInnerHTML={{ __html: tr.query.amountType.payAmountDesc }} />
+                                                        </TooltipContent>
                                                     </Tooltip>
                                                 </TooltipProvider>
                                                 <TooltipProvider>
                                                     <Tooltip>
-                                                        <TooltipTrigger asChild><SelectItem value="2">不含服务费
-                                                            (worker_pay_amount)</SelectItem></TooltipTrigger>
-                                                        <TooltipContent className="max-w-xs z-50">指合作者实际到手金额，扣除了服务费<br/>例：90元（100元本金-10元服务费）</TooltipContent>
+                                                        <TooltipTrigger asChild><SelectItem value="2">{tr.query.amountType.workerPayAmount}</SelectItem></TooltipTrigger>
+                                                        <TooltipContent className="max-w-xs z-50">
+                                                            <div dangerouslySetInnerHTML={{ __html: tr.query.amountType.workerPayAmountDesc }} />
+                                                        </TooltipContent>
                                                     </Tooltip>
                                                 </TooltipProvider>
                                                 <TooltipProvider>
                                                     <Tooltip>
-                                                        <TooltipTrigger asChild><SelectItem value="3">账单金额
-                                                            (bill_amount)</SelectItem></TooltipTrigger>
-                                                        <TooltipContent className="max-w-xs z-50">指原始导入和报名时的金额，未计算服务费<br/>例：100元（原始金额）</TooltipContent>
+                                                        <TooltipTrigger asChild><SelectItem value="3">{tr.query.amountType.billAmount}</SelectItem></TooltipTrigger>
+                                                        <TooltipContent className="max-w-xs z-50">
+                                                            <div dangerouslySetInnerHTML={{ __html: tr.query.amountType.billAmountDesc }} />
+                                                        </TooltipContent>
                                                     </Tooltip>
                                                 </TooltipProvider>
                                             </SelectContent>
@@ -607,28 +616,28 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                     <div className="flex items-end">
                                         <Button onClick={fetchTaxData} disabled={isFetchingTaxData} className="w-full">
                                             {isFetchingTaxData ? (
-                                                <><Loader2 size={16} className="mr-2 animate-spin"/>查询中...</>
+                                                <><Loader2 size={16} className="mr-2 animate-spin" />{tr.query.fetching}</>
                                             ) : (
-                                                <><Search size={16} className="mr-2"/>获取税务数据</>
+                                                <><Search size={16} className="mr-2" />{tr.query.fetch}</>
                                             )}
                                         </Button>
                                     </div>
                                 </div>
                                 <div className="space-y-2">
                                     <div className="flex items-center justify-between">
-                                        <Label>选择企业 (可多选，不选默认获取所有企业数据！！！)</Label>
+                                        <Label>{tr.query.enterprise.label}</Label>
                                         <Button variant="ghost" size="sm" onClick={toggleSelectAllEnterprises}
-                                                disabled={!enterprises.length}>
-                                            {selectedEnterpriseIds.length === enterprises.length ? '取消全选' : '全选'}
+                                            disabled={!enterprises.length}>
+                                            {selectedEnterpriseIds.length === enterprises.length ? tr.query.enterprise.deselectAll : tr.query.enterprise.selectAll}
                                         </Button>
                                     </div>
                                     <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
                                         {isFetchingEnterprises ? (
                                             <div className="flex justify-center py-6">
-                                                <Loader2 size={20} className="animate-spin text-gray-500"/>
+                                                <Loader2 size={20} className="animate-spin text-gray-500" />
                                             </div>
                                         ) : enterprises.length === 0 ? (
-                                            <div className="text-gray-500 text-center py-6">未获取到企业数据</div>
+                                            <div className="text-gray-500 text-center py-6">{tr.query.enterprise.empty}</div>
                                         ) : (
                                             enterprises.map(enterprise => (
                                                 <div key={enterprise.id} className="flex items-center">
@@ -638,12 +647,12 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                         onCheckedChange={() => handleEnterpriseSelect(enterprise.id)}
                                                     />
                                                     <Label htmlFor={`ent-${enterprise.id}`}
-                                                           className="ml-2 flex-1 cursor-pointer">
+                                                        className="ml-2 flex-1 cursor-pointer">
                                                         {enterprise.enterprise_name}
                                                     </Label>
                                                     <Badge
                                                         variant={[0, 2, 3, 4, 5, 7].includes(enterprise.status) ? "default" : "destructive"}>
-                                                        状态: {enterprise.status}
+                                                        {tr.query.enterprise.status}: {enterprise.status}
                                                     </Badge>
                                                 </div>
                                             ))
@@ -661,8 +670,8 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                         {/* 左侧：标题 + 筛选 */}
                                         <div className="flex items-center space-x-4">
                                             <div>
-                                                <CardTitle>税务数据列表</CardTitle>
-                                                <CardDescription>{yearMonth} 查询结果</CardDescription>
+                                                <CardTitle>{tr.list.title}</CardTitle>
+                                                <CardDescription>{yearMonth} {tr.list.resultSuffix}</CardDescription>
                                             </div>
 
                                             {/* 服务费状态筛选 */}
@@ -672,12 +681,12 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                     onValueChange={handleStatusFilterChange}
                                                 >
                                                     <SelectTrigger>
-                                                        <SelectValue placeholder="服务费状态"/>
+                                                        <SelectValue placeholder={tr.list.serviceFeeStatus.label} />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        <SelectItem value="all">全部</SelectItem>
-                                                        <SelectItem value="0">成功</SelectItem>
-                                                        <SelectItem value="1">失败</SelectItem>
+                                                        <SelectItem value="all">{tr.list.serviceFeeStatus.all}</SelectItem>
+                                                        <SelectItem value="0">{tr.list.serviceFeeStatus.success}</SelectItem>
+                                                        <SelectItem value="1">{tr.list.serviceFeeStatus.failed}</SelectItem>
                                                     </SelectContent>
                                                 </Select>
                                             </div>
@@ -689,18 +698,18 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                 <TooltipTrigger asChild>
                                                     <div
                                                         className="text-lg font-semibold text-primary cursor-pointer flex items-center">
-                                                        总金额: {formatCurrency(amountDetails.grandTotal)}
+                                                        {tr.list.totalAmount}: {formatCurrency(amountDetails.grandTotal)}
                                                         {amountDetails.breakdown.length > 1 && (
-                                                            <Info size={16} className="ml-2 text-blue-500"/>
+                                                            <Info size={16} className="ml-2 text-blue-500" />
                                                         )}
                                                     </div>
                                                 </TooltipTrigger>
                                                 <TooltipContent className="max-w-md text-white">
-                                                    <p className="font-bold mb-2 border-b pb-1">金额明细</p>
+                                                    <p className="font-bold mb-2 border-b pb-1">{tr.list.amountBreakdown}</p>
                                                     <div className="space-y-1 max-h-60 overflow-y-auto">
                                                         {amountDetails.breakdown.map((item) => (
                                                             <div key={item.key}
-                                                                 className="flex justify-between items-center text-sm">
+                                                                className="flex justify-between items-center text-sm">
                                                                 <span className="mr-4 text-gray-200">{item.key}:</span>
                                                                 <span
                                                                     className="font-mono">{formatCurrency(item.amount)}</span>
@@ -717,23 +726,23 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
-                                                    <TableHead className="w-[80px]">序号</TableHead>
-                                                    <TableHead>纳税人姓名</TableHead>
-                                                    <TableHead>证件号</TableHead>
-                                                    <TableHead>企业名称</TableHead>
-                                                    <TableHead>税地名称</TableHead>
-                                                    <TableHead>营业额(元)</TableHead>
-                                                    <TableHead>税额(元)</TableHead>
+                                                    <TableHead className="w-[80px]">{tr.table.index}</TableHead>
+                                                    <TableHead>{tr.table.name}</TableHead>
+                                                    <TableHead>{tr.table.idCard}</TableHead>
+                                                    <TableHead>{tr.table.enterprise}</TableHead>
+                                                    <TableHead>{tr.table.taxLand}</TableHead>
+                                                    <TableHead>{tr.table.turnover}</TableHead>
+                                                    <TableHead>{tr.table.tax}</TableHead>
                                                     {/*<TableHead>增值税(元)</TableHead>*/}
                                                     {/*<TableHead>个人经营所得税(元)</TableHead>*/}
-                                                    <TableHead>服务费扣除状态</TableHead>
-                                                    <TableHead>税金扣除状态</TableHead>
+                                                    <TableHead>{tr.table.serviceFeeStatus}</TableHead>
+                                                    <TableHead>{tr.table.taxStatus}</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
                                                 {isFetchingTaxData ? (
-                                                    Array.from({length: rowsPerPage}).map((_, i) => <SkeletonRow
-                                                        key={i}/>)
+                                                    Array.from({ length: rowsPerPage }).map((_, i) => <SkeletonRow
+                                                        key={i} />)
                                                 ) : currentTaxData.length > 0 ? (
                                                     currentTaxData.map((item, index) => (
                                                         <TableRow
@@ -749,18 +758,18 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                             {/*<TableCell>{formatCurrency(item['应纳个人经营所得税_元'])}</TableCell>*/}
                                                             <TableCell>
                                                                 <span
-                                                                    style={{color: item.service_pay_status === 1 ? 'red' : 'inherit'}}>
-                                                                    {item.service_pay_status === 0 ? '成功' : '失败'}
+                                                                    style={{ color: item.service_pay_status === 1 ? 'red' : 'inherit' }}>
+                                                                    {item.service_pay_status === 0 ? tr.list.serviceFeeStatus.success : tr.list.serviceFeeStatus.failed}
                                                                 </span>
                                                             </TableCell>
                                                             <TableCell>
                                                                 {Number(item.tax_amount) > 0 ? (
                                                                     <span
-                                                                        style={{color: item.tax_pay_status === 1 ? 'red' : 'inherit'}}>
-                                                                        {item.tax_pay_status === 0 ? '成功' : '失败'}
+                                                                        style={{ color: item.tax_pay_status === 1 ? 'red' : 'inherit' }}>
+                                                                        {item.tax_pay_status === 0 ? tr.list.serviceFeeStatus.success : tr.list.serviceFeeStatus.failed}
                                                                     </span>
                                                                 ) : (
-                                                                    <span style={{color: '#999'}}>无需扣税</span>
+                                                                    <span style={{ color: '#999' }}>{tr.table.noTaxRequired}</span>
                                                                 )}
                                                             </TableCell>
 
@@ -769,7 +778,7 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                 ) : (
                                                     <TableRow>
                                                         <TableCell colSpan={9} className="h-24 text-center">
-                                                            未找到数据！
+                                                            {tr.table.noData}
                                                         </TableCell>
                                                     </TableRow>
                                                 )}
@@ -780,32 +789,32 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                     {/* 仅在筛选后仍有数据时显示分页 */}
                                     {filteredTaxData.length > 0 && (
                                         <fieldset disabled={isFetchingTaxData}
-                                                  className="flex items-center justify-between pt-4">
+                                            className="flex items-center justify-between pt-4">
                                             <div className="text-sm text-muted-foreground">
-                                                共 {filteredTaxData.length} 条记录（筛选后）/ 原 {taxData.length} 条
+                                                {tr.list.summary.replace('{filtered}', String(filteredTaxData.length)).replace('{total}', String(taxData.length))}
                                             </div>
                                             <div className="flex items-center space-x-4">
                                                 <div className="flex items-center space-x-2">
-                                                    <p className="text-sm font-medium">每页行数</p>
+                                                    <p className="text-sm font-medium">{tr.list.rowsPerPage}</p>
                                                     <Select value={rowsPerPage.toString()}
-                                                            onValueChange={handleRowsPerPageChange}>
+                                                        onValueChange={handleRowsPerPageChange}>
                                                         <SelectTrigger className="h-8 w-[70px]"><SelectValue
-                                                            placeholder={rowsPerPage}/></SelectTrigger>
+                                                            placeholder={rowsPerPage} /></SelectTrigger>
                                                         <SelectContent side="top">
                                                             {[10, 20, 50, 100, 500, 1000].map((pageSize) => (
                                                                 <SelectItem key={pageSize}
-                                                                            value={`${pageSize}`}>{pageSize}</SelectItem>
+                                                                    value={`${pageSize}`}>{pageSize}</SelectItem>
                                                             ))}
                                                         </SelectContent>
                                                     </Select>
                                                 </div>
                                                 <div className="flex items-center space-x-2">
                                                     <Button variant="outline" size="sm" onClick={handlePrevPage}
-                                                            disabled={currentPage === 1}>
-                                                        上一页
+                                                        disabled={currentPage === 1}>
+                                                        {t.common.prev}
                                                     </Button>
                                                     <div className="flex items-center text-sm font-medium">
-                                                        第
+                                                        {t.common.pagination.prefix}
                                                         <Input
                                                             type="text"
                                                             className="h-8 w-12 mx-1 text-center"
@@ -813,11 +822,11 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                             onChange={handlePageInputChange}
                                                             onKeyDown={handlePageInputSubmit}
                                                         />
-                                                        页 / {totalPages}
+                                                        {t.common.pagination.suffix} {t.common.pagination.separator} {totalPages}
                                                     </div>
                                                     <Button variant="outline" size="sm" onClick={handleNextPage}
-                                                            disabled={currentPage === totalPages}>
-                                                        下一页
+                                                        disabled={currentPage === totalPages}>
+                                                        {t.common.next}
                                                     </Button>
                                                 </div>
                                             </div>
@@ -831,17 +840,17 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                     <TabsContent value="generate" className="space-y-6">
                         <Card className="shadow-sm">
                             <CardHeader className="pb-3">
-                                <CardTitle>生成税务报表</CardTitle>
-                                <CardDescription>设置报表参数，生成Excel格式的税务报表并下载</CardDescription>
+                                <CardTitle>{tr.generate.title}</CardTitle>
+                                <CardDescription>{tr.generate.description}</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-6 pt-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div className="space-y-2">
-                                        <Label htmlFor="reportYearMonth">年月 <span
+                                        <Label htmlFor="reportYearMonth">{tr.generate.yearMonth} <span
                                             className="text-red-500">*</span></Label>
                                         <div className="relative">
                                             <Calendar size={16}
-                                                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"/>
+                                                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
                                             <Input
                                                 id="reportYearMonth"
                                                 type="month"
@@ -852,85 +861,88 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                         </div>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="reportAmountType">金额类型</Label>
+                                        <Label htmlFor="reportAmountType">{tr.generate.amountType}</Label>
                                         <Select value={amountType.toString()}
-                                                onValueChange={(val) => setAmountType(Number(val) as AmountType)}>
+                                            onValueChange={(val) => setAmountType(Number(val) as AmountType)}>
                                             <SelectTrigger id="reportAmountType"><SelectValue
-                                                placeholder="选择金额类型"/></SelectTrigger>
+                                                placeholder={tr.generate.amountTypePlaceholder} /></SelectTrigger>
                                             <SelectContent>
                                                 <TooltipProvider>
                                                     <Tooltip>
-                                                        <TooltipTrigger asChild><SelectItem value="1">含服务费
-                                                            (pay_amount)</SelectItem></TooltipTrigger>
-                                                        <TooltipContent className="max-w-xs z-50">指企业的总支出金额，包含服务费<br/>例：110元（100元本金+10元服务费）</TooltipContent>
+                                                        <TooltipTrigger asChild><SelectItem value="1">{tr.generate.amountTypes.payAmount}</SelectItem></TooltipTrigger>
+                                                        <TooltipContent className="max-w-xs z-50">
+                                                            <div dangerouslySetInnerHTML={{ __html: tr.generate.amountTypes.payAmountDesc }} />
+                                                        </TooltipContent>
                                                     </Tooltip>
                                                 </TooltipProvider>
                                                 <TooltipProvider>
                                                     <Tooltip>
-                                                        <TooltipTrigger asChild><SelectItem value="2">不含服务费
-                                                            (worker_pay_amount)</SelectItem></TooltipTrigger>
-                                                        <TooltipContent className="max-w-xs z-50">指合作者实际到手金额，扣除了服务费<br/>例：90元（100元本金-10元服务费）</TooltipContent>
+                                                        <TooltipTrigger asChild><SelectItem value="2">{tr.generate.amountTypes.workerPayAmount}</SelectItem></TooltipTrigger>
+                                                        <TooltipContent className="max-w-xs z-50">
+                                                            <div dangerouslySetInnerHTML={{ __html: tr.generate.amountTypes.workerPayAmountDesc }} />
+                                                        </TooltipContent>
                                                     </Tooltip>
                                                 </TooltipProvider>
                                                 <TooltipProvider>
                                                     <Tooltip>
-                                                        <TooltipTrigger asChild><SelectItem value="3">账单金额
-                                                            (bill_amount)</SelectItem></TooltipTrigger>
-                                                        <TooltipContent className="max-w-xs z-50">指原始导入和报名时的金额，未计算服务费<br/>例：100元（原始金额）</TooltipContent>
+                                                        <TooltipTrigger asChild><SelectItem value="3">{tr.generate.amountTypes.billAmount}</SelectItem></TooltipTrigger>
+                                                        <TooltipContent className="max-w-xs z-50">
+                                                            <div dangerouslySetInnerHTML={{ __html: tr.generate.amountTypes.billAmountDesc }} />
+                                                        </TooltipContent>
                                                     </Tooltip>
                                                 </TooltipProvider>
                                             </SelectContent>
                                         </Select>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="platformCompany">平台企业名称 (可选)</Label>
+                                        <Label htmlFor="platformCompany">{tr.generate.platformCompany}</Label>
                                         <Input
                                             id="platformCompany"
                                             value={platformCompany}
                                             onChange={(e) => setPlatformCompany(e.target.value)}
-                                            placeholder="云策企服（驻马店）人力资源服务有限公司（可修改）"
+                                            placeholder={tr.generate.platformCompanyPlaceholder}
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="creditCode">社会统一信用代码 (可选)</Label>
+                                        <Label htmlFor="creditCode">{tr.generate.creditCode}</Label>
                                         <Input
                                             id="creditCode"
                                             value={creditCode}
                                             onChange={(e) => setCreditCode(e.target.value)}
-                                            placeholder="91411700MAEFDQ7P7T（可修改）"
+                                            placeholder={tr.generate.creditCodePlaceholder}
                                         />
                                     </div>
                                 </div>
 
-                                <Separator/>
+                                <Separator />
                                 <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded">
-                                    <p className="font-bold">即将生成报表预览：</p>
+                                    <p className="font-bold">{tr.generate.preview.title}</p>
                                     <p className="mt-1 text-sm">
-                                        年月: <span className="font-semibold">{yearMonth || "未选择"}</span>
+                                        {tr.generate.preview.yearMonth} <span className="font-semibold">{yearMonth || t.common.notSelected}</span>
                                     </p>
                                     <p className="text-sm">
-                                        企业: <span className="font-semibold">{selectedEnterpriseNames}</span>
+                                        {tr.generate.preview.enterprise} <span className="font-semibold">{selectedEnterpriseNames}</span>
                                     </p>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label>已选择的企业</Label>
+                                    <Label>{tr.generate.preview.selected}</Label>
                                     <div className="border rounded-md p-3 min-h-[100px]">
                                         {selectedEnterpriseIds.length === 0 ? (
                                             <div
-                                                className="text-gray-500 italic">未选择任何企业，将为所有企业生成报表</div>
+                                                className="text-gray-500 italic">{tr.generate.preview.noSelection}</div>
                                         ) : (
                                             <div className="flex flex-wrap gap-2">
                                                 {selectedEnterpriseIds.map(entId => {
                                                     const enterprise = enterprises.find(e => e.id === entId);
                                                     return (
                                                         <Badge key={entId} variant="secondary"
-                                                               className="flex items-center gap-1">
-                                                            {enterprise?.enterprise_name || `企业ID: ${entId}`}
+                                                            className="flex items-center gap-1">
+                                                            {enterprise?.enterprise_name || `${tr.generate.preview.id} ${entId}`}
                                                             <button
                                                                 onClick={() => handleEnterpriseSelect(entId)}
                                                                 className="ml-1 rounded-full hover:bg-white hover:bg-opacity-20 p-0.5"
-                                                                aria-label="移除企业"
+                                                                aria-label={tr.generate.preview.remove}
                                                             >
                                                                 ×
                                                             </button>
@@ -938,8 +950,8 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                                     );
                                                 })}
                                                 <Button variant="ghost" size="sm"
-                                                        onClick={() => setSelectedEnterpriseIds([])} className="mt-2">
-                                                    清除选择
+                                                    onClick={() => setSelectedEnterpriseIds([])} className="mt-2">
+                                                    {tr.generate.preview.clear}
                                                 </Button>
                                             </div>
                                         )}
@@ -952,20 +964,20 @@ export default function TaxReportManagement({onBack}: TaxReportManagementProps) 
                                         disabled={isGenerating || filteredTaxData.length === 0}
                                         className="mt-4"
                                     >
-                                        <Download className="mr-2 h-4 w-4"/>下载税务报表
+                                        <Download className="mr-2 h-4 w-4" />{tr.generate.download}
                                     </Button>
                                 </div>
 
                                 <div
                                     className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex items-start mt-4">
-                                    <FileText size={18} className="mr-2 mt-0.5 flex-shrink-0"/>
+                                    <FileText size={18} className="mr-2 mt-0.5 flex-shrink-0" />
                                     <div>
-                                        <p className="font-medium">报表生成说明</p>
+                                        <p className="font-medium">{tr.generate.instructions.title}</p>
                                         <ul className="list-disc pl-5 mt-1 space-y-1 text-sm">
-                                            <li>生成报表可能需要几秒钟到几分钟，请耐心等待</li>
-                                            <li>文件将自动下载到浏览器默认下载路径</li>
-                                            <li>下载完成后可在浏览器右上角查看下载记录</li>
-                                            <li>如果选择多个企业，将在一个Excel文件中生成多个工作表</li>
+                                            <li>{tr.generate.instructions.items.time}</li>
+                                            <li>{tr.generate.instructions.items.location}</li>
+                                            <li>{tr.generate.instructions.items.history}</li>
+                                            <li>{tr.generate.instructions.items.sheets}</li>
                                         </ul>
                                     </div>
                                 </div>

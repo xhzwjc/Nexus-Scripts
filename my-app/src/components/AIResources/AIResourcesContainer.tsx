@@ -6,6 +6,7 @@ import { Search, Settings, ArrowLeft, X, Download, ChevronRight } from 'lucide-r
 import { AIResource, AIResourcesData, INITIAL_AI_RESOURCES } from '@/lib/ai-resources-data';
 import { AIResourceEditor } from '@/components/AIResources/AIResourceEditor';
 import { toast } from 'sonner';
+import { useI18n } from '@/lib/i18n';
 
 interface AIResourcesContainerProps {
     onBack: () => void;
@@ -13,6 +14,8 @@ interface AIResourcesContainerProps {
 }
 
 export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesContainerProps) {
+    const { t } = useI18n();
+    const tr = t.aiResources;
     const [data, setData] = useState<AIResourcesData>(INITIAL_AI_RESOURCES);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -64,7 +67,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
         const missingLogos = data.resources.filter(r => r.logoUrl && !logoCache[r.id]);
 
         if (missingLogos.length === 0) {
-            toast.info('所有图标已存在');
+            toast.info(tr.allIconsExist);
             return;
         }
 
@@ -107,7 +110,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
         }
 
         setIsDownloading(false);
-        toast.success(`完成：${successCount} 成功，${failCount} 失败`);
+        toast.success(tr.downloadComplete.replace('{success}', String(successCount)).replace('{fail}', String(failCount)));
         await refreshLogos();
     };
 
@@ -160,19 +163,19 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
             if (res.ok) {
                 setData(updatedData);
                 setIsEditing(false);
-                toast.success('已保存');
+                toast.success(tr.saveSuccess);
             } else {
-                toast.error('保存失败');
+                toast.error(tr.saveFail);
             }
         } catch {
-            toast.error('保存失败');
+            toast.error(tr.saveFail);
         }
     };
 
     if (isLoading) {
         return (
             <div className="h-full flex items-center justify-center bg-[#f5f5f7]">
-                <div className="text-neutral-400 text-sm">加载中...</div>
+                <div className="text-neutral-400 text-sm">{t.common.loading}</div>
             </div>
         );
     }
@@ -199,10 +202,10 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                             className="flex items-center gap-1 text-neutral-500 hover:text-neutral-800 transition-colors"
                         >
                             <ArrowLeft className="w-4 h-4" />
-                            <span className="text-sm">返回</span>
+                            <span className="text-sm">{tr.back}</span>
                         </button>
                         <div className="w-px h-4 bg-neutral-200" />
-                        <h1 className="text-base font-semibold text-neutral-800">AI 工具库</h1>
+                        <h1 className="text-base font-semibold text-neutral-800">{tr.title}</h1>
                     </div>
 
                     {/* 右侧：搜索 + 管理 */}
@@ -213,7 +216,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                             <input
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="搜索..."
+                                placeholder={tr.searchPlaceholder}
                                 className="pl-9 pr-8 w-56 h-8 bg-neutral-100/80 border-0 rounded-lg text-sm 
                                          placeholder:text-neutral-400 focus:outline-none focus:bg-white 
                                          focus:ring-1 focus:ring-neutral-200 transition-all"
@@ -246,7 +249,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                                     ) : (
                                         <>
                                             <Download className="w-3.5 h-3.5" />
-                                            <span>图标</span>
+                                            <span>{tr.downloadIcons}</span>
                                         </>
                                     )}
                                 </button>
@@ -256,7 +259,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                                              hover:text-neutral-900 hover:bg-neutral-100 rounded-lg transition-colors"
                                 >
                                     <Settings className="w-3.5 h-3.5" />
-                                    <span>管理</span>
+                                    <span>{tr.manage}</span>
                                 </button>
                             </div>
                         )}
@@ -272,7 +275,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                             : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100'
                             }`}
                     >
-                        全部
+                        {tr.allCategory}
                     </button>
                     {data.categories.sort((a, b) => a.order - b.order).map(cat => (
                         <button
@@ -293,7 +296,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
             <div className="flex-1 overflow-y-auto p-5">
                 {Object.keys(groupedResources).length === 0 ? (
                     <div className="text-center py-16 text-neutral-400 text-sm">
-                        没有找到匹配的工具
+                        {tr.noResults}
                     </div>
                 ) : (
                     <div className="space-y-6">

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ResourceGroup, INITIAL_RESOURCE_DATA, ENCRYPTION_KEY } from '@/lib/team-resources-data';
 import CryptoJS from 'crypto-js';
 import { toast } from 'sonner';
+import { useI18n } from '@/lib/i18n';
 
 // 30分钟超时（毫秒）
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -16,6 +17,8 @@ interface TeamResourcesContainerProps {
 }
 
 export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) {
+    const { t } = useI18n();
+    const tr = t.teamResources;
     const [isLocked, setIsLocked] = useState(true);
     const [isAdmin, setIsAdmin] = useState(false);
     const [data, setData] = useState<ResourceGroup[]>([]);
@@ -102,7 +105,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
         const intervalId = setInterval(() => {
             if (checkSessionExpiry()) {
                 handleLock();
-                toast.info('长时间未操作，请重新验证');
+                toast.info(tr.sessionTimeout);
             }
         }, 60000); // 每分钟检查一次
 
@@ -110,7 +113,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
             events.forEach(event => window.removeEventListener(event, handleActivity));
             clearInterval(intervalId);
         };
-    }, [isLocked, checkSessionExpiry, updateActivity]);
+    }, [isLocked, checkSessionExpiry, updateActivity, tr.sessionTimeout]);
 
     const handleUnlock = (admin: boolean) => {
         setIsLocked(false);
@@ -144,20 +147,20 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
             if (res.ok) {
                 setData(updatedGroups);
                 setIsEditing(false);
-                toast.success('保存成功');
+                toast.success(tr.saveSuccess);
             } else {
                 throw new Error('Save failed');
             }
         } catch (error) {
             console.error('Failed to save:', error);
-            toast.error('保存失败');
+            toast.error(tr.saveFail);
         }
     };
 
     if (isLoading) {
         return (
             <div className="h-full flex items-center justify-center">
-                <div className="text-slate-500">加载中...</div>
+                <div className="text-slate-500">{tr.loading}</div>
             </div>
         );
     }
@@ -171,7 +174,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
                     className="absolute top-6 left-6 z-10 gap-2 text-slate-500 hover:text-slate-900"
                 >
                     <ArrowLeft className="w-4 h-4" />
-                    返回
+                    {tr.back}
                 </Button>
                 <ResourceLock onUnlock={handleUnlock} />
             </div>

@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Plus, Save, Trash2, ArrowLeft, Building2, Database, Globe, Key, Upload, X, GripVertical } from 'lucide-react';
 import { toast } from 'sonner';
+import { useI18n } from '@/lib/i18n';
 import {
     DndContext,
     closestCenter,
@@ -108,6 +109,8 @@ function SortableSystemItem({ system, isActive, onClick, onDelete }: {
 }
 
 export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps) {
+    const { t } = useI18n();
+    const tr = t.teamResources;
     const [editedGroups, setEditedGroups] = useState<ResourceGroup[]>(JSON.parse(JSON.stringify(groups)));
     const [activeGroupId, setActiveGroupId] = useState<string>(groups[0]?.id || '');
     const [activeSystemId, setActiveSystemId] = useState<string>('');
@@ -149,7 +152,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
         const id = `group-${Date.now()}`;
         const newGroup: ResourceGroup = {
             id,
-            name: '新集团',
+            name: tr.newGroup,
             systems: []
         };
         setEditedGroups([...editedGroups, newGroup]);
@@ -160,7 +163,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
     // 删除集团
     const handleDeleteGroup = (groupId: string) => {
         if (editedGroups.length <= 1) {
-            toast.error('至少保留一个集团');
+            toast.error(tr.keepOneGroup);
             return;
         }
         setEditedGroups(editedGroups.filter(g => g.id !== groupId));
@@ -176,7 +179,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
         const id = `sys-${Date.now()}`;
         const newSystem: SystemResource = {
             id,
-            name: '新系统',
+            name: tr.newSystem,
             description: '',
             environments: {}
         };
@@ -219,7 +222,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
 
         // 限制文件大小（2MB）
         if (file.size > 2 * 1024 * 1024) {
-            toast.error('图片大小不能超过2MB');
+            toast.error(tr.imageTooLarge);
             return;
         }
 
@@ -229,7 +232,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
             setEditedGroups(editedGroups.map(g =>
                 g.id === activeGroupId ? { ...g, logo: base64 } : g
             ));
-            toast.success('LOGO已上传');
+            toast.success(tr.logoUploaded);
         };
         reader.readAsDataURL(file);
     };
@@ -277,7 +280,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
         }
         const newCred: Credential = {
             id: `cred-${Date.now()}`,
-            label: '新账号',
+            label: tr.newAccount,
             username: '',
             password: ''
         };
@@ -317,7 +320,8 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
         const newEnvs = { ...currentSystem.environments };
         delete newEnvs[env];
         handleUpdateSystem('environments', newEnvs);
-        toast.success(`已清空${env === 'dev' ? '开发' : env === 'test' ? '测试' : '生产'}环境`);
+        const envName = env === 'dev' ? tr.envDev : env === 'test' ? tr.envTest : tr.envProd;
+        toast.success(tr.clearedEnv.replace('{env}', envName));
     };
 
     const handleSaveClick = () => {
@@ -332,13 +336,13 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                     <Button variant="ghost" size="icon" onClick={onCancel}>
                         <ArrowLeft className="w-5 h-5" />
                     </Button>
-                    <h2 className="text-lg font-bold text-slate-800">资源管理</h2>
+                    <h2 className="text-lg font-bold text-slate-800">{tr.resourceManage}</h2>
                 </div>
                 <div className="flex gap-2">
-                    <Button variant="outline" onClick={onCancel}>取消</Button>
+                    <Button variant="outline" onClick={onCancel}>{tr.cancel}</Button>
                     <Button onClick={handleSaveClick} className="bg-blue-600 hover:bg-blue-700">
                         <Save className="w-4 h-4 mr-2" />
-                        保存更改
+                        {tr.saveChanges}
                     </Button>
                 </div>
             </div>
@@ -347,7 +351,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                 {/* 左侧：集团列表 */}
                 <div className="w-56 bg-white border-r border-slate-200 p-4 flex flex-col">
                     <div className="flex items-center justify-between mb-3">
-                        <Label className="text-slate-500 font-medium text-xs uppercase">集团列表</Label>
+                        <Label className="text-slate-500 font-medium text-xs uppercase">{tr.groupList}</Label>
                         <Button variant="ghost" size="icon" onClick={handleAddGroup} className="h-6 w-6">
                             <Plus className="w-4 h-4" />
                         </Button>
@@ -372,7 +376,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                 {/* 中间：系统列表 */}
                 <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
                     <div className="flex items-center justify-between mb-3">
-                        <Label className="text-slate-500 font-medium text-xs uppercase">系统列表</Label>
+                        <Label className="text-slate-500 font-medium text-xs uppercase">{tr.systemList}</Label>
                         <Button variant="ghost" size="icon" onClick={handleAddSystem} className="h-6 w-6" disabled={!currentGroup}>
                             <Plus className="w-4 h-4" />
                         </Button>
@@ -383,12 +387,12 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                 value={currentGroup.name}
                                 onChange={(e) => handleUpdateGroupName(e.target.value)}
                                 className="font-bold"
-                                placeholder="集团名称"
+                                placeholder={tr.groupName}
                             />
 
                             {/* LOGO 上传 */}
                             <div className="space-y-2">
-                                <Label className="text-xs text-slate-500">LOGO (可选)</Label>
+                                <Label className="text-xs text-slate-500">{tr.logoOptional}</Label>
                                 {currentGroup.logo ? (
                                     <div className="relative w-full h-16 bg-white rounded-lg border border-slate-200 overflow-hidden group">
                                         <img
@@ -412,7 +416,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                     >
                                         <div className="text-center">
                                             <Upload className="w-4 h-4 mx-auto text-slate-400" />
-                                            <span className="text-xs text-slate-400">点击上传</span>
+                                            <span className="text-xs text-slate-400">{tr.clickToUpload}</span>
                                         </div>
                                     </div>
                                 )}
@@ -443,7 +447,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                             </DndContext>
                         ) : (
                             <div className="text-center py-8 text-slate-400 text-sm">
-                                暂无系统，点击 + 添加
+                                {tr.noSystemsAddHint}
                             </div>
                         )}
                     </div>
@@ -456,18 +460,18 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                             <Card className="p-6 space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
-                                        <Label>系统名称</Label>
+                                        <Label>{tr.systemName}</Label>
                                         <Input
                                             value={currentSystem.name}
                                             onChange={(e) => handleUpdateSystem('name', e.target.value)}
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label>描述</Label>
+                                        <Label>{tr.descriptionLabel}</Label>
                                         <Input
                                             value={currentSystem.description || ''}
                                             onChange={(e) => handleUpdateSystem('description', e.target.value)}
-                                            placeholder="可选"
+                                            placeholder={tr.optional}
                                         />
                                     </div>
                                 </div>
@@ -476,9 +480,9 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                             {/* 环境配置 */}
                             <Tabs defaultValue="prod" className="w-full">
                                 <TabsList className="w-full grid grid-cols-3">
-                                    <TabsTrigger value="dev">开发环境</TabsTrigger>
-                                    <TabsTrigger value="test">测试环境</TabsTrigger>
-                                    <TabsTrigger value="prod">生产环境</TabsTrigger>
+                                    <TabsTrigger value="dev">{tr.devEnv}</TabsTrigger>
+                                    <TabsTrigger value="test">{tr.testEnv}</TabsTrigger>
+                                    <TabsTrigger value="prod">{tr.prodEnv}</TabsTrigger>
                                 </TabsList>
 
                                 {(['dev', 'test', 'prod'] as Environment[]).map(env => (
@@ -487,7 +491,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                             <div className="space-y-2">
                                                 <Label className="flex items-center gap-2">
                                                     <Globe className="w-4 h-4" />
-                                                    访问地址
+                                                    {tr.accessUrl}
                                                 </Label>
                                                 <Input
                                                     value={currentSystem.environments[env]?.url || ''}
@@ -500,11 +504,11 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                                 <div className="flex items-center justify-between">
                                                     <Label className="flex items-center gap-2">
                                                         <Key className="w-4 h-4" />
-                                                        凭证列表
+                                                        {tr.credentialList}
                                                     </Label>
                                                     <Button variant="outline" size="sm" onClick={() => handleAddCredential(env)}>
                                                         <Plus className="w-3 h-3 mr-1" />
-                                                        添加凭证
+                                                        {tr.addCredential}
                                                     </Button>
                                                 </div>
 
@@ -513,20 +517,20 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                                         <Input
                                                             value={cred.label}
                                                             onChange={(e) => handleUpdateCredential(env, cred.id, 'label', e.target.value)}
-                                                            placeholder="标签"
+                                                            placeholder={tr.labelPlaceholder}
                                                             className="w-24"
                                                         />
                                                         <Input
                                                             value={cred.username}
                                                             onChange={(e) => handleUpdateCredential(env, cred.id, 'username', e.target.value)}
-                                                            placeholder="用户名"
+                                                            placeholder={tr.usernamePlaceholder}
                                                             className="flex-1"
                                                         />
                                                         <Input
                                                             type="password"
                                                             value={cred.password || ''}
                                                             onChange={(e) => handleUpdateCredential(env, cred.id, 'password', e.target.value)}
-                                                            placeholder="密码 (可选)"
+                                                            placeholder={tr.passwordOptional}
                                                             className="flex-1"
                                                         />
                                                         <Button
@@ -542,7 +546,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
 
                                                 {(!currentSystem.environments[env] || currentSystem.environments[env]!.creds.length === 0) && (
                                                     <div className="text-center py-4 text-slate-400 text-sm">
-                                                        暂无凭证
+                                                        {tr.noCredentialsYet}
                                                     </div>
                                                 )}
                                             </div>
@@ -557,7 +561,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                                         onClick={() => handleClearEnvironment(env)}
                                                     >
                                                         <Trash2 className="w-3 h-3 mr-2" />
-                                                        一键清空此环境
+                                                        {tr.clearThisEnv}
                                                     </Button>
                                                 </div>
                                             )}
@@ -568,7 +572,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                         </div>
                     ) : (
                         <div className="h-full flex items-center justify-center text-slate-400">
-                            请选择一个系统进行编辑
+                            {tr.selectSystemToEdit}
                         </div>
                     )}
                 </div>

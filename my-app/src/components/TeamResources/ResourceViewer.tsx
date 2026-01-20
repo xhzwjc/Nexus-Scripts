@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Search, Lock, ArrowLeft, Settings, FolderOpen, Building2, Shield } from 'lucide-react';
 import { SystemCard } from './SystemCard';
 import { HealthCheckPanel } from './HealthCheckPanel';
+import { useI18n } from '@/lib/i18n';
 
 interface ResourceViewerProps {
     data: ResourceGroup[];
@@ -15,6 +16,8 @@ interface ResourceViewerProps {
 }
 
 export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: ResourceViewerProps) {
+    const { t } = useI18n();
+    const tr = t.teamResources;
     const [activeGroup, setActiveGroup] = useState<string>(data[0]?.id || '');
     const [searchQuery, setSearchQuery] = useState('');
     const [showHealthCheck, setShowHealthCheck] = useState(false);
@@ -53,17 +56,17 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                     <Button variant="ghost" size="icon" onClick={onBack} className="-ml-2 text-slate-500">
                         <ArrowLeft className="w-5 h-5" />
                     </Button>
-                    <span className="font-bold text-slate-800">团队资源</span>
+                    <span className="font-bold text-slate-800">{tr.viewerTitle}</span>
                     <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => setShowHealthCheck(true)} className="text-slate-400 hover:text-green-500" title="系统健康检测">
+                        <Button variant="ghost" size="icon" onClick={() => setShowHealthCheck(true)} className="text-slate-400 hover:text-green-500" title={tr.healthCheck}>
                             <Shield className="w-4 h-4" />
                         </Button>
                         {isAdmin && (
-                            <Button variant="ghost" size="icon" onClick={onManage} className="text-slate-400 hover:text-blue-500" title="管理资源">
+                            <Button variant="ghost" size="icon" onClick={onManage} className="text-slate-400 hover:text-blue-500" title={tr.manageResources}>
                                 <Settings className="w-4 h-4" />
                             </Button>
                         )}
-                        <Button variant="ghost" size="icon" onClick={onLock} className="text-slate-400 hover:text-red-500" title="锁定">
+                        <Button variant="ghost" size="icon" onClick={onLock} className="text-slate-400 hover:text-red-500" title={tr.lock}>
                             <Lock className="w-4 h-4" />
                         </Button>
                     </div>
@@ -73,7 +76,7 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                     <div className="relative">
                         <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
                         <Input
-                            placeholder="搜索系统..."
+                            placeholder={tr.searchPlaceholder}
                             className="pl-9 h-9 bg-slate-50 border-slate-200"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
@@ -110,7 +113,7 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                             )}
                             <div className="flex-1 text-left">
                                 <div>{group.name}</div>
-                                <div className="text-xs text-slate-400 font-normal">{group.systems.length} 个系统</div>
+                                <div className="text-xs text-slate-400 font-normal">{group.systems.length} {tr.systems}</div>
                             </div>
                         </button>
                     ))}
@@ -122,14 +125,14 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                 <div className="max-w-6xl mx-auto">
                     {searchQuery && (
                         <h2 className="text-lg font-semibold text-slate-800 mb-6">
-                            &ldquo;{searchQuery}&rdquo; 的搜索结果
+                            &ldquo;{searchQuery}&rdquo;{tr.searchResults}
                         </h2>
                     )}
 
                     {!searchQuery && currentGroup && (
                         <div className="mb-8">
                             <h1 className="text-2xl font-bold text-slate-900 mb-2">{currentGroup.name}</h1>
-                            <p className="text-slate-500">管理 {currentGroup.name} 下的系统环境及凭证信息</p>
+                            <p className="text-slate-500">{tr.manageDescription.replace('{name}', currentGroup.name)}</p>
                         </div>
                     )}
 
@@ -140,17 +143,17 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
 
                         {filteredGroups.length === 0 && (
                             <div className="col-span-full text-center py-20 text-slate-400">
-                                未找到匹配的系统。
+                                {tr.noSystems}
                             </div>
                         )}
 
                         {!searchQuery && currentGroup?.systems.length === 0 && (
                             <div className="col-span-full text-center py-20 text-slate-400">
                                 <FolderOpen className="w-12 h-12 mx-auto mb-4 text-slate-300" />
-                                <p>该集团下暂无系统</p>
+                                <p>{tr.noSystemsInGroup}</p>
                                 {isAdmin && (
                                     <Button variant="outline" className="mt-4" onClick={onManage}>
-                                        添加系统
+                                        {tr.addSystem}
                                     </Button>
                                 )}
                             </div>

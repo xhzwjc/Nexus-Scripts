@@ -176,7 +176,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                 if (data.aborted) {
                                     toast.warning(data.message);
                                 } else {
-                                    toast.success(data.message);
+                                    toast.success(ocr.messages.success);
                                 }
                                 setLogs(prev => [...prev, `✅ ${data.message} `]);
                                 if (data.download_url) {

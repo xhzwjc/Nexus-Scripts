@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState, useCallback} from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
     ArrowLeft,
     Copy,
@@ -11,19 +11,20 @@ import {
     Loader2,
     RefreshCw as Refresh,
 } from 'lucide-react';
-import {Button} from './ui/button';
-import {Card, CardContent, CardHeader, CardTitle} from './ui/card';
-import {Input} from './ui/input';
-import {Label} from './ui/label';
-import {Badge} from './ui/badge';
-import {Tabs, TabsContent, TabsList, TabsTrigger} from './ui/tabs';
-import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from './ui/table';
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/select';
-import {Textarea} from './ui/textarea';
-import {Checkbox} from './ui/checkbox';
-import axios, {AxiosError, AxiosInstance} from 'axios';
-import {toast} from 'sonner';
-import {getApiBaseUrl} from '../lib/api';
+import { Button } from './ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Badge } from './ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Textarea } from './ui/textarea';
+import { Checkbox } from './ui/checkbox';
+import axios, { AxiosError, AxiosInstance } from 'axios';
+import { toast } from 'sonner';
+import { getApiBaseUrl } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 
 // ===== Types =====
 interface Template {
@@ -75,7 +76,7 @@ const getSmsApi = (): AxiosInstance | null => {
     return smsApiInstance;
 };
 
-function getErrorMessage(err: unknown, fallback = '请求失败，请重试'): string {
+function getErrorMessage(err: unknown, fallback: string): string {
     if (axios.isAxiosError(err)) {
         const ax = err as AxiosError<{ detail?: string; message?: string }>;
         return (
@@ -104,7 +105,7 @@ function parseMobiles(text: string) {
     const unique = Array.from(new Set(arr));
     const valid = unique.filter((m) => CN_MOBILE_REGEX.test(m));
     const invalid = unique.filter((m) => !CN_MOBILE_REGEX.test(m));
-    return {valid, invalid, total: unique.length};
+    return { valid, invalid, total: unique.length };
 }
 
 function serializeAllowedTemplates(obj: Record<string, string>) {
@@ -140,12 +141,12 @@ function copyToClipboardWithFallback(text: string) {
 }
 
 const RadioButton = ({
-                         id,
-                         name,
-                         checked,
-                         onChange,
-                         label,
-                     }: {
+    id,
+    name,
+    checked,
+    onChange,
+    label,
+}: {
     id: string;
     name: string;
     checked: boolean;
@@ -168,13 +169,13 @@ const RadioButton = ({
 );
 
 const LoadingButton = ({
-                           onClick,
-                           disabled,
-                           isLoading,
-                           children,
-                           className = '',
-                           icon: Icon,
-                       }: {
+    onClick,
+    disabled,
+    isLoading,
+    children,
+    className = '',
+    icon: Icon,
+}: {
     onClick: () => void;
     disabled?: boolean;
     isLoading?: boolean;
@@ -185,12 +186,12 @@ const LoadingButton = ({
     <Button onClick={onClick} disabled={!!disabled || !!isLoading} className={className}>
         {isLoading ? (
             <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin"/>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 处理中...
             </>
         ) : Icon ? (
             <>
-                <Icon className="w-4 h-4 mr-2"/>
+                <Icon className="w-4 h-4 mr-2" />
                 {children}
             </>
         ) : (
@@ -200,7 +201,10 @@ const LoadingButton = ({
 );
 
 // ===== Component =====
-export default function SmsManagementScript({onBack}: { onBack: () => void }) {
+export default function SmsManagementScript({ onBack }: { onBack: () => void }) {
+    const { t } = useI18n();
+    const bs = t.scripts.batchSms;
+
     // Shared config
     const [environment, setEnvironment] = useState<'test' | 'prod'>('test');
     const [timeout, setTimeoutValue] = useState<number>(15);
@@ -235,7 +239,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
 
     // Results
     const [sendResults, setSendResults] = useState<SendResult[]>([]);
-    const [sendStats, setSendStats] = useState({total: 0, success: 0, failure: 0});
+    const [sendStats, setSendStats] = useState({ total: 0, success: 0, failure: 0 });
     const [expandedResult, setExpandedResult] = useState<string | null>(null);
 
     // Formatting view
@@ -287,9 +291,9 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
             });
             if (!mountedRef.current) return;
             setAllowedTemplates(res.data.data || []);
-            toast.success(res.data.message || '已获取允许的模板');
+            toast.success(res.data.message || bs.messages.fetchSuccess);
         } catch (err) {
-            toast.error(getErrorMessage(err, '获取允许的模板失败，请重试'));
+            toast.error(getErrorMessage(err, bs.messages.fetchFail));
         } finally {
             if (mountedRef.current) setIsFetchingAllowed(false);
         }
@@ -308,7 +312,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
             if (!mountedRef.current) return;
 
             setAllTemplates(templates);
-            toast.success(res.data.message || '已获取模板列表');
+            toast.success(res.data.message || bs.messages.fetchSuccess);
 
             const formatted: Record<string, string> = {};
             templates.forEach((t) => {
@@ -316,7 +320,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
             });
             setAllTemplatesFormatted(formatted);
         } catch (err) {
-            toast.error(getErrorMessage(err, '获取模板列表失败，请重试'));
+            toast.error(getErrorMessage(err, bs.messages.fetchFail));
         } finally {
             if (mountedRef.current) setIsFetchingAll(false);
         }
@@ -334,7 +338,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
 
             // 判断更新是否成功
             if (!res.data.success || res.data.code === 500) {
-                toast.error(res.data.message || '模板更新失败，请检查登录状态', {
+                toast.error(res.data.message || bs.messages.updateFail, {
                     style: {
                         backgroundColor: '#ffeef0',
                         color: '#86181d',
@@ -345,9 +349,9 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
 
             // 成功后刷新两个列表
             await Promise.all([fetchAllTemplates(), fetchAllowedTemplates()]);
-            toast.success(res.data.message || '模板配置已更新');
+            toast.success(res.data.message || bs.messages.updateSuccess);
         } catch (err) {
-            toast.error(getErrorMessage(err, '更新模板配置失败'), {
+            toast.error(getErrorMessage(err, bs.messages.updateFail), {
                 style: {
                     backgroundColor: '#ffeef0',
                     color: '#86181d',
@@ -365,10 +369,10 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
             await copyToClipboardWithFallback(text);
             if (!mountedRef.current) return;
             setCopySuccess(true);
-            toast.success('模板代码已复制到剪贴板');
+            toast.success(bs.messages.copySuccess);
             setTimeout(() => mountedRef.current && setCopySuccess(false), 2000);
         } catch {
-            toast.error('复制失败，请手动复制');
+            toast.error(bs.messages.copyFail);
         }
     };
 
@@ -377,14 +381,14 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
         // 示例参数预填：可按真实模板自定义
         if (code === 'reset_worker_sign') {
             setTemplateParams([
-                {name: 'name', value: '张三'},
-                {name: 'deadline', value: '2025-12-31'},
-                {name: 'signUrl', value: '5a3'},
+                { name: 'name', value: '张三' },
+                { name: 'deadline', value: '2025-12-31' },
+                { name: 'signUrl', value: '5a3' },
             ]);
         } else if (code === 'channel_open_notice') {
             setTemplateParams([
-                {name: 'channel_name', value: '默认渠道'},
-                {name: 'open_time', value: new Date().toLocaleString()},
+                { name: 'channel_name', value: '默认渠道' },
+                { name: 'open_time', value: new Date().toLocaleString() },
             ]);
         } else {
             setTemplateParams([]);
@@ -394,30 +398,30 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
     const handleParamChange = (index: number, value: string) => {
         setTemplateParams((prev) => {
             const next = [...prev];
-            next[index] = {...next[index], value};
+            next[index] = { ...next[index], value };
             return next;
         });
     };
 
     const confirmMobiles = (text: string) => {
-        const {valid, invalid, total} = parseMobiles(text);
+        const { valid, invalid, total } = parseMobiles(text);
         if (total > 0) {
             if (invalid.length > 0) {
-                toast.info(`检测到 ${invalid.length}/${total} 个非法号码，已自动忽略`);
+                toast.info(bs.messages.mobileParse.replace('{invalid}', String(invalid.length)).replace('{total}', String(total)));
             } else {
-                toast.success(`已解析 ${valid.length} 个手机号`);
+                toast.success(bs.messages.mobileParse.replace('{invalid}', '0').replace('{total}', String(valid.length)));
             }
         }
         return valid;
     };
 
     const sendSingleTemplate = async () => {
-        if (!selectedTemplate) return toast.error('请选择发送模板');
-        if (!usePresetMobiles && !mobiles.trim()) return toast.error('请输入手机号');
+        if (!selectedTemplate) return toast.error(bs.messages.selectTemplate);
+        if (!usePresetMobiles && !mobiles.trim()) return toast.error(bs.messages.inputMobile);
 
         const mobileList = usePresetMobiles ? [] : confirmMobiles(mobiles);
         if (!usePresetMobiles && mobileList.length === 0) {
-            return toast.error('没有可用的有效手机号');
+            return toast.error(bs.messages.noValidMobile);
         }
 
         const api = getSmsApi();
@@ -445,21 +449,21 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                 success: res.data.success_count || 0,
                 failure: res.data.failure_count || 0,
             });
-            toast.success(res.data.message || '短信发送完成');
+            toast.success(res.data.message || bs.messages.sendSuccess);
         } catch (err) {
-            toast.error(getErrorMessage(err, '发送短信失败，请重试'));
+            toast.error(getErrorMessage(err, bs.messages.sendFail));
         } finally {
             if (mountedRef.current) setIsSending(false);
         }
     };
 
     const sendBatchTemplates = async () => {
-        if (selectedTemplates.length === 0) return toast.error('请至少选择一个发送模板');
-        if (!usePresetMobiles && !mobiles.trim()) return toast.error('请输入手机号');
+        if (selectedTemplates.length === 0) return toast.error(bs.messages.selectTemplate);
+        if (!usePresetMobiles && !mobiles.trim()) return toast.error(bs.messages.inputMobile);
 
         const mobileList = usePresetMobiles ? [] : confirmMobiles(mobiles);
         if (!usePresetMobiles && mobileList.length === 0) {
-            return toast.error('没有可用的有效手机号');
+            return toast.error(bs.messages.noValidMobile);
         }
 
         const api = getSmsApi();
@@ -482,9 +486,9 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                 success: res.data.success_count || 0,
                 failure: res.data.failure_count || 0,
             });
-            toast.success(res.data.message || '批量发送完成');
+            toast.success(res.data.message || bs.messages.sendSuccess);
         } catch (err) {
-            toast.error(getErrorMessage(err, '批量发送短信失败，请重试'));
+            toast.error(getErrorMessage(err, bs.messages.sendFail));
         } finally {
             if (mountedRef.current) setIsSending(false);
         }
@@ -498,10 +502,10 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
             if (resendType === 'mobile') {
                 const m = resendMobile.trim();
                 const taxId = resendTaxId.trim();
-                if (!CN_MOBILE_REGEX.test(m)) throw new Error('请输入正确的手机号');
-                if (!taxId) throw new Error('请输入税地ID');
+                if (!CN_MOBILE_REGEX.test(m)) throw new Error(bs.messages.mobileInvalid);
+                if (!taxId) throw new Error(bs.resend.taxIdHint);
             } else {
-                if (!resendBatchNo.trim()) throw new Error('请输入批次号');
+                if (!resendBatchNo.trim()) throw new Error(bs.resend.batchNoHint);
             }
 
             const params =
@@ -510,7 +514,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                         mobiles: [resendMobile.trim()],
                         tax_id: resendTaxId.trim()
                     }
-                    : {batch_no: resendBatchNo.trim()};
+                    : { batch_no: resendBatchNo.trim() };
 
             const res = await api.post<ApiResponse>('/sms/resend', {
                 environment,
@@ -519,11 +523,16 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                 ...params,
             });
 
-            if (!mountedRef.current) return;
-            setResendResult(res.data);
-            res.data.success ? toast.success(res.data.message || '补发成功') : toast.error(res.data.message || '补发失败');
+            if (mountedRef.current) {
+                setResendResult(res.data);
+                if (res.data.success) {
+                    toast.success(res.data.message || bs.messages.resendSuccess);
+                } else {
+                    toast.error(res.data.message || bs.messages.resendFail);
+                }
+            }
         } catch (err) {
-            const msg = getErrorMessage(err, '补发签约短信失败，请重试');
+            const msg = getErrorMessage(err, bs.messages.resendFail);
             toast.error(msg);
             if (mountedRef.current) setResendResult(null);
         } finally {
@@ -538,7 +547,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
         setExpandedResult((prev) => (prev === key ? null : key));
 
     const downloadResults = () => {
-        if (sendResults.length === 0) return toast.info('没有结果可供下载');
+        if (sendResults.length === 0) return toast.info(bs.messages.noResult);
         const results = {
             timestamp: new Date().toISOString(),
             environment,
@@ -547,7 +556,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
             failure: sendStats.failure,
             details: sendResults,
         };
-        const blob = new Blob([JSON.stringify(results, null, 2)], {type: 'application/json'});
+        const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -564,55 +573,55 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
             <div className="max-w-6xl mx-auto">
                 <div className="mb-6">
                     <Button variant="ghost" onClick={onBack} className="mb-4">
-                        <ArrowLeft className="w-4 h-4 mr-2"/>
-                        返回脚本列表
+                        <ArrowLeft className="w-4 h-4 mr-2" />
+                        {t.scripts.taskAutomation.back}
                     </Button>
                     <div className="flex items-center gap-3 mb-2">
-                        <h1 className="text-2xl">短信模板管理与发送</h1>
+                        <h1 className="text-2xl">{bs.title}</h1>
                         <Badge variant={overallBusy ? 'destructive' : 'secondary'}>
                             {isSending
-                                ? '发送中'
+                                ? bs.status.sending
                                 : isResending
-                                    ? '补发中'
+                                    ? bs.status.resending
                                     : isFetchingAll || isFetchingAllowed || isUpdatingConfig
-                                        ? '加载中'
-                                        : '就绪'}
+                                        ? bs.status.loading
+                                        : bs.status.ready}
                         </Badge>
                     </div>
-                    <p className="text-muted-foreground">管理短信模板并批量发送短信，支持单模板和多模板批量发送</p>
+                    <p className="text-muted-foreground">{bs.subtitle}</p>
                 </div>
 
                 <Tabs defaultValue="templateManagement" className="space-y-6">
                     <TabsList className="grid w-full grid-cols-4">
-                        <TabsTrigger value="templateManagement">模板管理</TabsTrigger>
-                        <TabsTrigger value="singleSend">单模板发送</TabsTrigger>
-                        <TabsTrigger value="batchSend">批量模板发送</TabsTrigger>
-                        <TabsTrigger value="resendSign">补发签约短信</TabsTrigger>
+                        <TabsTrigger value="templateManagement">{bs.tabs.template}</TabsTrigger>
+                        <TabsTrigger value="singleSend">{bs.tabs.single}</TabsTrigger>
+                        <TabsTrigger value="batchSend">{bs.tabs.batch}</TabsTrigger>
+                        <TabsTrigger value="resendSign">{bs.tabs.resend}</TabsTrigger>
                     </TabsList>
 
                     {/* 模板管理 */}
                     <TabsContent value="templateManagement" className="space-y-6 animate-in fade-in-50 duration-300">
                         <Card>
                             <CardHeader>
-                                <CardTitle>模板配置</CardTitle>
+                                <CardTitle>{bs.template.configTitle}</CardTitle>
                             </CardHeader>
                             <CardContent>
                                 <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
                                     <div>
-                                        <Label htmlFor="env-select">环境</Label>
+                                        <Label htmlFor="env-select">{bs.template.envLabel}</Label>
                                         <Select value={environment}
-                                                onValueChange={(v) => setEnvironment(v as 'test' | 'prod')}>
+                                            onValueChange={(v) => setEnvironment(v as 'test' | 'prod')}>
                                             <SelectTrigger>
-                                                <SelectValue placeholder="选择环境"/>
+                                                <SelectValue placeholder={bs.template.envPlaceholder} />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="test">Beta</SelectItem>
-                                                <SelectItem value="prod">生产环境</SelectItem>
+                                                <SelectItem value="test">{bs.template.envTest}</SelectItem>
+                                                <SelectItem value="prod">{bs.template.envProd}</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
                                     <div>
-                                        <Label htmlFor="timeout-input">超时时间(秒)</Label>
+                                        <Label htmlFor="timeout-input">{bs.template.timeoutLabel}</Label>
                                         <Input
                                             id="timeout-input"
                                             type="number"
@@ -629,7 +638,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                         icon={Search}
                                         className="w-full"
                                     >
-                                        获取所有模板
+                                        {bs.template.fetchAll}
                                     </LoadingButton>
                                     <LoadingButton
                                         onClick={fetchAllowedTemplates}
@@ -637,7 +646,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                         icon={Check}
                                         className="w-full"
                                     >
-                                        获取允许的模板
+                                        {bs.template.fetchAllowed}
                                     </LoadingButton>
                                     <Button
                                         onClick={() => setShowFormatted((s) => !s)}
@@ -645,7 +654,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                         variant="ghost"
                                         className="w-full"
                                     >
-                                        {showFormatted ? '隐藏格式' : '查看代码格式'}
+                                        {showFormatted ? bs.template.hideCode : bs.template.viewCode}
                                     </Button>
                                     <LoadingButton
                                         onClick={updateTemplateConfig}
@@ -653,7 +662,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                         icon={RotateCcw}
                                         className="w-full"
                                     >
-                                        更新模板配置
+                                        {bs.template.updateConfig}
                                     </LoadingButton>
                                 </div>
                             </CardContent>
@@ -662,10 +671,10 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                         <Card>
                             <CardHeader>
                                 <div className="flex items-center justify-between">
-                                    <CardTitle>模板列表</CardTitle>
+                                    <CardTitle>{bs.template.listTitle}</CardTitle>
                                     <div className="w-60">
                                         <Input
-                                            placeholder="搜索编码或名称..."
+                                            placeholder={bs.template.searchPlaceholder}
                                             value={templateFilter}
                                             onChange={(e) => setTemplateFilter(e.target.value)}
                                         />
@@ -675,16 +684,16 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                             <CardContent>
                                 {allTemplates.length === 0 ? (
                                     <div className="text-center py-12 text-muted-foreground">
-                                        <Info className="w-12 h-12 mx-auto mb-4 opacity-50 text-blue-500"/>
-                                        <p>点击“获取所有模板”按钮加载模板列表</p>
+                                        <Info className="w-12 h-12 mx-auto mb-4 opacity-50 text-blue-500" />
+                                        <p>{bs.template.empty}</p>
                                     </div>
                                 ) : (
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
-                                                <TableHead>模板编码</TableHead>
-                                                <TableHead>模板名称</TableHead>
-                                                <TableHead>状态</TableHead>
+                                                <TableHead>{bs.template.table.code}</TableHead>
+                                                <TableHead>{bs.template.table.name}</TableHead>
+                                                <TableHead>{bs.template.table.status}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -697,7 +706,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                             variant={isAllowed(t.code) ? 'secondary' : 'outline'}
                                                             className={isAllowed(t.code) ? 'bg-green-100 text-green-800 hover:bg-green-200' : ''}
                                                         >
-                                                            {isAllowed(t.code) ? '允许发送' : '限制发送'}
+                                                            {isAllowed(t.code) ? bs.template.table.allowed : bs.template.table.restricted}
                                                         </Badge>
                                                     </TableCell>
                                                 </TableRow>
@@ -712,17 +721,17 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                             <Card className="animate-in fade-in slide-in-from-top-5 duration-300">
                                 <CardHeader>
                                     <div className="flex justify-between items-center">
-                                        <CardTitle>所有模板代码格式</CardTitle>
+                                        <CardTitle>{bs.template.codeFormatTitle}</CardTitle>
                                         <Button onClick={copyFormattedTemplates} size="sm" className="gap-1">
                                             {copySuccess ? (
                                                 <>
-                                                    <Check className="w-4 h-4"/>
-                                                    已复制
+                                                    <Check className="w-4 h-4" />
+                                                    {bs.template.copied}
                                                 </>
                                             ) : (
                                                 <>
-                                                    <Copy className="w-4 h-4"/>
-                                                    复制到剪贴板
+                                                    <Copy className="w-4 h-4" />
+                                                    {bs.template.copy}
                                                 </>
                                             )}
                                         </Button>
@@ -733,7 +742,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                         className="p-4 bg-gray-800 text-gray-100 rounded-md overflow-x-auto max-h-96 text-sm">
                                         {serializeAllowedTemplates(allTemplatesFormatted)}
                                     </pre>
-                                    <p className="text-xs text-gray-500 mt-2">点击复制按钮可直接将格式复制到剪贴板，方便粘贴到代码中</p>
+                                    <p className="text-xs text-gray-500 mt-2">{bs.template.copyHint}</p>
                                 </CardContent>
                             </Card>
                         )}
@@ -743,25 +752,25 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                     <TabsContent value="singleSend" className="space-y-6 animate-in fade-in-50 duration-300">
                         <Card>
                             <CardHeader>
-                                <CardTitle>单模板发送配置</CardTitle>
+                                <CardTitle>{bs.single.title}</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>
-                                        <Label htmlFor="single-env-select">环境</Label>
+                                        <Label htmlFor="single-env-select">{bs.template.envLabel}</Label>
                                         <Select value={environment}
-                                                onValueChange={(v) => setEnvironment(v as 'test' | 'prod')}>
+                                            onValueChange={(v) => setEnvironment(v as 'test' | 'prod')}>
                                             <SelectTrigger>
-                                                <SelectValue placeholder="选择环境"/>
+                                                <SelectValue placeholder={bs.template.envPlaceholder} />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="test">Beta</SelectItem>
-                                                <SelectItem value="prod">生产环境</SelectItem>
+                                                <SelectItem value="test">{bs.template.envTest}</SelectItem>
+                                                <SelectItem value="prod">{bs.template.envProd}</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
                                     <div>
-                                        <Label htmlFor="timeout-single-input">超时时间(秒)</Label>
+                                        <Label htmlFor="timeout-single-input">{bs.template.timeoutLabel}</Label>
                                         <Input
                                             id="timeout-single-input"
                                             type="number"
@@ -777,16 +786,16 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>
                                         <div className="flex justify-between items-center mb-1">
-                                            <Label htmlFor="single-template-select">选择模板</Label>
+                                            <Label htmlFor="single-template-select">{bs.single.selectTemplate}</Label>
                                             <Button variant="ghost" size="sm" onClick={fetchAllowedTemplates}
-                                                    disabled={isFetchingAllowed}>
-                                                <Refresh className="w-4 h-4 mr-1"/>
-                                                刷新
+                                                disabled={isFetchingAllowed}>
+                                                <Refresh className="w-4 h-4 mr-1" />
+                                                {bs.single.refresh}
                                             </Button>
                                         </div>
                                         <Select value={selectedTemplate} onValueChange={handleTemplateChange}>
                                             <SelectTrigger>
-                                                <SelectValue placeholder="选择发送模板"/>
+                                                <SelectValue placeholder={bs.single.selectPlaceholder} />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {allowedTemplates.map((t) => (
@@ -804,18 +813,18 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                 checked={usePresetMobiles}
                                                 onCheckedChange={(checked) => setUsePresetMobiles(Boolean(checked))}
                                             />
-                                            <Label htmlFor="use-preset-single">使用预设手机号</Label>
+                                            <Label htmlFor="use-preset-single">{bs.single.usePreset}</Label>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div>
-                                    <Label htmlFor="mobiles-single-input">手机号（多个用逗号、空格或换行分隔）</Label>
+                                    <Label htmlFor="mobiles-single-input">{bs.single.mobileList}</Label>
                                     <Textarea
                                         id="mobiles-single-input"
                                         value={mobiles}
                                         onChange={(e) => setMobiles(e.target.value)}
-                                        placeholder="13800138001,13800138002 13800138003"
+                                        placeholder={bs.single.mobilePlaceholder}
                                         rows={3}
                                         disabled={usePresetMobiles}
                                     />
@@ -824,8 +833,8 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                 {selectedTemplate && (
                                     <div>
                                         <div className="flex items-center justify-between">
-                                            <Label>模板参数</Label>
-                                            <span className="text-xs text-muted-foreground">可按示例预填并修改</span>
+                                            <Label>{bs.single.paramsTitle}</Label>
+                                            <span className="text-xs text-muted-foreground">{bs.single.paramHint}</span>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
                                             {templateParams.map((param, index) => (
@@ -835,12 +844,12 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                         id={`param-${index}`}
                                                         value={param.value}
                                                         onChange={(e) => handleParamChange(index, e.target.value)}
-                                                        placeholder={`请输入${param.name}`}
+                                                        placeholder={`${bs.single.paramValue}`}
                                                     />
                                                 </div>
                                             ))}
                                             {templateParams.length === 0 && (
-                                                <p className="text-xs text-muted-foreground">该模板暂无预设参数</p>
+                                                <p className="text-xs text-muted-foreground">{bs.single.noParams}</p>
                                             )}
                                         </div>
                                     </div>
@@ -853,7 +862,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     icon={Play}
                                     className="w-full"
                                 >
-                                    发送短信
+                                    {bs.single.send}
                                 </LoadingButton>
                             </CardContent>
                         </Card>
@@ -864,7 +873,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     <Card>
                                         <CardContent className="pt-6">
                                             <div className="text-center">
-                                                <p className="text-sm text-muted-foreground">总发送数</p>
+                                                <p className="text-sm text-muted-foreground">{bs.results.total}</p>
                                                 <p className="text-2xl">{sendStats.total}</p>
                                             </div>
                                         </CardContent>
@@ -872,7 +881,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     <Card>
                                         <CardContent className="pt-6">
                                             <div className="text-center">
-                                                <p className="text-sm text-muted-foreground">成功数</p>
+                                                <p className="text-sm text-muted-foreground">{bs.results.success}</p>
                                                 <p className="text-2xl text-green-600">{sendStats.success}</p>
                                             </div>
                                         </CardContent>
@@ -880,7 +889,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     <Card>
                                         <CardContent className="pt-6">
                                             <div className="text-center">
-                                                <p className="text-sm text-muted-foreground">失败数</p>
+                                                <p className="text-sm text-muted-foreground">{bs.results.failure}</p>
                                                 <p className="text-2xl text-red-600">{sendStats.failure}</p>
                                             </div>
                                         </CardContent>
@@ -890,10 +899,10 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                 <Card>
                                     <CardHeader>
                                         <div className="flex justify-between items-center">
-                                            <CardTitle>发送结果详情</CardTitle>
+                                            <CardTitle>{bs.results.title}</CardTitle>
                                             <Button onClick={downloadResults} size="sm">
-                                                <Download className="w-4 h-4 mr-2"/>
-                                                下载结果
+                                                <Download className="w-4 h-4 mr-2" />
+                                                {bs.results.export}
                                             </Button>
                                         </div>
                                     </CardHeader>
@@ -901,9 +910,9 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
-                                                    <TableHead>手机号</TableHead>
-                                                    <TableHead>发送状态</TableHead>
-                                                    <TableHead>操作</TableHead>
+                                                    <TableHead>{bs.results.table.mobile}</TableHead>
+                                                    <TableHead>{bs.results.table.result}</TableHead>
+                                                    <TableHead>{bs.results.table.detail}</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
@@ -916,11 +925,11 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                                 <TableCell>
                                                                     {result.result.code === 0 ? (
                                                                         <Badge variant="secondary"
-                                                                               className="bg-green-100 text-green-800">
-                                                                            发送成功
+                                                                            className="bg-green-100 text-green-800">
+                                                                            {t.scripts.taskAutomation.table.success}
                                                                         </Badge>
                                                                     ) : (
-                                                                        <Badge variant="destructive">发送失败</Badge>
+                                                                        <Badge variant="destructive">{t.scripts.taskAutomation.table.failed}</Badge>
                                                                     )}
                                                                 </TableCell>
                                                                 <TableCell>
@@ -929,7 +938,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                                         size="sm"
                                                                         onClick={() => toggleResultDetails(rowKey)}
                                                                     >
-                                                                        {expandedResult === rowKey ? '隐藏详情' : '查看详情'}
+                                                                        {expandedResult === rowKey ? bs.results.table.hide : bs.results.table.view}
                                                                     </Button>
                                                                 </TableCell>
                                                             </TableRow>
@@ -956,29 +965,29 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                         )}
                     </TabsContent>
 
-                    {/* 批量发送 */}
+                    {/* 批量模板发送 */}
                     <TabsContent value="batchSend" className="space-y-6 animate-in fade-in-50 duration-300">
                         <Card>
                             <CardHeader>
-                                <CardTitle>批量模板发送配置</CardTitle>
+                                <CardTitle>{bs.batch.title}</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>
-                                        <Label htmlFor="batch-env-select">环境</Label>
+                                        <Label htmlFor="batch-env-select">{bs.template.envLabel}</Label>
                                         <Select value={environment}
-                                                onValueChange={(v) => setEnvironment(v as 'test' | 'prod')}>
+                                            onValueChange={(v) => setEnvironment(v as 'test' | 'prod')}>
                                             <SelectTrigger>
-                                                <SelectValue placeholder="选择环境"/>
+                                                <SelectValue placeholder={bs.template.envPlaceholder} />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="test">Beta</SelectItem>
-                                                <SelectItem value="prod">生产环境</SelectItem>
+                                                <SelectItem value="test">{bs.template.envTest}</SelectItem>
+                                                <SelectItem value="prod">{bs.template.envProd}</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
                                     <div>
-                                        <Label htmlFor="timeout-batch-input">超时时间(秒)</Label>
+                                        <Label htmlFor="timeout-batch-input">{bs.template.timeoutLabel}</Label>
                                         <Input
                                             id="timeout-batch-input"
                                             type="number"
@@ -993,33 +1002,33 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
 
                                 <div>
                                     <div className="flex justify-between items-center mb-2">
-                                        <Label>选择模板（可多选）</Label>
+                                        <Label>{bs.batch.templateList}</Label>
                                         <div className="flex items-center gap-2">
                                             <div className="w-56">
                                                 <Input
-                                                    placeholder="搜索允许模板..."
+                                                    placeholder={bs.batch.searchAllowed}
                                                     value={allowedFilter}
                                                     onChange={(e) => setAllowedFilter(e.target.value)}
                                                 />
                                             </div>
                                             <Button variant="ghost" size="sm" onClick={fetchAllowedTemplates}
-                                                    disabled={isFetchingAllowed}>
-                                                <Refresh className="w-4 h-4 mr-1"/>
-                                                刷新
+                                                disabled={isFetchingAllowed}>
+                                                <Refresh className="w-4 h-4 mr-1" />
+                                                {bs.single.refresh}
                                             </Button>
                                             <Button variant="outline" size="sm" onClick={selectAllAllowed}>
-                                                全选
+                                                {bs.batch.selectAll}
                                             </Button>
                                             <Button variant="outline" size="sm" onClick={clearAllSelected}>
-                                                清空
+                                                {bs.batch.clearSelection}
                                             </Button>
                                         </div>
                                     </div>
 
                                     {allowedTemplates.length === 0 ? (
                                         <div className="text-center py-8 text-muted-foreground">
-                                            <Info className="w-10 h-10 mx-auto mb-3 opacity-50 text-blue-500"/>
-                                            <p>暂无允许的模板，点击“刷新”获取</p>
+                                            <Info className="w-10 h-10 mx-auto mb-3 opacity-50 text-blue-500" />
+                                            <p>{bs.batch.noAllowed}</p>
                                         </div>
                                     ) : (
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1029,7 +1038,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                     <div
                                                         key={t.code}
                                                         className={`p-3 border rounded-md cursor-pointer transition-all duration-200 ${checked ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
-                                                        }`}
+                                                            }`}
                                                         onClick={() => toggleTemplateSelection(t.code)}
                                                     >
                                                         <div className="flex items-center">
@@ -1052,12 +1061,12 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>
-                                        <Label htmlFor="mobiles-batch-input">手机号（多个用逗号、空格或换行分隔）</Label>
+                                        <Label htmlFor="mobiles-batch-input">{bs.batch.mobileList}</Label>
                                         <Textarea
                                             id="mobiles-batch-input"
                                             value={mobiles}
                                             onChange={(e) => setMobiles(e.target.value)}
-                                            placeholder="13800138001,13800138002 13800138003"
+                                            placeholder={bs.batch.mobilePlaceholder}
                                             rows={3}
                                             disabled={usePresetMobiles}
                                         />
@@ -1069,7 +1078,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                 checked={usePresetMobiles}
                                                 onCheckedChange={(checked) => setUsePresetMobiles(Boolean(checked))}
                                             />
-                                            <Label htmlFor="use-preset-batch">使用预设手机号</Label>
+                                            <Label htmlFor="use-preset-batch">{bs.batch.usePreset}</Label>
                                         </div>
                                         <div className="flex items-center space-x-2">
                                             <Checkbox
@@ -1077,7 +1086,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                 checked={randomSend}
                                                 onCheckedChange={(checked) => setRandomSend(Boolean(checked))}
                                             />
-                                            <Label htmlFor="random-send">随机发送顺序</Label>
+                                            <Label htmlFor="random-send">{bs.batch.randomSend}</Label>
                                         </div>
                                     </div>
                                 </div>
@@ -1089,7 +1098,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     icon={Play}
                                     className="w-full"
                                 >
-                                    批量发送短信
+                                    {bs.batch.send}
                                 </LoadingButton>
                             </CardContent>
                         </Card>
@@ -1100,7 +1109,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     <Card>
                                         <CardContent className="pt-6">
                                             <div className="text-center">
-                                                <p className="text-sm text-muted-foreground">总发送数</p>
+                                                <p className="text-sm text-muted-foreground">{bs.results.total}</p>
                                                 <p className="text-2xl">{sendStats.total}</p>
                                             </div>
                                         </CardContent>
@@ -1108,7 +1117,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     <Card>
                                         <CardContent className="pt-6">
                                             <div className="text-center">
-                                                <p className="text-sm text-muted-foreground">成功数</p>
+                                                <p className="text-sm text-muted-foreground">{bs.results.success}</p>
                                                 <p className="text-2xl text-green-600">{sendStats.success}</p>
                                             </div>
                                         </CardContent>
@@ -1116,7 +1125,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     <Card>
                                         <CardContent className="pt-6">
                                             <div className="text-center">
-                                                <p className="text-sm text-muted-foreground">失败数</p>
+                                                <p className="text-sm text-muted-foreground">{bs.results.failure}</p>
                                                 <p className="text-2xl text-red-600">{sendStats.failure}</p>
                                             </div>
                                         </CardContent>
@@ -1126,10 +1135,10 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                 <Card>
                                     <CardHeader>
                                         <div className="flex justify-between items-center">
-                                            <CardTitle>发送结果详情</CardTitle>
+                                            <CardTitle>{bs.results.title}</CardTitle>
                                             <Button onClick={downloadResults} size="sm">
-                                                <Download className="w-4 h-4 mr-2"/>
-                                                下载结果
+                                                <Download className="w-4 h-4 mr-2" />
+                                                {bs.results.export}
                                             </Button>
                                         </div>
                                     </CardHeader>
@@ -1137,10 +1146,10 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                         <Table>
                                             <TableHeader>
                                                 <TableRow>
-                                                    <TableHead>手机号</TableHead>
-                                                    <TableHead>模板</TableHead>
-                                                    <TableHead>发送状态</TableHead>
-                                                    <TableHead>操作</TableHead>
+                                                    <TableHead>{bs.results.table.mobile}</TableHead>
+                                                    <TableHead>{bs.results.table.template}</TableHead>
+                                                    <TableHead>{bs.results.table.result}</TableHead>
+                                                    <TableHead>{bs.results.table.detail}</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
@@ -1157,11 +1166,11 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                                 <TableCell>
                                                                     {result.result.code === 0 ? (
                                                                         <Badge variant="secondary"
-                                                                               className="bg-green-100 text-green-800">
-                                                                            发送成功
+                                                                            className="bg-green-100 text-green-800">
+                                                                            {t.scripts.taskAutomation.table.success}
                                                                         </Badge>
                                                                     ) : (
-                                                                        <Badge variant="destructive">发送失败</Badge>
+                                                                        <Badge variant="destructive">{t.scripts.taskAutomation.table.failed}</Badge>
                                                                     )}
                                                                 </TableCell>
                                                                 <TableCell>
@@ -1170,7 +1179,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                                                         size="sm"
                                                                         onClick={() => toggleResultDetails(rowKey)}
                                                                     >
-                                                                        {expandedResult === rowKey ? '隐藏详情' : '查看详情'}
+                                                                        {expandedResult === rowKey ? bs.results.table.hide : bs.results.table.view}
                                                                     </Button>
                                                                 </TableCell>
                                                             </TableRow>
@@ -1201,25 +1210,25 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                     <TabsContent value="resendSign" className="space-y-6 animate-in fade-in-50 duration-300">
                         <Card>
                             <CardHeader>
-                                <CardTitle>补发共享协议签约短信</CardTitle>
+                                <CardTitle>{bs.resend.title}</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>
-                                        <Label htmlFor="resend-env-select">环境</Label>
+                                        <Label htmlFor="resend-env-select">{bs.template.envLabel}</Label>
                                         <Select value={environment}
-                                                onValueChange={(v) => setEnvironment(v as 'test' | 'prod')}>
+                                            onValueChange={(v) => setEnvironment(v as 'test' | 'prod')}>
                                             <SelectTrigger>
-                                                <SelectValue placeholder="选择环境"/>
+                                                <SelectValue placeholder={bs.template.envPlaceholder} />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="test">Beta</SelectItem>
-                                                <SelectItem value="prod">生产环境</SelectItem>
+                                                <SelectItem value="test">{bs.template.envTest}</SelectItem>
+                                                <SelectItem value="prod">{bs.template.envProd}</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
                                     <div>
-                                        <Label htmlFor="timeout-resend-input">超时时间(秒)</Label>
+                                        <Label htmlFor="timeout-resend-input">{bs.template.timeoutLabel}</Label>
                                         <Input
                                             id="timeout-resend-input"
                                             type="number"
@@ -1234,21 +1243,21 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
 
                                 <div className="space-y-4">
                                     <div className="space-y-3">
-                                        <Label>补发方式</Label>
+                                        <Label>{bs.resend.typeLabel}</Label>
                                         <div className="flex space-x-6">
                                             <RadioButton
                                                 id="resend-by-mobile"
                                                 name="resend-mode"
                                                 checked={resendType === 'mobile'}
                                                 onChange={() => setResendType('mobile')}
-                                                label="按手机号补发"
+                                                label={bs.resend.mobileType}
                                             />
                                             <RadioButton
                                                 id="resend-by-batch"
                                                 name="resend-mode"
                                                 checked={resendType === 'batch'}
                                                 onChange={() => setResendType('batch')}
-                                                label="按批次号补发"
+                                                label={bs.resend.batchType}
                                             />
                                         </div>
                                     </div>
@@ -1256,41 +1265,40 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                     {resendType === 'mobile' ? (
                                         <div className="space-y-4">
                                             <div>
-                                                <Label htmlFor="resend-mobile-input">手机号</Label>
+                                                <Label htmlFor="resend-mobile-input">{bs.resend.mobileLabel}</Label>
                                                 <Input
                                                     id="resend-mobile-input"
                                                     value={resendMobile}
                                                     onChange={(e) => setResendMobile(e.target.value)}
-                                                    placeholder="请输入需要补发的手机号"
+                                                    placeholder={bs.resend.mobilePlaceholder}
                                                     maxLength={11}
                                                     required
                                                 />
-                                                <p className="text-xs text-muted-foreground mt-1">请输入正确的 11
-                                                    位手机号码</p>
+                                                <p className="text-xs text-muted-foreground mt-1">{bs.resend.mobileHint}</p>
                                             </div>
                                             {/* 新增税地ID输入框 */}
                                             <div>
-                                                <Label htmlFor="resend-tax-id-input">税地ID</Label>
+                                                <Label htmlFor="resend-tax-id-input">{bs.resend.taxIdLabel}</Label>
                                                 <Input
                                                     id="resend-tax-id-input"
                                                     value={resendTaxId}
                                                     onChange={(e) => setResendTaxId(e.target.value)}
-                                                    placeholder="请输入税地ID"
+                                                    placeholder={bs.resend.taxIdPlaceholder}
                                                     required
                                                 />
-                                                <p className="text-xs text-muted-foreground mt-1">请输入对应的税地ID，不能为空</p>
+                                                <p className="text-xs text-muted-foreground mt-1">{bs.resend.taxIdHint}</p>
                                             </div>
                                         </div>
                                     ) : (
                                         <div>
-                                            <Label htmlFor="resend-batch-input">批次号</Label>
+                                            <Label htmlFor="resend-batch-input">{bs.resend.batchNoLabel}</Label>
                                             <Input
                                                 id="resend-batch-input"
                                                 value={resendBatchNo}
                                                 onChange={(e) => setResendBatchNo(e.target.value)}
-                                                placeholder="请输入需要补发的批次号"
+                                                placeholder={bs.resend.batchNoPlaceholder}
                                             />
-                                            <p className="text-xs text-muted-foreground mt-1">请输入该批次的唯一标识编号</p>
+                                            <p className="text-xs text-muted-foreground mt-1">{bs.resend.batchNoHint}</p>
                                         </div>
                                     )}
                                 </div>
@@ -1305,7 +1313,7 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                                         (resendType === 'batch' && !resendBatchNo)
                                     }
                                 >
-                                    补发签约短信
+                                    {bs.resend.submit}
                                 </LoadingButton>
                             </CardContent>
                         </Card>
@@ -1313,33 +1321,33 @@ export default function SmsManagementScript({onBack}: { onBack: () => void }) {
                         {resendResult && (
                             <Card className="animate-in fade-in-50 duration-300">
                                 <CardHeader>
-                                    <CardTitle>补发结果</CardTitle>
+                                    <CardTitle>{bs.resend.resultTitle}</CardTitle>
                                 </CardHeader>
                                 <CardContent>
                                     <div
                                         className={`p-4 rounded-md ${resendResult.success
                                             ? 'bg-green-50 border border-green-200'
                                             : 'bg-red-50 border border-red-200'
-                                        }`}
+                                            }`}
                                     >
                                         <div>
                                             <p
                                                 className={`font-medium ${resendResult.success ? 'text-green-800' : 'text-red-800'
-                                                }`}
+                                                    }`}
                                             >
-                                                {resendResult.success ? '补发成功' : '补发失败'}
+                                                {resendResult.success ? bs.messages.resendSuccess : bs.messages.resendFail}
                                             </p>
                                             <p className="mt-1 text-sm">{resendResult.message}</p>
                                             {Array.isArray(resendResult.data) && resendResult.data.length > 0 && (
                                                 <div className="mt-3">
-                                                    <p className="text-xs text-muted-foreground mb-1">详细信息：</p>
+                                                    <p className="text-xs text-muted-foreground mb-1">{bs.resend.details}</p>
                                                     <pre className="text-sm bg-gray-50 p-2 rounded whitespace-pre-wrap">
                                                         {JSON.stringify(resendResult.data, null, 2)}
                                                     </pre>
                                                 </div>
                                             )}
                                             <p className="mt-2 text-xs text-muted-foreground">
-                                                请求ID: {resendResult.request_id}
+                                                {bs.resend.requestId}: {resendResult.request_id}
                                             </p>
                                         </div>
                                     </div>

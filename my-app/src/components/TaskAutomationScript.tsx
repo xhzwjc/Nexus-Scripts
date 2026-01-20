@@ -1,16 +1,17 @@
-import React, {useRef, useState} from 'react';
-import {Card, CardContent, CardHeader, CardTitle} from './ui/card';
-import {Button} from './ui/button';
-import {Input} from './ui/input';
-import {Label} from './ui/label';
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/select';
-import {Textarea} from './ui/textarea';
-import {Badge} from './ui/badge';
-import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from './ui/table';
-import {Tabs, TabsContent, TabsList, TabsTrigger} from './ui/tabs';
-import {AlertCircle, ArrowLeft, ChevronDown, ChevronRight, Download, Play, Trash2, Upload} from 'lucide-react';
-import {toast} from 'sonner';
-import {getApiBaseUrl} from '../lib/api';
+import React, { useRef, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Textarea } from './ui/textarea';
+import { Badge } from './ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { AlertCircle, ArrowLeft, ChevronDown, ChevronRight, Download, Play, Trash2, Upload } from 'lucide-react';
+import { toast } from 'sonner';
+import { getApiBaseUrl } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 
 // ---------- 类型定义 ----------
 interface StepInfo {
@@ -98,7 +99,7 @@ const fileToBase64 = (file: File): Promise<string> =>
             if (typeof reader.result === 'string') {
                 resolve(reader.result.split(',')[1]);
             } else {
-                reject(new Error('文件转换失败'));
+                reject(new Error('File conversion failed'));
             }
         };
         reader.onerror = (error) => reject(error);
@@ -141,40 +142,43 @@ const formatStepData = (step: StepInfo | undefined, stepKey: StepKey): string =>
         const d = step.data;
         if (isBalanceData(d)) {
             if ((d.list?.length ?? 0) === 0 && (d.total ?? 0) === 0) {
-                return JSON.stringify({list: '无结算单数据', total: 0}, null, 2);
+                return JSON.stringify({ list: 'No settlement data', total: 0 }, null, 2);
             }
             return JSON.stringify(d, null, 2);
         }
-        return JSON.stringify('无数据', null, 2);
+        return JSON.stringify('No Data', null, 2);
     }
 
-    return JSON.stringify({code: step.code ?? 'N/A', msg: step.msg || '', data: step.data ?? null}, null, 2);
-};
-
-// 根据执行模式获取步骤
-const getStepsForMode = (mode: string): Array<{ key: StepKey; label: string }> => {
-    const allSteps: Array<{ key: StepKey; label: string }> = [
-        {key: 'login', label: '登录'},
-        {key: 'sign', label: '报名'},
-        {key: 'get_task_ids', label: '任务ID获取'},
-        {key: 'delivery', label: '交付'},
-        {key: 'get_balance_id', label: '结算单确认'}
-    ];
-
-    switch (mode) {
-        case '1':
-            return allSteps.filter(s => ['login', 'sign'].includes(s.key));
-        case '2':
-            return allSteps.filter(s => ['login', 'delivery'].includes(s.key));
-        case '3':
-            return allSteps.filter(s => ['login', 'get_balance_id'].includes(s.key));
-        default:
-            return allSteps;
-    }
+    return JSON.stringify({ code: step.code ?? 'N/A', msg: step.msg || '', data: step.data ?? null }, null, 2);
 };
 
 // ---------- 组件 ----------
-export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps) {
+export default function TaskAutomationScript({ onBack }: TaskAutomationScriptProps) {
+    const { t } = useI18n();
+    const ta = t.scripts.taskAutomation;
+
+    // 根据执行模式获取步骤
+    const getStepsForMode = (mode: string): Array<{ key: StepKey; label: string }> => {
+        const allSteps: Array<{ key: StepKey; label: string }> = [
+            { key: 'login', label: ta.mode?.options?.full?.split(' ')[0] || 'Login' }, // Simplified label or modify translation structure if needed
+            { key: 'sign', label: ta.mode?.options?.loginSign?.split('+')[1] || 'Sign' },
+            { key: 'get_task_ids', label: 'Task IDs' },
+            { key: 'delivery', label: 'Delivery' },
+            { key: 'get_balance_id', label: 'Balance' }
+        ];
+
+        switch (mode) {
+            case '1':
+                return allSteps.filter(s => ['login', 'sign'].includes(s.key));
+            case '2':
+                return allSteps.filter(s => ['login', 'delivery'].includes(s.key));
+            case '3':
+                return allSteps.filter(s => ['login', 'get_balance_id'].includes(s.key));
+            default:
+                return allSteps;
+        }
+    };
+
     // 主要状态
     const [environment, setEnvironment] = useState('test');
     const [phoneNumbers, setPhoneNumbers] = useState<PhoneNumber[]>([]);
@@ -200,10 +204,10 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
     const [taskInfo, setTaskInfo] = useState<TaskInfo>({
         task_id: '',
         task_content:
-            '交付成果：列明本阶段完成的具体交付物（如代码模块、设计文档、测试报告等），需标注版本号及对应功能清单。\n验收指标：对照合同要求的KPI（如性能参数、安全标准、测试覆盖率等），逐项说明达标情况，附检测数据截图。\n问题记录：汇总验收过程中发现的缺陷（如Bug清单、未达标项），并注明整改计划与预计完成时间。\n附件清单：列出所有提交的支撑文件（如日志、测试用例、第三方认证等），确保可追溯。',
-        report_name: 'XX项目阶段交付验收报告',
-        report_address: '北京市丰台区看丹街道看丹路418号',
-        supplement: '补充一',
+            'Deliverables: List specific deliverables completed in this phase (e.g. code modules, design docs, test reports), specifying version numbers and function lists.\nAcceptance Criteria: Indicators required by checking against contract (e.g. performance params, safety standards, test coverage), explain compliance item by item, attach screenshot of test data.\nIssue Record: Summary of defects found during acceptance (e.g. Bug list, substandard items), and note rectification plan and estimated completion time.\nAttachment List: List all supporting files submitted (e.g. logs, test cases, 3rd party certs), ensuring traceability.',
+        report_name: 'XX Project Phase Delivery Acceptance Report',
+        report_address: 'No. 418 Kandan Road, Kandan Street, Fengtai District, Beijing',
+        supplement: 'Supplement 1',
         attachments: [
             {
                 fileName: 'tmp_1eb627ad4a5d62e68b9ef43759a4c750.jpg',
@@ -230,7 +234,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                 status: 'pending',
                 success: false,
                 error: null,
-                steps: {login: {}, sign: {}, get_task_ids: {}, delivery: {}, get_balance_id: {}}
+                steps: { login: {}, sign: {}, get_task_ids: {}, delivery: {}, get_balance_id: {} }
             }))
         );
         setCurrentTab('task');
@@ -243,7 +247,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
         const file = event.target.files?.[0];
         if (!file) return;
         if (!file.name.toLowerCase().endsWith('.txt')) {
-            setError('仅支持 .txt 文件');
+            setError(ta.upload.supportTxt);
             return;
         }
         setSelectedFile(file);
@@ -264,7 +268,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
         const file = e.dataTransfer.files?.[0];
         if (!file) return;
         if (!file.name.toLowerCase().endsWith('.txt')) {
-            setError('仅支持 .txt 文件');
+            setError(ta.upload.supportTxt);
             return;
         }
         setSelectedFile(file);
@@ -280,14 +284,14 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
         if (!base) return;
 
         if (!selectedFile) {
-            setError('请先选择文件');
+            setError(ta.messages.fileRequired);
             return;
         }
 
         const start = parseInt(startLine, 10);
         const end = parseInt(endLine, 10);
         if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start) {
-            setError('请输入有效的行数范围（起始行 <= 结束行，且均为正数）');
+            setError(ta.messages.invalidRange);
             return;
         }
 
@@ -297,8 +301,8 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
 
             const resp = await fetch(`${base}/mobile/parse`, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({file_content: base64Content, range: `${start}-${end}`})
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_content: base64Content, range: `${start}-${end}` })
             });
 
             const data = await parseJson<ParseMobilesResponse>(resp);
@@ -306,10 +310,10 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
             if (!resp.ok) {
                 const msg =
                     (data && (data.message || data.detail)) ||
-                    `解析失败（HTTP ${resp.status}）`;
+                    `${ta.messages.parseFail} (HTTP ${resp.status})`;
                 setError(
-                    data && data.message && (data.message.includes('超出索引') || data.message.includes('不存在'))
-                        ? `行数范围错误: ${data.message}`
+                    data && data.message && (data.message.includes('out of index') || data.message.includes('not exist') || data.message.includes('超出索引') || data.message.includes('不存在'))
+                        ? `${ta.messages.invalidRange}: ${data.message}`
                         : msg
                 );
                 return;
@@ -317,7 +321,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
 
             const mobiles = data?.data?.mobiles;
             if (!Array.isArray(mobiles)) {
-                setError('返回数据结构不合法：缺少 mobiles 数组');
+                setError('Invalid Data Structure: Missing mobiles array');
                 return;
             }
 
@@ -327,14 +331,14 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                 status: 'pending',
                 success: false,
                 error: null,
-                steps: {login: {}, sign: {}, get_task_ids: {}, delivery: {}, get_balance_id: {}}
+                steps: { login: {}, sign: {}, get_task_ids: {}, delivery: {}, get_balance_id: {} }
             }));
             setPhoneNumbers(list);
-            toast.success(`成功解析 ${list.length} 个手机号`);
+            toast.success(ta.messages.parseSuccess.replace('{count}', list.length.toString()));
         } catch (err) {
-            const msg = err instanceof Error ? err.message : '文件处理出错，请重试';
+            const msg = err instanceof Error ? err.message : ta.messages.parseFail;
             setError(msg);
-            console.error('文件上传错误:', err);
+            console.error('File upload error:', err);
         } finally {
             setIsLoading(false);
         }
@@ -348,7 +352,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
             .map(s => s.trim())
             .filter(Boolean);
         if (phones.length === 0) {
-            toast.error('请输入有效的手机号');
+            toast.error(ta.messages.inputValidPhone);
             return;
         }
         const list: PhoneNumber[] = phones.map(p => ({
@@ -357,7 +361,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
             status: 'pending',
             success: false,
             error: null,
-            steps: {login: {}, sign: {}, get_task_ids: {}, delivery: {}, get_balance_id: {}}
+            steps: { login: {}, sign: {}, get_task_ids: {}, delivery: {}, get_balance_id: {} }
         }));
         setPhoneNumbers(list);
         setCurrentTab('mode');
@@ -376,7 +380,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
         if (!base) return;
 
         if (!taskId || !mode || phoneNumbers.length === 0) {
-            setError('请完善任务信息并确保有手机号数据');
+            setError(ta.messages.taskInfoRequired);
             return;
         }
 
@@ -384,7 +388,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
             setIsRunning(true);
             setCurrentTab('task');
 
-            const updatedTaskInfo: TaskInfo = {...taskInfo, task_id: taskId};
+            const updatedTaskInfo: TaskInfo = { ...taskInfo, task_id: taskId };
             setTaskInfo(updatedTaskInfo);
 
             const concurrent_workers =
@@ -405,20 +409,20 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
 
             const resp = await fetch(`${base}/mobile/task/process`, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
 
             const data = await parseJson<TaskProcessResponse>(resp);
 
             if (!resp.ok) {
-                const msg = (data && (data.message || data.detail)) || `任务执行失败（HTTP ${resp.status}）`;
+                const msg = (data && (data.message || data.detail)) || `${ta.messages.fail} (HTTP ${resp.status})`;
                 throw new Error(msg);
             }
 
             const arr = data?.data;
             if (!Array.isArray(arr)) {
-                setError('返回数据格式错误：data 不是数组');
+                setError('Invalid response format: data is not an array');
                 return;
             }
 
@@ -440,12 +444,12 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
 
             setIsRunning(false);
             setCurrentTab('results');
-            toast.success('任务已完成');
+            toast.success(ta.messages.processSuccess);
         } catch (err) {
             setIsRunning(false);
-            const msg = err instanceof Error ? err.message : '任务执行出错，请重试';
+            const msg = err instanceof Error ? err.message : ta.messages.fail;
             setError(msg);
-            console.error('执行任务错误:', err);
+            console.error('Execution error:', err);
         }
     };
 
@@ -462,11 +466,11 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
             failed: executionResults.filter(p => p.status === 'failed').length,
             results: executionResults
         };
-        const blob = new Blob([JSON.stringify(results, null, 2)], {type: 'application/json'});
+        const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `task_${taskId || '未命名'}_results.json`;
+        a.download = `task_${taskId || 'unnamed'}_results.json`;
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -474,13 +478,13 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
     const getModeDescription = (modeValue: string) => {
         switch (modeValue) {
             case 'full':
-                return '完整流程（登录→报名→提交交付物）';
+                return ta.mode.desc.full;
             case '1':
-                return '登录+报名（mode = 1）';
+                return ta.mode.desc.loginSign;
             case '2':
-                return '登录+提交交付物（mode = 2）';
+                return ta.mode.desc.loginDelivery;
             case '3':
-                return '登录+结算确认（mode = 3）';
+                return ta.mode.desc.loginBalance;
             default:
                 return '';
         }
@@ -492,33 +496,33 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
             <div className="max-w-6xl mx-auto">
                 <div className="mb-6">
                     <Button variant="ghost" onClick={onBack} className="mb-4">
-                        <ArrowLeft className="w-4 h-4 mr-2"/>
-                        返回脚本列表
+                        <ArrowLeft className="w-4 h-4 mr-2" />
+                        {ta.back}
                     </Button>
                     <div className="flex items-center gap-3 mb-2">
-                        <h1 className="text-2xl">任务自动化管理工具</h1>
-                        <Badge variant={isRunning ? 'destructive' : 'secondary'}>{isRunning ? '执行中' : '就绪'}</Badge>
+                        <h1 className="text-2xl">{ta.title}</h1>
+                        <Badge variant={isRunning ? 'destructive' : 'secondary'}>{isRunning ? ta.task.executing : ta.task.ready}</Badge>
                     </div>
-                    <p className="text-muted-foreground">批量对多个手机号用户执行任务流程操作，支持报名、交付、结算确认等功能</p>
+                    <p className="text-muted-foreground">{ta.subtitle}</p>
                 </div>
 
                 {error && (
                     <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-md flex items-center">
-                        <AlertCircle className="w-4 h-4 mr-2"/>
+                        <AlertCircle className="w-4 h-4 mr-2" />
                         <span>{error}</span>
                     </div>
                 )}
 
                 <Tabs value={currentTab} onValueChange={setCurrentTab} className="space-y-6">
                     <TabsList className="grid w-full grid-cols-4">
-                        <TabsTrigger value="upload">文件上传</TabsTrigger>
-                        <TabsTrigger value="mode" disabled={phoneNumbers.length === 0}>模式选择</TabsTrigger>
-                        <TabsTrigger value="task" disabled={!mode}>任务执行</TabsTrigger>
+                        <TabsTrigger value="upload">{ta.tabs.upload}</TabsTrigger>
+                        <TabsTrigger value="mode" disabled={phoneNumbers.length === 0}>{ta.tabs.mode}</TabsTrigger>
+                        <TabsTrigger value="task" disabled={!mode}>{ta.tabs.task}</TabsTrigger>
                         <TabsTrigger
                             value="results"
                             disabled={executionResults.filter(p => p.status !== 'pending').length === 0}
                         >
-                            执行结果
+                            {ta.tabs.results}
                         </TabsTrigger>
                     </TabsList>
 
@@ -527,22 +531,22 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             <Card>
                                 <CardHeader>
-                                    <CardTitle>上传TXT文件</CardTitle>
+                                    <CardTitle>{ta.upload.title}</CardTitle>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
                                     <div>
-                                        <Label htmlFor="file-upload">选择文件</Label>
+                                        <Label htmlFor="file-upload">{ta.upload.label}</Label>
                                         <div
                                             onClick={handleFileUploadClick}
                                             onDragOver={onDragOver}
                                             onDragLeave={onDragLeave}
                                             onDrop={onDrop}
                                             className={`mt-1 border-2 border-dashed rounded-md p-4 text-center cursor-pointer transition-colors ${dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-500'
-                                            }`}
+                                                }`}
                                         >
-                                            <Upload className="w-6 h-6 mx-auto text-gray-400"/>
-                                            <p className="mt-2 text-sm text-gray-600">点击或拖拽文件到此处上传</p>
-                                            <p className="text-xs text-gray-500 mt-1">支持 .txt 格式文件</p>
+                                            <Upload className="w-6 h-6 mx-auto text-gray-400" />
+                                            <p className="mt-2 text-sm text-gray-600">{ta.upload.dragDrop}</p>
+                                            <p className="text-xs text-gray-500 mt-1">{ta.upload.dragDropHint}</p>
                                             <Input
                                                 id="file-upload"
                                                 ref={fileInputRef}
@@ -556,16 +560,16 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
 
                                     {selectedFile && (
                                         <div className="space-y-3">
-                                            <p className="text-sm text-muted-foreground">已选择文件: {selectedFile.name}</p>
+                                            <p className="text-sm text-muted-foreground">{ta.upload.fileSelected.replace('{name}', selectedFile.name)}</p>
                                             <div className="grid grid-cols-2 gap-3">
                                                 <div>
-                                                    <Label htmlFor="start-line">起始行数</Label>
+                                                    <Label htmlFor="start-line">{ta.upload.startLine}</Label>
                                                     <Input
                                                         id="start-line"
                                                         type="number"
                                                         value={startLine}
                                                         onChange={(e) => setStartLine(e.target.value)}
-                                                        placeholder="请输入起始行"
+                                                        placeholder={ta.upload.startPlaceholder}
                                                         min={1}
                                                         onKeyDown={(e) => {
                                                             if (e.key === 'Enter' && endLine && !isLoading) fetchPhoneNumbers();
@@ -573,13 +577,13 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                     />
                                                 </div>
                                                 <div>
-                                                    <Label htmlFor="end-line">结束行数</Label>
+                                                    <Label htmlFor="end-line">{ta.upload.endLine}</Label>
                                                     <Input
                                                         id="end-line"
                                                         type="number"
                                                         value={endLine}
                                                         onChange={(e) => setEndLine(e.target.value)}
-                                                        placeholder="请输入结束行"
+                                                        placeholder={ta.upload.endPlaceholder}
                                                         min={Number(startLine) || 1}
                                                         onKeyDown={(e) => {
                                                             if (e.key === 'Enter' && startLine && !isLoading) fetchPhoneNumbers();
@@ -593,7 +597,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                 disabled={!startLine || !endLine || isLoading}
                                                 className="w-full"
                                             >
-                                                {isLoading ? '获取中...' : '获取手机号列表'}
+                                                {isLoading ? ta.upload.fetching : ta.upload.fetchBtn}
                                             </Button>
                                         </div>
                                     )}
@@ -602,16 +606,16 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
 
                             <Card>
                                 <CardHeader>
-                                    <CardTitle>手动输入手机号</CardTitle>
+                                    <CardTitle>{ta.upload.manualTitle}</CardTitle>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
                                     <div>
-                                        <Label htmlFor="manual-input">手机号列表（每行一个）</Label>
+                                        <Label htmlFor="manual-input">{ta.upload.manualLabel}</Label>
                                         <Textarea
                                             id="manual-input"
                                             value={manualInput}
                                             onChange={(e) => setManualInput(e.target.value)}
-                                            placeholder="13800138001&#10;13800138002&#10;13800138003"
+                                            placeholder={ta.upload.manualPlaceholder}
                                             rows={8}
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleManualSubmit();
@@ -619,8 +623,8 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                         />
                                     </div>
                                     <Button onClick={handleManualSubmit} className="w-full" disabled={isLoading}>
-                                        <Upload className="w-4 h-4 mr-2"/>
-                                        提交手机号
+                                        <Upload className="w-4 h-4 mr-2" />
+                                        {ta.upload.submitBtn}
                                     </Button>
                                 </CardContent>
                             </Card>
@@ -630,13 +634,13 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                             <Card>
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
-                                        <CardTitle>已提取手机号列表</CardTitle>
+                                        <CardTitle>Phone Numbers</CardTitle>
                                         <div className="flex gap-2">
-                                            <Badge variant="outline">{phoneNumbers.length} 个手机号</Badge>
+                                            <Badge variant="outline">{phoneNumbers.length} items</Badge>
                                             <Button variant="outline" size="sm" onClick={clearPhoneNumbers}
-                                                    disabled={isLoading}>
-                                                <Trash2 className="w-4 h-4 mr-2"/>
-                                                清空列表
+                                                disabled={isLoading}>
+                                                <Trash2 className="w-4 h-4 mr-2" />
+                                                {ta.upload.clear}
                                             </Button>
                                         </div>
                                     </div>
@@ -646,14 +650,14 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                         <div className="grid grid-cols-4 gap-2">
                                             {phoneNumbers.map((phone, index) => (
                                                 <div key={`${phone.phone}-${index}`}
-                                                     className="text-sm p-2 bg-gray-100 rounded">
+                                                    className="text-sm p-2 bg-gray-100 rounded">
                                                     {phone.phone}
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
                                     <Button onClick={() => setCurrentTab('mode')} className="w-full mt-4">
-                                        下一步：选择模式
+                                        {ta.execution.next}
                                     </Button>
                                 </CardContent>
                             </Card>
@@ -664,20 +668,20 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                     <TabsContent value="mode" className="space-y-6">
                         <Card>
                             <CardHeader>
-                                <CardTitle>执行模式配置</CardTitle>
+                                <CardTitle>{ta.mode.title}</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
                                 <div>
-                                    <Label htmlFor="mode-select">选择执行模式</Label>
+                                    <Label htmlFor="mode-select">{ta.mode.label}</Label>
                                     <Select value={mode} onValueChange={setMode}>
                                         <SelectTrigger>
-                                            <SelectValue placeholder="选择执行模式"/>
+                                            <SelectValue placeholder={ta.mode.placeholder} />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="full">完整流程</SelectItem>
-                                            <SelectItem value="1">登录+报名</SelectItem>
-                                            <SelectItem value="2">登录+提交交付物</SelectItem>
-                                            <SelectItem value="3">登录+结算确认</SelectItem>
+                                            <SelectItem value="full">{ta.mode.options.full}</SelectItem>
+                                            <SelectItem value="1">{ta.mode.options.loginSign}</SelectItem>
+                                            <SelectItem value="2">{ta.mode.options.loginDelivery}</SelectItem>
+                                            <SelectItem value="3">{ta.mode.options.loginBalance}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                     {mode &&
@@ -685,33 +689,33 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                 </div>
 
                                 <div>
-                                    <Label htmlFor="environment-select">运行环境</Label>
+                                    <Label htmlFor="environment-select">{ta.execution.envLabel}</Label>
                                     <Select value={environment} onValueChange={setEnvironment}>
                                         <SelectTrigger>
-                                            <SelectValue placeholder="选择运行环境"/>
+                                            <SelectValue placeholder={ta.execution.envPlaceholder} />
                                         </SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="test">Beta</SelectItem>
-                                            <SelectItem value="prod">生产环境</SelectItem>
+                                            <SelectItem value="prod">Production</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <Label htmlFor="execution-type">执行方式</Label>
+                                        <Label htmlFor="execution-type">{ta.execution.typeLabel}</Label>
                                         <Select value={executionType} onValueChange={setExecutionType}>
                                             <SelectTrigger>
-                                                <SelectValue placeholder="选择执行方式"/>
+                                                <SelectValue placeholder={ta.execution.typePlaceholder} />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="sequential">顺序执行</SelectItem>
-                                                <SelectItem value="concurrent">并发执行</SelectItem>
+                                                <SelectItem value="sequential">{ta.execution.sequential}</SelectItem>
+                                                <SelectItem value="concurrent">{ta.execution.concurrent}</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
                                     <div>
-                                        <Label htmlFor="concurrency">并发线程数</Label>
+                                        <Label htmlFor="concurrency">{ta.execution.concurrencyLabel}</Label>
                                         <Input
                                             id="concurrency"
                                             type="number"
@@ -725,7 +729,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                 </div>
 
                                 <Button onClick={goToTaskStep} disabled={!mode} className="w-full">
-                                    下一步：执行任务
+                                    {ta.execution.next}
                                 </Button>
                             </CardContent>
                         </Card>
@@ -735,16 +739,16 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                     <TabsContent value="task" className="space-y-6">
                         <Card>
                             <CardHeader>
-                                <CardTitle>任务执行</CardTitle>
+                                <CardTitle>{ta.task.title}</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div>
-                                    <Label htmlFor="task-id">任务ID</Label>
+                                    <Label htmlFor="task-id">{ta.task.idLabel}</Label>
                                     <Input
                                         id="task-id"
                                         value={taskId}
                                         onChange={(e) => setTaskId(e.target.value)}
-                                        placeholder="输入任务ID"
+                                        placeholder={ta.task.idPlaceholder}
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter' && !isRunning && phoneNumbers.length > 0) startExecution();
                                         }}
@@ -756,8 +760,8 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                         disabled={!taskId || isRunning || phoneNumbers.length === 0}
                                         className="flex-1"
                                     >
-                                        <Play className="w-4 h-4 mr-2"/>
-                                        {isRunning ? '执行中...' : '开始执行'}
+                                        <Play className="w-4 h-4 mr-2" />
+                                        {isRunning ? ta.task.running : ta.task.start}
                                     </Button>
                                 </div>
                             </CardContent>
@@ -765,15 +769,15 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
 
                         <Card>
                             <CardHeader>
-                                <CardTitle>执行状态</CardTitle>
+                                <CardTitle>{ta.task.status}</CardTitle>
                             </CardHeader>
                             <CardContent>
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead>手机号</TableHead>
-                                            <TableHead>执行状态</TableHead>
-                                            <TableHead>结果/原因</TableHead>
+                                            <TableHead>{ta.table.phone}</TableHead>
+                                            <TableHead>{ta.table.status}</TableHead>
+                                            <TableHead>{ta.table.result}</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -783,19 +787,19 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                     <TableCell>{phone.phone}</TableCell>
                                                     <TableCell>
                                                         {phone.status === 'pending' &&
-                                                            <Badge variant="outline">待执行</Badge>}
+                                                            <Badge variant="outline">{ta.table.pending}</Badge>}
                                                         {phone.status === 'success' && (
                                                             <Badge variant="secondary"
-                                                                   className="bg-green-100 text-green-800">
-                                                                成功
+                                                                className="bg-green-100 text-green-800">
+                                                                {ta.table.success}
                                                             </Badge>
                                                         )}
                                                         {phone.status === 'failed' &&
-                                                            <Badge variant="destructive">失败</Badge>}
+                                                            <Badge variant="destructive">{ta.table.failed}</Badge>}
                                                     </TableCell>
                                                     <TableCell>
-                                                        {phone.status === 'success' && '执行成功'}
-                                                        {phone.status === 'failed' && (phone.error || '失败')}
+                                                        {phone.status === 'success' && ta.table.success}
+                                                        {phone.status === 'failed' && (phone.error || ta.table.failed)}
                                                         {phone.status === 'pending' && '-'}
                                                     </TableCell>
                                                 </TableRow>
@@ -811,12 +815,12 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                             >
                                                                 {expandedPhone === phone.mobile ? (
                                                                     <>
-                                                                        <ChevronDown className="w-4 h-4 mr-1"/>
+                                                                        <ChevronDown className="w-4 h-4 mr-1" />
                                                                         隐藏步骤详情
                                                                     </>
                                                                 ) : (
                                                                     <>
-                                                                        <ChevronRight className="w-4 h-4 mr-1"/>
+                                                                        <ChevronRight className="w-4 h-4 mr-1" />
                                                                         查看步骤详情
                                                                     </>
                                                                 )}
@@ -825,7 +829,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                             {expandedPhone === phone.mobile && (
                                                                 <div
                                                                     className="mt-2 p-3 bg-gray-50 rounded-md text-sm space-y-4">
-                                                                    {getStepsForMode(mode).map(({key, label}) => (
+                                                                    {getStepsForMode(mode).map(({ key, label }) => (
                                                                         <div key={key}>
                                                                             <p className="font-medium">{label}步骤：</p>
 
@@ -844,7 +848,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                                                         <div
                                                                                             className="mt-2 p-2 bg-red-50 text-red-600 rounded text-xs">
                                                                                             <AlertCircle
-                                                                                                className="w-3 h-3 inline mr-1"/>
+                                                                                                className="w-3 h-3 inline mr-1" />
                                                                                             异常：{phone.error}
                                                                                         </div>
                                                                                     )}
@@ -908,7 +912,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                 <div className="flex items-center justify-between">
                                     <CardTitle>详细结果</CardTitle>
                                     <Button onClick={downloadResults}>
-                                        <Download className="w-4 h-4 mr-2"/>
+                                        <Download className="w-4 h-4 mr-2" />
                                         下载结果
                                     </Button>
                                 </div>
@@ -930,7 +934,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                     <TableCell>
                                                         {phone.status === 'success' && (
                                                             <Badge variant="secondary"
-                                                                   className="bg-green-100 text-green-800">
+                                                                className="bg-green-100 text-green-800">
                                                                 执行成功
                                                             </Badge>
                                                         )}
@@ -952,7 +956,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                     <TableRow>
                                                         <TableCell colSpan={3}>
                                                             <div className="p-4 bg-gray-50 rounded-md space-y-4">
-                                                                {getStepsForMode(mode).map(({key, label}) => (
+                                                                {getStepsForMode(mode).map(({ key, label }) => (
                                                                     <div key={key}>
                                                                         <h4 className="font-medium mb-2">{label}信息</h4>
                                                                         {mode === '3' && key === 'get_balance_id' ? (
@@ -977,7 +981,7 @@ export default function TaskAutomationScript({onBack}: TaskAutomationScriptProps
                                                                                     <div
                                                                                         className="mt-2 p-2 bg-red-50 text-red-600 rounded text-xs">
                                                                                         <AlertCircle
-                                                                                            className="w-3 h-3 inline mr-1"/>
+                                                                                            className="w-3 h-3 inline mr-1" />
                                                                                         异常：{phone.error}
                                                                                     </div>
                                                                                 )}

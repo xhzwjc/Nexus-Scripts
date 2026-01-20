@@ -13,11 +13,10 @@ import {
     X,
     ChevronDown,
     ChevronUp,
-    Clock,
-    Globe,
     AlertTriangle,
     ExternalLink
 } from 'lucide-react';
+import { useI18n } from '@/lib/i18n';
 
 // 单个环境的检测结果
 interface EnvCheckResult {
@@ -83,32 +82,30 @@ const statusConfig = {
         color: 'text-green-600',
         bg: 'bg-green-50',
         border: 'border-green-200',
-        label: '正常'
     },
     warning: {
         icon: ShieldAlert,
         color: 'text-yellow-600',
         bg: 'bg-yellow-50',
         border: 'border-yellow-200',
-        label: '警告'
     },
     danger: {
         icon: ShieldX,
         color: 'text-red-600',
         bg: 'bg-red-50',
         border: 'border-red-200',
-        label: '危险'
     },
     unknown: {
         icon: Shield,
         color: 'text-slate-400',
         bg: 'bg-slate-50',
         border: 'border-slate-200',
-        label: '未知'
     },
 };
 
 export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
+    const { t } = useI18n();
+    const tr = t.teamResources;
     const [results, setResults] = useState<Map<string, SystemHealthResult>>(new Map());
     const [isChecking, setIsChecking] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -209,7 +206,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                 const envResult: EnvCheckResult = {
                     url: envUrl.url,
                     env: envUrl.env,
-                    envLabel: envLabels[envUrl.env],
+                    envLabel: tr['env' + envUrl.env.charAt(0).toUpperCase() + envUrl.env.slice(1) as keyof typeof tr] || envLabels[envUrl.env],
                     accessible: checkResult.accessible,
                     responseTime: checkResult.responseTime,
                     ssl: checkResult.ssl,
@@ -266,8 +263,8 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                             <Shield className="w-6 h-6 text-blue-600" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-slate-800">系统健康检测</h2>
-                            <p className="text-sm text-slate-500">检测SSL证书状态和网站可用性</p>
+                            <h2 className="text-xl font-bold text-slate-800">{tr.healthCheckTitle}</h2>
+                            <p className="text-sm text-slate-500">{tr.healthCheckDesc}</p>
                         </div>
                     </div>
                     <Button variant="ghost" size="icon" onClick={onClose}>
@@ -279,8 +276,8 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                 <div className="p-4 border-b border-slate-100 bg-slate-50/50">
                     <div className="flex items-center justify-between">
                         <div className="text-sm text-slate-600">
-                            共 <span className="font-semibold">{systems.length}</span> 个系统，
-                            <span className="font-semibold">{totalUrls}</span> 个环境待检测
+                            {tr.systemsCount.replace('{count}', String(systems.length))}
+                            {tr.envsToCheck.replace('{count}', String(totalUrls))}
                         </div>
                         <Button
                             onClick={startCheck}
@@ -288,7 +285,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                             className="bg-blue-600 hover:bg-blue-700"
                         >
                             <RefreshCw className={`w-4 h-4 mr-2 ${isChecking ? 'animate-spin' : ''}`} />
-                            {isChecking ? '检测中...' : '开始检测'}
+                            {isChecking ? tr.checking : tr.startCheck}
                         </Button>
                     </div>
 
@@ -296,7 +293,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                     {isChecking && (
                         <div className="mt-4">
                             <div className="flex justify-between text-xs text-slate-500 mb-1">
-                                <span>检测进度</span>
+                                <span>{tr.progressLabel}</span>
                                 <span>{progress.current}/{progress.total}</span>
                             </div>
                             <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
@@ -314,7 +311,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                     {totalChecked === 0 ? (
                         <div className="text-center py-12 text-slate-400">
                             <Shield className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                            <p>{'点击"开始检测"检查所有系统状态'}</p>
+                            <p>{tr.clickToStart}</p>
                         </div>
                     ) : (
                         <>
@@ -323,7 +320,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                                 <div>
                                     <div className="flex items-center gap-2 mb-3">
                                         <ShieldX className="w-5 h-5 text-red-600" />
-                                        <span className="font-semibold text-red-600">需要立即处理 ({groupedResults.danger.length})</span>
+                                        <span className="font-semibold text-red-600">{tr.needAttention} ({groupedResults.danger.length})</span>
                                     </div>
                                     <div className="space-y-2">
                                         {groupedResults.danger.map(result => (
@@ -338,7 +335,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                                 <div>
                                     <div className="flex items-center gap-2 mb-3">
                                         <ShieldAlert className="w-5 h-5 text-yellow-600" />
-                                        <span className="font-semibold text-yellow-600">需要关注 ({groupedResults.warning.length})</span>
+                                        <span className="font-semibold text-yellow-600">{tr.needFocus} ({groupedResults.warning.length})</span>
                                     </div>
                                     <div className="space-y-2">
                                         {groupedResults.warning.map(result => (
@@ -356,7 +353,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                                         onClick={() => setShowHealthy(!showHealthy)}
                                     >
                                         <ShieldCheck className="w-5 h-5 text-green-600" />
-                                        <span className="font-semibold text-green-600">正常 ({groupedResults.healthy.length})</span>
+                                        <span className="font-semibold text-green-600">{tr.statusNormal} ({groupedResults.healthy.length})</span>
                                         {showHealthy ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                                     </button>
                                     {showHealthy && (
@@ -405,6 +402,8 @@ function ResultItem({ result }: { result: SystemHealthResult }) {
 
 // 单个环境结果行
 function EnvResultRow({ envResult }: { envResult: EnvCheckResult }) {
+    const { t } = useI18n();
+    const tr = t.teamResources;
     const envStatusColors = {
         healthy: 'text-green-600',
         warning: 'text-yellow-600',
@@ -414,9 +413,9 @@ function EnvResultRow({ envResult }: { envResult: EnvCheckResult }) {
 
     const formatDays = (days?: number) => {
         if (days === undefined) return '';
-        if (days <= 0) return '(已过期)';
-        if (days <= 30) return `(${days}天后过期)`;
-        return `(${days}天)`;
+        if (days <= 0) return `(${tr.expired})`;
+        if (days <= 30) return `(${tr.expiresIn.replace('{days}', String(days))})`;
+        return `(${tr.daysRemaining.replace('{days}', String(days))})`;
     };
 
     return (
@@ -437,7 +436,7 @@ function EnvResultRow({ envResult }: { envResult: EnvCheckResult }) {
                 {envResult.url.length > 45 ? envResult.url.slice(0, 45) + '...' : envResult.url}
             </a>
             <span className={`${envStatusColors[envResult.status]} font-medium`}>
-                {envResult.accessible ? '可访问' : '无法访问'}
+                {envResult.accessible ? tr.accessible : tr.inaccessible}
                 {formatDays(envResult.ssl?.daysRemaining)}
             </span>
             {envResult.error && (

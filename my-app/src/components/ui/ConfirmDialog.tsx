@@ -14,15 +14,19 @@ export interface ConfirmDialogProps {
     onCancel: () => void;
 }
 
-export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
-    open,
-    title,
-    description,
-    confirmText = '确认',
-    cancelText = '取消',
-    onConfirm,
-    onCancel
-}) => {
+import { useI18n } from '@/lib/i18n';
+
+export const ConfirmDialog: React.FC<ConfirmDialogProps> = (props) => {
+    const { t } = useI18n();
+    const {
+        open,
+        title,
+        description,
+        confirmText = t.common.confirm,
+        cancelText = t.common.cancel,
+        onConfirm,
+        onCancel
+    } = props;
     useEffect(() => {
         if (!open) return;
         const onKey = (e: KeyboardEvent) => {

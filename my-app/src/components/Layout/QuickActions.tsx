@@ -100,6 +100,24 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
                     {recentScripts.map((recent) => {
                         const script = findScript(recent.systemId, recent.scriptId);
                         if (!script) return null;
+
+                        // Helper for translation key mapping (same as in app.tsx)
+                        const scriptIdToKey: Record<string, keyof typeof t.scriptConfig.items> = {
+                            'settlement': 'settlement',
+                            'commission': 'commission',
+                            'balance': 'balance',
+                            'task-automation': 'taskAutomation',
+                            'sms_operations_center': 'smsOperationsCenter',
+                            'tax-reporting': 'taxReporting',
+                            'tax-calculation': 'taxCalculation',
+                            'payment-stats': 'paymentStats',
+                            'delivery-tool': 'deliveryTool',
+                        };
+
+                        const translatedName = scriptIdToKey[script.id] && t.scriptConfig.items[scriptIdToKey[script.id]]
+                            ? t.scriptConfig.items[scriptIdToKey[script.id]].name
+                            : script.name;
+
                         return (
                             <button
                                 key={`${recent.systemId}-${recent.scriptId}`}
@@ -110,7 +128,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
                                     {script.icon}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-slate-700 truncate">{script.name}</p>
+                                    <p className="text-sm font-medium text-slate-700 truncate">{translatedName}</p>
                                 </div>
                                 <Play className="w-3.5 h-3.5 text-slate-400 group-hover:text-teal-600 transition-colors" />
                             </button>

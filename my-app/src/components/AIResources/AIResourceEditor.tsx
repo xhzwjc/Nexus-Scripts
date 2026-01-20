@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AIResource, AICategory, AIResourcesData } from '@/lib/ai-resources-data';
 import { toast } from 'sonner';
+import { useI18n } from '@/lib/i18n';
 
 interface AIResourceEditorProps {
     data: AIResourcesData;
@@ -28,6 +29,8 @@ const AVAILABLE_ICONS = [
 ];
 
 export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorProps) {
+    const { t } = useI18n();
+    const tr = t.aiResources;
     const [editedData, setEditedData] = useState<AIResourcesData>(() => ({
         categories: [...data.categories],
         resources: [...data.resources]
@@ -108,7 +111,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
 
     // 删除资源
     const handleDeleteResource = (id: string) => {
-        if (confirm('确定删除此资源？')) {
+        if (confirm(tr.confirmDeleteResource)) {
             setEditedData(prev => ({
                 ...prev,
                 resources: prev.resources.filter(r => r.id !== id)
@@ -146,10 +149,10 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
     const handleDeleteCategory = (id: string) => {
         const hasResources = editedData.resources.some(r => r.category === id);
         if (hasResources) {
-            toast.error('该分类下还有资源，无法删除');
+            toast.error(tr.categoryHasResources);
             return;
         }
-        if (confirm('确定删除此分类？')) {
+        if (confirm(tr.confirmDeleteCategory)) {
             setEditedData(prev => ({
                 ...prev,
                 categories: prev.categories.filter(c => c.id !== id)
@@ -181,7 +184,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                 }
             });
             await Promise.all(deletePromises);
-            toast.success(`已删除 ${logosToDelete.size} 个图标`);
+            toast.success(tr.deletedIcons.replace('{count}', String(logosToDelete.size)));
         }
         // 保存数据
         onSave(editedData);
@@ -196,16 +199,16 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                         <Button variant="ghost" size="icon" onClick={onCancel}>
                             <ArrowLeft className="w-5 h-5" />
                         </Button>
-                        <h1 className="text-xl font-bold text-slate-800">管理AI资源</h1>
+                        <h1 className="text-xl font-bold text-slate-800">{tr.manageTitle}</h1>
                     </div>
 
                     <div className="flex items-center gap-2">
                         <Button variant="outline" onClick={onCancel}>
-                            取消
+                            {tr.cancel}
                         </Button>
                         <Button onClick={handleSaveWithLogos} className="bg-blue-500 hover:bg-blue-600 gap-2">
                             <Save className="w-4 h-4" />
-                            保存{logosToDelete.size > 0 && ` (删除${logosToDelete.size}图标)`}
+                            {tr.save}{logosToDelete.size > 0 && ` (${tr.deleteIcons.replace('{count}', String(logosToDelete.size))})`}
                         </Button>
                     </div>
                 </div>
@@ -219,7 +222,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                             : 'text-slate-600 hover:bg-slate-100'
                             }`}
                     >
-                        资源管理
+                        {tr.resourcesTab}
                     </button>
                     <button
                         onClick={() => setActiveTab('categories')}
@@ -228,7 +231,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                             : 'text-slate-600 hover:bg-slate-100'
                             }`}
                     >
-                        分类管理
+                        {tr.categoriesTab}
                     </button>
                 </div>
             </div>
@@ -245,7 +248,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                                     ref={searchInputRef}
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    placeholder="搜索资源..."
+                                    placeholder={tr.searchPlaceholder}
                                     className="pl-9"
                                 />
                             </div>
@@ -255,7 +258,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                                 onChange={(e) => setSelectedCategory(e.target.value)}
                                 className="px-3 py-2 border border-slate-300 rounded-lg text-sm"
                             >
-                                <option value="all">全部分类</option>
+                                <option value="all">{tr.allCategories}</option>
                                 {editedData.categories.map(cat => (
                                     <option key={cat.id} value={cat.id}>{cat.name}</option>
                                 ))}
@@ -263,7 +266,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
 
                             <Button onClick={handleAddResource} className="gap-2 bg-green-500 hover:bg-green-600">
                                 <Plus className="w-4 h-4" />
-                                添加资源
+                                {tr.addResource}
                             </Button>
                         </div>
 
@@ -272,11 +275,11 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                             <table className="w-full">
                                 <thead className="bg-slate-50 sticky top-0">
                                     <tr className="text-left text-sm text-slate-600">
-                                        <th className="px-4 py-3 font-medium">名称</th>
-                                        <th className="px-4 py-3 font-medium">描述</th>
-                                        <th className="px-4 py-3 font-medium">分类</th>
-                                        <th className="px-4 py-3 font-medium">URL</th>
-                                        <th className="px-4 py-3 font-medium w-24">操作</th>
+                                        <th className="px-4 py-3 font-medium">{tr.name}</th>
+                                        <th className="px-4 py-3 font-medium">{tr.description}</th>
+                                        <th className="px-4 py-3 font-medium">{tr.category}</th>
+                                        <th className="px-4 py-3 font-medium">{tr.url}</th>
+                                        <th className="px-4 py-3 font-medium w-24">{tr.actions}</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -309,7 +312,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                                                                 className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full 
                                                                          flex items-center justify-center opacity-0 group-hover/logo:opacity-100 
                                                                          transition-opacity hover:bg-red-600"
-                                                                title="删除图标"
+                                                                title={tr.deleteIcon}
                                                             >
                                                                 <X className="w-2.5 h-2.5" />
                                                             </button>
@@ -327,7 +330,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                                                                 }}
                                                                 className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 text-white rounded-full 
                                                                          flex items-center justify-center hover:bg-green-600"
-                                                                title="撤销删除"
+                                                                title={tr.undoDelete}
                                                             >
                                                                 <Check className="w-2.5 h-2.5" />
                                                             </button>
@@ -377,7 +380,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
 
                             {getFilteredResources().length === 0 && (
                                 <div className="text-center py-12 text-slate-500">
-                                    没有找到资源
+                                    {tr.noResourcesFound}
                                 </div>
                             )}
                         </div>
@@ -385,10 +388,10 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                 ) : (
                     <div className="h-full flex flex-col">
                         <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-lg font-semibold text-slate-800">分类列表</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{tr.categoryList}</h2>
                             <Button onClick={handleAddCategory} className="gap-2 bg-green-500 hover:bg-green-600">
                                 <Plus className="w-4 h-4" />
-                                添加分类
+                                {tr.addCategory}
                             </Button>
                         </div>
 
@@ -396,12 +399,12 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                             <table className="w-full">
                                 <thead className="bg-slate-50 sticky top-0">
                                     <tr className="text-left text-sm text-slate-600">
-                                        <th className="px-4 py-3 font-medium">图标</th>
-                                        <th className="px-4 py-3 font-medium">名称</th>
+                                        <th className="px-4 py-3 font-medium">{tr.icon}</th>
+                                        <th className="px-4 py-3 font-medium">{tr.name}</th>
                                         <th className="px-4 py-3 font-medium">ID</th>
-                                        <th className="px-4 py-3 font-medium">排序</th>
-                                        <th className="px-4 py-3 font-medium">资源数</th>
-                                        <th className="px-4 py-3 font-medium w-24">操作</th>
+                                        <th className="px-4 py-3 font-medium">{tr.order}</th>
+                                        <th className="px-4 py-3 font-medium">{tr.resourceCount.replace('{count}', '')}</th>
+                                        <th className="px-4 py-3 font-medium w-24">{tr.actions}</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -429,7 +432,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                                                 </td>
                                                 <td className="px-4 py-3">
                                                     <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-full">
-                                                        {resourceCount} 个
+                                                        {tr.resourceCount.replace('{count}', String(resourceCount))}
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-3">
@@ -496,6 +499,8 @@ function ResourceEditModal({
     onSave: (resource: AIResource) => void;
     onCancel: () => void;
 }) {
+    const { t } = useI18n();
+    const tr = t.aiResources;
     const [form, setForm] = useState<AIResource>(resource);
     const [tagsInput, setTagsInput] = useState(resource.tags?.join(', ') || '');
     const [isUploading, setIsUploading] = useState(false);
@@ -520,7 +525,7 @@ function ResourceEditModal({
 
     const handleSave = () => {
         if (!form.name.trim() || !form.url.trim()) {
-            toast.error('名称和URL不能为空');
+            toast.error(tr.nameOrUrlEmpty);
             return;
         }
         onSave({
@@ -536,7 +541,7 @@ function ResourceEditModal({
 
         // 验证文件类型
         if (!file.type.startsWith('image/')) {
-            toast.error('请选择图片文件');
+            toast.error(tr.selectImage);
             return;
         }
 
@@ -553,15 +558,15 @@ function ResourceEditModal({
             const data = await res.json();
 
             if (data.success) {
-                toast.success('Icon上传成功');
+                toast.success(tr.iconUploadSuccess);
                 // 更新预览
                 setIconPath(data.path + '?t=' + Date.now()); // 添加时间戳防止缓存
                 setImgError(false);
             } else {
-                toast.error('上传失败: ' + (data.error || '未知错误'));
+                toast.error(tr.uploadFailed + ': ' + (data.error || ''));
             }
         } catch (error) {
-            toast.error('上传失败');
+            toast.error(tr.uploadFailed);
             console.error('Upload error:', error);
         } finally {
             setIsUploading(false);
@@ -573,7 +578,7 @@ function ResourceEditModal({
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
                     <h2 className="text-lg font-semibold text-slate-800">
-                        {resource.id.startsWith('resource_') ? '添加资源' : '编辑资源'}
+                        {resource.id.startsWith('resource_') ? tr.addResourceTitle : tr.editResourceTitle}
                     </h2>
                     <Button variant="ghost" size="icon" onClick={onCancel}>
                         <X className="w-5 h-5" />
@@ -582,34 +587,34 @@ function ResourceEditModal({
 
                 <div className="p-6 space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">名称 *</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.nameRequired}</label>
                         <Input
                             value={form.name}
                             onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
-                            placeholder="如: ChatGPT"
+                            placeholder={tr.namePlaceholder}
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">描述</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.description}</label>
                         <Input
                             value={form.description}
                             onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
-                            placeholder="简短描述"
+                            placeholder={tr.descriptionPlaceholder}
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">URL *</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.urlRequired}</label>
                         <Input
                             value={form.url}
                             onChange={(e) => setForm(prev => ({ ...prev, url: e.target.value }))}
-                            placeholder="https://..."
+                            placeholder={tr.urlPlaceholder}
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Icon</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.iconLabel}</label>
                         <div className="flex items-center gap-4">
                             {/* Icon预览 */}
                             <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 flex items-center justify-center overflow-hidden border border-slate-200">
@@ -635,7 +640,7 @@ function ResourceEditModal({
                                     className="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
                                 />
                                 <p className="text-xs text-slate-400 mt-1">
-                                    保存到 public/ai-logos/{form.id}.*
+                                    {tr.iconSavePath.replace('{id}', form.id)}
                                 </p>
                             </div>
 
@@ -646,7 +651,7 @@ function ResourceEditModal({
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">分类</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.category}</label>
                         <select
                             value={form.category}
                             onChange={(e) => setForm(prev => ({ ...prev, category: e.target.value }))}
@@ -659,16 +664,16 @@ function ResourceEditModal({
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">标签</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.tagsLabel}</label>
                         <Input
                             value={tagsInput}
                             onChange={(e) => setTagsInput(e.target.value)}
-                            placeholder="用逗号分隔，如: AI, 对话, 免费"
+                            placeholder={tr.tagsPlaceholder}
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">排序</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.orderLabel}</label>
                         <Input
                             type="number"
                             value={form.order || 99}
@@ -678,10 +683,10 @@ function ResourceEditModal({
                 </div>
 
                 <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-200">
-                    <Button variant="outline" onClick={onCancel}>取消</Button>
+                    <Button variant="outline" onClick={onCancel}>{tr.cancel}</Button>
                     <Button onClick={handleSave} className="bg-blue-500 hover:bg-blue-600 gap-2">
                         <Check className="w-4 h-4" />
-                        保存
+                        {tr.save}
                     </Button>
                 </div>
             </div>
@@ -699,11 +704,13 @@ function CategoryEditModal({
     onSave: (category: AICategory) => void;
     onCancel: () => void;
 }) {
+    const { t } = useI18n();
+    const tr = t.aiResources;
     const [form, setForm] = useState<AICategory>(category);
 
     const handleSave = () => {
         if (!form.name.trim()) {
-            toast.error('名称不能为空');
+            toast.error(tr.categoryNameEmpty);
             return;
         }
         onSave(form);
@@ -714,7 +721,7 @@ function CategoryEditModal({
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4">
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
                     <h2 className="text-lg font-semibold text-slate-800">
-                        {category.id.startsWith('cat_') ? '添加分类' : '编辑分类'}
+                        {category.id.startsWith('cat_') ? tr.addCategoryTitle : tr.editCategoryTitle}
                     </h2>
                     <Button variant="ghost" size="icon" onClick={onCancel}>
                         <X className="w-5 h-5" />
@@ -723,16 +730,16 @@ function CategoryEditModal({
 
                 <div className="p-6 space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">名称 *</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.nameRequired}</label>
                         <Input
                             value={form.name}
                             onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))}
-                            placeholder="如: AI对话"
+                            placeholder={tr.categoryNamePlaceholder}
                         />
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">图标</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.icon}</label>
                         <div className="grid grid-cols-6 gap-2 mt-2">
                             {AVAILABLE_ICONS.map(iconName => {
                                 const Icon = getIcon(iconName);
@@ -753,7 +760,7 @@ function CategoryEditModal({
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">排序</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{tr.orderLabel}</label>
                         <Input
                             type="number"
                             value={form.order}
@@ -763,10 +770,10 @@ function CategoryEditModal({
                 </div>
 
                 <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-200">
-                    <Button variant="outline" onClick={onCancel}>取消</Button>
+                    <Button variant="outline" onClick={onCancel}>{tr.cancel}</Button>
                     <Button onClick={handleSave} className="bg-blue-500 hover:bg-blue-600 gap-2">
                         <Check className="w-4 h-4" />
-                        保存
+                        {tr.save}
                     </Button>
                 </div>
             </div>

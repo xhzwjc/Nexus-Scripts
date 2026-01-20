@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Globe, Database, ExternalLink, Eye, EyeOff, Copy, User } from 'lucide-react';
 import { toast } from 'sonner';
+import { useI18n } from '@/lib/i18n';
 
 interface SystemCardProps {
     system: SystemResource;
@@ -12,6 +13,8 @@ interface SystemCardProps {
 }
 
 export function SystemCard({ system, groupLogo }: SystemCardProps) {
+    const { t } = useI18n();
+    const tr = t.teamResources;
     // 判断环境是否有有效数据（url不为空且不是占位符）
     const hasValidEnv = (envKey: Environment): boolean => {
         const envData = system.environments[envKey];
@@ -78,17 +81,17 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
 
     const copyToClipboard = (text: string, label: string) => {
         if (!text) {
-            toast.error('内容为空');
+            toast.error(tr.contentEmpty);
             return;
         }
         navigator.clipboard.writeText(text);
-        toast.success(`已复制 ${label}`);
+        toast.success(tr.copiedLabel.replace('{label}', label));
     };
 
     const envLabels: Record<Environment, string> = {
-        dev: '开发',
-        test: '测试',
-        prod: '生产'
+        dev: tr.envDev,
+        test: tr.envTest,
+        prod: tr.envProd
     };
 
     return (
@@ -122,7 +125,7 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                     </div>
                     <div>
                         <h3 className="font-bold text-slate-800 text-base">{system.name}</h3>
-                        <p className="text-xs text-slate-500 mt-0.5">{system.description || '暂无描述'}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{system.description || tr.noDescription}</p>
                     </div>
                 </div>
             </div>
@@ -182,7 +185,7 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                                                     size="icon"
                                                     variant="ghost"
                                                     className="h-5 w-5 ml-1"
-                                                    onClick={() => copyToClipboard(cred.username, '用户名')}
+                                                    onClick={() => copyToClipboard(cred.username, tr.username)}
                                                 >
                                                     <Copy className="w-3 h-3" />
                                                 </Button>
@@ -193,7 +196,7 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                                             {/* Password */}
                                             <div className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-slate-200 flex-1 min-w-0">
                                                 <span className="text-sm font-mono text-slate-700 truncate">
-                                                    {cred.password ? (revealedCreds[cred.id] ? cred.password : '••••••••') : '(未设置)'}
+                                                    {cred.password ? (revealedCreds[cred.id] ? cred.password : '••••••••') : tr.notSet}
                                                 </span>
                                                 {cred.password && (
                                                     <>
@@ -209,7 +212,7 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                                                             size="icon"
                                                             variant="ghost"
                                                             className="h-5 w-5"
-                                                            onClick={() => copyToClipboard(cred.password || '', '密码')}
+                                                            onClick={() => copyToClipboard(cred.password || '', tr.password)}
                                                         >
                                                             <Copy className="w-3 h-3" />
                                                         </Button>
@@ -221,14 +224,14 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                                 ))
                             ) : (
                                 <div className="text-center py-4 text-sm text-slate-400 italic">
-                                    暂无凭证信息
+                                    {tr.noCredentials}
                                 </div>
                             )}
                         </div>
                     </div>
                 ) : (
                     <div className="py-8 text-center text-slate-400 text-sm">
-                        该环境未配置。
+                        {tr.envNotConfigured}
                     </div>
                 )}
             </div>

@@ -69,21 +69,27 @@ const getWeatherIcon = (code?: string) => {
     return weatherIconMap[code] || <Cloud className="w-4 h-4" />;
 };
 
+import { useI18n } from '@/lib/i18n';
+
 export const WeatherChip: React.FC<WeatherChipProps> = ({
     state,
     refreshing,
-    label = '北京',
+    label,
     onRefresh
 }) => {
+    const { t } = useI18n();
+    const tr = t.weatherChip;
+    const displayLabel = label || tr.defaultCity;
+
     return (
         <StatusChip>
             <MapPin className="w-4 h-4 text-primary" />
-            <span className="whitespace-nowrap">{label}</span>
+            <span className="whitespace-nowrap">{displayLabel}</span>
             <span className="text-muted-foreground">·</span>
             {state.loading && !state.data ? (
-                <span className="text-muted-foreground">加载中...</span>
+                <span className="text-muted-foreground">{tr.loading}</span>
             ) : state.error && !state.data ? (
-                <span className="text-muted-foreground">天气不可用</span>
+                <span className="text-muted-foreground">{tr.unavailable}</span>
             ) : state.data ? (
                 <>
                     {getWeatherIcon(state.data.code)}
@@ -99,7 +105,7 @@ export const WeatherChip: React.FC<WeatherChipProps> = ({
                         {state.data.humidity}%
                     </span>
                     {refreshing &&
-                        <Loader2 className="w-3 h-3 ml-1 animate-spin text-muted-foreground" aria-label="刷新中" />}
+                        <Loader2 className="w-3 h-3 ml-1 animate-spin text-muted-foreground" aria-label={tr.refreshing} />}
                 </>
             ) : null}
 
@@ -108,8 +114,8 @@ export const WeatherChip: React.FC<WeatherChipProps> = ({
                     type="button"
                     onClick={onRefresh}
                     className="ml-1 text-xs text-primary hover:underline hidden md:inline"
-                    aria-label="刷新天气">
-                    刷新
+                    aria-label={tr.refreshWeather}>
+                    {t.common.refresh}
                 </button>
             )}
         </StatusChip>

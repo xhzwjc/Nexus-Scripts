@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -6,7 +6,6 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { Checkbox } from './ui/checkbox';
 import { ScrollArea } from './ui/scroll-area';
 import { Skeleton } from './ui/skeleton';
 import {
@@ -27,8 +26,9 @@ import {
     ChevronDown,
     ChevronUp
 } from 'lucide-react';
+import { useI18n } from '@/lib/i18n';
 import { getApiBaseUrl } from '../lib/api';
-import { cn } from '../lib/utils'; // Assuming utils exists, if not use classnames or inline
+import { cn } from '../lib/utils';
 
 interface Enterprise {
     id: number;
@@ -68,6 +68,8 @@ interface PaymentStatsData {
 }
 
 export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
+    const { t } = useI18n();
+    const tr = t.scripts.paymentStats;
     const [environment, setEnvironment] = useState('prod');
     const [isLoadingUsers, setIsLoadingUsers] = useState(false);
     const [isCalculating, setIsCalculating] = useState(false);
@@ -80,13 +82,9 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
     // Filter UI
     const [openFilter, setOpenFilter] = useState(false);
 
-    // Fetch enterprises on mount/env change
-    useEffect(() => {
-        setStatsData(null); // Clear previous stats on environment change
-        fetchEnterprises();
-    }, [environment]);
 
-    const fetchEnterprises = async () => {
+
+    const fetchEnterprises = useCallback(async () => {
         const base = getApiBaseUrl();
         if (!base) return;
 
@@ -109,16 +107,22 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                 toast.error(res.data.message);
             }
         } catch (err) {
-            toast.error('获取企业列表失败');
+            toast.error(tr.messages.fetchFail);
             console.error(err);
         } finally {
             setIsLoadingUsers(false);
         }
-    };
+    }, [environment, tr.messages.fetchFail]);
+
+    // Fetch enterprises on mount/env change
+    useEffect(() => {
+        setStatsData(null); // Clear previous stats on environment change
+        fetchEnterprises();
+    }, [environment, fetchEnterprises]);
 
     const handleCalculate = async () => {
         if (selectedEnterpriseIds.length === 0) {
-            toast.warning('请至少选择一个企业');
+            toast.warning(tr.messages.selectRequired);
             return;
         }
 
@@ -136,12 +140,12 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
 
             if (res.data.success) {
                 setStatsData(res.data.data);
-                toast.success('计算完成');
+                toast.success(tr.messages.calcSuccess);
             } else {
                 toast.error(res.data.message);
             }
         } catch (err) {
-            toast.error('计算失败');
+            toast.error(tr.messages.calcFail);
             console.error(err);
         } finally {
             setIsCalculating(false);
@@ -175,10 +179,10 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                 <div className="flex items-center justify-between">
                     <Button variant="ghost" onClick={onBack} className="-ml-2">
                         <ArrowLeft className="w-4 h-4 mr-2" />
-                        返回脚本列表
+                        {tr.back}
                     </Button>
                     <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-                        企业支付统计与分析
+                        {tr.title}
                     </h1>
                 </div>
 
@@ -186,19 +190,19 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                     {/* Sidebar: Controls */}
                     <Card className="lg:col-span-1 h-fit">
                         <CardHeader>
-                            <CardTitle className="text-lg">统计配置</CardTitle>
+                            <CardTitle className="text-lg">{tr.config.title}</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-6">
                             {/* Environment */}
                             <div className="space-y-2">
-                                <span className="text-sm font-medium">运行环境</span>
+                                <span className="text-sm font-medium">{tr.config.env}</span>
                                 <Select value={environment} onValueChange={setEnvironment} disabled={isCalculating}>
                                     <SelectTrigger>
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="test">测试环境 (Beta)</SelectItem>
-                                        <SelectItem value="prod">生产环境</SelectItem>
+                                        <SelectItem value="test">{tr.config.envTest}</SelectItem>
+                                        <SelectItem value="prod">{tr.config.envProd}</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -206,9 +210,9 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                             {/* Enterprise Filter */}
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-sm font-medium">企业筛选</span>
+                                    <span className="text-sm font-medium">{tr.config.filter}</span>
                                     <span className="text-xs text-muted-foreground">
-                                        已选 {selectedEnterpriseIds.length} / {enterprises.length}
+                                        {tr.config.selected.replace('{count}', selectedEnterpriseIds.length.toString()).replace('{total}', enterprises.length.toString())}
                                     </span>
                                 </div>
                                 <Popover open={openFilter} onOpenChange={setOpenFilter}>
@@ -221,16 +225,16 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                             disabled={isLoadingUsers || isCalculating}
                                         >
                                             {isLoadingUsers ? (
-                                                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载中...</>
+                                                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {t.common.loading}</>
                                             ) : (
-                                                <><Filter className="mr-2 h-4 w-4" /> 选择参与统计的企业</>
+                                                <><Filter className="mr-2 h-4 w-4" /> {tr.config.placeholder}</>
                                             )}
                                         </Button>
                                     </PopoverTrigger>
                                     <PopoverContent className="w-[300px] p-0" align="start">
                                         <Command>
-                                            <CommandInput placeholder="搜索企业..." />
-                                            <CommandEmpty>未找到企业</CommandEmpty>
+                                            <CommandInput placeholder={tr.config.search} />
+                                            <CommandEmpty>{tr.config.empty}</CommandEmpty>
                                             <CommandGroup>
                                                 <CommandItem onSelect={toggleAll} className="cursor-pointer">
                                                     <div className={cn(
@@ -241,7 +245,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                                     )}>
                                                         <Check className={cn("h-4 w-4")} />
                                                     </div>
-                                                    <span>全选 / 取消全选</span>
+                                                    <span>{tr.config.selectAll}</span>
                                                 </CommandItem>
                                                 <ScrollArea className="h-[300px]">
                                                     {enterprises.map((ent) => (
@@ -263,7 +267,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                                                 <span className="text-xs text-muted-foreground">ID: {ent.id}</span>
                                                             </div>
                                                             {ent.id === 36 && (
-                                                                <Badge variant="secondary" className="ml-auto text-[10px] h-5">测试企业</Badge>
+                                                                <Badge variant="secondary" className="ml-auto text-[10px] h-5">{tr.config.testEnterprise}</Badge>
                                                             )}
                                                         </CommandItem>
                                                     ))}
@@ -274,7 +278,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                 </Popover>
                                 {enterprises.find(e => e.id === 36 && !selectedEnterpriseIds.includes(36)) && (
                                     <p className="text-xs text-amber-600 flex items-center">
-                                        * 已默认排除盛达企业 (ID 36)
+                                        {tr.config.excludeHint}
                                     </p>
                                 )}
                             </div>
@@ -285,9 +289,9 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                 disabled={isCalculating || isLoadingUsers}
                             >
                                 {isCalculating ? (
-                                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> 计算中...</>
+                                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {tr.config.calculating}</>
                                 ) : (
-                                    <><Calculator className="mr-2 h-4 w-4" /> 开始统计</>
+                                    <><Calculator className="mr-2 h-4 w-4" /> {tr.config.calculate}</>
                                 )}
                             </Button>
                         </CardContent>
@@ -299,9 +303,9 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <Card className="bg-primary/5 border-primary/20">
                                 <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-                                    <CardTitle className="text-sm font-medium text-muted-foreground">平台总结算金额 (已过滤)</CardTitle>
+                                    <CardTitle className="text-sm font-medium text-muted-foreground">{tr.kpi.totalSettlement}</CardTitle>
                                     <div className="text-xs text-muted-foreground">
-                                        涉及税地: {statsData ? statsData.tax_address_stats.length : '-'}
+                                        {tr.kpi.taxCount.replace('{count}', statsData ? statsData.tax_address_stats.length.toString() : '-')}
                                     </div>
                                 </CardHeader>
                                 <CardContent>
@@ -316,16 +320,16 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                         {isCalculating ? (
                                             <Skeleton className="h-3 w-48" />
                                         ) : (
-                                            `基于 ${selectedEnterpriseIds.length} 个企业的统计结果`
+                                            tr.kpi.basedOn.replace('{count}', selectedEnterpriseIds.length.toString())
                                         )}
                                     </div>
                                 </CardContent>
                             </Card>
                             <Card>
                                 <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-                                    <CardTitle className="text-sm font-medium text-muted-foreground">平台总服务费</CardTitle>
+                                    <CardTitle className="text-sm font-medium text-muted-foreground">{tr.kpi.totalService}</CardTitle>
                                     <div className="text-xs text-muted-foreground">
-                                        涉及税地: {statsData ? statsData.tax_address_stats.length : '-'}
+                                        {tr.kpi.taxCount.replace('{count}', statsData ? statsData.tax_address_stats.length.toString() : '-')}
                                     </div>
                                 </CardHeader>
                                 <CardContent>
@@ -337,7 +341,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                         )}
                                     </div>
                                     <div className="text-xs text-muted-foreground mt-1">
-                                        所有已选企业的服务费总和
+                                        {tr.kpi.serviceDesc}
                                     </div>
                                 </CardContent>
                             </Card>
@@ -347,7 +351,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                         {/* Monthly Histogram & Details */}
                         <Card>
                             <CardHeader className="pb-2">
-                                <CardTitle className="text-sm font-medium text-muted-foreground">月度结算金额趋势与明细</CardTitle>
+                                <CardTitle className="text-sm font-medium text-muted-foreground">{tr.charts.monthlyTitle}</CardTitle>
                             </CardHeader>
                             <CardContent>
                                 {isCalculating ? (
@@ -357,12 +361,12 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                         <Skeleton className="h-10 w-full" />
                                     </div>
                                 ) : !statsData || !statsData.monthly_stats || statsData.monthly_stats.length === 0 ? (
-                                    <div className="text-sm text-muted-foreground">暂无数据</div>
+                                    <div className="text-sm text-muted-foreground">{tr.charts.noData}</div>
                                 ) : (
                                     <ScrollArea className="h-[600px] pr-4">
                                         <div className="space-y-4">
                                             {statsData.monthly_stats.map((item) => (
-                                                <MonthlyItem key={item.month} item={item} formatCurrency={formatCurrency} />
+                                                <MonthlyItem key={item.month} item={item} formatCurrency={formatCurrency} tr={tr} />
                                             ))}
                                         </div>
                                     </ScrollArea>
@@ -374,9 +378,9 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                         <Card>
                             <CardHeader className="flex flex-row items-center justify-between">
                                 <div className="space-y-1">
-                                    <CardTitle>税地未开发票金额统计</CardTitle>
+                                    <CardTitle>{tr.tables.tax.title}</CardTitle>
                                     <p className="text-sm text-muted-foreground">
-                                        按税地维度展示已开票与未开票金额分布
+                                        {tr.tables.tax.subtitle}
                                     </p>
                                 </div>
                                 <BarChart3 className="w-5 h-5 text-muted-foreground" />
@@ -386,11 +390,11 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-slate-50">
-                                                <TableHead>税地名称</TableHead>
-                                                <TableHead className="text-right">未开票金额</TableHead>
-                                                <TableHead className="text-right">已开票金额</TableHead>
-                                                <TableHead className="text-right">未开票占比</TableHead>
-                                                <TableHead className="text-right">总金额</TableHead>
+                                                <TableHead>{tr.tables.headers.taxName}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.uninvoiced}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.invoiced}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.ratio}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.total}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -407,13 +411,13 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                             ) : !statsData ? (
                                                 <TableRow>
                                                     <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                                                        请点击“开始统计”查看数据
+                                                        {tr.tables.empty.instruction}
                                                     </TableCell>
                                                 </TableRow>
                                             ) : statsData.tax_address_stats.length === 0 ? (
                                                 <TableRow>
                                                     <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                                                        暂无数据
+                                                        {tr.tables.empty.noData}
                                                     </TableCell>
                                                 </TableRow>
                                             ) : (
@@ -450,9 +454,9 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                         <Card>
                             <CardHeader className="flex flex-row items-center justify-between">
                                 <div className="space-y-1">
-                                    <CardTitle>企业维度未开票金额统计</CardTitle>
+                                    <CardTitle>{tr.tables.enterprise.title}</CardTitle>
                                     <p className="text-sm text-muted-foreground">
-                                        展示各企业在不同税地的开票情况
+                                        {tr.tables.enterprise.subtitle}
                                     </p>
                                 </div>
                                 <BarChart3 className="w-5 h-5 text-muted-foreground" />
@@ -462,12 +466,12 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="bg-slate-50">
-                                                <TableHead>企业名称</TableHead>
-                                                <TableHead>税地名称</TableHead>
-                                                <TableHead className="text-right">未开票金额</TableHead>
-                                                <TableHead className="text-right">已开票金额</TableHead>
-                                                <TableHead className="text-right">未开票占比</TableHead>
-                                                <TableHead className="text-right">总金额</TableHead>
+                                                <TableHead>{tr.tables.headers.entName}</TableHead>
+                                                <TableHead>{tr.tables.headers.taxName}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.uninvoiced}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.invoiced}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.ratio}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.total}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -485,13 +489,13 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                             ) : !statsData ? (
                                                 <TableRow>
                                                     <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
-                                                        请点击“开始统计”查看数据
+                                                        {tr.tables.empty.instruction}
                                                     </TableCell>
                                                 </TableRow>
                                             ) : (!statsData.enterprise_stats || statsData.enterprise_stats.length === 0) ? (
                                                 <TableRow>
                                                     <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
-                                                        暂无数据
+                                                        {tr.tables.empty.noData}
                                                     </TableCell>
                                                 </TableRow>
                                             ) : (
@@ -531,12 +535,15 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
         </div>
     );
 }
+
 function MonthlyItem({
     item,
-    formatCurrency
+    formatCurrency,
+    tr
 }: {
     item: MonthlyStatItem,
-    formatCurrency: (val: number) => string
+    formatCurrency: (val: number) => string,
+    tr: ReturnType<typeof useI18n>['t']['scripts']['paymentStats']
 }) {
     const [isOpen, setIsOpen] = useState(false);
 
@@ -549,7 +556,7 @@ function MonthlyItem({
                 <div className="flex items-center space-x-2">
                     <span className="font-medium text-slate-800">{item.month}</span>
                     <Badge variant="secondary" className="text-xs font-normal">
-                        {item.details.length} 条记录
+                        {tr.charts.records.replace('{count}', item.details.length.toString())}
                     </Badge>
                 </div>
                 <div className="flex items-center space-x-4">
@@ -558,7 +565,7 @@ function MonthlyItem({
                             {formatCurrency(item.amount)}
                         </span>
                         <span className="text-xs text-muted-foreground font-mono">
-                            服务费: {formatCurrency(item.service_amount)}
+                            {tr.charts.serviceFee.replace('{amount}', formatCurrency(item.service_amount))}
                         </span>
                     </div>
                     {isOpen ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
@@ -576,10 +583,10 @@ function MonthlyItem({
                     <Table>
                         <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                                <TableHead className="h-8">企业名称</TableHead>
-                                <TableHead className="h-8">税地名称</TableHead>
-                                <TableHead className="h-8 text-right">总金额</TableHead>
-                                <TableHead className="h-8 text-right">总服务费</TableHead>
+                                <TableHead className="h-8">{tr.charts.table.enterprise}</TableHead>
+                                <TableHead className="h-8">{tr.charts.table.tax}</TableHead>
+                                <TableHead className="h-8 text-right">{tr.charts.table.amount}</TableHead>
+                                <TableHead className="h-8 text-right">{tr.charts.table.service}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -603,5 +610,4 @@ function MonthlyItem({
     );
 }
 
-// Ensure proper exports and closing braces
 export { PaymentStatsScript }; // Re-export if needed, or just let default export handle it.

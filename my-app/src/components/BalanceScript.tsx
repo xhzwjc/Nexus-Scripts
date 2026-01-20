@@ -1,13 +1,13 @@
-import React, {useMemo, useRef, useState, useCallback, useEffect} from 'react';
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import axios from 'axios';
-import {toast} from 'sonner';
-import {Card, CardContent, CardHeader, CardTitle} from './ui/card';
-import {Button} from './ui/button';
-import {Input} from './ui/input';
-import {Label} from './ui/label';
-import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from './ui/select';
-import {Badge} from './ui/badge';
-import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from './ui/table';
+import { toast } from 'sonner';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Badge } from './ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import {
     ArrowLeft,
     Search,
@@ -18,8 +18,9 @@ import {
     FileDown,
     Info
 } from 'lucide-react';
-import {Skeleton} from './ui/skeleton';
-import {getApiBaseUrl} from '../lib/api';
+import { Skeleton } from './ui/skeleton';
+import { getApiBaseUrl } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 
 // API响应数据结构
 interface ApiResponse<T = unknown> {
@@ -56,15 +57,18 @@ interface BalanceScriptProps {
 // 骨架屏行组件（10 行用）
 const SkeletonRow = () => (
     <TableRow>
-        {Array.from({length: 9}).map((_, i) => (
+        {Array.from({ length: 9 }).map((_, i) => (
             <TableCell key={i}>
-                <Skeleton className="h-5"/>
+                <Skeleton className="h-5" />
             </TableCell>
         ))}
     </TableRow>
 );
 
-export default function BalanceScript({onBack}: BalanceScriptProps) {
+export default function BalanceScript({ onBack }: BalanceScriptProps) {
+    const { t } = useI18n();
+    const balance = t.scripts.balance; // Helper shorthand
+
     const [environment, setEnvironment] = useState('test');
     const [tenantId, setTenantId] = useState('');
     const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
@@ -91,6 +95,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
     // 搜索关键词
     const [searchTerm, setSearchTerm] = useState('');
     // 选中的企业信息
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | undefined>(undefined);
 
     // 新增：点击空白处关闭下拉框的处理
@@ -130,7 +135,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
 
     // 生成分页按钮（带省略）
     const getPageNumbers = (current: number, total: number) => {
-        if (total <= 7) return Array.from({length: total}, (_, i) => i + 1);
+        if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
         const pages: (number | '...')[] = [];
         const add = (p: number | '...') => pages.push(p);
 
@@ -146,7 +151,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
 
     const scrollToTableTop = () => {
         // 平滑滚动到结果卡片顶部
-        tableTopRef.current?.scrollIntoView({behavior: 'smooth', block: 'start'});
+        tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
 
     const handlePageChange = (page: number) => {
@@ -167,22 +172,22 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
         try {
             const response = await axios.get<ApiResponse<Enterprise[]>>(
                 `${base}/enterprises/list`,
-                {params: {environment}, signal}
+                { params: { environment }, signal }
             );
             if (response.data.success) {
                 setEnterprises(response.data.data as Enterprise[]);
                 // toast.success(response.data.message || '企业列表已更新');
             } else {
-                toast.error(response.data.message || '获取企业列表失败');
+                toast.error(response.data.message || balance.messages.listFail);
             }
         } catch (err) {
             if (axios.isCancel(err)) return;
             console.error('获取企业列表错误:', err);
-            toast.error(err instanceof Error ? err.message : '获取企业列表时发生错误，请重试');
+            toast.error(err instanceof Error ? err.message : balance.messages.listFail);
         } finally {
             setIsFetchingEnterprises(false);
         }
-    }, [environment]);
+    }, [environment, balance.messages.listFail]);
 
     // 环境变更时重新获取企业列表
     useEffect(() => {
@@ -194,7 +199,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
     // 查询
     const startQuery = async () => {
         if (!tenantId || isNaN(Number(tenantId))) {
-            toast.error('请输入有效的企业租户ID');
+            toast.error(balance.messages.inputValidId);
             inputRef.current?.focus();
             return;
         }
@@ -221,20 +226,20 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                 const data = response.data.data as BalanceResult[];
                 setResults(data);
                 if (data.length === 0) {
-                    toast.info('未查询到该企业的余额数据');
+                    toast.info(balance.messages.noData);
                 } else {
-                    toast.success(response.data.message);
+                    toast.success(balance.messages.verifySuccess);
                 }
                 const errors = data.filter((r) => !r.is_correct).length;
                 setErrorCount(errors);
                 setQueryCount((prev) => prev + 1);
             } else {
-                toast.error(response.data.message || '查询失败，请重试');
+                toast.error(response.data.message || balance.messages.fail);
                 setResults([]);
             }
         } catch (err) {
             console.error('API调用错误:', err);
-            const errorMsg = err instanceof Error ? err.message : '与服务器通信失败，请检查网络连接';
+            const errorMsg = err instanceof Error ? err.message : balance.messages.fail;
             toast.error(errorMsg);
             setResults([]);
         } finally {
@@ -255,22 +260,22 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
         setSearchTerm('');
         setSelectedEnterprise(undefined);
         inputRef.current?.focus();
-        toast.info('查询结果已重置');
+        toast.info(balance.messages.reset);
     };
 
     // 导出 CSV
     const exportCSV = () => {
         if (!results.length) return;
         const headers = [
-            '税地ID',
-            '税地地址',
-            '企业名称',
-            '扣款总额',
-            '充值总额',
-            '应有余额',
-            '实际余额',
-            '余额差值',
-            '校对结果'
+            balance.table.taxId,
+            balance.table.taxAddress,
+            balance.table.entName,
+            balance.table.deductions,
+            balance.table.recharges,
+            balance.table.expected,
+            balance.table.actual,
+            balance.table.diff,
+            balance.table.result
         ];
         const rows = results.map((r) => [
             r.tax_location_id,
@@ -281,19 +286,17 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
             r.expected_balance,
             r.actual_balance,
             r.balance_diff,
-            r.is_correct ? '正确' : '异常'
+            r.is_correct ? balance.table.correct : balance.table.abnormal // Simplified correct/abnormal
         ]);
         const csv = '\uFEFF' + [headers.join(','), ...rows.map((arr) => arr.join(','))].join('\n');
-        const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `余额核对_${tenantId || '未命名'}.csv`;
+        a.download = balance.messages.file.replace('{id}', tenantId || '未命名');
         a.click();
         URL.revokeObjectURL(url);
     };
-
-    const showEmptyState = !isQuerying && results.length === 0;
 
     return (
         <div className="min-h-screen colorful-background p-6">
@@ -301,44 +304,42 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                 {/* 顶部：返回 + 状态 */}
                 <div className="flex items-center justify-between">
                     <Button variant="ghost" onClick={onBack}>
-                        <ArrowLeft className="w-4 h-4 mr-2"/>
-                        返回脚本列表
+                        <ArrowLeft className="w-4 h-4 mr-2" />
+                        {balance.back}
                     </Button>
                     <Badge variant={isQuerying ? 'destructive' : 'secondary'}>
-                        {isQuerying ? '查询中' : '就绪'}
+                        {isQuerying ? balance.status.querying : balance.status.ready}
                     </Badge>
                 </div>
 
                 {/* 标题 */}
                 <div className="space-y-2">
-                    <h1 className="text-2xl font-semibold tracking-tight">企业账户余额核对</h1>
-                    <p className="text-muted-foreground">
-                        核对企业账户余额的准确性，检测异常并提供详细对比信息
-                    </p>
+                    <h1 className="text-2xl font-semibold tracking-tight">{balance.title}</h1>
+                    <p className="text-muted-foreground">{balance.subtitle}</p>
                 </div>
 
                 {/* 查询参数 */}
                 <Card>
                     <CardHeader className="pb-4">
-                        <CardTitle>查询参数</CardTitle>
+                        <CardTitle>{balance.params.title}</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                             <div>
-                                <Label htmlFor="environment">环境</Label>
+                                <Label htmlFor="environment">{balance.params.env}</Label>
                                 <Select value={environment} onValueChange={setEnvironment} disabled={isQuerying}>
                                     <SelectTrigger>
-                                        <SelectValue placeholder="选择环境"/>
+                                        <SelectValue placeholder={balance.params.envPlaceholder} />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="test">Beta</SelectItem>
-                                        <SelectItem value="prod">生产环境</SelectItem>
+                                        <SelectItem value="test">{balance.params.envTest}</SelectItem>
+                                        <SelectItem value="prod">{balance.params.envProd}</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
 
                             <div>
-                                <Label htmlFor="tenant-id">企业租户ID</Label>
+                                <Label htmlFor="tenant-id">{balance.params.label}</Label>
                                 <div className="relative">
                                     {/* 输入框 - 输入企业名称或ID */}
                                     <Input
@@ -387,7 +388,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                                             }
                                         }}
                                         onClick={() => setIsDropdownOpen(true)}
-                                        placeholder="输入租户ID或企业名称"
+                                        placeholder={balance.params.searchPlaceholder}
                                         disabled={isQuerying || isFetchingEnterprises}
                                         className="pr-8"
                                     />
@@ -418,12 +419,12 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                                         >
                                             {isFetchingEnterprises ? (
                                                 <div className="flex justify-center p-4">
-                                                    <Loader2 className="w-4 h-4 animate-spin"/>
-                                                    <span className="ml-2 text-sm">加载中...</span>
+                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                    <span className="ml-2 text-sm">{t.common.loading}...</span>
                                                 </div>
                                             ) : enterprises.length === 0 ? (
                                                 <div className="p-4 text-center text-sm text-muted-foreground">
-                                                    未获取到企业数据
+                                                    {balance.empty.noData}
                                                 </div>
                                             ) : (
                                                 enterprises
@@ -463,20 +464,20 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                                 >
                                     {isQuerying ? (
                                         <>
-                                            <Loader2 className="w-4 h-4 mr-2 animate-spin"/>
-                                            查询中...
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            {balance.params.querying}
                                         </>
                                     ) : (
                                         <>
-                                            <Search className="w-4 h-4 mr-2"/>
-                                            查询
+                                            <Search className="w-4 h-4 mr-2" />
+                                            {balance.params.query}
                                         </>
                                     )}
                                 </Button>
 
                                 <Button onClick={resetResults} variant="outline" disabled={isQuerying}>
-                                    <RotateCcw className="w-4 h-4 mr-2"/>
-                                    重置
+                                    <RotateCcw className="w-4 h-4 mr-2" />
+                                    {balance.params.reset}
                                 </Button>
                             </div>
 
@@ -487,8 +488,8 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                                     disabled={!results.length || isQuerying}
                                     className="w-full"
                                 >
-                                    <FileDown className="w-4 h-4 mr-2"/>
-                                    导出 CSV
+                                    <FileDown className="w-4 h-4 mr-2" />
+                                    {balance.params.export}
                                 </Button>
                             </div>
                         </div>
@@ -498,23 +499,23 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                 {/* KPI 概览 */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     {[
-                        {icon: CheckCircle, color: 'text-emerald-600', label: '查询次数', value: queryCount},
-                        {icon: null, color: '', label: '总税地数', value: results.length},
-                        {icon: AlertTriangle, color: 'text-red-600', label: '异常税地数', value: errorCount},
+                        { icon: CheckCircle, color: 'text-emerald-600', label: balance.kpi.queryCount, value: queryCount },
+                        { icon: null, color: '', label: balance.kpi.totalTax, value: results.length },
+                        { icon: AlertTriangle, color: 'text-red-600', label: balance.kpi.errorTax, value: errorCount },
                         {
                             icon: CheckCircle,
                             color: 'text-emerald-600',
-                            label: '正常税地数',
+                            label: balance.kpi.normalTax,
                             value: Math.max(results.length - errorCount, 0)
                         }
                     ].map((item, index) => (
                         <Card key={index} className="border-muted/50">
                             <CardContent className="pt-6">
                                 {isQuerying ? (
-                                    <Skeleton className="h-12 w-full"/>
+                                    <Skeleton className="h-12 w-full" />
                                 ) : (
                                     <div className="flex items-center gap-3">
-                                        {item.icon && <item.icon className={`w-5 h-5 ${item.color}`}/>}
+                                        {item.icon && <item.icon className={`w-5 h-5 ${item.color}`} />}
                                         <div>
                                             <p className="text-sm text-muted-foreground">{item.label}</p>
                                             <p className={`text-2xl font-medium tabular-nums ${item.color}`}>{item.value}</p>
@@ -527,14 +528,14 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                 </div>
 
                 {/* 结果卡片 */}
-                <div ref={tableTopRef}/>
+                <div ref={tableTopRef} />
                 <Card>
                     <CardHeader className="pb-3">
                         <div className="flex items-center justify-between">
-                            <CardTitle>余额核对结果</CardTitle>
+                            <CardTitle>{balance.table.title}</CardTitle>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <span>每页 {pageSize} 条</span>
-                                {results.length > 0 && <span>· 共 {results.length} 条</span>}
+                                <span>{balance.table.pageSize.replace('{size}', pageSize.toString())}</span>
+                                {results.length > 0 && <span>· {balance.table.total.replace('{total}', results.length.toString())}</span>}
                             </div>
                         </div>
                     </CardHeader>
@@ -543,34 +544,34 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                         <Table className="text-sm">
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="whitespace-nowrap">税地ID</TableHead>
-                                    <TableHead className="whitespace-nowrap">税地地址</TableHead>
-                                    <TableHead className="whitespace-nowrap">企业名称</TableHead>
-                                    <TableHead className="text-right whitespace-nowrap">扣款总额</TableHead>
-                                    <TableHead className="text-right whitespace-nowrap">充值总额</TableHead>
-                                    <TableHead className="text-right whitespace-nowrap">应有余额</TableHead>
-                                    <TableHead className="text-right whitespace-nowrap">实际余额</TableHead>
-                                    <TableHead className="text-right whitespace-nowrap">余额差值</TableHead>
-                                    <TableHead className="whitespace-nowrap">校对结果</TableHead>
+                                    <TableHead className="whitespace-nowrap">{balance.table.taxId}</TableHead>
+                                    <TableHead className="whitespace-nowrap">{balance.table.taxAddress}</TableHead>
+                                    <TableHead className="whitespace-nowrap">{balance.table.entName}</TableHead>
+                                    <TableHead className="text-right whitespace-nowrap">{balance.table.deductions}</TableHead>
+                                    <TableHead className="text-right whitespace-nowrap">{balance.table.recharges}</TableHead>
+                                    <TableHead className="text-right whitespace-nowrap">{balance.table.expected}</TableHead>
+                                    <TableHead className="text-right whitespace-nowrap">{balance.table.actual}</TableHead>
+                                    <TableHead className="text-right whitespace-nowrap">{balance.table.diff}</TableHead>
+                                    <TableHead className="whitespace-nowrap">{balance.table.result}</TableHead>
                                 </TableRow>
                             </TableHeader>
 
                             <TableBody>
                                 {isQuerying ? (
-                                    Array.from({length: pageSize}).map((_, i) => <SkeletonRow key={i}/>)
+                                    Array.from({ length: pageSize }).map((_, i) => <SkeletonRow key={i} />)
                                 ) : results.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={9} className="h-48 p-0">
                                             <div
                                                 className="h-full w-full flex flex-col items-center justify-center text-center gap-3 p-8">
                                                 <div className="rounded-full p-3 bg-muted">
-                                                    <Info className="h-5 w-5 text-muted-foreground"/>
+                                                    <Info className="h-5 w-5 text-muted-foreground" />
                                                 </div>
                                                 <p className="text-base font-medium">
-                                                    {hasQueried ? '未查询到数据' : '准备就绪'}
+                                                    {hasQueried ? balance.messages.noData : balance.empty.ready}
                                                 </p>
                                                 <p className="text-sm text-muted-foreground">
-                                                    选择环境，输入企业租户ID，点击“查询”。支持回车快速提交。
+                                                    {balance.empty.instruction}
                                                 </p>
                                             </div>
                                         </TableCell>
@@ -580,14 +581,14 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                                         <TableRow
                                             key={result.tax_location_id}
                                             className={`odd:bg-muted/30 ${!result.is_correct ? 'bg-red-50 hover:bg-red-100' : ''
-                                            }`}
+                                                }`}
                                         >
                                             <TableCell className="tabular-nums">{result.tax_location_id}</TableCell>
                                             <TableCell className="max-w-[320px] truncate" title={result.tax_address}>
                                                 {result.tax_address}
                                             </TableCell>
                                             <TableCell className="max-w-[240px] truncate"
-                                                       title={result.enterprise_name}>
+                                                title={result.enterprise_name}>
                                                 {result.enterprise_name}
                                             </TableCell>
                                             <TableCell className="text-right font-mono tabular-nums">
@@ -604,16 +605,16 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                                             </TableCell>
                                             <TableCell
                                                 className={`text-right font-mono tabular-nums ${result.balance_diff !== 0 ? 'text-red-600 font-semibold' : 'text-emerald-600'
-                                                }`}
+                                                    }`}
                                             >
-                                                {result.balance_diff === 0 ? '无差异' : formatCurrency(result.balance_diff)}
+                                                {result.balance_diff === 0 ? balance.table.noDiff : formatCurrency(result.balance_diff)}
                                             </TableCell>
                                             <TableCell>
                                                 <Badge
                                                     variant={result.is_correct ? 'secondary' : 'destructive'}
                                                     className={result.is_correct ? 'bg-emerald-100 text-emerald-800' : undefined}
                                                 >
-                                                    {result.is_correct ? '✅ 正确' : '❌ 异常'}
+                                                    {result.is_correct ? balance.table.correct : balance.table.abnormal}
                                                 </Badge>
                                             </TableCell>
                                         </TableRow>
@@ -622,12 +623,13 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                             </TableBody>
                         </Table>
 
-                        {/* 分页条 */}
+                        {/* 分页条 (keeping hardcoded generic text like 'Previous' or using t.common if available, but for now just replacing what I planned) */}
                         {results.length > 0 && (
                             <div
                                 className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:justify-between items-center p-4 border-t">
                                 <div className="text-sm text-muted-foreground">
-                                    第 {currentPage} / {totalPages} 页
+                                    {/* Using t.balance.table.total or similar to construct "Page X / Y" ? Or just keep basic structure for now */}
+                                    {t.common.pagination.prefix} {currentPage} {t.common.pagination.separator} {totalPages} {t.common.pagination.suffix}
                                 </div>
                                 <div className="flex items-center gap-1 sm:gap-2">
                                     <Button
@@ -636,7 +638,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                                         disabled={currentPage === 1}
                                         onClick={() => handlePageChange(currentPage - 1)}
                                     >
-                                        上一页
+                                        {t.common.prev}
                                     </Button>
 
                                     {getPageNumbers(currentPage, totalPages).map((p, idx) =>
@@ -662,7 +664,7 @@ export default function BalanceScript({onBack}: BalanceScriptProps) {
                                         disabled={currentPage === totalPages}
                                         onClick={() => handlePageChange(currentPage + 1)}
                                     >
-                                        下一页
+                                        {t.common.next}
                                     </Button>
                                 </div>
                             </div>
