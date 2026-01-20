@@ -45,6 +45,7 @@ interface BalanceResult {
     is_correct: boolean;
     total_deductions: number;
     total_recharges: number;
+    total_refunds: number;
     expected_balance: number;
     actual_balance: number;
     balance_diff: number;
@@ -272,6 +273,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
             balance.table.entName,
             balance.table.deductions,
             balance.table.recharges,
+            balance.table.refunds,
             balance.table.expected,
             balance.table.actual,
             balance.table.diff,
@@ -283,6 +285,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
             `"${(r.enterprise_name || '').replace(/"/g, '""')}"`,
             r.total_deductions,
             r.total_recharges,
+            r.total_refunds,
             r.expected_balance,
             r.actual_balance,
             r.balance_diff,
@@ -549,6 +552,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                     <TableHead className="whitespace-nowrap">{balance.table.entName}</TableHead>
                                     <TableHead className="text-right whitespace-nowrap">{balance.table.deductions}</TableHead>
                                     <TableHead className="text-right whitespace-nowrap">{balance.table.recharges}</TableHead>
+                                    <TableHead className="text-right whitespace-nowrap">{balance.table.refunds}</TableHead>
                                     <TableHead className="text-right whitespace-nowrap">{balance.table.expected}</TableHead>
                                     <TableHead className="text-right whitespace-nowrap">{balance.table.actual}</TableHead>
                                     <TableHead className="text-right whitespace-nowrap">{balance.table.diff}</TableHead>
@@ -596,6 +600,9 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                             </TableCell>
                                             <TableCell className="text-right font-mono tabular-nums">
                                                 {formatCurrency(result.total_recharges)}
+                                            </TableCell>
+                                            <TableCell className="text-right font-mono tabular-nums">
+                                                {formatCurrency(result.total_refunds)}
                                             </TableCell>
                                             <TableCell className="text-right font-mono tabular-nums">
                                                 {formatCurrency(result.expected_balance)}

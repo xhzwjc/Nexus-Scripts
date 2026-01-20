@@ -48,6 +48,7 @@ class BalanceVerificationResultItem(BaseModel):
     is_correct: bool = Field(..., description="余额是否正确")
     total_deductions: float = Field(..., description="总扣款金额")
     total_recharges: float = Field(..., description="总充值金额")
+    total_refunds: float = Field(..., description="总退款金额")
     expected_balance: float = Field(..., description="应有余额")
     actual_balance: float = Field(..., description="实际余额")
     balance_diff: float = Field(..., description="差额(实际-应有)")

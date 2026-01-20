@@ -938,6 +938,7 @@ export const enUS: Translations = {
                 entName: 'Enterprise',
                 deductions: 'Total Deductions',
                 recharges: 'Total Recharges',
+                refunds: 'Total Refunds',
                 expected: 'Expected Bal',
                 actual: 'Actual Bal',
                 diff: 'Diff',

@@ -937,6 +937,7 @@ export const zhCN: Translations = {
                 entName: '企业名称',
                 deductions: '扣款总额',
                 recharges: '充值总额',
+                refunds: '退款总额',
                 expected: '应有余额',
                 actual: '实际余额',
                 diff: '余额差值',

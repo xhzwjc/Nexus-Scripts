@@ -910,6 +910,7 @@ export interface Translations {
         entName: string;
         deductions: string;
         recharges: string;
+        refunds: string;
         expected: string;
         actual: string;
         diff: string;

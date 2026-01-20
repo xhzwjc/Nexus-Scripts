@@ -62,6 +62,14 @@ class AccountBalanceService:
             FROM biz_capital_detail 
             WHERE tenant_id = {tenant_id} AND trade_type = 1 AND deleted = 0
             GROUP BY tax_id
+        ),
+        refund_amounts AS (
+            SELECT 
+                tax_id as tax_location_id,
+                SUM(ABS(ROUND(trade_amount, 2))) AS total_refunds
+            FROM biz_capital_detail 
+            WHERE tenant_id = {tenant_id} AND trade_type = 4 AND deleted = 0
+            GROUP BY tax_id
         )
         SELECT 
             e.tax_id as tax_location_id,
@@ -69,10 +77,12 @@ class AccountBalanceService:
             e.tax_address,
             COALESCE(d.total_deductions, 0) AS total_deductions,
             COALESCE(r.total_recharges, 0) AS total_recharges,
+            COALESCE(f.total_refunds, 0) AS total_refunds,
             ROUND(e.account_balance, 2) AS actual_balance
         FROM biz_enterprise_tax e
         LEFT JOIN deduction_amounts d ON e.tax_id = d.tax_location_id
         LEFT JOIN recharge_amounts r ON e.tax_id = r.tax_location_id
+        LEFT JOIN refund_amounts f ON e.tax_id = f.tax_location_id
         WHERE e.tenant_id = {tenant_id} AND e.deleted = 0
         """
 
@@ -97,7 +107,9 @@ class AccountBalanceService:
 
         results = []
         for _, row in df.iterrows():
-            expected = round(row['total_recharges'] - row['total_deductions'], 2)
+            expected = round(row['total_recharges'] - row['total_deductions'] - row['total_refunds'], 2)
+            if expected == 0:
+                expected = 0.0
             actual = round(row['actual_balance'], 2)
             results.append({
                 "tax_location_id": row['tax_location_id'],
@@ -106,6 +118,7 @@ class AccountBalanceService:
                 "is_correct": round(actual - expected, 2) == 0,
                 "total_deductions": round(row['total_deductions'], 2),
                 "total_recharges": round(row['total_recharges'], 2),
+                "total_refunds": round(row['total_refunds'], 2),
                 "expected_balance": expected,
                 "actual_balance": actual,
                 "balance_diff": round(actual - expected, 2)
