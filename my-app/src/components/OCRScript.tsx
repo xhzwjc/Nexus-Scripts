@@ -3,10 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 import { ArrowLeft, Play, FileText, Folder, Loader2, Download, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { getApiBaseUrl } from '../lib/api';
+import { useI18n } from '@/lib/i18n';
 import {
     Dialog,
     DialogContent,
@@ -28,11 +28,13 @@ interface OCRScriptProps {
 export default function OCRScript({ onBack }: OCRScriptProps) {
     const [excelFile, setExcelFile] = useState<File | null>(null);
     const [imageFiles, setImageFiles] = useState<File[]>([]);
+    const { t } = useI18n();
+    const ocr = t.scripts.ocr;
+
     const [mode, setMode] = useState('1');
     const [isRunning, setIsRunning] = useState(false);
     const [logs, setLogs] = useState<string[]>([]);
     const [downloadUrl, setDownloadUrl] = useState('');
-    const [uploadProgress, setUploadProgress] = useState(0);
 
     // 进度跟踪
     const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
@@ -91,18 +93,17 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
 
     const handleRun = async () => {
         if (!excelFile) {
-            toast.error('请选择 Excel 文件');
+            toast.error(ocr.messages.selectExcel);
             return;
         }
         if (imageFiles.length === 0) {
-            toast.error('请选择附件文件夹');
+            toast.error(ocr.messages.selectFolder);
             return;
         }
 
         setIsRunning(true);
         setLogs([]);
         setDownloadUrl('');
-        setUploadProgress(0);
         setProgress(null);
         setRequestId('');
         setIsAborting(false);
@@ -128,8 +129,8 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
             }
 
             const totalSize = getTotalSize();
-            setLogs(prev => [...prev, `📤 开始上传: Excel + ${imageFiles.length} 个图片 (共 ${totalSize} MB)`]);
-            setLogs(prev => [...prev, `⏳ 上传中，请耐心等待...`]);
+            setLogs(prev => [...prev, ocr.logs.startUpload.replace('{count}', String(imageFiles.length)).replace('{size}', totalSize)]);
+            setLogs(prev => [...prev, ocr.logs.uploading]);
 
             const response = await fetch(`${base}/ocr/process-upload`, {
                 method: 'POST',
@@ -142,7 +143,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                 throw new Error(errorText || response.statusText);
             }
 
-            setLogs(prev => [...prev, `✅ 上传完成，开始 OCR 处理...`]);
+            setLogs(prev => [...prev, ocr.logs.uploadComplete]);
 
             const reader = response.body?.getReader();
             if (!reader) throw new Error('无法读取响应流');
@@ -177,7 +178,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                 } else {
                                     toast.success(data.message);
                                 }
-                                setLogs(prev => [...prev, `✅ ${data.message}`]);
+                                setLogs(prev => [...prev, `✅ ${data.message} `]);
                                 if (data.download_url) {
                                     setDownloadUrl(`${base}/${data.download_url}`);
                                 }
@@ -202,11 +203,11 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
         } catch (error: unknown) {
             // 检查是否为用户中止
             if (error instanceof Error && error.name === 'AbortError') {
-                setLogs(prev => [...prev, `⚠️ 请求已被用户中止`]);
+                setLogs(prev => [...prev, ocr.logs.aborted]);
             } else {
                 const errMsg = error instanceof Error ? error.message : String(error);
-                toast.error('请求失败: ' + errMsg);
-                setLogs(prev => [...prev, `❌ 错误: ${errMsg}`]);
+                toast.error(ocr.logs.failed + errMsg);
+                setLogs(prev => [...prev, `❌ ${ocr.logs.failed} ${errMsg}`]);
             }
         } finally {
             setIsRunning(false);
@@ -221,7 +222,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
         if (!requestId || isAborting) return;
 
         setIsAborting(true);
-        setLogs(prev => [...prev, `⚠️ 正在发送中止请求...`]);
+        setLogs(prev => [...prev, ocr.logs.aborting]);
 
         try {
             const base = getApiBaseUrl();
@@ -281,10 +282,10 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                     </Button>
                     <div>
                         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
-                            OCR 智能比对
+                            {ocr.title}
                         </h1>
                         <p className="text-sm font-medium text-slate-500 mt-1">
-                            个人信息自动化识别与校验系统
+                            {ocr.subtitle}
                         </p>
                     </div>
                 </div>
@@ -295,9 +296,9 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                         <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-full text-sm font-medium">
                             <Loader2 className="w-4 h-4 animate-spin" />
                             {progress ? (
-                                <span>处理中: {progress.current} / {progress.total}</span>
+                                <span>{ocr.status.processing.replace('{current}', String(progress.current)).replace('{total}', String(progress.total))}</span>
                             ) : (
-                                <span>正在初始化...</span>
+                                <span>{ocr.status.initializing}</span>
                             )}
                         </div>
                         {/* 中止按钮 */}
@@ -311,10 +312,10 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                             {isAborting ? (
                                 <>
                                     <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                                    中止中...
+                                    {ocr.actions.aborting}
                                 </>
                             ) : (
-                                '终止处理'
+                                ocr.actions.abort
                             )}
                         </Button>
                     </div>
@@ -329,16 +330,16 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                         <CardHeader className="pb-4 border-b border-slate-100 bg-white/50">
                             <CardTitle className="flex items-center gap-2 text-lg">
                                 <FileText className="w-5 h-5 text-blue-600" />
-                                数据源配置
+                                {ocr.form.dataSource}
                             </CardTitle>
                             <CardDescription>
-                                请上传包含人员名单的 Excel 及对应的附件文件夹
+                                {ocr.form.dataSourceDesc}
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6 pt-6">
                             {/* Excel 上传 */}
                             <div className="space-y-2">
-                                <Label className="text-sm font-semibold text-slate-700">人员信息表 (Excel)</Label>
+                                <Label className="text-sm font-semibold text-slate-700">{ocr.form.excelLabel}</Label>
                                 <div className="group relative">
                                     <div className={`
                                         relative flex flex-col items-center justify-center w-full h-32 rounded-xl border-2 border-dashed transition-all duration-200
@@ -362,10 +363,10 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                                 <>
                                                     <FileText className="w-8 h-8 text-slate-400 mb-2 group-hover:text-blue-500 transition-colors" />
                                                     <p className="text-sm text-slate-600 font-medium">
-                                                        点击选择 Excel 文件
+                                                        {ocr.form.excelPlaceholder}
                                                     </p>
                                                     <p className="text-xs text-slate-400 mt-1">
-                                                        支持 .xlsx, .xls
+                                                        {ocr.form.excelHint}
                                                     </p>
                                                 </>
                                             )}
@@ -384,8 +385,8 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                             {/* 文件夹上传 */}
                             <div className="space-y-2">
                                 <Label className="text-sm font-semibold text-slate-700">
-                                    附件图片库
-                                    <span className="ml-1 text-xs font-normal text-slate-500">(包含以姓名命名的子文件夹)</span>
+                                    {ocr.form.imagesLabel}
+                                    <span className="ml-1 text-xs font-normal text-slate-500">{ocr.form.imagesHint}</span>
                                 </Label>
                                 <div className="group relative">
                                     <div className={`
@@ -400,20 +401,20 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                                 <>
                                                     <Folder className="w-8 h-8 text-green-600 mb-2" />
                                                     <p className="text-sm font-medium text-green-700">
-                                                        已选择 {imageFiles.length} 个文件
+                                                        {ocr.form.selectedFiles.replace('{count}', String(imageFiles.length))}
                                                     </p>
                                                     <p className="text-xs text-green-600 mt-1">
-                                                        总大小: {getTotalSize()} MB
+                                                        {ocr.form.totalSize.replace('{size}', getTotalSize())}
                                                     </p>
                                                 </>
                                             ) : (
                                                 <>
                                                     <Folder className="w-8 h-8 text-slate-400 mb-2 group-hover:text-blue-500 transition-colors" />
                                                     <p className="text-sm text-slate-600 font-medium">
-                                                        点击选择附件文件夹
+                                                        {ocr.form.folderPlaceholder}
                                                     </p>
                                                     <p className="text-xs text-slate-400 mt-1">
-                                                        请选择整个根目录
+                                                        {ocr.form.folderHint}
                                                     </p>
                                                 </>
                                             )}
@@ -432,7 +433,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                     <div className="flex items-start gap-2 p-3 mt-2 bg-amber-50 border border-amber-100 rounded-lg text-amber-800 text-xs">
                                         <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                                         <span>
-                                            文件数量较多（{imageFiles.length}个），上传过程可能需要几分钟，请保持网络通畅。
+                                            {ocr.form.largeFileWarning.replace('{count}', String(imageFiles.length))}
                                         </span>
                                     </div>
                                 )}
@@ -442,69 +443,86 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
 
                     {/* 运行模式 & 按钮 */}
                     <Card className="border-0 shadow-lg bg-white overflow-hidden">
+                        {/* 运行模式 & 启动按钮 */}
+                        {/* 运行模式 & 启动按钮 */}
                         <CardContent className="p-6 space-y-6">
-                            <div className="space-y-3">
-                                <Label className="text-sm font-semibold text-slate-700">运行模式</Label>
-                                <RadioGroup value={mode} onValueChange={setMode} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div
-                                        className={`
-                                            relative flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all
+                            <div className="space-y-6">
+                                <div className="space-y-4">
+                                    <Label className="text-sm font-semibold text-slate-700">{ocr.mode.label}</Label>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div
+                                            className={`
+                                            cursor-pointer relative flex items-start gap-3 p-4 rounded-xl border-2 transition-all duration-200
                                             ${mode === '1'
-                                                ? 'border-blue-600 bg-blue-50/50'
-                                                : 'border-slate-100 hover:border-slate-200'
-                                            }
+                                                    ? 'border-blue-500 bg-blue-50/50 shadow-sm'
+                                                    : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
+                                                }
                                         `}
-                                        onClick={() => setMode('1')}
-                                    >
-                                        <RadioGroupItem value="1" id="mode-1" className="mt-1" />
-                                        <div className="space-y-1">
-                                            <Label htmlFor="mode-1" className="font-semibold cursor-pointer">Excel 优先</Label>
-                                            <p className="text-xs text-slate-500">按 Excel 名单顺序去查找并匹配附件（推荐）</p>
+                                            onClick={() => !isRunning && setMode('1')}
+                                        >
+                                            <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center ${mode === '1' ? 'border-blue-500' : 'border-slate-300'}`}>
+                                                {mode === '1' && <div className="w-2 h-2 rounded-full bg-blue-500" />}
+                                            </div>
+                                            <div>
+                                                <p className={`font-semibold text-sm ${mode === '1' ? 'text-blue-700' : 'text-slate-700'}`}>
+                                                    {ocr.mode.excelFirst}
+                                                </p>
+                                                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                                                    {ocr.mode.excelFirstDesc}
+                                                </p>
+                                            </div>
                                         </div>
-                                    </div>
 
-                                    <div
-                                        className={`
-                                            relative flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all
+                                        <div
+                                            className={`
+                                            cursor-pointer relative flex items-start gap-3 p-4 rounded-xl border-2 transition-all duration-200
                                             ${mode === '2'
-                                                ? 'border-blue-600 bg-blue-50/50'
-                                                : 'border-slate-100 hover:border-slate-200'
-                                            }
+                                                    ? 'border-blue-500 bg-blue-50/50 shadow-sm'
+                                                    : 'border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50'
+                                                }
                                         `}
-                                        onClick={() => setMode('2')}
-                                    >
-                                        <RadioGroupItem value="2" id="mode-2" className="mt-1" />
-                                        <div className="space-y-1">
-                                            <Label htmlFor="mode-2" className="font-semibold cursor-pointer">附件 优先</Label>
-                                            <p className="text-xs text-slate-500">遍历附件文件夹识别，反查匹配 Excel</p>
+                                            onClick={() => !isRunning && setMode('2')}
+                                        >
+                                            <div className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center ${mode === '2' ? 'border-blue-500' : 'border-slate-300'}`}>
+                                                {mode === '2' && <div className="w-2 h-2 rounded-full bg-blue-500" />}
+                                            </div>
+                                            <div>
+                                                <p className={`font-semibold text-sm ${mode === '2' ? 'text-blue-700' : 'text-slate-700'}`}>
+                                                    {ocr.mode.imagesFirst}
+                                                </p>
+                                                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                                                    {ocr.mode.imagesFirstDesc}
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
-                                </RadioGroup>
+                                </div>
+                                <div className="pt-2">
+                                    <Button
+                                        className="w-full h-12 text-lg font-medium shadow-blue-500/20 shadow-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition-all rounded-xl"
+                                        onClick={handleRun}
+                                        disabled={isRunning || !excelFile || imageFiles.length === 0}
+                                    >
+                                        {isRunning ? (
+                                            <>
+                                                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                                {ocr.actions.processing}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Play className="mr-2 h-5 w-5" />
+                                                {ocr.actions.start}
+                                            </>
+                                        )}
+                                    </Button>
+                                </div>
                             </div>
-
-                            <Button
-                                className="w-full h-12 text-lg font-medium shadow-blue-500/20 shadow-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition-all rounded-xl"
-                                onClick={handleRun}
-                                disabled={isRunning || !excelFile || imageFiles.length === 0}
-                            >
-                                {isRunning ? (
-                                    <>
-                                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                                        正在智能处理中...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Play className="mr-2 h-5 w-5" />
-                                        立即开始比对
-                                    </>
-                                )}
-                            </Button>
 
                             {/* 进度条区域 */}
                             {isRunning && progress && (
                                 <div className="space-y-2 pt-2">
                                     <div className="flex justify-between text-sm text-slate-600">
-                                        <span>处理进度</span>
+                                        <span>{ocr.status.progressLabel}</span>
                                         <span className="font-mono font-medium">
                                             {progress.current} / {progress.total}
                                         </span>
@@ -516,7 +534,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                         />
                                     </div>
                                     <p className="text-xs text-slate-500 text-center">
-                                        预计剩余 {progress.total - progress.current} 人待处理
+                                        {ocr.status.remaining.replace('{count}', String(progress.total - progress.current))}
                                     </p>
                                 </div>
                             )}
@@ -527,29 +545,26 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                 {/* 右侧：日志与结果 */}
                 <div className="lg:col-span-7 flex flex-col h-full space-y-6">
                     {/* 结果下载卡片 (动态出现) */}
+                    {/* 结果下载卡片 (动态出现) */}
                     {downloadUrl && (
-                        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
-                            <Card className="bg-gradient-to-r from-emerald-500 to-teal-500 border-0 shadow-lg text-white">
-                                <CardContent className="flex items-center justify-between p-6">
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-3 bg-white/20 rounded-full backdrop-blur-sm">
-                                            <FileText className="w-6 h-6 text-white" />
-                                        </div>
-                                        <div>
-                                            <h3 className="font-bold text-lg">处理完成！</h3>
-                                            <p className="text-emerald-50 text-sm">您的比对结果报表已生成完毕。</p>
-                                        </div>
+                        <div className="animate-in fade-in slide-in-from-top-4 duration-500 mt-8">
+                            <div className="bg-green-50 border border-green-200 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center shrink-0">
+                                        <Download className="w-6 h-6 text-green-600" />
                                     </div>
-                                    <Button
-                                        variant="secondary"
-                                        className="font-bold shadow-md h-10 bg-white text-emerald-700 hover:bg-emerald-50"
-                                        onClick={() => window.open(downloadUrl, '_blank')}
-                                    >
-                                        <Download className="mr-2 h-4 w-4" />
-                                        下载 Excel 报表
-                                    </Button>
-                                </CardContent>
-                            </Card>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-green-800">{ocr.status.completed}</h3>
+                                        <p className="text-green-600 text-sm">{ocr.status.completedDesc}</p>
+                                    </div>
+                                </div>
+                                <Button
+                                    className="w-full md:w-auto bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-600/20"
+                                    onClick={() => window.open(downloadUrl, '_blank')}
+                                >
+                                    {ocr.actions.download}
+                                </Button>
+                            </div>
                         </div>
                     )}
 
@@ -575,11 +590,9 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                                 className="absolute inset-0 p-4 overflow-y-auto font-mono text-sm leading-relaxed scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent"
                             >
                                 {logs.length === 0 ? (
-                                    <div className="h-full flex flex-col items-center justify-center text-gray-600 gap-3">
-                                        <div className="w-12 h-12 rounded-full border-2 border-dashed border-gray-700 flex items-center justify-center">
-                                            <Play className="w-5 h-5 ml-0.5" />
-                                        </div>
-                                        <p>等待任务开始...</p>
+                                    <div className="h-full flex flex-col items-center justify-center text-slate-400 py-12">
+                                        <Loader2 className="w-8 h-8 opacity-20 mb-2" />
+                                        <p className="text-sm font-medium">{ocr.status.waiting}</p>
                                     </div>
                                 ) : (
                                     logs.map((log, index) => {
@@ -604,37 +617,45 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
                 </div>
             </div>
 
-            {/* 返回确认弹窗 */}
+            {/* 确认退出对话框 */}
             <Dialog open={showBackConfirm} onOpenChange={setShowBackConfirm}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>确认退出？</DialogTitle>
+                        <DialogTitle>{ocr.dialog.backTitle}</DialogTitle>
                         <DialogDescription>
-                            当前正在进行 OCR 处理，退出页面将终止所有正在进行的任务。
+                            {ocr.dialog.backContent}
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setShowBackConfirm(false)}>取消</Button>
-                        <Button variant="destructive" onClick={confirmBack}>退出并终止</Button>
+                        <Button variant="outline" onClick={() => setShowBackConfirm(false)}>
+                            {t.common.cancel}
+                        </Button>
+                        <Button variant="destructive" onClick={confirmBack}>
+                            {ocr.dialog.backConfirm}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            {/* 中止确认弹窗 */}
+            {/* 确认中止对话框 */}
             <Dialog open={showAbortConfirm} onOpenChange={setShowAbortConfirm}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>确认终止？</DialogTitle>
+                        <DialogTitle>{ocr.dialog.abortTitle}</DialogTitle>
                         <DialogDescription>
-                            您确定要终止当前的 OCR 处理任务吗？已处理的数据将会遗失！
+                            {ocr.dialog.abortContent}
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setShowAbortConfirm(false)}>取消</Button>
-                        <Button variant="destructive" onClick={confirmAbort}>确认终止</Button>
+                        <Button variant="outline" onClick={() => setShowAbortConfirm(false)}>
+                            {t.common.cancel}
+                        </Button>
+                        <Button variant="destructive" onClick={confirmAbort}>
+                            {ocr.dialog.abortConfirm}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+        </div >
     );
 }

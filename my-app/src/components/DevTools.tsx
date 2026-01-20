@@ -16,7 +16,6 @@ import {
     Hash,
     Code,
     AlertCircle,
-    Languages,
     ArrowLeft,
     Unlock,
     ChevronRight,
@@ -24,240 +23,19 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import CryptoJS from 'crypto-js';
+import { useI18n } from '@/lib/i18n';
 
 type DevToolTab = 'json' | 'timestamp' | 'uuid' | 'base64' | 'url' | 'jwt' | 'hash' | 'regex' | 'decrypt';
-type Language = 'zh' | 'en';
 
 interface DevToolsProps {
     onBack?: () => void;
 }
 
-const TRANSLATIONS = {
-    zh: {
-        title: '开发者工具',
-        subtitle: 'v1.2.0 • 内部专用',
-        common: '常用工具',
-        advanced: '高级工具',
-        nav: {
-            json: 'JSON 格式化',
-            timestamp: '时间戳转换',
-            uuid: 'UUID 生成',
-            base64: 'Base64 编解码',
-            url: 'URL 编解码',
-            jwt: 'JWT 解析',
-            hash: 'Hash 计算',
-            regex: '正则测试',
-            decrypt: '资源解密'
-        },
-        json: {
-            title: 'JSON 工具',
-            desc: '验证、美化与压缩 (Formatter & Minifier)',
-            input: '输入',
-            output: '输出',
-            placeholder: '在此粘贴 JSON 字符串...',
-            clear: '清空',
-            minify: '压缩',
-            format: '格式化',
-            copy_success: 'JSON 已复制到剪贴板'
-        },
-        timestamp: {
-            title: '时间戳转换',
-            desc: '支持 10位(秒) 和 13位(毫秒) 自动识别',
-            label: 'Unix 时间戳',
-            placeholder: '例如: 1678888888',
-            convert: '转换',
-            beijing_time: '北京时间 (CST)',
-            now_label: '当前时间戳 (秒)',
-            get_current: '获取当前时间',
-            invalid: '无效的时间戳',
-            datetime_label: '日期时间',
-            datetime_placeholder: '例如: 2024-01-15 14:30:00',
-            to_timestamp: '转为时间戳',
-            timestamp_result: '时间戳结果',
-            invalid_datetime: '无效的日期时间格式'
-        },
-        uuid: {
-            title: 'UUID 生成器',
-            desc: '生成符合 RFC 4122 标准的 Version 4 UUID',
-            generate: '生成新的 UUID',
-            copy_success: 'UUID 已复制'
-        },
-        base64: {
-            title: 'Base64 编解码',
-            desc: 'UTF-8 安全编解码 (支持中文)',
-            placeholder: '输入文本进行编码或解码...',
-            encode: '编码 ↓',
-            decode: '解码 ↑',
-            result_placeholder: '结果...',
-            encode_fail: '编码失败: ',
-            decode_fail: '解码失败: '
-        },
-        url: {
-            title: 'URL 编解码',
-            input_placeholder: '在此粘贴 URL...',
-            encode: '编码',
-            decode: '解码',
-            result_placeholder: '结果...',
-            error: '错误: '
-        },
-        jwt: {
-            title: 'JWT 调试器',
-            desc: '解析 JWTs 并查看 Payload (仅客户端)',
-            token_label: 'Token 字符串',
-            token_placeholder: '粘贴标准 JWT (header.payload.signature)...',
-            header_label: 'Header',
-            payload_label: 'Payload',
-            invalid_format: '无效的 JWT 格式 (应包含三部分)',
-            parse_fail: 'JWT 解析失败: '
-        },
-        hash: {
-            title: 'Hash 计算器',
-            desc: '实时计算 MD5, SHA1, SHA256',
-            input_label: '输入文本',
-            placeholder: '输入以计算 Hash...'
-        },
-        regex: {
-            title: '正则表达式测试',
-            pattern_placeholder: '正则表达式...',
-            flags_placeholder: '修饰符',
-            test_btn: '测试',
-            test_string_label: '测试字符串',
-            test_string_placeholder: '粘贴内容以进行匹配测试...',
-            matches_label: '匹配结果',
-            no_matches: '未找到匹配项。',
-            error: '正则表达式错詯: '
-        },
-        decrypt: {
-            title: '团队资源解密',
-            desc: '解密 team-resources.enc.json 中的加密数据',
-            input_label: '加密数据 (AES 密文)',
-            input_placeholder: '粘贴加密后的字符串...',
-            key_label: '解密密钥',
-            key_placeholder: '输入解密密钥 (默认使用系统密钥)',
-            decrypt_btn: '解密',
-            output_label: '解密结果 (JSON)',
-            output_placeholder: '解密后的明文数据将显示在这里...',
-            success: '解密成功',
-            fail: '解密失败: ',
-            copy_success: '解密数据已复制'
-        }
-    },
-    en: {
-        title: 'Developer Tools',
-        subtitle: 'v1.2.0 • Internal Use Only',
-        common: 'Common',
-        advanced: 'Advanced',
-        nav: {
-            json: 'JSON Formatter',
-            timestamp: 'Timestamp',
-            uuid: 'UUID Generator',
-            base64: 'Base64 Converter',
-            url: 'URL Encoder',
-            jwt: 'JWT Debugger',
-            hash: 'Hash Calculator',
-            regex: 'Regex Tester',
-            decrypt: 'Decrypt Resources'
-        },
-        json: {
-            title: 'JSON Tools',
-            desc: 'Validate, Format & Minify',
-            input: 'Input',
-            output: 'Output',
-            placeholder: 'Paste JSON here...',
-            clear: 'Clear',
-            minify: 'Minify',
-            format: 'Format',
-            copy_success: 'JSON copied to clipboard'
-        },
-        timestamp: {
-            title: 'Timestamp Converter',
-            desc: 'Auto-detects 10-digit (sec) and 13-digit (ms)',
-            label: 'Unix Timestamp',
-            placeholder: 'e.g. 1678888888',
-            convert: 'Convert',
-            beijing_time: 'Beijing Time (CST)',
-            now_label: 'Now (seconds)',
-            get_current: 'Get Current Time',
-            invalid: 'Invalid Timestamp',
-            datetime_label: 'Date Time',
-            datetime_placeholder: 'e.g. 2024-01-15 14:30:00',
-            to_timestamp: 'To Timestamp',
-            timestamp_result: 'Timestamp Result',
-            invalid_datetime: 'Invalid datetime format'
-        },
-        uuid: {
-            title: 'UUID Generator',
-            desc: 'Generate RFC 4122 compliant Version 4 UUIDs',
-            generate: 'Generate New UUID',
-            copy_success: 'UUID copied'
-        },
-        base64: {
-            title: 'Base64 Converter',
-            desc: 'UTF-8 safe encoder/decoder (supports Unicode)',
-            placeholder: 'Type text to encode/decode...',
-            encode: 'Encode ↓',
-            decode: 'Decode ↑',
-            result_placeholder: 'Result...',
-            encode_fail: 'Encode failed: ',
-            decode_fail: 'Decode failed: '
-        },
-        url: {
-            title: 'URL Encoder / Decoder',
-            input_placeholder: 'Paste URL here...',
-            encode: 'Encode',
-            decode: 'Decode',
-            result_placeholder: 'Result...',
-            error: 'Error: '
-        },
-        jwt: {
-            title: 'JWT Debugger',
-            desc: 'Parse JWTs to view their claims (client-side only)',
-            token_label: 'Encoded Token',
-            token_placeholder: 'Paste standard JWT (header.payload.signature)...',
-            header_label: 'Header',
-            payload_label: 'Payload',
-            invalid_format: 'Invalid JWT format (must have 3 parts)',
-            parse_fail: 'JWT Parse failed: '
-        },
-        hash: {
-            title: 'Hash Calculator',
-            desc: 'Real-time MD5, SHA1, SHA256 generation',
-            input_label: 'Input Text',
-            placeholder: 'Type to hash...'
-        },
-        regex: {
-            title: 'Regex Tester',
-            pattern_placeholder: 'Pattern...',
-            flags_placeholder: 'flags',
-            test_btn: 'Test',
-            test_string_label: 'Test String',
-            test_string_placeholder: 'Paste content to test against...',
-            matches_label: 'Matches',
-            no_matches: 'No matches found.',
-            error: 'Regex Error: '
-        },
-        decrypt: {
-            title: 'Decrypt Team Resources',
-            desc: 'Decrypt team-resources.enc.json encrypted data',
-            input_label: 'Encrypted Data (AES Ciphertext)',
-            input_placeholder: 'Paste the encrypted string...',
-            key_label: 'Decryption Key',
-            key_placeholder: 'Enter key (leave empty for default)',
-            decrypt_btn: 'Decrypt',
-            output_label: 'Decrypted Result (JSON)',
-            output_placeholder: 'Decrypted plaintext will appear here...',
-            success: 'Decryption successful',
-            fail: 'Decryption failed: ',
-            copy_success: 'Decrypted data copied'
-        }
-    }
-};
-
 export default function DevTools({ onBack }: DevToolsProps) {
-    const [activeTab, setActiveTab] = useState<DevToolTab>('json');
-    const [lang, setLang] = useState<Language>('zh');
+    const { t: globalT } = useI18n();
+    const t = globalT.devTools;  // Smart alias - all t.xxx references now work with global i18n
 
-    const t = TRANSLATIONS[lang];
+    const [activeTab, setActiveTab] = useState<DevToolTab>('json');
 
     // State - JSON
     const [jsonInput, setJsonInput] = useState('');
@@ -317,14 +95,10 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
     // ================== Handlers ==================
 
-    const toggleLanguage = () => {
-        setLang(prev => prev === 'zh' ? 'en' : 'zh');
-    };
-
     const copyToClipboard = (text: string, msg?: string) => {
         if (!text) return;
         navigator.clipboard.writeText(text);
-        toast.success(msg || (lang === 'zh' ? '已复制到剪贴板' : 'Copied to clipboard'));
+        toast.success(msg || globalT.common.copied);
     };
 
     // JSON Handler
@@ -440,16 +214,16 @@ export default function DevTools({ onBack }: DevToolsProps) {
             const encoded = CryptoJS.enc.Base64.stringify(utf8Bytes);
             setBase64Output(encoded);
         } catch (e) {
-            setBase64Output(t.base64.encode_fail + (e as Error).message);
+            setBase64Output(t.base64.encodeFail + (e as Error).message);
         }
     };
     const handleBase64Decode = () => {
         try {
             const decoded = CryptoJS.enc.Base64.parse(base64Input);
             const utf8Str = CryptoJS.enc.Utf8.stringify(decoded);
-            setBase64Output(utf8Str || (lang === 'zh' ? '无效的 Base64 编码' : 'Invalid Base64'));
+            setBase64Output(utf8Str || t.base64.invalidBase64);
         } catch (e) {
-            setBase64Output(t.base64.decode_fail + (e as Error).message);
+            setBase64Output(t.base64.decodeFail + (e as Error).message);
         }
     };
 
@@ -480,7 +254,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
         try {
             const parts = token.split('.');
-            if (parts.length !== 3) throw new Error(t.jwt.invalid_format);
+            if (parts.length !== 3) throw new Error(t.jwt.invalidFormat);
 
             const decodePart = (part: string) => {
                 const padding = '='.repeat((4 - part.length % 4) % 4);
@@ -494,7 +268,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
             setJwtHeader(decodePart(parts[0]));
             setJwtPayload(decodePart(parts[1]));
         } catch (e) {
-            setJwtError(t.jwt.parse_fail + (e as Error).message);
+            setJwtError(t.jwt.parseFail + (e as Error).message);
         }
     };
 
@@ -538,7 +312,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
         setDecryptOutput('');
 
         if (!decryptInput.trim()) {
-            setDecryptError(lang === 'zh' ? '请输入加密数据' : 'Please enter encrypted data');
+            setDecryptError(t.decrypt.emptyInput);
             return;
         }
 
@@ -548,7 +322,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
             const decrypted = bytes.toString(CryptoJS.enc.Utf8);
 
             if (!decrypted) {
-                throw new Error(lang === 'zh' ? '解密失败，请检查密钥是否正确' : 'Decryption failed, check if the key is correct');
+                throw new Error(t.decrypt.wrongKey);
             }
 
             // Try to parse and format as JSON
@@ -585,19 +359,6 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
     return (
         <div className="flex flex-col md:flex-row gap-6 max-w-7xl mx-auto w-full h-full relative">
-
-            {/* Lang Switcher - Top Right of the main container */}
-            <div className="absolute top-0 right-0 md:top-2 md:right-6 z-10">
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={toggleLanguage}
-                    className="text-slate-500 hover:text-blue-600 hover:bg-blue-50 gap-2"
-                >
-                    <Languages className="w-4 h-4" />
-                    <span className="font-medium text-xs">{lang === 'zh' ? '中 / En' : 'En / 中'}</span>
-                </Button>
-            </div>
 
             {/* Sidebar */}
             <div className="w-full md:w-60 shrink-0 mt-8 md:mt-0">
@@ -684,7 +445,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                         <Button
                                             size="icon"
                                             variant="ghost"
-                                            onClick={() => copyToClipboard(jsonOutput, t.json.copy_success)}
+                                            onClick={() => copyToClipboard(jsonOutput, t.json.copySuccess)}
                                             className="absolute top-2 right-2 h-8 w-8 bg-white shadow-sm hover:bg-slate-100"
                                         >
                                             <Copy className="w-4 h-4 text-slate-500" />
@@ -727,7 +488,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
                             {dateOutput && (
                                 <div className="p-4 bg-green-50 border border-green-100 rounded-xl relative group">
-                                    <div className="text-xs text-green-600 mb-1">{t.timestamp.beijing_time}</div>
+                                    <div className="text-xs text-green-600 mb-1">{t.timestamp.beijingTime}</div>
                                     <span className="font-mono text-lg text-green-900 font-bold tracking-wide">{dateOutput}</span>
                                     <Button size="icon" variant="ghost" className="h-8 w-8 absolute right-2 top-3 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => copyToClipboard(dateOutput)}>
                                         <Copy className="w-4 h-4 text-green-600" />
@@ -737,7 +498,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
                             <div className="pt-4 border-t border-slate-200 mt-4">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-sm text-slate-500">{t.timestamp.now_label}</span>
+                                    <span className="text-sm text-slate-500">{t.timestamp.nowLabel}</span>
                                     <Button
                                         variant="outline"
                                         size="sm"
@@ -745,7 +506,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                         className="text-blue-600 border-blue-200 hover:bg-blue-50"
                                     >
                                         <RefreshCw className="w-3 h-3 mr-2" />
-                                        {t.timestamp.get_current}
+                                        {t.timestamp.getCurrent}
                                     </Button>
                                 </div>
                             </div>
@@ -756,7 +517,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                             <div className="text-sm font-semibold text-slate-600 mb-2">日期时间 → 时间戳</div>
                             <div className="flex items-end gap-3">
                                 <div className="flex-1 space-y-2">
-                                    <label className="text-sm font-medium text-slate-700">{t.timestamp.datetime_label}</label>
+                                    <label className="text-sm font-medium text-slate-700">{t.timestamp.datetimeLabel}</label>
                                     <Input
                                         type="datetime-local"
                                         step="1"
@@ -775,7 +536,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                         } else {
                                             const date = new Date(datetimeInput);
                                             if (isNaN(date.getTime())) {
-                                                setTimestampOutput(t.timestamp.invalid_datetime);
+                                                setTimestampOutput(t.timestamp.invalidDatetime);
                                             } else {
                                                 const ts = Math.floor(date.getTime() / 1000);
                                                 setTimestampOutput(`${ts} (秒) / ${ts * 1000} (毫秒)`);
@@ -784,7 +545,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                     }}
                                     className="mb-[2px]"
                                 >
-                                    {t.timestamp.to_timestamp}
+                                    {t.timestamp.toTimestamp}
                                 </Button>
                             </div>
                             <div className="flex gap-2">
@@ -805,7 +566,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
                             {timestampOutput && (
                                 <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl relative group">
-                                    <div className="text-xs text-blue-600 mb-1">{t.timestamp.timestamp_result}</div>
+                                    <div className="text-xs text-blue-600 mb-1">{t.timestamp.timestampResult}</div>
                                     <span className="font-mono text-lg text-blue-900 font-bold tracking-wide">{timestampOutput}</span>
                                     <Button size="icon" variant="ghost" className="h-8 w-8 absolute right-2 top-3 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => copyToClipboard(timestampOutput.split(' ')[0])}>
                                         <Copy className="w-4 h-4 text-blue-600" />
@@ -830,7 +591,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                         {uuidOutput && (
                             <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between group">
                                 <span className="font-mono text-2xl text-slate-700 tracking-wider">{uuidOutput}</span>
-                                <Button size="icon" variant="ghost" onClick={() => copyToClipboard(uuidOutput, t.uuid.copy_success)}>
+                                <Button size="icon" variant="ghost" onClick={() => copyToClipboard(uuidOutput, t.uuid.copySuccess)}>
                                     <Copy className="w-5 h-5 text-slate-400 group-hover:text-slate-600" />
                                 </Button>
                             </div>
@@ -860,7 +621,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                             <textarea
                                 readOnly
                                 value={base64Output}
-                                placeholder={t.base64.result_placeholder}
+                                placeholder={t.base64.resultPlaceholder}
                                 className="flex-1 font-mono text-sm bg-slate-50 resize-none p-4 border border-slate-200 rounded-md overflow-auto"
                                 style={{ minHeight: 0 }}
                             />
@@ -878,7 +639,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                             <textarea
                                 value={urlInput}
                                 onChange={(e) => setUrlInput(e.target.value)}
-                                placeholder={t.url.input_placeholder}
+                                placeholder={t.url.inputPlaceholder}
                                 className="flex-1 font-mono text-sm bg-white/50 resize-none p-4 border border-slate-200 rounded-md overflow-auto break-all focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 style={{ minHeight: 0 }}
                             />
@@ -890,7 +651,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                 <textarea
                                     readOnly
                                     value={urlOutput}
-                                    placeholder={t.url.result_placeholder}
+                                    placeholder={t.url.resultPlaceholder}
                                     className="h-full w-full font-mono text-sm bg-slate-50 resize-none p-4 border border-slate-200 rounded-md overflow-auto break-all"
                                     style={{ minHeight: 0 }}
                                 />
@@ -913,11 +674,11 @@ export default function DevTools({ onBack }: DevToolsProps) {
                         </div>
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 overflow-hidden">
                             <div className="flex flex-col gap-2 overflow-hidden">
-                                <label className="text-xs font-semibold text-slate-500 shrink-0">{t.jwt.token_label}</label>
+                                <label className="text-xs font-semibold text-slate-500 shrink-0">{t.jwt.tokenLabel}</label>
                                 <textarea
                                     value={jwtInput}
                                     onChange={(e) => handleJwtDecode(e.target.value)}
-                                    placeholder={t.jwt.token_placeholder}
+                                    placeholder={t.jwt.tokenPlaceholder}
                                     className="flex-1 font-mono text-xs bg-white/50 resize-none p-4 leading-relaxed break-all border border-slate-200 rounded-md overflow-auto focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     style={{ minHeight: 0 }}
                                 />
@@ -930,13 +691,13 @@ export default function DevTools({ onBack }: DevToolsProps) {
                             </div>
                             <div className="flex flex-col gap-4 overflow-hidden">
                                 <div className="flex flex-col gap-1 shrink-0">
-                                    <label className="text-xs font-semibold text-slate-500">{t.jwt.header_label}</label>
+                                    <label className="text-xs font-semibold text-slate-500">{t.jwt.headerLabel}</label>
                                     <pre className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs font-mono text-slate-700 overflow-auto max-h-[120px]">
                                         {jwtHeader || '{}'}
                                     </pre>
                                 </div>
                                 <div className="flex flex-col gap-1 flex-1 overflow-hidden">
-                                    <label className="text-xs font-semibold text-purple-600 shrink-0">{t.jwt.payload_label}</label>
+                                    <label className="text-xs font-semibold text-purple-600 shrink-0">{t.jwt.payloadLabel}</label>
                                     <pre className="flex-1 bg-slate-50 border border-purple-100 ring-1 ring-purple-50 rounded-lg p-3 text-xs font-mono text-purple-900 overflow-auto" style={{ minHeight: 0 }}>
                                         {jwtPayload || '{}'}
                                     </pre>
@@ -955,7 +716,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                         </div>
                         <div className="space-y-4">
                             <div>
-                                <label className="text-sm font-medium text-slate-700 mb-1 block">{t.hash.input_label}</label>
+                                <label className="text-sm font-medium text-slate-700 mb-1 block">{t.hash.inputLabel}</label>
                                 <Textarea
                                     value={hashInput}
                                     onChange={(e) => handleHashCalculate(e.target.value)}
@@ -1002,7 +763,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                     <Input
                                         value={regexPattern}
                                         onChange={(e) => setRegexPattern(e.target.value)}
-                                        placeholder={t.regex.pattern_placeholder}
+                                        placeholder={t.regex.patternPlaceholder}
                                         className="font-mono pl-6"
                                     />
                                     <span className="absolute right-3 top-2.5 text-slate-400 font-mono">/</span>
@@ -1010,28 +771,28 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                 <Input
                                     value={regexFlags}
                                     onChange={(e) => setRegexFlags(e.target.value)}
-                                    placeholder={t.regex.flags_placeholder}
+                                    placeholder={t.regex.flagsPlaceholder}
                                     className="w-20 font-mono"
                                 />
-                                <Button onClick={handleRegexTest}>{t.regex.test_btn}</Button>
+                                <Button onClick={handleRegexTest}>{t.regex.testBtn}</Button>
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1 overflow-hidden">
                                 <div className="flex flex-col gap-2 overflow-hidden">
-                                    <label className="text-xs font-medium text-slate-500 shrink-0">{t.regex.test_string_label}</label>
+                                    <label className="text-xs font-medium text-slate-500 shrink-0">{t.regex.testStringLabel}</label>
                                     <textarea
                                         value={regexText}
                                         onChange={(e) => setRegexText(e.target.value)}
                                         className="flex-1 font-mono text-sm resize-none bg-white border border-slate-200 rounded-md p-3 overflow-auto focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        placeholder={t.regex.test_string_placeholder}
+                                        placeholder={t.regex.testStringPlaceholder}
                                         style={{ minHeight: 0 }}
                                     />
                                 </div>
                                 <div className="flex flex-col gap-2 overflow-hidden">
-                                    <label className="text-xs font-medium text-slate-500 shrink-0">{t.regex.matches_label} ({regexResult.length})</label>
+                                    <label className="text-xs font-medium text-slate-500 shrink-0">{t.regex.matchesLabel} ({regexResult.length})</label>
                                     <div className="flex-1 bg-slate-50 border border-slate-200 rounded-lg p-4 overflow-auto" style={{ minHeight: 0 }}>
                                         {regexResult.length === 0 ? (
-                                            <span className="text-slate-400 text-sm italic">{t.regex.no_matches}</span>
+                                            <span className="text-slate-400 text-sm italic">{t.regex.noMatches}</span>
                                         ) : (
                                             <ul className="space-y-2">
                                                 {regexResult.map((match, i) => (
@@ -1058,27 +819,27 @@ export default function DevTools({ onBack }: DevToolsProps) {
                         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 overflow-hidden">
                             <div className="flex flex-col gap-3 overflow-hidden">
                                 <div className="flex-1 flex flex-col gap-2 overflow-hidden">
-                                    <label className="text-xs font-medium text-slate-500 shrink-0">{t.decrypt.input_label}</label>
+                                    <label className="text-xs font-medium text-slate-500 shrink-0">{t.decrypt.inputLabel}</label>
                                     <textarea
                                         value={decryptInput}
                                         onChange={(e) => setDecryptInput(e.target.value)}
-                                        placeholder={t.decrypt.input_placeholder}
+                                        placeholder={t.decrypt.inputPlaceholder}
                                         className="flex-1 font-mono text-sm resize-none overflow-auto border border-slate-200 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         style={{ minHeight: 0 }}
                                     />
                                 </div>
                                 <div className="flex flex-col gap-2 shrink-0">
-                                    <label className="text-xs font-medium text-slate-500">{t.decrypt.key_label}</label>
+                                    <label className="text-xs font-medium text-slate-500">{t.decrypt.keyLabel}</label>
                                     <Input
                                         value={decryptKey}
                                         onChange={(e) => setDecryptKey(e.target.value)}
-                                        placeholder={t.decrypt.key_placeholder}
+                                        placeholder={t.decrypt.keyPlaceholder}
                                         type="password"
                                     />
                                 </div>
                                 <Button onClick={handleDecrypt} className="bg-green-600 hover:bg-green-700 shrink-0">
                                     <Unlock className="w-4 h-4 mr-2" />
-                                    {t.decrypt.decrypt_btn}
+                                    {t.decrypt.decryptBtn}
                                 </Button>
                                 {decryptError && (
                                     <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 p-3 rounded-lg shrink-0">
@@ -1089,12 +850,12 @@ export default function DevTools({ onBack }: DevToolsProps) {
                             </div>
                             <div className="flex flex-col gap-2 overflow-hidden">
                                 <div className="flex items-center justify-between shrink-0">
-                                    <label className="text-xs font-medium text-slate-500">{t.decrypt.output_label}</label>
+                                    <label className="text-xs font-medium text-slate-500">{t.decrypt.outputLabel}</label>
                                     {decryptOutput && (
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            onClick={() => copyToClipboard(decryptOutput, t.decrypt.copy_success)}
+                                            onClick={() => copyToClipboard(decryptOutput, t.decrypt.copySuccess)}
                                             className="text-slate-500 hover:text-blue-600"
                                         >
                                             <Copy className="w-3.5 h-3.5 mr-1" /> Copy
@@ -1104,7 +865,7 @@ export default function DevTools({ onBack }: DevToolsProps) {
                                 <textarea
                                     value={decryptOutput}
                                     readOnly
-                                    placeholder={t.decrypt.output_placeholder}
+                                    placeholder={t.decrypt.outputPlaceholder}
                                     className="flex-1 font-mono text-sm bg-slate-50 resize-none overflow-auto border border-slate-200 rounded-md p-3"
                                     style={{ minHeight: 0 }}
                                 />

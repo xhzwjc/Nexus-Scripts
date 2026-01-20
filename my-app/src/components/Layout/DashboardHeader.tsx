@@ -2,7 +2,9 @@ import React from 'react';
 import { Search, CircleHelp, Lock, Settings, Cloud } from 'lucide-react';
 import { TimeChip } from '../ui/TimeChip';
 import { WeatherChip } from '../ui/WeatherChip';
+import { LanguageSwitcher } from '../ui/LanguageSwitcher';
 import { HeaderHealthIndicator } from '../TeamResources/HeaderHealthIndicator';
+import { useI18n } from '@/lib/i18n';
 import type { WeatherState, ViewType, User } from '@/lib/types';
 import type { HealthCheckState } from '../TeamResources/HeaderHealthIndicator';
 
@@ -56,6 +58,8 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
     isFreshLogin = false,
     onHealthChange
 }) => {
+    const { t } = useI18n();
+
     return (
         <header className="h-16 px-8 flex items-center justify-between border-b border-slate-200/50 bg-white/40 backdrop-blur-sm sticky top-0 z-30 shrink-0">
             {/* Search Bar */}
@@ -63,7 +67,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                 <Search className="w-[18px] h-[18px] text-slate-400" />
                 <input
                     type="text"
-                    placeholder="搜索系统模块..."
+                    placeholder={t.header.searchPlaceholder}
                     value={homeSearchQuery}
                     onChange={(e) => {
                         setHomeSearchQuery(e.target.value);
@@ -102,7 +106,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                 )}
                 {showSearchResults && searchResults.length === 0 && homeSearchQuery.trim() && (
                     <div className="search-dropdown p-4 text-center text-sm text-slate-500">
-                        未找到匹配的系统模块
+                        {t.header.noResults}
                     </div>
                 )}
             </div>
@@ -130,24 +134,27 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                 <button
                     className="p-2 text-slate-500 hover:text-slate-700 transition-colors"
                     onClick={() => setCurrentView('help')}
-                    title="帮助中心"
+                    title={t.header.helpTitle}
                 >
                     <CircleHelp className="w-5 h-5" />
                 </button>
                 <button
                     className="p-2 text-slate-500 hover:text-slate-700 transition-colors"
                     onClick={handleLock}
-                    title="锁定屏幕"
+                    title={t.header.lockTitle}
                 >
                     <Lock className="w-5 h-5" />
                 </button>
+
+                {/* Language Switcher */}
+                <LanguageSwitcher variant="compact" />
 
                 <div className="h-8 w-px bg-slate-200"></div>
 
                 <div className="user-profile">
                     <div className="text-right">
                         <p className="text-xs text-slate-400 leading-none">DELL LAWYER</p>
-                        <p className="text-sm font-medium text-slate-700">{currentUser?.name} <span className="text-teal-600 text-xs ml-1">在线</span></p>
+                        <p className="text-sm font-medium text-slate-700">{currentUser?.name} <span className="text-teal-600 text-xs ml-1">{t.header.online}</span></p>
                     </div>
                     <div className="user-avatar">
                         {currentUser?.name?.charAt(0) || 'U'}

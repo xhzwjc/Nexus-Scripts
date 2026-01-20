@@ -23,11 +23,11 @@ import './App.css';
 
 import dynamic from 'next/dynamic';
 
-// Loading 组件
+// Loading 组件 - 使用静态文本避免在 I18nProvider 外调用 hook
 const LoadingComponent = () => (
     <div className="flex h-full items-center justify-center text-slate-400 p-8">
         <Loader2 className="h-8 w-8 animate-spin" />
-        <span className="ml-2">加载模块中...</span>
+        <span className="ml-2">Loading...</span>
     </div>
 );
 
@@ -58,6 +58,9 @@ import { QuickActions, saveRecentScript } from './components/Layout/QuickActions
 // UI 组件导入
 import { ConfirmDialog } from './components/ui/ConfirmDialog';
 
+// i18n
+import { I18nProvider, useI18n } from './lib/i18n';
+
 // 类型和配置导入
 import type { User, ViewType, WeatherState, SystemConfig } from './lib/types';
 import {
@@ -70,6 +73,16 @@ import {
 
 /* ============== 主应用 ============== */
 export default function App() {
+    return (
+        <I18nProvider>
+            <AppContent />
+        </I18nProvider>
+    );
+}
+
+/* ============== 应用内容 ============== */
+function AppContent() {
+    const { t } = useI18n();
     const [currentView, setCurrentView] = useState<ViewType>('home');
     const [selectedSystem, setSelectedSystem] = useState<string>('');
     const [selectedScript, setSelectedScript] = useState<string>('');
@@ -164,7 +177,7 @@ export default function App() {
             localStorage.setItem('app_last_activity', lastActivityRef.current.toString());
             if (Date.now() - lastActivityRef.current > AUTO_LOCK_MS && !isLocked) {
                 setIsLocked(true);
-                toast.info('由于长时间未操作，系统已自动锁定');
+                toast.info(t.lock.autoLockMessage);
             }
         }, 60000);
 
@@ -187,15 +200,15 @@ export default function App() {
     const handleUnlock = () => {
         const input = lockKey.trim();
         if (!input) {
-            setLockError('请输入访问密钥');
+            setLockError(t.lock.emptyKey);
             return;
         }
 
         if (input !== userKey.trim()) {
             if (keyUserMap[input]) {
-                setLockError('无法解锁：请使用当前登录账号的密钥');
+                setLockError(t.lock.wrongAccount);
             } else {
-                setLockError('密钥无效');
+                setLockError(t.lock.wrongKey);
             }
             return;
         }
@@ -204,7 +217,7 @@ export default function App() {
         setLockKey('');
         setLockError('');
         lastActivityRef.current = Date.now();
-        toast.success('解锁成功');
+        toast.success(t.lock.unlockSuccess);
     };
 
     // 天气刷新
@@ -280,7 +293,7 @@ export default function App() {
     }, []);
 
     const validateKey = () => {
-        if (!userKey.trim()) return toast.error("请输入访问密钥");
+        if (!userKey.trim()) return toast.error(t.auth.enterKey);
         setIsVerifying(true);
         setTimeout(() => {
             const u = keyUserMap[userKey.trim()];
@@ -296,8 +309,8 @@ export default function App() {
                 setIsFreshLogin(true); // 标记为新登录，触发健康检测
                 lastActivityRef.current = Date.now();
                 localStorage.setItem('app_last_activity', lastActivityRef.current.toString());
-                toast.success("验证成功");
-            } else toast.error("无效的访问密钥");
+                toast.success(t.auth.verifySuccess);
+            } else toast.error(t.auth.invalidKey);
             setIsVerifying(false);
         }, 500);
     };
@@ -390,9 +403,9 @@ export default function App() {
                 <Card className="w-full max-w-md animate-fadeIn shadow-xl border-0 bg-white/90 backdrop-blur">
                     <CardHeader className="text-center">
                         <CardTitle className="text-2xl flex items-center justify-center gap-2">
-                            <Lock className="w-5 h-5" /> 访问授权
+                            <Lock className="w-5 h-5" /> {t.auth.title}
                         </CardTitle>
-                        <CardDescription>请输入您的访问密钥以使用系统</CardDescription>
+                        <CardDescription>{t.auth.description}</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         {errorMessage &&
@@ -402,14 +415,14 @@ export default function App() {
                         }
                         <Input
                             type="password"
-                            placeholder="输入访问密钥"
+                            placeholder={t.auth.keyPlaceholder}
                             value={userKey}
                             onChange={e => setUserKey(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && !isVerifying && validateKey()}
                             disabled={isVerifying}
                         />
                         <Button className="w-full" onClick={validateKey} disabled={isVerifying}>
-                            {isVerifying ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : '验证并进入系统'}
+                            {isVerifying ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : t.auth.loginButton}
                         </Button>
                     </CardContent>
                 </Card>
@@ -420,11 +433,11 @@ export default function App() {
     // ============== 首页内容 ==============
     const renderHomeContent = () => {
         const hour = now.getHours();
-        let timeGreeting = '晚上好';
-        if (hour < 6) timeGreeting = '凌晨好';
-        else if (hour < 12) timeGreeting = '早安';
-        else if (hour < 14) timeGreeting = '午安';
-        else if (hour < 18) timeGreeting = '下午好';
+        let timeGreeting = t.home.greetingEvening;
+        if (hour < 6) timeGreeting = t.home.greetingNight;
+        else if (hour < 12) timeGreeting = t.home.greetingMorning;
+        else if (hour < 14) timeGreeting = t.home.greetingNoon;
+        else if (hour < 18) timeGreeting = t.home.greetingAfternoon;
 
         return (
             <div className="max-w-7xl">
@@ -434,7 +447,7 @@ export default function App() {
                         {timeGreeting}, {currentUser?.name}。
                     </h1>
                     <p className="text-slate-500 text-base">
-                        所有系统节点运行正常。
+                        {t.home.systemNormal}
                     </p>
                 </div>
 
@@ -445,8 +458,8 @@ export default function App() {
                             <CheckCircle className="w-4 h-4" />
                         </div>
                         <span className="font-semibold text-slate-700">{totalScripts}</span>
-                        <span className="text-slate-500">可运用资</span>
-                        <span className="text-teal-600 text-xs ml-1">Ready</span>
+                        <span className="text-slate-500">{t.home.availableResources}</span>
+                        <span className="text-teal-600 text-xs ml-1">{t.home.ready}</span>
                     </div>
                     {/* 系统健康徽章 */}
                     {(() => {
@@ -465,9 +478,9 @@ export default function App() {
                                     <div className="icon bg-green-50 text-green-600">
                                         <Server className="w-4 h-4" />
                                     </div>
-                                    <span className="text-slate-500">系统健康</span>
+                                    <span className="text-slate-500">{t.home.systemHealth}</span>
                                     <span className="font-semibold text-slate-700">100%</span>
-                                    <Badge className="bg-green-100 text-green-700 border-0 text-[10px] px-1.5 py-0">Stable</Badge>
+                                    <Badge className="bg-green-100 text-green-700 border-0 text-[10px] px-1.5 py-0">{t.home.stable}</Badge>
                                 </div>
                             );
                         }
@@ -479,10 +492,10 @@ export default function App() {
                                     <div className="icon bg-blue-50 text-blue-600">
                                         <Server className="w-4 h-4 animate-spin" />
                                     </div>
-                                    <span className="text-slate-500">系统健康</span>
+                                    <span className="text-slate-500">{t.home.systemHealth}</span>
                                     <div className="w-8 h-4 bg-slate-200 rounded animate-pulse" />
                                     <Badge className="bg-blue-100 text-blue-700 border-0 text-[10px] px-1.5 py-0">
-                                        {isLoading ? `${healthCheckState.checkedEnvs}/${healthCheckState.totalEnvs}` : '检测中...'}
+                                        {isLoading ? `${healthCheckState.checkedEnvs}/${healthCheckState.totalEnvs}` : t.home.detecting}
                                     </Badge>
                                 </div>
                             );
@@ -495,9 +508,9 @@ export default function App() {
                                     <div className="icon bg-yellow-50 text-yellow-600">
                                         <Server className="w-4 h-4" />
                                     </div>
-                                    <span className="text-slate-500">系统健康</span>
+                                    <span className="text-slate-500">{t.home.systemHealth}</span>
                                     <span className="font-semibold text-slate-700">100%</span>
-                                    <Badge className="bg-yellow-100 text-yellow-700 border-0 text-[10px] px-1.5 py-0">检测失败</Badge>
+                                    <Badge className="bg-yellow-100 text-yellow-700 border-0 text-[10px] px-1.5 py-0">{t.home.detectFailed}</Badge>
                                 </div>
                             );
                         }
@@ -509,12 +522,12 @@ export default function App() {
                                     <div className={`icon ${percent < 90 ? 'bg-red-50 text-red-600' : 'bg-yellow-50 text-yellow-600'}`}>
                                         <Server className="w-4 h-4" />
                                     </div>
-                                    <span className="text-slate-500">系统健康</span>
+                                    <span className="text-slate-500">{t.home.systemHealth}</span>
                                     <span className={`font-semibold ${percent < 90 ? 'text-red-600' : 'text-yellow-600'}`}>
                                         {percent}%
                                     </span>
                                     <Badge className={`border-0 text-[10px] px-1.5 py-0 ${percent < 90 ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                                        {healthCheckState.issues.length}个问题
+                                        {healthCheckState.issues.length}{t.home.issues}
                                     </Badge>
                                 </div>
                             );
@@ -526,9 +539,9 @@ export default function App() {
                                 <div className="icon bg-green-50 text-green-600">
                                     <Server className="w-4 h-4" />
                                 </div>
-                                <span className="text-slate-500">系统健康</span>
+                                <span className="text-slate-500">{t.home.systemHealth}</span>
                                 <span className="font-semibold text-slate-700">100%</span>
-                                <Badge className="bg-green-100 text-green-700 border-0 text-[10px] px-1.5 py-0">Stable</Badge>
+                                <Badge className="bg-green-100 text-green-700 border-0 text-[10px] px-1.5 py-0">{t.home.stable}</Badge>
                             </div>
                         );
                     })()}
@@ -536,9 +549,9 @@ export default function App() {
                         <div className="icon bg-violet-50 text-violet-600">
                             <Server className="w-4 h-4" />
                         </div>
-                        <span className="text-slate-500">累计执行</span>
+                        <span className="text-slate-500">{t.home.totalExecuted}</span>
                         <span className="font-semibold text-slate-700">1.2k</span>
-                        <a href="#" className="text-teal-600 text-xs hover:underline">已完成</a>
+                        <a href="#" className="text-teal-600 text-xs hover:underline">{t.home.completed}</a>
                     </div>
                 </div>
 
@@ -554,15 +567,15 @@ export default function App() {
                                 </div>
                                 <Badge className="bg-green-50 text-green-700 border border-green-200 text-[11px] px-2">
                                     <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 inline-block"></span>
-                                    运行中
+                                    {t.home.cmSystem.running}
                                 </Badge>
                             </div>
-                            <h3 className="text-xl font-bold text-slate-800 mb-2">CM 核心业务系统</h3>
+                            <h3 className="text-xl font-bold text-slate-800 mb-2">{t.home.cmSystem.title}</h3>
                             <p className="text-slate-500 text-sm mb-4 leading-relaxed flex-1 overflow-hidden">
-                                包含结算脚本、佣金计算、自动化任务调度等 {systems['chunmiao'].scripts.length} 个核心脚本。
+                                {t.home.cmSystem.description} ({systems['chunmiao'].scripts.length})
                             </p>
                             <button className="btn-teal-gradient w-full mt-auto">
-                                进入 CM 系统
+                                {t.home.cmSystem.enterButton}
                                 <ChevronRight className="w-4 h-4" />
                             </button>
                         </div>
@@ -576,15 +589,15 @@ export default function App() {
                                     </div>
                                     <Badge className="bg-blue-50 text-blue-700 border border-blue-200 text-[11px] px-2">
                                         <span className="w-1.5 h-1.5 bg-blue-500 rounded-full mr-1.5 inline-block"></span>
-                                        工具集
+                                        {t.home.devTools.toolset}
                                     </Badge>
                                 </div>
-                                <h3 className="text-xl font-bold text-slate-800 mb-2">开发者工具箱</h3>
+                                <h3 className="text-xl font-bold text-slate-800 mb-2">{t.home.devTools.title}</h3>
                                 <p className="text-slate-500 text-sm mb-4 leading-relaxed flex-1 overflow-hidden">
-                                    提供 JSON 格式化、时间戳转换、UUID 生成等研发专用工具。
+                                    {t.home.devTools.description}
                                 </p>
                                 <button className="w-full mt-auto flex items-center text-blue-600 hover:text-blue-700 font-medium text-sm transition-colors">
-                                    打开工具箱
+                                    {t.home.devTools.enterButton}
                                     <ChevronRight className="w-4 h-4 ml-1" />
                                 </button>
                             </div>
@@ -597,15 +610,15 @@ export default function App() {
                                     <Cloud className="w-6 h-6 text-slate-500" />
                                 </div>
                                 <Badge variant="outline" className="text-slate-500 border-slate-200 text-[11px] px-2">
-                                    规划中
+                                    {t.home.hsSystem.planning}
                                 </Badge>
                             </div>
-                            <h3 className="text-xl font-bold text-slate-800 mb-2">HS 辅助系统</h3>
+                            <h3 className="text-xl font-bold text-slate-800 mb-2">{t.home.hsSystem.title}</h3>
                             <p className="text-slate-500 text-sm mb-4 leading-relaxed flex-1">
-                                新一代数据看板与辅助工具集，当前处于架构设计阶段。
+                                {t.home.hsSystem.description}
                             </p>
                             <button className="btn-outline-gray w-full mt-auto" disabled>
-                                功能开发中
+                                {t.home.hsSystem.enterButton}
                                 <ChevronRight className="w-4 h-4" />
                             </button>
                         </div>
@@ -649,7 +662,7 @@ export default function App() {
                         </Button>
                         <h1 className="text-2xl font-bold">{system?.name}</h1>
                         <Badge variant="outline" className="bg-white/50">
-                            {filteredScripts.length} / {scripts.length} 个脚本
+                            {filteredScripts.length} / {scripts.length}{t.system.scriptsCount}
                         </Badge>
                     </div>
                     <p className="text-muted-foreground">{system?.description}</p>
@@ -657,13 +670,13 @@ export default function App() {
 
                 <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <p className="text-sm text-muted-foreground">
-                        {scripts.length > 0 ? '通过关键字快速查找需要运行的脚本。' : '当前系统暂未开放脚本。'}
+                        {scripts.length > 0 ? t.system.searchHint : t.system.noScripts}
                     </p>
                     {scripts.length > 0 && (
                         <Input
                             value={scriptQuery}
                             onChange={(event) => setScriptQuery(event.target.value)}
-                            placeholder="搜索脚本名称或描述"
+                            placeholder={t.system.searchPlaceholder}
                             className="md:max-w-sm bg-white/80"
                         />
                     )}
@@ -711,7 +724,7 @@ export default function App() {
                                     }}
                                 >
                                     <Play className="w-4 h-4 mr-2" />
-                                    启动脚本
+                                    {t.system.launchScript}
                                 </Button>
                             </CardContent>
                         </Card>
@@ -734,16 +747,16 @@ export default function App() {
                         {currentUser?.name?.charAt(0) || 'U'}
                     </div>
                     <p className="text-lg font-medium text-slate-700">{currentUser?.name}</p>
-                    <p className="text-sm text-slate-500 -mt-2">系统已锁定，请输入密钥解锁</p>
+                    <p className="text-sm text-slate-500 -mt-2">{t.lock.description}</p>
                     <div className="lock-input-wrapper">
                         <input
                             type="password"
-                            placeholder="输入访问密钥"
+                            placeholder={t.lock.unlockPlaceholder}
                             value={lockKey}
                             onChange={(e) => setLockKey(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
                         />
-                        <button onClick={handleUnlock}>解锁</button>
+                        <button onClick={handleUnlock}>{t.lock.unlockButton}</button>
                     </div>
                     {lockError && <p className="text-sm text-red-500">{lockError}</p>}
                     <button
@@ -753,7 +766,7 @@ export default function App() {
                             logout();
                         }}
                     >
-                        切换账号 / 重新登录
+                        {t.lock.switchAccount}
                     </button>
                 </div>
             )}
@@ -821,15 +834,15 @@ export default function App() {
 
             <ConfirmDialog
                 open={showLogoutConfirm}
-                title="确认退出登录？"
-                description="退出后需要重新输入访问密钥才可继续使用。"
-                confirmText="确认退出"
-                cancelText="取消"
+                title={t.dialog.logoutTitle}
+                description={t.auth.description}
+                confirmText={t.common.confirm}
+                cancelText={t.common.cancel}
                 onCancel={() => setShowLogoutConfirm(false)}
                 onConfirm={() => {
                     setShowLogoutConfirm(false);
                     logout();
-                    toast.success('已退出登录');
+                    toast.success(t.nav.logout);
                 }}
             />
             <BubuMascot />

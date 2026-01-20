@@ -4,12 +4,13 @@ import React, { useEffect, useState } from 'react';
 import { Play, Clock, Zap, ArrowRight, Terminal, FileCode, Settings, BookOpen } from 'lucide-react';
 import type { ViewType, Script } from '@/lib/types';
 import { allScripts } from '@/lib/config';
+import { useI18n } from '@/lib/i18n';
 
 interface QuickActionsProps {
     onNavigateToScript: (systemId: string, scriptId: string) => void;
-    onNavigateToSystem: () => void; // 浏览所有脚本
+    onNavigateToSystem: () => void;
     setCurrentView: (view: ViewType) => void;
-    userKey: string; // 用于区分不同用户
+    userKey: string;
 }
 
 interface RecentScript {
@@ -51,12 +52,6 @@ export const saveRecentScript = (userKey: string, systemId: string, scriptId: st
     localStorage.setItem(storageKey, JSON.stringify(recent.slice(0, MAX_RECENT)));
 };
 
-// 快捷入口配置
-const quickLinks = [
-    { id: 'devtools', label: '开发者工具', icon: <Terminal className="w-3.5 h-3.5" />, view: 'dev-tools' as ViewType },
-    { id: 'ocr', label: 'OCR工具', icon: <FileCode className="w-3.5 h-3.5" />, view: 'ocr-tool' as ViewType },
-    { id: 'help', label: '帮助文档', icon: <BookOpen className="w-3.5 h-3.5" />, view: 'help' as ViewType },
-];
 
 export const QuickActions: React.FC<QuickActionsProps> = ({
     onNavigateToScript,
@@ -64,7 +59,15 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
     setCurrentView,
     userKey
 }) => {
+    const { t } = useI18n();
     const [recentScripts, setRecentScripts] = useState<RecentScript[]>([]);
+
+    // Dynamic quickLinks using translations
+    const quickLinks = [
+        { id: 'devtools', label: t.quickActions.devTools, icon: <Terminal className="w-3.5 h-3.5" />, view: 'dev-tools' as ViewType },
+        { id: 'ocr', label: t.quickActions.ocrTool, icon: <FileCode className="w-3.5 h-3.5" />, view: 'ocr-tool' as ViewType },
+        { id: 'help', label: t.quickActions.helpDocs, icon: <BookOpen className="w-3.5 h-3.5" />, view: 'help' as ViewType },
+    ];
 
     useEffect(() => {
         if (userKey) {
@@ -84,7 +87,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
         <div className="glass-card p-5 w-70 shrink-0 self-stretch flex flex-col">
             <div className="flex items-center gap-2 mb-4">
                 <Zap className="w-4 h-4 text-teal-600" />
-                <h3 className="font-semibold text-slate-700 text-sm">快捷操作</h3>
+                <h3 className="font-semibold text-slate-700 text-sm">{t.quickActions.title}</h3>
             </div>
 
             {/* 最近使用区块 */}
@@ -92,7 +95,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
                 <div className="space-y-2 mb-4">
                     <p className="text-xs text-slate-400 mb-2">
                         <Clock className="w-3 h-3 inline mr-1" />
-                        最近使用
+                        {t.quickActions.recentUsed}
                     </p>
                     {recentScripts.map((recent) => {
                         const script = findScript(recent.systemId, recent.scriptId);
@@ -120,7 +123,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
             <div className={`space-y-2 ${hasRecent ? 'pt-3 border-t border-slate-100' : ''}`}>
                 <p className="text-xs text-slate-400 mb-2">
                     <Settings className="w-3 h-3 inline mr-1" />
-                    快捷入口
+                    {t.quickActions.quickEntry}
                 </p>
                 {quickLinks.map((link) => (
                     <button
@@ -145,7 +148,7 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
                     onClick={onNavigateToSystem}
                     className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-teal-500 to-cyan-500 text-white text-sm font-medium hover:from-teal-600 hover:to-cyan-600 transition-all shadow-sm hover:shadow"
                 >
-                    浏览所有脚本
+                    {t.quickActions.browseAll}
                     <ArrowRight className="w-4 h-4" />
                 </button>
             </div>
