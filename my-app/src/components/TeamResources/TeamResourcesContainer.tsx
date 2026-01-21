@@ -8,6 +8,7 @@ import { ResourceGroup, INITIAL_RESOURCE_DATA, ENCRYPTION_KEY } from '@/lib/team
 import CryptoJS from 'crypto-js';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
+import { TeamResourceSkeleton } from './TeamResourceSkeleton';
 
 // 30分钟超时（毫秒）
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -19,24 +20,34 @@ interface TeamResourcesContainerProps {
 export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) {
     const { t } = useI18n();
     const tr = t.teamResources;
-    const [isLocked, setIsLocked] = useState(true);
-    const [isAdmin, setIsAdmin] = useState(false);
+    // 检查会话是否有效（提取为非 hook 逻辑以便初始化使用）
+    const isSessionValid = () => {
+        if (typeof window === 'undefined') return false;
+        const lastActivity = sessionStorage.getItem('team_resources_last_activity');
+        const sessionUnlocked = sessionStorage.getItem('team_resources_unlocked');
+
+        if (sessionUnlocked !== 'true') return false;
+        if (!lastActivity) return false;
+
+        const lastTime = parseInt(lastActivity, 10);
+        if (isNaN(lastTime)) return false;
+
+        return Date.now() - lastTime <= SESSION_TIMEOUT_MS;
+    };
+
+    const [isLocked, setIsLocked] = useState(() => !isSessionValid());
+    const [isAdmin, setIsAdmin] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return sessionStorage.getItem('team_resources_admin') === 'true';
+    });
+
+
+
     const [data, setData] = useState<ResourceGroup[]>([]);
     const [isEditing, setIsEditing] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null); // 新增：加载错误状态
     const lastActivityRef = useRef<number>(Date.now());
-
-    // 检查会话是否过期
-    const checkSessionExpiry = useCallback(() => {
-        const lastActivity = sessionStorage.getItem('team_resources_last_activity');
-        if (!lastActivity) return true; // 没有记录，需要重新登录
-
-        const lastTime = parseInt(lastActivity, 10);
-        if (isNaN(lastTime)) return true;
-
-        return Date.now() - lastTime > SESSION_TIMEOUT_MS;
-    }, []);
 
     // 更新最后活动时间
     const updateActivity = useCallback(() => {
@@ -96,19 +107,15 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
                 }
             }
         };
-        // 检查会话状态（带超时验证）
-        const sessionUnlocked = sessionStorage.getItem('team_resources_unlocked');
-        const sessionAdmin = sessionStorage.getItem('team_resources_admin');
 
-        if (sessionUnlocked === 'true' && !checkSessionExpiry()) {
-            setIsLocked(false);
-            setIsAdmin(sessionAdmin === 'true');
-            updateActivity(); // 刷新活动时间
+        // 仅负责清理旧会话，状态初始化已经由 useState 完成
+        if (!isLocked) {
+            updateActivity();
         } else {
-            // 清理过期会话
-            sessionStorage.removeItem('team_resources_unlocked');
-            sessionStorage.removeItem('team_resources_admin');
-            sessionStorage.removeItem('team_resources_last_activity');
+            // 确保清理
+            // sessionStorage.removeItem('team_resources_unlocked');
+            // sessionStorage.removeItem('team_resources_admin');
+            // sessionStorage.removeItem('team_resources_last_activity');
         }
 
         loadData();
@@ -118,7 +125,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
             controller.abort();
             clearTimeout(timeoutId);
         };
-    }, [checkSessionExpiry, updateActivity]);
+    }, [isLocked, updateActivity]);
 
     // 监听用户活动，更新最后活动时间
     useEffect(() => {
@@ -131,7 +138,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
 
         // 定时检查是否超时
         const intervalId = setInterval(() => {
-            if (checkSessionExpiry()) {
+            if (!isSessionValid()) {
                 handleLock();
                 toast.info(tr.sessionTimeout);
             }
@@ -141,7 +148,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
             events.forEach(event => window.removeEventListener(event, handleActivity));
             clearInterval(intervalId);
         };
-    }, [isLocked, checkSessionExpiry, updateActivity, tr.sessionTimeout]);
+    }, [isLocked, updateActivity, tr.sessionTimeout]);
 
     const handleUnlock = (admin: boolean) => {
         setIsLocked(false);
@@ -185,24 +192,6 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
         }
     };
 
-    // 加载中或加载错误
-    if (isLoading || loadError) {
-        return (
-            <div className="h-full flex flex-col items-center justify-center gap-4">
-                {isLoading ? (
-                    <div className="text-slate-500">{tr.loading}</div>
-                ) : (
-                    <>
-                        <div className="text-red-500">{loadError}</div>
-                        <Button variant="outline" onClick={() => window.location.reload()}>
-                            重新加载
-                        </Button>
-                    </>
-                )}
-            </div>
-        );
-    }
-
     if (isLocked) {
         return (
             <div className="relative h-full bg-[var(--page-bg)] p-6">
@@ -215,6 +204,21 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
                     {tr.back}
                 </Button>
                 <ResourceLock onUnlock={handleUnlock} />
+            </div>
+        );
+    }
+
+    // 加载中或加载错误
+    if (isLoading || loadError) {
+        if (isLoading) {
+            return <TeamResourceSkeleton />;
+        }
+        return (
+            <div className="h-full flex flex-col items-center justify-center gap-4">
+                <div className="text-red-500">{loadError}</div>
+                <Button variant="outline" onClick={() => window.location.reload()}>
+                    重新加载
+                </Button>
             </div>
         );
     }

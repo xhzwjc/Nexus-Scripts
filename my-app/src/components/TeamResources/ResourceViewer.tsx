@@ -99,12 +99,20 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                         >
                             {group.logo ? (
                                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 p-0.5 flex-shrink-0 group-hover:from-blue-500/40 group-hover:to-purple-500/40 transition-all duration-300">
-                                    <div className="w-full h-full rounded-[10px] bg-white overflow-hidden flex items-center justify-center">
+                                    <div className="w-full h-full rounded-[10px] bg-white overflow-hidden flex items-center justify-center relative">
+                                        <div className="absolute inset-0 bg-muted animate-pulse" id={`skeleton-${group.id}`} />
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         <img
                                             src={group.logo}
                                             alt={group.name}
-                                            className="w-full h-full object-contain"
+                                            loading="lazy"
+                                            className="w-full h-full object-contain relative z-10 transition-opacity duration-300 opacity-0"
+                                            onLoad={(e) => {
+                                                const img = e.target as HTMLImageElement;
+                                                img.classList.remove('opacity-0');
+                                                const skeleton = document.getElementById(`skeleton-${group.id}`);
+                                                if (skeleton) skeleton.style.display = 'none';
+                                            }}
                                         />
                                     </div>
                                 </div>

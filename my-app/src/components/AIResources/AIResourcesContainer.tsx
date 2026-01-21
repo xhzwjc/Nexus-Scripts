@@ -81,33 +81,50 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
         }, 120000); // 120秒超时，解决远程访问慢的问题
 
         const loadAll = async () => {
-            try {
-                setLoadError(null);
-                const dataRes = await fetch('/api/ai-resources/data', { signal: controller.signal });
-                if (!isMounted) return;
+            setLoadError(null);
 
-                if (dataRes.ok) {
-                    const jsonData = await dataRes.json();
-                    if (jsonData && Array.isArray(jsonData.categories) && Array.isArray(jsonData.resources)) {
+            // 1. 并行发起请求
+            const dataPromise = fetch('/api/ai-resources/data', { signal: controller.signal })
+                .then(async res => {
+                    if (!res.ok) throw new Error('Data fetch failed');
+                    const jsonData = await res.json();
+                    if (isMounted && jsonData && Array.isArray(jsonData.categories) && Array.isArray(jsonData.resources)) {
                         setData(jsonData);
                     }
-                }
+                })
+                .catch(err => {
+                    if (err.name !== 'AbortError') console.error('Data load error:', err);
+                    throw err;
+                });
 
-                const logoListRes = await fetch('/api/ai-resources/logo-list', { signal: controller.signal });
-                if (!isMounted) return;
+            const logoPromise = fetch('/api/ai-resources/logo-list', { signal: controller.signal })
+                .then(async res => {
+                    if (res.ok) {
+                        const logoListData = await res.json();
+                        if (isMounted) setLogoCache(logoListData.logos || {});
+                    }
+                })
+                .catch(err => {
+                    if (err.name !== 'AbortError') console.error('Logo load error:', err);
+                });
 
-                if (logoListRes.ok) {
-                    const logoListData = await logoListRes.json();
-                    setLogoCache(logoListData.logos || {});
-                }
+            try {
+                // 等待主数据加载完成（logo可以是后台加载，不阻塞主界面）
+                await dataPromise;
             } catch (error) {
                 if (!isMounted) return;
                 console.error('Failed to load AI resources:', error);
+
                 if (error instanceof Error && error.name === 'AbortError' && isTimeout) {
                     setLoadError('网络超时，请检查网络连接后重试');
+                } else if (!(error instanceof Error && error.name === 'AbortError')) {
+                    // 即使失败也尝试显示本地初始数据（如果有的话，但这里主要是API驱动）
+                    // 目前设计是API失败就显示错误，或者我们可以fallback到初始空状态
                 }
             } finally {
                 clearTimeout(timeoutId);
+                // 只要主数据promise结束（无论成功失败），就停止loading状态
+                // logo可以在后台继续加载
                 if (isMounted) {
                     setIsLoading(false);
                 }
@@ -358,7 +375,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
                 {isLoading ? (
                     // 骨架屏加载状态
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
-                        {Array.from({ length: 12 }).map((_, i) => (
+                        {Array.from({ length: 15 }).map((_, i) => (
                             <SkeletonCard key={i} />
                         ))}
                     </div>
