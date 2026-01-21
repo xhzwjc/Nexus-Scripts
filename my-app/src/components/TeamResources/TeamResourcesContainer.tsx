@@ -54,7 +54,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
         const timeoutId = setTimeout(() => {
             isTimeout = true;
             controller.abort();
-        }, 30000); // 30秒超时
+        }, 120000); // 120秒超时，解决远程访问慢的问题
 
         const loadData = async () => {
             try {

@@ -78,7 +78,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
         const timeoutId = setTimeout(() => {
             isTimeout = true;
             controller.abort();
-        }, 30000);
+        }, 120000); // 120秒超时，解决远程访问慢的问题
 
         const loadAll = async () => {
             try {
