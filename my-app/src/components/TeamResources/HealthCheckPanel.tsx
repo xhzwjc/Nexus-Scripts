@@ -255,16 +255,16 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <Card className="w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col bg-[var(--card-bg)]">
+            <Card className="w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
                 {/* Header */}
-                <div className="p-6 border-b border-[var(--border-subtle)] flex items-center justify-between">
+                <div className="p-6 border-b flex items-center justify-between bg-card text-card-foreground">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-primary/10 rounded-lg">
-                            <Shield className="w-6 h-6 text-primary" />
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/10 to-purple-500/10 flex items-center justify-center border border-blue-200/20 shadow-sm">
+                            <Shield className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-bold text-[var(--text-primary)]">{tr.healthCheckTitle}</h2>
-                            <p className="text-sm text-[var(--text-secondary)]">{tr.healthCheckDesc}</p>
+                            <h2 className="text-xl font-bold">{tr.healthCheckTitle}</h2>
+                            <p className="text-sm text-muted-foreground">{tr.healthCheckDesc}</p>
                         </div>
                     </div>
                     <Button variant="ghost" size="icon" onClick={onClose}>
@@ -273,9 +273,9 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                 </div>
 
                 {/* Actions */}
-                <div className="p-4 border-b border-[var(--border-subtle)] bg-[var(--bg-muted)]">
+                <div className="p-4 border-b bg-muted/40">
                     <div className="flex items-center justify-between">
-                        <div className="text-sm text-slate-600">
+                        <div className="text-sm text-muted-foreground">
                             {tr.systemsCount.replace('{count}', String(systems.length))}
                             {tr.envsToCheck.replace('{count}', String(totalUrls))}
                         </div>
@@ -291,7 +291,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                     {/* Progress */}
                     {isChecking && (
                         <div className="mt-4">
-                            <div className="flex justify-between text-xs text-[var(--text-secondary)] mb-1">
+                            <div className="flex justify-between text-xs text-muted-foreground mb-1">
                                 <span>{tr.progressLabel}</span>
                                 <span>{progress.current}/{progress.total}</span>
                             </div>
@@ -306,9 +306,9 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                 </div>
 
                 {/* Results */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-card text-card-foreground">
                     {totalChecked === 0 ? (
-                        <div className="text-center py-12 text-[var(--text-tertiary)]">
+                        <div className="text-center py-12 text-muted-foreground">
                             <Shield className="w-12 h-12 mx-auto mb-4 opacity-50" />
                             <p>{tr.clickToStart}</p>
                         </div>
@@ -383,8 +383,8 @@ function ResultItem({ result }: { result: SystemHealthResult }) {
                 <div className="flex items-start gap-3">
                     <StatusIcon className={`w-5 h-5 mt-0.5 ${config.color}`} />
                     <div>
-                        <div className="font-medium text-[var(--text-primary)]">{result.systemName}</div>
-                        <div className="text-xs text-[var(--text-secondary)] mb-2">{result.groupName}</div>
+                        <div className="font-medium text-foreground">{result.systemName}</div>
+                        <div className="text-xs text-muted-foreground mb-2">{result.groupName}</div>
 
                         {/* 显示所有环境URL */}
                         <div className="space-y-1">
