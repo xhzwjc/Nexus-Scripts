@@ -29,7 +29,7 @@ import { CSS } from '@dnd-kit/utilities';
 interface ResourceEditorProps {
     groups: ResourceGroup[];
     onCancel: () => void;
-    onSave: (groups: ResourceGroup[]) => void;
+    onSave: (groups: ResourceGroup[]) => Promise<void> | void;
 }
 
 // 可拖拽的集团项
@@ -401,7 +401,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
             setLogosToDelete([]);
 
             // 4. 调用父组件保存（传递已转换为 URL 的数据）
-            onSave(groupsWithUrls);
+            await onSave(groupsWithUrls);
         } finally {
             setIsSaving(false);
         }
@@ -423,7 +423,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                         {isSaving ? (
                             <>
                                 <div className="w-4 h-4 mr-2 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                保存中...
+                                {tr.saving}
                             </>
                         ) : (
                             <>

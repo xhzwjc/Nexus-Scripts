@@ -300,6 +300,7 @@ export const zhCN: Translations = {
         // ResourceEditor
         resourceManage: '资源管理',
         cancel: '取消',
+        saving: '保存中...',
         saveChanges: '保存更改',
         groupList: '集团列表',
         systemList: '系统列表',

@@ -301,6 +301,7 @@ export const enUS: Translations = {
         // ResourceEditor
         resourceManage: 'Resource Management',
         cancel: 'Cancel',
+        saving: 'Saving...',
         saveChanges: 'Save Changes',
         groupList: 'Group List',
         systemList: 'System List',

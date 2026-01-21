@@ -252,6 +252,7 @@ export interface Translations {
     // ResourceEditor
     resourceManage: string;
     cancel: string;
+    saving: string;
     saveChanges: string;
     groupList: string;
     systemList: string;
