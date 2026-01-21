@@ -67,6 +67,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
     // 使用空初始状态，避免静态数据打包到 bundle
     const [data, setData] = useState<AIResourcesData>(EMPTY_DATA);
     const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null); // 新增：加载错误状态
     const [searchQuery, setSearchQuery] = useState('');
     const [activeCategory, setActiveCategory] = useState<string>('all');
     const [isEditing, setIsEditing] = useState(false);
@@ -107,9 +108,21 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
 
     // 加载数据和本地logo列表
     useEffect(() => {
+        let isMounted = true;
+        const controller = new AbortController();
+        let isTimeout = false;
+
+        const timeoutId = setTimeout(() => {
+            isTimeout = true;
+            controller.abort();
+        }, 30000); // 30秒超时
+
         const loadAll = async () => {
             try {
-                const dataRes = await fetch('/api/ai-resources/data');
+                setLoadError(null);
+                const dataRes = await fetch('/api/ai-resources/data', { signal: controller.signal });
+                if (!isMounted) return;
+
                 if (dataRes.ok) {
                     const jsonData = await dataRes.json();
                     if (jsonData && Array.isArray(jsonData.categories) && Array.isArray(jsonData.resources)) {
@@ -117,18 +130,35 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                     }
                 }
 
-                const logoListRes = await fetch('/api/ai-resources/logo-list');
+                const logoListRes = await fetch('/api/ai-resources/logo-list', { signal: controller.signal });
+                if (!isMounted) return;
+
                 if (logoListRes.ok) {
                     const logoListData = await logoListRes.json();
                     setLogoCache(logoListData.logos || {});
                 }
             } catch (error) {
+                if (!isMounted) return;
+
                 console.error('Failed to load AI resources:', error);
+                // 只有真正的超时才显示错误
+                if (error instanceof Error && error.name === 'AbortError' && isTimeout) {
+                    setLoadError('网络超时，请检查网络连接后重试');
+                }
             } finally {
-                setIsLoading(false);
+                clearTimeout(timeoutId);
+                if (isMounted) {
+                    setIsLoading(false);
+                }
             }
         };
         loadAll();
+
+        return () => {
+            isMounted = false;
+            controller.abort();
+            clearTimeout(timeoutId);
+        };
     }, []);
 
     const refreshLogos = async () => {
@@ -250,10 +280,23 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
         }
     };
 
-    if (isLoading) {
+    // 加载中或加载错误
+    if (isLoading || loadError) {
         return (
-            <div className="h-full flex items-center justify-center bg-background/50">
-                <div className="text-muted-foreground text-sm">{t.common.loading}</div>
+            <div className="h-full flex flex-col items-center justify-center gap-4 bg-background/50">
+                {isLoading ? (
+                    <div className="text-muted-foreground text-sm">{t.common.loading}</div>
+                ) : (
+                    <>
+                        <div className="text-red-500">{loadError}</div>
+                        <button
+                            className="px-4 py-2 text-sm border rounded-md hover:bg-muted transition-colors"
+                            onClick={() => window.location.reload()}
+                        >
+                            重新加载
+                        </button>
+                    </>
+                )}
             </div>
         );
     }

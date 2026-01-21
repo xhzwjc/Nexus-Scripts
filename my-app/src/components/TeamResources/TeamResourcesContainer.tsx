@@ -24,6 +24,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
     const [data, setData] = useState<ResourceGroup[]>([]);
     const [isEditing, setIsEditing] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null); // 新增：加载错误状态
     const lastActivityRef = useRef<number>(Date.now());
 
     // 检查会话是否过期
@@ -46,10 +47,22 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
 
     // 加载数据
     useEffect(() => {
+        let isMounted = true; // 追踪组件是否已挂载
+        const controller = new AbortController();
+        let isTimeout = false; // 追踪是否是超时导致的abort
+
+        const timeoutId = setTimeout(() => {
+            isTimeout = true;
+            controller.abort();
+        }, 30000); // 30秒超时
+
         const loadData = async () => {
             try {
-                const res = await fetch('/api/resources/data');
+                setLoadError(null);
+                const res = await fetch('/api/resources/data', { signal: controller.signal });
                 const json = await res.json();
+
+                if (!isMounted) return; // 组件已卸载，不更新状态
 
                 if (json.encrypted) {
                     // 解密数据
@@ -66,14 +79,23 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
                     setData(INITIAL_RESOURCE_DATA);
                 }
             } catch (error) {
+                if (!isMounted) return; // 组件已卸载，不更新状态
+
                 console.error('Failed to load resources:', error);
-                // 加载失败，使用初始数据
-                setData(INITIAL_RESOURCE_DATA);
+                // 只有真正的超时才显示错误，组件卸载导致的abort忽略
+                if (error instanceof Error && error.name === 'AbortError' && isTimeout) {
+                    setLoadError('网络超时，请检查网络连接后重试');
+                } else if (!(error instanceof Error && error.name === 'AbortError')) {
+                    // 非abort错误，使用初始数据
+                    setData(INITIAL_RESOURCE_DATA);
+                }
             } finally {
-                setIsLoading(false);
+                clearTimeout(timeoutId);
+                if (isMounted) {
+                    setIsLoading(false);
+                }
             }
         };
-
         // 检查会话状态（带超时验证）
         const sessionUnlocked = sessionStorage.getItem('team_resources_unlocked');
         const sessionAdmin = sessionStorage.getItem('team_resources_admin');
@@ -90,6 +112,12 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
         }
 
         loadData();
+
+        return () => {
+            isMounted = false;
+            controller.abort();
+            clearTimeout(timeoutId);
+        };
     }, [checkSessionExpiry, updateActivity]);
 
     // 监听用户活动，更新最后活动时间
@@ -157,10 +185,20 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
         }
     };
 
-    if (isLoading) {
+    // 加载中或加载错误
+    if (isLoading || loadError) {
         return (
-            <div className="h-full flex items-center justify-center">
-                <div className="text-slate-500">{tr.loading}</div>
+            <div className="h-full flex flex-col items-center justify-center gap-4">
+                {isLoading ? (
+                    <div className="text-slate-500">{tr.loading}</div>
+                ) : (
+                    <>
+                        <div className="text-red-500">{loadError}</div>
+                        <Button variant="outline" onClick={() => window.location.reload()}>
+                            重新加载
+                        </Button>
+                    </>
+                )}
             </div>
         );
     }
