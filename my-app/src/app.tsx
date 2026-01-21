@@ -53,6 +53,7 @@ import { AIResourcesContainer } from './components/AIResources';
 import { ClothBackground } from './components/Layout/ClothBackground';
 import { BubuMascot } from './components/Layout/BubuMascot';
 import { QuickActions, saveRecentScript } from './components/Layout/QuickActions';
+import { DashboardLoadingScreen } from './components/Layout/DashboardLoadingScreen';
 
 // UI 组件导入
 import { ConfirmDialog } from './components/ui/ConfirmDialog';
@@ -94,6 +95,13 @@ function AppContent() {
 
     const [systems, setSystems] = useState<Record<string, SystemConfig>>(allScripts);
     const [isLoading, setIsLoading] = useState(true);
+    // 从 sessionStorage 初始化（刷新后保持，关闭标签页后重置）
+    const [isDashboardReady, setIsDashboardReady] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return sessionStorage.getItem('dashboard_ready') === 'true';
+        }
+        return false;
+    });
     const [isVerifying, setIsVerifying] = useState(false);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [scriptQuery, setScriptQuery] = useState('');
@@ -526,6 +534,19 @@ function AppContent() {
                     </CardContent>
                 </Card>
             </div>
+        );
+    }
+
+    // ============== 登录后加载动画 ==============
+    if (!isDashboardReady) {
+        return (
+            <DashboardLoadingScreen
+                minDisplayTime={800}
+                onComplete={() => {
+                    sessionStorage.setItem('dashboard_ready', 'true');
+                    setIsDashboardReady(true);
+                }}
+            />
         );
     }
 
