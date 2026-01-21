@@ -23,7 +23,7 @@ const EMPTY_DATA: AIResourcesData = {
 const INITIAL_BATCH_SIZE = 50;
 const APPEND_BATCH_SIZE = 30; // 每一帧追加的数量
 
-export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesContainerProps) {
+export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
     const { t } = useI18n();
     const tr = t.aiResources;
 
@@ -44,6 +44,25 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
     const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 });
 
     const deferredSearchQuery = useDeferredValue(searchQuery);
+
+    // 用户权限状态
+    const [currentUserKey, setCurrentUserKey] = useState<string | null>(null);
+
+    useEffect(() => {
+        try {
+            const authStr = localStorage.getItem('scriptHubAuth');
+            if (authStr) {
+                const authData = JSON.parse(authStr);
+                if (authData && authData.key) {
+                    setCurrentUserKey(authData.key);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to parse user info', e);
+        }
+    }, []);
+
+    const isSuperAdmin = currentUserKey === 'wjc';
 
     // 重置可见数量当筛选改变时
     useEffect(() => {
@@ -240,6 +259,8 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
         );
     }
 
+
+
     return (
         <div className="h-full flex flex-col bg-muted/30">
             {/* 顶部导航栏 */}
@@ -281,7 +302,7 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                             )}
                         </div>
 
-                        {isAdmin && (
+                        {isSuperAdmin && (
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={downloadMissingLogos}
@@ -346,7 +367,10 @@ export function AIResourcesContainer({ onBack, isAdmin = false }: AIResourcesCon
                         {tr.noResults}
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+                    <div
+                        key={activeCategory} // 关键修复：切换分类时强制重绘，确保动画重置
+                        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3"
+                    >
                         {filteredResources.slice(0, visibleCount).map((resource, index) => {
                             // 仅对首批加载的项目应用渐显动画
                             const isInitialBatch = index < INITIAL_BATCH_SIZE;
