@@ -586,6 +586,8 @@ export const enUS: Translations = {
                     supplementPlaceholder: 'Additional info (optional)',
                     attachments: 'Evidence',
                     attachmentHint: 'Files/Images ({count}/15) - Upload at least one',
+                    imageHint: 'Images ({count}/9)',
+                    fileHint: 'Files ({count}/6)',
                     supportedFormats: 'JPG, PNG supported',
                     uploadImg: 'Upload Image',
                     uploadFile: 'Upload File',

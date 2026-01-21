@@ -559,6 +559,8 @@ export interface Translations {
           supplementPlaceholder: string;
           attachments: string;
           attachmentHint: string;
+          imageHint: string;
+          fileHint: string;
           supportedFormats: string;
           uploadImg: string;
           uploadFile: string;

@@ -585,6 +585,8 @@ export const zhCN: Translations = {
                     supplementPlaceholder: '如有其他补充可在此填写',
                     attachments: '佐证材料',
                     attachmentHint: '图片/附件 ({count}/15) - 至少传一张',
+                    imageHint: '图片 ({count}/9)',
+                    fileHint: '附件 ({count}/6)',
                     supportedFormats: '支持 JPG, PNG 图片',
                     uploadImg: '上传图片',
                     uploadFile: '上传附件',
