@@ -97,7 +97,8 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
                     throw err;
                 });
 
-            const logoPromise = fetch('/api/ai-resources/logo-list', { signal: controller.signal })
+            // Logo 在后台加载，不阻塞主数据显示
+            fetch('/api/ai-resources/logo-list', { signal: controller.signal })
                 .then(async res => {
                     if (res.ok) {
                         const logoListData = await res.json();

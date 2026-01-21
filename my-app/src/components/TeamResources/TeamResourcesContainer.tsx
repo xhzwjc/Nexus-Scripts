@@ -20,8 +20,8 @@ interface TeamResourcesContainerProps {
 export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) {
     const { t } = useI18n();
     const tr = t.teamResources;
-    // 检查会话是否有效（提取为非 hook 逻辑以便初始化使用）
-    const isSessionValid = () => {
+    // 检查会话是否有效
+    const isSessionValid = useCallback(() => {
         if (typeof window === 'undefined') return false;
         const lastActivity = sessionStorage.getItem('team_resources_last_activity');
         const sessionUnlocked = sessionStorage.getItem('team_resources_unlocked');
@@ -33,15 +33,13 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
         if (isNaN(lastTime)) return false;
 
         return Date.now() - lastTime <= SESSION_TIMEOUT_MS;
-    };
+    }, []);
 
     const [isLocked, setIsLocked] = useState(() => !isSessionValid());
     const [isAdmin, setIsAdmin] = useState(() => {
         if (typeof window === 'undefined') return false;
         return sessionStorage.getItem('team_resources_admin') === 'true';
     });
-
-
 
     const [data, setData] = useState<ResourceGroup[]>([]);
     const [isEditing, setIsEditing] = useState(false);
@@ -111,11 +109,6 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
         // 仅负责清理旧会话，状态初始化已经由 useState 完成
         if (!isLocked) {
             updateActivity();
-        } else {
-            // 确保清理
-            // sessionStorage.removeItem('team_resources_unlocked');
-            // sessionStorage.removeItem('team_resources_admin');
-            // sessionStorage.removeItem('team_resources_last_activity');
         }
 
         loadData();
@@ -148,7 +141,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
             events.forEach(event => window.removeEventListener(event, handleActivity));
             clearInterval(intervalId);
         };
-    }, [isLocked, updateActivity, tr.sessionTimeout]);
+    }, [isLocked, updateActivity, tr.sessionTimeout, isSessionValid]);
 
     const handleUnlock = (admin: boolean) => {
         setIsLocked(false);

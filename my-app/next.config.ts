@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   output: "standalone",
+  compress: true, // 明确启用 Gzip 压缩
 
   // 性能优化：优化包导入
   experimental: {

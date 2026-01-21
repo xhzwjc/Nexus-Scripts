@@ -20,7 +20,11 @@ export async function GET() {
         }
 
         const encryptedData = fs.readFileSync(DATA_FILE, 'utf-8');
-        return NextResponse.json({ encrypted: encryptedData });
+        return NextResponse.json({ encrypted: encryptedData }, {
+            headers: {
+                'Cache-Control': 'public, max-age=60, stale-while-revalidate=600',
+            },
+        });
     } catch (error) {
         console.error('Failed to read team resources:', error);
         return NextResponse.json({ error: 'Failed to read data' }, { status: 500 });
