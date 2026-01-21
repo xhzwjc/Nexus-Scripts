@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, CircleHelp, Lock, Settings, Cloud } from 'lucide-react';
+import { Search, CircleHelp, Lock, Settings, Cloud, Terminal, Play, Sparkles, Users, FileText } from 'lucide-react';
 import { TimeChip } from '../ui/TimeChip';
 import { WeatherChip } from '../ui/WeatherChip';
 import { LanguageSwitcher } from '../ui/LanguageSwitcher';
@@ -13,7 +13,7 @@ interface SearchResult {
     id: string;
     name: string;
     desc: string;
-    type: 'cm' | 'hs';
+    type: 'cm' | 'hs' | 'script' | 'tool';
 }
 
 interface HeaderProps {
@@ -24,6 +24,7 @@ interface HeaderProps {
     searchResults: SearchResult[];
     setCurrentView: (view: ViewType) => void;
     setSelectedSystem: (sys: string) => void;
+    setSelectedScript: (script: string) => void;
     setScriptQuery: (q: string) => void;
     handleLock: () => void;
     currentUser: User | null;
@@ -47,6 +48,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
     searchResults,
     setCurrentView,
     setSelectedSystem,
+    setSelectedScript,
     setScriptQuery,
     handleLock,
     currentUser,
@@ -78,32 +80,76 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                     onBlur={() => setTimeout(() => setShowSearchResults(false), 200)}
                 />
 
-                {/* 搜索结果下拉 */}
                 {showSearchResults && searchResults.length > 0 && (
                     <div className="search-dropdown">
-                        {searchResults.map((result) => (
-                            <div
-                                key={result.id}
-                                className="search-result-item"
-                                onClick={() => {
-                                    if (result.type === 'cm') {
-                                        setSelectedSystem('chunmiao');
-                                        setScriptQuery('');
-                                        setCurrentView('system');
-                                    }
-                                    setHomeSearchQuery('');
-                                    setShowSearchResults(false);
-                                }}
-                            >
-                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${result.type === 'cm' ? 'bg-teal-50 text-teal-600' : 'bg-slate-100 text-slate-500'}`}>
-                                    {result.type === 'cm' ? <Settings className="w-4 h-4" /> : <Cloud className="w-4 h-4" />}
+                        {searchResults.map((result) => {
+                            // 导航处理逻辑
+                            const handleClick = () => {
+                                if (result.type === 'cm') {
+                                    setSelectedSystem('chunmiao');
+                                    setScriptQuery('');
+                                    setCurrentView('system');
+                                } else if (result.type === 'hs') {
+                                    setSelectedSystem('haoshi');
+                                    setScriptQuery('');
+                                    setCurrentView('system');
+                                } else if (result.type === 'script') {
+                                    // 直接进入对应脚本
+                                    setSelectedScript(result.id);
+                                    setCurrentView('script');
+                                } else if (result.type === 'tool') {
+                                    // 工具入口
+                                    const toolViewMap: Record<string, ViewType> = {
+                                        ocr: 'ocr-tool',
+                                        devtools: 'dev-tools',
+                                        teamResources: 'team-resources',
+                                        aiResources: 'ai-resources',
+                                        help: 'help',
+                                    };
+                                    const view = toolViewMap[result.id];
+                                    if (view) setCurrentView(view);
+                                }
+                                setHomeSearchQuery('');
+                                setShowSearchResults(false);
+                            };
+
+                            // 图标和样式
+                            const getIconAndStyle = () => {
+                                switch (result.type) {
+                                    case 'cm':
+                                        return { icon: <Settings className="w-4 h-4" />, bg: 'bg-teal-50 text-teal-600' };
+                                    case 'hs':
+                                        return { icon: <Cloud className="w-4 h-4" />, bg: 'bg-slate-100 text-slate-500' };
+                                    case 'script':
+                                        return { icon: <Play className="w-4 h-4" />, bg: 'bg-blue-50 text-blue-600' };
+                                    case 'tool':
+                                        if (result.id === 'aiResources') return { icon: <Sparkles className="w-4 h-4" />, bg: 'bg-purple-50 text-purple-600' };
+                                        if (result.id === 'teamResources') return { icon: <Users className="w-4 h-4" />, bg: 'bg-orange-50 text-orange-600' };
+                                        if (result.id === 'help') return { icon: <FileText className="w-4 h-4" />, bg: 'bg-green-50 text-green-600' };
+                                        return { icon: <Terminal className="w-4 h-4" />, bg: 'bg-gray-100 text-gray-600' };
+                                    default:
+                                        return { icon: <Settings className="w-4 h-4" />, bg: 'bg-gray-100 text-gray-500' };
+                                }
+                            };
+
+                            const { icon, bg } = getIconAndStyle();
+
+                            return (
+                                <div
+                                    key={result.id}
+                                    className="search-result-item"
+                                    onClick={handleClick}
+                                >
+                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${bg}`}>
+                                        {icon}
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-medium text-[var(--text-primary)]">{result.name}</p>
+                                        <p className="text-xs text-[var(--text-secondary)]">{result.desc}</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-sm font-medium text-[var(--text-primary)]">{result.name}</p>
-                                    <p className="text-xs text-[var(--text-secondary)]">{result.desc}</p>
-                                </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
                 {showSearchResults && searchResults.length === 0 && homeSearchQuery.trim() && (

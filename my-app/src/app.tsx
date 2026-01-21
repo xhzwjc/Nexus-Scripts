@@ -143,20 +143,62 @@ function AppContent() {
         }
     }, [isLocked]);
 
-    // 搜索结果计算
+    // 搜索结果计算 - 全模块搜索
     const searchResults = useMemo(() => {
         if (!homeSearchQuery.trim()) return [];
         const query = homeSearchQuery.toLowerCase();
-        const results: { id: string; name: string; desc: string; type: 'cm' | 'hs' }[] = [];
+        const results: { id: string; name: string; desc: string; type: 'cm' | 'hs' | 'script' | 'tool' }[] = [];
 
+        // 核心系统入口
         if ('cm核心业务系统'.includes(query) || 'cm'.includes(query) || '核心'.includes(query) || '业务'.includes(query)) {
             results.push({ id: 'chunmiao', name: t.home.search.cm.name, desc: t.home.search.cm.desc, type: 'cm' });
         }
         if ('hs辅助系统'.includes(query) || 'hs'.includes(query) || '辅助'.includes(query)) {
             results.push({ id: 'haoshi', name: t.home.search.hs.name, desc: t.home.search.hs.desc, type: 'hs' });
         }
-        return results;
-    }, [homeSearchQuery, t]);
+
+        // CM脚本工具 - ID必须匹配 renderScript 中的 switch case 值
+        const scriptItems = [
+            { key: 'settlement', configKey: 'settlement', keywords: ['结算', '处理', 'settlement', '批量'] },
+            { key: 'commission', configKey: 'commission', keywords: ['佣金', '渠道', 'commission', '验证', '计算'] },
+            { key: 'balance', configKey: 'balance', keywords: ['余额', '核对', 'balance', '账户'] },
+            { key: 'task-automation', configKey: 'taskAutomation', keywords: ['任务', '自动化', 'task', 'automation', '批量'] },
+            { key: 'sms_operations_center', configKey: 'smsOperationsCenter', keywords: ['短信', 'sms', '发送', '补发', '模板'] },
+            { key: 'tax-reporting', configKey: 'taxReporting', keywords: ['税务', '报表', 'tax', 'report', '完税'] },
+            { key: 'tax-calculation', configKey: 'taxCalculation', keywords: ['税额', '计算', 'tax', 'calc', '个税'] },
+            { key: 'payment-stats', configKey: 'paymentStats', keywords: ['开票', '统计', 'payment', '结算', 'stats'] },
+            { key: 'delivery-tool', configKey: 'deliveryTool', keywords: ['交付', '提交', 'delivery', '交付物'] },
+        ];
+
+        scriptItems.forEach(item => {
+            const cfg = t.scriptConfig.items[item.configKey as keyof typeof t.scriptConfig.items];
+            if (cfg && (cfg.name.toLowerCase().includes(query) || cfg.description.toLowerCase().includes(query) || item.keywords.some(k => k.includes(query)))) {
+                if (!results.find(r => r.id === item.key)) {
+                    results.push({ id: item.key, name: cfg.name, desc: cfg.description, type: 'script' });
+                }
+            }
+        });
+
+        // 工具类入口 - 使用 i18n (根据语言显示)
+        const isZh = language === 'zh-CN';
+        const toolItems = [
+            { id: 'ocr', name: isZh ? 'OCR智能比对' : 'OCR Smart Matching', desc: isZh ? '自动化身份信息核验' : 'Automated identity verification', keywords: ['ocr', '比对', '识别', '身份', 'identity', 'verification'] },
+            { id: 'devtools', name: t.devTools?.title || 'Developer Tools', desc: isZh ? 'JSON格式化、时间戳等实用工具' : 'JSON formatting, timestamp tools', keywords: ['开发者', 'dev', 'json', '工具', 'uuid', 'base64', 'developer', 'tools'] },
+            { id: 'teamResources', name: t.teamResources?.viewerTitle || 'Team Resources', desc: isZh ? '系统账号与环境配置管理' : 'System account & environment management', keywords: ['团队', '资源', 'team', '账号', '环境', 'resources', 'account'] },
+            { id: 'aiResources', name: t.aiResources?.title || 'AI Tools', desc: isZh ? '常用AI工具与资源导航' : 'AI tool resources navigation', keywords: ['ai', '人工智能', '工具库', 'chatgpt', 'artificial', 'intelligence'] },
+            { id: 'help', name: t.helpPage?.title || 'Help Center', desc: isZh ? '使用指南与文档' : 'User guide & documentation', keywords: ['帮助', 'help', '文档', '指南', 'guide', 'documentation'] },
+        ];
+
+        toolItems.forEach(item => {
+            if (item.name.toLowerCase().includes(query) || item.desc.toLowerCase().includes(query) || item.keywords.some(k => k.includes(query))) {
+                if (!results.find(r => r.id === item.id)) {
+                    results.push({ id: item.id, name: item.name, desc: item.desc, type: 'tool' });
+                }
+            }
+        });
+
+        return results.slice(0, 8); // 最多显示8条结果
+    }, [homeSearchQuery, t, language]);
 
     // 时钟
     useEffect(() => {
@@ -511,7 +553,7 @@ function AppContent() {
                 {/* 状态徽章行 */}
                 <div className="flex items-center gap-4 mb-10">
                     <div className="status-badge">
-                        <div className="icon bg-primary/10 text-primary">
+                        <div className="icon bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400">
                             <CheckCircle className="w-4 h-4" />
                         </div>
                         <span className="font-semibold text-foreground">{totalScripts}</span>
@@ -847,6 +889,7 @@ function AppContent() {
                     handleLock={handleLock}
                     currentUser={currentUser}
                     setSelectedSystem={setSelectedSystem}
+                    setSelectedScript={setSelectedScript}
                     setScriptQuery={setScriptQuery}
                     now={now}
                     weather={weather}
