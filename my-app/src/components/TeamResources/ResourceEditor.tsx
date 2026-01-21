@@ -213,10 +213,15 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
         setEditedGroups(editedGroups.map(g => g.id === activeGroupId ? { ...g, name } : g));
     };
 
-    // 更新集团LOGO
+    // 更新集团LOGO - 延迟上传策略
     const logoInputRef = useRef<HTMLInputElement>(null);
+    // 存储待上传的 Base64 Logo（仅在点击保存时才真正上传）
+    const [pendingLogos, setPendingLogos] = useState<Record<string, string>>({});
+    // 存储待删除的服务器端 Logo groupId 列表
+    const [logosToDelete, setLogosToDelete] = useState<string[]>([]);
+    const [isSaving, setIsSaving] = useState(false);
 
-    const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !currentGroup) return;
 
@@ -226,19 +231,46 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
             return;
         }
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const base64 = event.target?.result as string;
+        try {
+            // 读取为 Base64，暂存到 pendingLogos（不立即上传）
+            const base64 = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (event) => resolve(event.target?.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
+            // 暂存 Base64，用于预览和后续上传
+            setPendingLogos(prev => ({ ...prev, [currentGroup.id]: base64 }));
+            // 同时更新编辑状态中的 logo 为 Base64（用于预览）
             setEditedGroups(editedGroups.map(g =>
                 g.id === activeGroupId ? { ...g, logo: base64 } : g
             ));
             toast.success(tr.logoUploaded);
-        };
-        reader.readAsDataURL(file);
+        } catch (error) {
+            console.error('Logo read failed:', error);
+            toast.error('Logo 读取失败');
+        } finally {
+            // 清空 input 以便重复上传同一文件
+            if (logoInputRef.current) logoInputRef.current.value = '';
+        }
     };
 
     const handleRemoveLogo = () => {
         if (!currentGroup) return;
+
+        // 如果是服务器端的 Logo（URL 路径），标记为待删除
+        if (currentGroup.logo && currentGroup.logo.startsWith('/team-logos/')) {
+            setLogosToDelete(prev => [...prev, currentGroup.id]);
+        }
+
+        // 从待上传列表中移除（如果有）
+        setPendingLogos(prev => {
+            const updated = { ...prev };
+            delete updated[currentGroup.id];
+            return updated;
+        });
+        // 更新编辑状态
         setEditedGroups(editedGroups.map(g =>
             g.id === activeGroupId ? { ...g, logo: undefined } : g
         ));
@@ -324,8 +356,55 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
         toast.success(tr.clearedEnv.replace('{env}', envName));
     };
 
-    const handleSaveClick = () => {
-        onSave(editedGroups);
+    const handleSaveClick = async () => {
+        if (isSaving) return;
+        setIsSaving(true);
+
+        try {
+            // 1. 上传所有待上传的 Logo
+            const groupsWithUrls = [...editedGroups];
+
+            for (const [groupId, base64] of Object.entries(pendingLogos)) {
+                try {
+                    const res = await fetch('/api/team-resources/logo', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ groupId, base64 })
+                    });
+                    const result = await res.json();
+
+                    if (result.success && result.logoUrl) {
+                        // 替换 Base64 为 URL 路径
+                        const idx = groupsWithUrls.findIndex(g => g.id === groupId);
+                        if (idx !== -1) {
+                            groupsWithUrls[idx] = { ...groupsWithUrls[idx], logo: result.logoUrl };
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Failed to upload logo for ${groupId}:`, error);
+                }
+            }
+
+            // 2. 删除标记为待删除的服务器端 Logo
+            for (const groupId of logosToDelete) {
+                try {
+                    await fetch(`/api/team-resources/logo?groupId=${groupId}`, {
+                        method: 'DELETE'
+                    });
+                } catch (error) {
+                    console.error(`Failed to delete logo for ${groupId}:`, error);
+                }
+            }
+
+            // 3. 清空待上传和待删除列表
+            setPendingLogos({});
+            setLogosToDelete([]);
+
+            // 4. 调用父组件保存（传递已转换为 URL 的数据）
+            onSave(groupsWithUrls);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -339,10 +418,19 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                     <h2 className="text-lg font-bold text-[var(--text-primary)]">{tr.resourceManage}</h2>
                 </div>
                 <div className="flex gap-2">
-                    <Button variant="outline" onClick={onCancel}>{tr.cancel}</Button>
-                    <Button onClick={handleSaveClick}>
-                        <Save className="w-4 h-4 mr-2" />
-                        {tr.saveChanges}
+                    <Button variant="outline" onClick={onCancel} disabled={isSaving}>{tr.cancel}</Button>
+                    <Button onClick={handleSaveClick} disabled={isSaving}>
+                        {isSaving ? (
+                            <>
+                                <div className="w-4 h-4 mr-2 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                保存中...
+                            </>
+                        ) : (
+                            <>
+                                <Save className="w-4 h-4 mr-2" />
+                                {tr.saveChanges}
+                            </>
+                        )}
                     </Button>
                 </div>
             </div>
