@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { FileText, ArrowLeft, BookOpen, ChevronRight } from 'lucide-react';
+import { FileText, ArrowLeft, BookOpen, ChevronRight, Loader2 } from 'lucide-react';
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useI18n } from '@/lib/i18n';
@@ -28,12 +28,24 @@ export function HelpPage({ onBack }: { onBack?: () => void }) {
     ], [tr]);
 
     const [selectedDocId, setSelectedDocId] = useState<string>(docs[0].id);
+    const [isLoading, setIsLoading] = useState(false);
     const selectedDoc = docs.find(d => d.id === selectedDocId);
 
+    const handleDocSelect = (docId: string) => {
+        if (docId !== selectedDocId) {
+            setIsLoading(true);
+            setSelectedDocId(docId);
+        }
+    };
+
+    const handleIframeLoad = () => {
+        setIsLoading(false);
+    };
+
     return (
-        <div className="flex flex-col h-full overflow-hidden bg-muted/30">
+        <div className="flex flex-col h-full overflow-hidden bg-background">
             {/* Header */}
-            <div className="h-12 px-4 flex items-center justify-between bg-background/80 backdrop-blur border-b border-border shrink-0 z-10">
+            <div className="h-12 px-4 flex items-center justify-between bg-background border-b border-border shrink-0 z-10">
                 <div className="flex items-center gap-4">
                     {onBack && (
                         <Button variant="ghost" size="sm" onClick={onBack} className="gap-1 text-muted-foreground hover:text-foreground hover:bg-muted">
@@ -79,7 +91,7 @@ export function HelpPage({ onBack }: { onBack?: () => void }) {
             {/* Content */}
             <div className="flex flex-1 overflow-hidden">
                 {/* Left Sidebar */}
-                <div className="w-64 bg-background/50 backdrop-blur-sm border-r border-border flex flex-col">
+                <div className="w-64 bg-muted/20 border-r border-border flex flex-col">
                     <div className="p-4 border-b border-border flex items-center gap-2">
                         <BookOpen className="w-4 h-4 text-primary" />
                         <h2 className="text-sm font-semibold text-foreground/80">{tr.listTitle}</h2>
@@ -88,7 +100,7 @@ export function HelpPage({ onBack }: { onBack?: () => void }) {
                         {docs.map(doc => (
                             <button
                                 key={doc.id}
-                                onClick={() => setSelectedDocId(doc.id)}
+                                onClick={() => handleDocSelect(doc.id)}
                                 className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors text-left
                                     ${selectedDocId === doc.id
                                         ? 'bg-primary/10 text-primary'
@@ -107,11 +119,23 @@ export function HelpPage({ onBack }: { onBack?: () => void }) {
                 <div className="flex-1 p-3 overflow-hidden flex flex-col">
                     {selectedDoc ? (
                         <Card className="flex-1 border border-border shadow-sm overflow-hidden flex flex-col bg-card">
-                            <div className="flex-1 bg-muted relative">
+                            <div className="flex-1 bg-muted/40 relative">
+                                {/* Loading Overlay */}
+                                <div
+                                    className={`absolute inset-0 z-10 flex items-center justify-center bg-muted/60 backdrop-blur-sm transition-opacity duration-300
+                                        ${isLoading ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                                >
+                                    <div className="flex flex-col items-center gap-3">
+                                        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                                        <span className="text-sm text-muted-foreground">{t.common.loading}</span>
+                                    </div>
+                                </div>
+                                {/* PDF Iframe */}
                                 <iframe
                                     src={selectedDoc.file}
-                                    className="absolute inset-0 w-full h-full"
+                                    className={`absolute inset-0 w-full h-full transition-opacity duration-300 ${isLoading ? 'opacity-0' : 'opacity-100'}`}
                                     title={selectedDoc.title}
+                                    onLoad={handleIframeLoad}
                                 />
                             </div>
                         </Card>
