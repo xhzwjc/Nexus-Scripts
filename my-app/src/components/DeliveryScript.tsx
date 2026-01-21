@@ -201,15 +201,18 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 setUsers(newUsers);
                 setStep('process');
 
-                // 默认展开所有
-                setExpandedUserMobiles(newUsers.map(u => u.mobile));
-                // Select first task if exists
-                if (newUsers[0] && newUsers[0].tasks.length > 0) {
-                    const tId = newUsers[0].tasks[0].taskAssignId;
+                // 只展开有任务的用户
+                const usersWithTasks = newUsers.filter(u => u.tasks.length > 0);
+                setExpandedUserMobiles(usersWithTasks.map(u => u.mobile));
+
+                // 选中第一个有任务的用户的第一个任务
+                const firstUserWithTasks = newUsers.find(u => u.tasks.length > 0);
+                if (firstUserWithTasks) {
+                    const tId = firstUserWithTasks.tasks[0].taskAssignId;
                     setActiveTaskAssignId(tId);
-                    setActiveUserMobile(newUsers[0].mobile);
+                    setActiveUserMobile(firstUserWithTasks.mobile);
                     // Initialize draft
-                    initDraft(newUsers[0].mobile, tId);
+                    initDraft(firstUserWithTasks.mobile, tId);
                 }
 
                 toast.success(dm.loginSuccess.replace('{count}', String(newUsers.length)));
@@ -664,10 +667,10 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
     // 3. Main Process View
     const renderProcess = () => (
-        <div className="flex flex-col lg:grid lg:grid-cols-4 gap-6 lg:h-[calc(100vh-140px)] p-2">
+        <div className="flex flex-col lg:grid lg:grid-cols-4 gap-6 p-2">
             {/* Sidebar: Users Tree */}
             <Card
-                className="lg:col-span-1 flex flex-col min-h-[400px] h-auto lg:h-full border-0 bg-[var(--glass-bg)] backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-[var(--border-subtle)]/20 rounded-[32px] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.06)]">
+                className="lg:col-span-1 flex flex-col min-h-[400px] max-h-[calc(100vh-180px)] border-0 bg-[var(--glass-bg)] backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-[var(--border-subtle)]/20 rounded-[32px] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.06)]">
                 <CardHeader className="py-5 px-5 border-b border-[var(--border-subtle)]/50 bg-[var(--card-bg)]/40 backdrop-blur-md">
                     <CardTitle className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">{dt.process.teamTitle}
                         ({users.length})</CardTitle>
@@ -689,7 +692,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         <Avatar
                                             className="h-9 w-9 mr-3 border-2 border-white shadow-sm transition-transform duration-300 group-hover:scale-105">
                                             <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                                                {user.realname.substring(0, 2)}
+                                                {user.realname.slice(-2)}
                                             </AvatarFallback>
                                         </Avatar>
                                         <div className="flex-1 min-w-0">
@@ -764,7 +767,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
             {/* Main: Form Area */}
             <Card
-                className="lg:col-span-3 min-h-[600px] h-auto lg:h-full lg:overflow-hidden flex flex-col bg-[var(--glass-bg)] backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-[var(--border-subtle)]/20 rounded-[32px] border-0 transition-all duration-500 hover:shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
+                className="lg:col-span-3 flex flex-col bg-[var(--glass-bg)] backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-[var(--border-subtle)]/20 rounded-[32px] border-0 transition-all duration-500 hover:shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
                 <CardHeader
                     className="py-5 px-6 border-b border-[var(--border-subtle)]/50 bg-[var(--card-bg)]/40 backdrop-blur-md sticky top-0 z-10">
                     <div className="flex items-center justify-between overflow-hidden">
@@ -772,8 +775,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                             <div className="flex items-center space-x-2">
                                 <CardTitle
                                     className="text-xl font-bold tracking-tight text-[var(--text-primary)] truncate leading-relaxed"
-                                    title={activeTask ? (currentDraft?.reportName || activeTask.taskName) : ''}>
-                                    {activeTask ? (currentDraft?.reportName || activeTask.taskName) : dt.process.selectTask}
+                                    title={activeTask ? activeTask.taskName : ''}>
+                                    {activeTask ? activeTask.taskName : dt.process.selectTask}
                                 </CardTitle>
                                 {activeTask && <Badge variant="outline"
                                     className="text-[10px] px-1.5 h-5 border-primary/30 text-primary bg-primary/5 rounded-md shrink-0">{dt.process.statusRunning}</Badge>}
@@ -798,7 +801,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 </CardHeader>
 
                 {activeTaskAssignId && activeUser && currentDraft && draftKey ? (
-                    <div className="flex-1 overflow-y-auto p-0" key={draftKey}>
+                    <div className="flex-1 p-0" key={draftKey}>
                         <div className="p-6 space-y-6">
                             {/* Form Inputs */}
                             <div className="grid grid-cols-2 gap-6">
@@ -865,8 +868,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                 <div>
                                     <div className="flex items-center justify-between mb-3">
                                         <Label className="font-medium">{dt.process.form.uploadImg} ({dt.process.form.supportedFormats})</Label>
-                                        <span
-                                            className="text-xs text-muted-foreground">{dt.process.form.attachmentHint.replace('{count}', String(currentDraft.attachments.filter(a => a.isPic === 1).length))}</span>
+                                        <span className="text-xs text-muted-foreground">{dt.process.form.imageHint.replace('{count}', String(currentDraft.attachments.filter(a => a.isPic === 1).length))}</span>
                                     </div>
                                     <div className="flex flex-wrap gap-4">
                                         {currentDraft.attachments.filter(a => a.isPic === 1).map((item, idx) => (
@@ -890,10 +892,10 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                                     <ImageIcon className="h-8 w-8 text-muted-foreground/30" />
                                                 )}
                                                 <button
-                                                    className="absolute -top-2 -right-2 bg-background rounded-full p-1 shadow border border-border opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-muted"
+                                                    className="absolute top-1 right-1 bg-background/90 rounded-full p-0.5 shadow border border-border opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-red-50 hover:border-red-200"
                                                     onClick={() => removeAttachment(currentDraft.attachments.indexOf(item))}
                                                 >
-                                                    <X className="h-3 w-3 text-muted-foreground" />
+                                                    <X className="h-3 w-3 text-muted-foreground hover:text-red-500" />
                                                 </button>
                                                 {!item.previewUrl && !item.uploading && !item.error && <span
                                                     className="absolute bottom-0 text-[8px] w-full text-center truncate px-1 bg-white/80">{item.fileName}</span>}
@@ -914,9 +916,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                 {/* Files */}
                                 <div>
                                     <div className="flex items-center justify-between mb-3">
-                                        <Label className="font-medium">{dt.process.form.uploadFile} (Max 6)</Label>
-                                        <span
-                                            className="text-xs text-muted-foreground">{dt.process.form.attachmentHint.replace('{count}', String(currentDraft.attachments.filter(a => a.isPic === 0).length))}</span>
+                                        <Label className="font-medium">{dt.process.form.uploadFile}</Label>
+                                        <span className="text-xs text-muted-foreground">{dt.process.form.fileHint.replace('{count}', String(currentDraft.attachments.filter(a => a.isPic === 0).length))}</span>
                                     </div>
                                     <div className="space-y-2">
                                         {currentDraft.attachments.filter(a => a.isPic === 0).map((item, idx) => (

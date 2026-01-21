@@ -619,7 +619,7 @@ function AppContent() {
                         {/* CM 核心业务系统 */}
                         <div className="system-card p-6 cursor-pointer flex flex-col h-[280px]" onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}>
                             <div className="flex justify-between items-start mb-4">
-                                <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center">
+                                <div className="w-12 h-12 bg-background border border-[var(--border-subtle)] shadow-sm rounded-xl flex items-center justify-center group-hover:border-primary/50 transition-colors">
                                     <Settings className="w-6 h-6 text-primary" />
                                 </div>
                                 <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800 text-[11px] px-2">

@@ -64,7 +64,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
     return (
         <header className="h-16 px-8 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--glass-bg)] backdrop-blur-sm sticky top-0 z-30 shrink-0">
             {/* Search Bar */}
-            <div className="search-bar flex-1 max-w-md relative">
+            <div className="search-bar flex-1 max-w-xs relative">
                 <Search className="w-[18px] h-[18px] text-[var(--text-tertiary)]" />
                 <input
                     type="text"
@@ -114,7 +114,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
             </div>
 
             {/* Right Actions */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
                 {/* 证书健康指示器（权限控制） */}
                 <HeaderHealthIndicator
                     hasPermission={hasHealthPermission}
@@ -158,7 +158,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
 
                 <div className="h-8 w-px bg-[var(--border-strong)]"></div>
 
-                <div className="user-profile">
+                <div className="user-profile shrink-0 min-w-fit flex items-center gap-3">
                     <div className="text-right">
                         <p className="text-xs text-[var(--text-tertiary)] leading-none">{t.header.organization}</p>
                         <p className="text-sm font-medium text-[var(--text-primary)]">{currentUser?.name} <span className="text-[var(--status-success)] text-xs ml-1">{t.header.online}</span></p>

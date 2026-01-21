@@ -481,7 +481,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
         return (
             <div className="relative" ref={containerRef}>
                 <button
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors ${expiredCount > 0
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors shrink-0 whitespace-nowrap ${expiredCount > 0
                         ? 'bg-destructive/10 border-destructive/20 hover:bg-destructive/20'
                         : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30'
                         }`}

@@ -82,10 +82,10 @@ export const WeatherChip: React.FC<WeatherChipProps> = ({
     const displayLabel = label || tr.defaultCity;
 
     return (
-        <StatusChip>
+        <StatusChip className="shrink-0 whitespace-nowrap">
             <MapPin className="w-4 h-4 text-primary" />
-            <span className="whitespace-nowrap">{displayLabel}</span>
-            <span className="text-muted-foreground">·</span>
+            <span className="whitespace-nowrap hidden 2xl:inline">{displayLabel}</span>
+            <span className="text-muted-foreground hidden 2xl:inline">·</span>
             {state.loading && !state.data ? (
                 <span className="text-gray-500 dark:text-gray-100">{tr.loading}</span>
             ) : state.error && !state.data ? (
@@ -96,11 +96,11 @@ export const WeatherChip: React.FC<WeatherChipProps> = ({
                     <span className="whitespace-nowrap tabular-nums font-mono dark:text-gray-100">{state.data.temp}°C</span>
                     <span className="hidden sm:inline dark:text-gray-100">{state.data.desc}</span>
                     <span className="text-gray-400 dark:text-gray-500 hidden md:inline">·</span>
-                    <span className="text-gray-500 dark:text-gray-100 hidden md:inline">
+                    <span className="text-gray-500 dark:text-gray-100 hidden 2xl:inline">
                         <Wind className="inline w-3 h-3 mr-1" />
                         {state.data.wind} km/h
                     </span>
-                    <span className="text-gray-500 dark:text-gray-100 hidden lg:inline">
+                    <span className="text-gray-500 dark:text-gray-100 hidden 2xl:inline">
                         <Droplets className="inline w-3 h-3 mx-1" />
                         {state.data.humidity}%
                     </span>

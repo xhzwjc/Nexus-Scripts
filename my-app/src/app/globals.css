@@ -181,7 +181,24 @@
     @apply border-border outline-ring/50;
   }
 
+  html {
+    /* 
+      Fluid Rem Layout Strategy (Refined High Density)
+      Target: 16px at 1440px (Standard Laptop)
+      Min: 14px (Mobile)
+      Max: 18px (Large Desktop)
+      Formula: ~0.15vw + 13.5px
+      - 375px: ~14px
+      - 1366px: ~15.5px (Laptop)
+      - 1920px: ~16.4px (Monitor)
+      - 2560px: ~17.3px (Ultrawide)
+    */
+    font-size: clamp(14px, 0.15vw + 13.5px, 18px);
+  }
+
   body {
     @apply bg-background text-foreground;
+    font-size: 1rem;
+    line-height: 1.5;
   }
 }

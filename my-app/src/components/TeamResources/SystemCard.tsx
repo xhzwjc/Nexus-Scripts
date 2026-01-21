@@ -151,20 +151,20 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                 {currentEnv ? (
                     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                         {/* URL Link */}
-                        <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg text-sm text-primary hover:bg-primary/10 transition-colors group">
-                            <Globe className="w-4 h-4 shrink-0" />
-                            <a href={currentEnv.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate font-medium hover:underline">
+                        <div className="flex items-center gap-2 p-3 bg-background border border-[var(--border-subtle)] rounded-lg text-sm text-[var(--text-primary)] hover:border-primary/50 transition-colors group shadow-sm">
+                            <Globe className="w-4 h-4 shrink-0 text-[var(--text-tertiary)] group-hover:text-primary transition-colors" />
+                            <a href={currentEnv.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate font-medium hover:underline decoration-primary/30 underline-offset-4">
                                 {currentEnv.url}
                             </a>
                             <Button
                                 size="icon"
                                 variant="ghost"
-                                className="h-6 w-6 opacity-0 group-hover:opacity-100 hover:bg-primary/20 hover:text-primary"
+                                className="h-6 w-6 opacity-0 group-hover:opacity-100 text-[var(--text-secondary)] hover:text-primary hover:bg-primary/10"
                                 onClick={() => copyToClipboard(currentEnv.url, 'URL')}
                             >
                                 <Copy className="w-3 h-3" />
                             </Button>
-                            <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                            <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-50 text-[var(--text-tertiary)]" />
                         </div>
 
                         {/* Credentials */}
