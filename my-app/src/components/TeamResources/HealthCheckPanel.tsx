@@ -59,9 +59,10 @@ const envLabels: Record<Environment, string> = {
 };
 
 // 根据单个环境检测结果判断状态
-function getEnvStatus(result: Partial<EnvCheckResult>): 'healthy' | 'warning' | 'danger' | 'unknown' {
+// 根据单个环境检测结果判断状态
+function getEnvStatus(result: Partial<EnvCheckResult>, skipCertCheck?: boolean): 'healthy' | 'warning' | 'danger' | 'unknown' {
     if (!result.accessible) return 'danger';
-    if (!result.ssl) return 'healthy';
+    if (!result.ssl || skipCertCheck) return 'healthy';
     if (result.ssl.daysRemaining !== undefined && result.ssl.daysRemaining <= 0) return 'danger';
     if (result.ssl.daysRemaining !== undefined && result.ssl.daysRemaining <= 30) return 'warning';
     return 'healthy';
@@ -117,21 +118,28 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
             systemId: string;
             systemName: string;
             groupName: string;
-            envUrls: { env: Environment; url: string }[];
+            envUrls: {
+                env: Environment;
+                url: string;
+                skipCertCheck?: boolean;
+            }[];
         }[] = [];
 
         for (const group of groups) {
             for (const system of group.systems) {
-                const envUrls: { env: Environment; url: string }[] = [];
+                const envUrls: { env: Environment; url: string; skipCertCheck?: boolean }[] = [];
 
                 // 收集所有有效的环境URL
                 const envOrder: Environment[] = ['prod', 'test', 'dev'];
                 for (const envKey of envOrder) {
                     const env = system.environments[envKey];
                     if (env?.url && env.url.trim() && env.url !== 'https://' && env.url !== 'example.com') {
+                        if (env.skipHealthCheck) continue;
+
                         envUrls.push({
                             env: envKey,
                             url: env.url.trim(),
+                            skipCertCheck: env.skipCertCheck
                         });
                     }
                 }
@@ -213,7 +221,8 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                     error: checkResult.error,
                     status: 'unknown',
                 };
-                envResult.status = getEnvStatus(envResult);
+
+                envResult.status = getEnvStatus(envResult, envUrl.skipCertCheck);
                 envResults.push(envResult);
 
                 checkedCount++;

@@ -281,6 +281,8 @@ export interface Translations {
     passwordOptional: string;
     noCredentialsYet: string;
     clearThisEnv: string;
+    skipHealthCheck: string;
+    skipCertCheck: string;
   };
 
   // Header Health Indicator
@@ -294,6 +296,10 @@ export interface Translations {
     inaccessible: string;
     expired: string;
     days: string;
+    allHealthy: string;
+    statusTitle: string;
+    allSystemsNormal: string;
+    envsChecked: string;
   };
 
   // AI Resources

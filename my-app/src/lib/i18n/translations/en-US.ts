@@ -330,6 +330,8 @@ export const enUS: Translations = {
         passwordOptional: 'Password (Optional)',
         noCredentialsYet: 'No credentials yet',
         clearThisEnv: 'Clear this environment',
+        skipHealthCheck: 'Skip Health Check',
+        skipCertCheck: 'Skip Certificate Check',
     },
 
     // Header Health Indicator
@@ -343,6 +345,10 @@ export const enUS: Translations = {
         inaccessible: 'Inaccessible',
         expired: 'Expired',
         days: 'd',
+        allHealthy: 'All Healthy',
+        statusTitle: 'Health Status',
+        allSystemsNormal: 'All monitored systems are running normally.',
+        envsChecked: ' Environments Checked',
     },
 
     // AI Resources

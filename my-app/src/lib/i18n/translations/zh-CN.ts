@@ -329,6 +329,8 @@ export const zhCN: Translations = {
         passwordOptional: '密码 (可选)',
         noCredentialsYet: '暂无凭证',
         clearThisEnv: '一键清空此环境',
+        skipHealthCheck: '忽略检测',
+        skipCertCheck: '忽略证书检测',
     },
 
     // Header Health Indicator
@@ -342,6 +344,10 @@ export const zhCN: Translations = {
         inaccessible: '不可访问',
         expired: '已过期',
         days: '天',
+        allHealthy: '全部健康',
+        statusTitle: '检测状态',
+        allSystemsNormal: '所有监控系统运行正常。',
+        envsChecked: '个环境已检测',
     },
 
     // AI Resources

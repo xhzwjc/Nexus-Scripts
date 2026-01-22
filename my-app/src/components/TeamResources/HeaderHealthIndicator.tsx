@@ -6,6 +6,7 @@ import CryptoJS from 'crypto-js';
 import {
     ShieldAlert,
     ShieldX,
+    ShieldCheck,
     RefreshCw,
     ExternalLink,
     ChevronDown,
@@ -168,10 +169,17 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
     }, [hasPermission, onHealthChange, clearSessionCheck]);
 
     // 加载团队资源数据
-    useEffect(() => {
+    // 加载团队资源数据
+    const fetchGroups = useCallback(() => {
         if (!hasPermission) return;
 
-        fetch('/api/resources/data')
+        // 添加时间戳防止缓存
+        fetch(`/api/resources/data?t=${Date.now()}`, {
+            headers: {
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            }
+        })
             .then(res => res.json())
             .then(json => {
                 if (json.encrypted) {
@@ -184,6 +192,19 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
             })
             .catch(() => { /* ignore */ });
     }, [hasPermission]);
+
+    useEffect(() => {
+        fetchGroups();
+
+        const handleUpdate = () => {
+            fetchGroups();
+        };
+
+        window.addEventListener('team-resources-updated', handleUpdate);
+        return () => {
+            window.removeEventListener('team-resources-updated', handleUpdate);
+        };
+    }, [fetchGroups]);
 
     // 检测单个URL
     const checkSingleUrl = async (url: string, signal?: AbortSignal): Promise<{
@@ -260,6 +281,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
             env: Environment;
             systemName: string;
             groupName: string;
+            skipCertCheck?: boolean;
         }[] = [];
 
         for (const group of groups) {
@@ -268,11 +290,15 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                 for (const envKey of envOrder) {
                     const env = system.environments[envKey];
                     if (env?.url && env.url.trim() && env.url !== 'https://' && env.url !== 'example.com') {
+                        // 如果勾选了忽略检测，则跳过
+                        if (env.skipHealthCheck) continue;
+
                         allEnvs.push({
                             url: env.url.trim(),
                             env: envKey,
                             systemName: system.name,
                             groupName: group.name,
+                            skipCertCheck: env.skipCertCheck // 传递忽略证书检测标志
                         });
                     }
                 }
@@ -294,9 +320,15 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                     const result = await checkSingleUrl(envInfo.url, abortControllerRef.current?.signal);
                     checkedCount++;
 
-                    // 只检查过期和即将过期（30天内）
-                    const hasIssue = !result.accessible ||
-                        (result.daysRemaining !== undefined && result.daysRemaining <= 30);
+                    // 判断是否有问题
+                    let hasIssue = !result.accessible;
+
+                    // 如果可访问，且未忽略证书检测，才检查证书问题
+                    if (result.accessible && !envInfo.skipCertCheck) {
+                        if (result.daysRemaining !== undefined && result.daysRemaining <= 30) {
+                            hasIssue = true;
+                        }
+                    }
 
                     if (hasIssue) {
                         foundIssues.push({
@@ -552,8 +584,54 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
         );
     }
 
-    // 没有问题时不显示（不占空间）
-    return null;
+    // 没有问题（所有健康）
+    return (
+        <div className="relative" ref={containerRef}>
+            <button
+                className="flex items-center gap-2 px-3 py-1.5 bg-green-50 dark:bg-green-900/20 rounded-full border border-green-200 dark:border-green-800 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                onClick={() => setExpanded(!expanded)}
+            >
+                <ShieldCheck className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                <span className="text-xs text-green-700 dark:text-green-300">{tr.allHealthy}</span>
+                {expanded ? <ChevronUp className="w-3 h-3 text-green-600 dark:text-green-400" /> : <ChevronDown className="w-3 h-3 text-green-600 dark:text-green-400" />}
+            </button>
+
+            {expanded && (
+                <div className="absolute right-0 top-full mt-2 w-72 bg-popover border border-border rounded-lg shadow-lg z-50 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-medium">{tr.statusTitle}</h4>
+                        {state.lastChecked && (
+                            <span className="text-xs text-muted-foreground">
+                                {state.lastChecked.toLocaleTimeString()}
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="flex items-top gap-3 mb-4 p-3 bg-muted/30 rounded-lg">
+                        <ShieldCheck className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+                        <div>
+                            <p className="text-sm text-foreground mb-1">{tr.allSystemsNormal}</p>
+                            <p className="text-xs text-muted-foreground">
+                                {state.totalEnvs}{tr.envsChecked}
+                            </p>
+                        </div>
+                    </div>
+
+                    <button
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-md text-sm transition-colors"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setExpanded(false);
+                            runHealthCheck();
+                        }}
+                    >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        {tr.recheck}
+                    </button>
+                </div>
+            )}
+        </div>
+    );
 }
 
 export default HeaderHealthIndicator;

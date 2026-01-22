@@ -17,6 +17,8 @@ export interface SystemEnvironment {
     url: string;
     adminUrl?: string;
     creds: Credential[];
+    skipHealthCheck?: boolean;  // 忽略检测 - 完全跳过此 URL
+    skipCertCheck?: boolean;    // 忽略证书检测 - 只检查可访问性
 }
 
 // 系统资源

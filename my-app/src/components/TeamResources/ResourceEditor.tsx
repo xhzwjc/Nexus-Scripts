@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { ResourceGroup, SystemResource, Credential, Environment, SystemEnvironment } from '@/lib/team-resources-data';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -303,6 +304,18 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
         handleUpdateSystem('environments', newEnvs);
     };
 
+    // 更新环境跳过检测标志
+    const handleUpdateEnvSkipFlag = (env: Environment, flag: 'skipHealthCheck' | 'skipCertCheck', value: boolean) => {
+        if (!currentSystem) return;
+        const newEnvs = { ...currentSystem.environments };
+        if (!newEnvs[env]) {
+            newEnvs[env] = { url: '', creds: [], [flag]: value };
+        } else {
+            newEnvs[env] = { ...newEnvs[env]!, [flag]: value };
+        }
+        handleUpdateSystem('environments', newEnvs);
+    };
+
     // 添加凭证
     const handleAddCredential = (env: Environment) => {
         if (!currentSystem) return;
@@ -402,6 +415,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
 
             // 4. 调用父组件保存（传递已转换为 URL 的数据）
             await onSave(groupsWithUrls);
+            window.dispatchEvent(new Event('team-resources-updated'));
         } finally {
             setIsSaving(false);
         }
@@ -586,6 +600,29 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                                     onChange={(e) => handleUpdateEnvUrl(env, e.target.value)}
                                                     placeholder="example.com"
                                                 />
+                                            </div>
+
+                                            <div className="flex items-center gap-6">
+                                                <div className="flex items-center space-x-2">
+                                                    <Checkbox
+                                                        id={`skip-health-${env}`}
+                                                        checked={currentSystem.environments[env]?.skipHealthCheck || false}
+                                                        onCheckedChange={(checked) => handleUpdateEnvSkipFlag(env, 'skipHealthCheck', checked as boolean)}
+                                                    />
+                                                    <Label htmlFor={`skip-health-${env}`} className="text-sm font-normal cursor-pointer">
+                                                        {tr.skipHealthCheck}
+                                                    </Label>
+                                                </div>
+                                                <div className="flex items-center space-x-2">
+                                                    <Checkbox
+                                                        id={`skip-cert-${env}`}
+                                                        checked={currentSystem.environments[env]?.skipCertCheck || false}
+                                                        onCheckedChange={(checked) => handleUpdateEnvSkipFlag(env, 'skipCertCheck', checked as boolean)}
+                                                    />
+                                                    <Label htmlFor={`skip-cert-${env}`} className="text-sm font-normal cursor-pointer">
+                                                        {tr.skipCertCheck}
+                                                    </Label>
+                                                </div>
                                             </div>
 
                                             <div className="space-y-3">
