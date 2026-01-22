@@ -84,7 +84,7 @@ export const WeatherChip: React.FC<WeatherChipProps> = ({
     return (
         <StatusChip className="shrink-0 whitespace-nowrap">
             <MapPin className="w-4 h-4 text-primary" />
-            <span className="whitespace-nowrap hidden 2xl:inline">{displayLabel}</span>
+            <span className="whitespace-nowrap hidden 2xl:inline dark:text-gray-50">{displayLabel}</span>
             <span className="text-muted-foreground hidden 2xl:inline">·</span>
             {state.loading && !state.data ? (
                 <span className="text-gray-500 dark:text-gray-100">{tr.loading}</span>
@@ -92,7 +92,7 @@ export const WeatherChip: React.FC<WeatherChipProps> = ({
                 <span className="text-gray-500 dark:text-gray-100">{tr.unavailable}</span>
             ) : state.data ? (
                 <>
-                    {getWeatherIcon(state.data.code)}
+                    <span className="dark:text-gray-50">{getWeatherIcon(state.data.code)}</span>
                     <span className="whitespace-nowrap tabular-nums font-mono dark:text-gray-100">{state.data.temp}°C</span>
                     <span className="hidden sm:inline dark:text-gray-100">{state.data.desc}</span>
                     <span className="text-gray-400 dark:text-gray-500 hidden md:inline">·</span>
