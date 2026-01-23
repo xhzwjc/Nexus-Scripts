@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 from io import BytesIO
 from pathlib import Path
@@ -975,3 +975,31 @@ async def delivery_worker_info(request: DeliveryWorkerInfoRequest):
     logger.info(f"[交付物-用户信息] 获取用户信息")
     service = MobileTaskService(environment=request.environment, silent=True)
     return service.delivery_worker_info(request.token)
+
+
+
+# ================= AI 助手接口 =================
+from .services.ai_service import AiService
+from .models import ChatRequest, ChatResponse
+
+def get_ai_service():
+    return AiService()
+
+@app.post('/ai/chat', tags=['AI助手'])
+async def chat_with_ai(
+    request: ChatRequest,
+    service: AiService = Depends(get_ai_service)
+):
+    """
+    与AI助手对话 (流式响应)
+    支持可选的图片输入用于页面截图分析
+    """
+    return StreamingResponse(
+        service.generate_response_stream(
+            message=request.message,
+            history=request.history,
+            context=request.context,
+            image_data=request.image
+        ),
+        media_type='text/event-stream'
+    )

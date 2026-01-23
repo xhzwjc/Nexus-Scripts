@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from './ui/badge';
 import {
     ArrowLeft, Loader2, Upload, File as FileIcon, X, CheckCircle, AlertCircle,
-    Image as ImageIcon, User, ChevronRight, ChevronDown, LogOut, RefreshCw
+    Image as ImageIcon, User, ChevronRight, ChevronDown, LogOut, RefreshCw, Sparkles
 } from 'lucide-react';
 import { getApiBaseUrl } from '../lib/api';
 import { useI18n } from '@/lib/i18n';
@@ -793,9 +793,29 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                             </CardDescription>
                         </div>
                         {activeTask && (
-                            <Badge variant="outline" className="font-mono flex-shrink-0 ml-2">
-                                MyStatus: {activeTask.myStatus}
-                            </Badge>
+                            <>
+                                <Badge variant="outline" className="font-mono flex-shrink-0 ml-2">
+                                    MyStatus: {activeTask.myStatus}
+                                </Badge>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="ml-2 h-7 px-2.5 text-xs bg-gradient-to-r from-violet-500/10 to-purple-500/10 border-violet-300/50 dark:border-violet-500/30 text-violet-700 dark:text-violet-300 hover:from-violet-500/20 hover:to-purple-500/20 transition-all"
+                                    onClick={() => {
+                                        // Trigger AI assistant with auto-screenshot and specific prompt
+                                        const event = new CustomEvent('ai-assistant-trigger', {
+                                            detail: {
+                                                prompt: '请结合页面中的交付物标题，帮我生成“交付标题”和“详细说明”。为了避免重复，请给我写 3 个不同版本的文案供我选择： 版本 1：【极简风】（一针见血，字数最少） 版本 2：【专业风】（用词高大上，强调技术价值） 版本 3：【结果导向】（强调解决了什么问题，提升了什么指标）',
+                                                autoScreenshot: true
+                                            }
+                                        });
+                                        window.dispatchEvent(event);
+                                    }}
+                                >
+                                    <Sparkles className="w-3.5 h-3.5 mr-1" />
+                                    AI填表
+                                </Button>
+                            </>
                         )}
                     </div>
                 </CardHeader>
@@ -842,7 +862,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         onChange={e => updateDraft(draftKey, 'reportContent', e.target.value)}
                                     />
                                     <span
-                                        className="absolute bottom-2 right-3 text-xs text-muted-foreground bg-white px-1">
+                                        className="absolute bottom-2 right-3 text-xs text-muted-foreground/70">
                                         {currentDraft.reportContent.length}/300
                                     </span>
                                 </div>

@@ -647,3 +647,20 @@ class DeliverySubmitRequest(BaseModel):
 class DeliveryWorkerInfoRequest(BaseModel):
     environment: str
     token: str
+
+
+# AI助手相关模型
+class ChatRequest(BaseModel):
+    """AI对话请求模型"""
+    message: str = Field(..., description="用户消息")
+    history: List[Dict[str, Any]] = Field(default=[], description="对话历史 [{'role': 'user', 'parts': ['...']}]")
+    context: Optional[Dict[str, Any]] = Field(default=None, description="上下文信息 (工具列表等)")
+    image: Optional[str] = Field(default=None, description="Base64编码的图片数据 (用于页面截图分析)")
+
+
+class ChatResponse(BaseModel):
+    """AI对话响应模型"""
+    response: str = Field(..., description="AI回复内容")
+    request_id: str = Field(..., description="请求ID")
+    success: bool = Field(True, description="是否成功")
+

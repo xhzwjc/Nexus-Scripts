@@ -167,9 +167,15 @@ class Settings:
     def sms_referer(self):
         return self.get_sms_config()["referer"]
 
+
     @property
     def sms_headers(self):
         return self.get_sms_config()["headers"]
+
+    # AI Service Configuration
+    AI_BASE_URL = os.getenv("AI_BASE_URL")
+    AI_API_KEY = os.getenv("AI_API_KEY")
+    AI_MODEL_NAME = os.getenv("AI_MODEL_NAME")
 
 
 # 创建配置实例
