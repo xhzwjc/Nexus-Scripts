@@ -1,11 +1,18 @@
 @echo off
 setlocal
-set ROOT=E:\Python_project\project-root
+
+:: 自动获取当前脚本所在目录
+set "ROOT=%~dp0"
+
+:: 去掉末尾的反斜杠（如果有）
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 
 echo.
 echo =================================================
 echo Starting all services in ONE Windows Terminal...
 echo =================================================
+echo.
+echo Root directory: %ROOT%
 echo.
 
 :: 核心修改说明：
