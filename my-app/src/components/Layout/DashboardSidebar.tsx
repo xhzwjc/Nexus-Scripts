@@ -47,16 +47,6 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                         </div>
                         <span>{t.nav.home}</span>
                     </div>
-                    {/* Operations Center (Restricted) */}
-                    {currentUser?.permissions['server-monitoring'] && (
-                        <div
-                            className={`sidebar-nav-item ${currentView === 'ops-center' ? 'active' : ''}`}
-                            onClick={() => setCurrentView('ops-center')}
-                        >
-                            <Server className="w-[18px] h-[18px]" />
-                            <span>{t.nav.opsCenter}</span>
-                        </div>
-                    )}
                     <div
                         className={`sidebar-nav-item ${currentView === 'system' ? 'active' : ''}`}
                         onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}
@@ -71,6 +61,16 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                         <ScanLine className="w-[18px] h-[18px]" />
                         <span>{t.nav.ocrTool}</span>
                     </div>
+                    {/* Operations Center (Restricted) */}
+                    {currentUser?.permissions['server-monitoring'] && (
+                        <div
+                            className={`sidebar-nav-item ${currentView === 'ops-center' ? 'active' : ''}`}
+                            onClick={() => setCurrentView('ops-center')}
+                        >
+                            <Server className="w-[18px] h-[18px]" />
+                            <span>{t.nav.opsCenter}</span>
+                        </div>
+                    )}
                     <div
                         className={`sidebar-nav-item ${currentView === 'team-resources' ? 'active' : ''}`}
                         onClick={() => setCurrentView('team-resources')}
