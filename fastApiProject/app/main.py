@@ -22,7 +22,8 @@ from .models import (
     SMSSendResponse, SMSBatchSendRequest, SMSSendSingleRequest, SMSBaseRequest, SMSTemplateResponse,
     MobileParseResponse, MobileParseRequest, TaxCalculationResponse, TaxCalculationRequest,
     PaymentStatsRequest, PaymentStatsResponse,
-    DeliveryLoginRequest, DeliveryTaskRequest, DeliverySubmitRequest, DeliveryWorkerInfoRequest
+    DeliveryLoginRequest, DeliveryTaskRequest, DeliverySubmitRequest, DeliveryWorkerInfoRequest,
+    AdminLoginRequest, SMSLogRequest
 )
 from .services import EnterpriseSettlementService, AccountBalanceService, CommissionCalculationService, \
     MobileTaskService, SMSService, PaymentStatsService
@@ -341,7 +342,7 @@ async def update_sms_templates(
         request_id = str(uuid.uuid4())
         logger.info(f"更新短信模板，环境: {request.environment}, 请求ID: {request_id}")
 
-        result = service.update_templates()
+        result = service.update_templates(token=request.token)
         return {
             "code": result.get("code",0),
             "success": result["success"],
@@ -394,7 +395,8 @@ async def send_single_sms(
         result = service.send_single(
             template_code=request.template_code,
             mobiles=mobiles,
-            params=request.params
+            params=request.params,
+            token=request.token
         )
 
         return {
@@ -431,7 +433,8 @@ async def batch_send_sms(
         result = service.batch_send(
             template_codes=request.template_codes,
             mobiles=mobiles,
-            random_send=request.random_send
+            random_send=request.random_send,
+            token=request.token
         )
 
         return {
@@ -465,7 +468,7 @@ async def resend_sms(
             raise HTTPException(status_code=400, detail="批次号和手机号不能同时为空")
 
         # 1. 更新模板
-        update_result = service.update_templates()
+        update_result = service.update_templates(token=request.token)
         if not update_result["success"]:
             raise HTTPException(status_code=500, detail=update_result["message"])
 
@@ -489,7 +492,7 @@ async def resend_sms(
             }
 
         # 3. 补发短信
-        resend_result = service.resend_sms(workers)
+        resend_result = service.resend_sms(workers, token=request.token)
 
         return {
             "success": resend_result["success"],
@@ -510,6 +513,28 @@ async def resend_sms(
             "request_id": str(uuid.uuid4()),
             "workers": []
         }
+
+
+# 7. Admin Login
+@app.post("/system/auth/login", tags=["Admin Auth"])
+async def admin_login(request: AdminLoginRequest):
+    service = SMSService(environment=request.environment)
+    result = service.admin_login()
+    return result
+
+
+# 8. SMS Logs
+@app.post("/sms/logs", tags=["SMS Logs"])
+async def get_sms_logs(request: SMSLogRequest):
+    service = SMSService(environment=request.environment)
+    return service.get_sms_logs(
+        token=request.token,
+        page=request.page,
+        page_size=request.pageSize,
+        mobile=request.mobile,
+        send_status=request.sendStatus,
+        receive_status=request.receiveStatus
+    )
 
 
 from .reports import TaxReportGenerator

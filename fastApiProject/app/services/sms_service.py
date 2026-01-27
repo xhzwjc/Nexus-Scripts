@@ -89,11 +89,11 @@ class SMSService:
         filename = "prod_templates.json" if self.environment == "prod" else "test_templates.json"
         return os.path.join(self.template_dir, filename)
 
-    def update_templates(self):
+    def update_templates(self, token: Optional[str] = None):
         """更新模板数据"""
         try:
             # 获取环境配置
-            env_settings = self._get_env_settings()
+            env_settings = self._get_env_settings(token)
             url = f"{env_settings['sms_api_base_url']}/page?pageNo=1&pageSize=50&type=2&code=&content=&apiTemplateId=&channelId=2"
 
             response = requests.get(url, headers=env_settings['sms_headers'], timeout=10)
@@ -162,7 +162,7 @@ class SMSService:
             })
         return allowed_list
 
-    def send_single(self, template_code, mobiles, params):
+    def send_single(self, template_code, mobiles, params, token: Optional[str] = None):
         """发送单模板短信"""
         try:
             # 检查模板是否存在
@@ -183,7 +183,7 @@ class SMSService:
             filtered_params = {k: v for k, v in final_params.items() if k in required_params}
 
             # 发送请求
-            env_settings = self._get_env_settings()
+            env_settings = self._get_env_settings(token)
             url = f"{env_settings['sms_api_base_url']}/send-sms"
             headers = {**env_settings['sms_headers'], 'Content-Type': 'application/json'}
 
@@ -222,7 +222,7 @@ class SMSService:
             logger.error(f"发送短信失败: {str(e)}")
             return {"success": False, "message": f"发送短信失败: {str(e)}", "data": None}
 
-    def batch_send(self, template_codes, mobiles, random_send):
+    def batch_send(self, template_codes, mobiles, random_send, token: Optional[str] = None):
         """批量发送允许的模板"""
         try:
             # 获取模板列表
@@ -270,7 +270,7 @@ class SMSService:
                 filtered_params = {k: v for k, v in final_params.items() if k in required_params}
 
                 # 发送请求
-                env_settings = self._get_env_settings()
+                env_settings = self._get_env_settings(token)
                 url = f"{env_settings['sms_api_base_url']}/send-sms"
                 headers = {**env_settings['sms_headers'], 'Content-Type': 'application/json'}
 
@@ -371,7 +371,7 @@ class SMSService:
             logger.error(f"查询工人信息失败: {str(e)}")
             return {"success": False, "message": f"查询失败: {str(e)}", "data": []}
 
-    def resend_sms(self, workers):
+    def resend_sms(self, workers, token: Optional[str] = None):
         """补发短信"""
         try:
             # 检查模板是否存在
@@ -388,9 +388,9 @@ class SMSService:
                 return {"success": False, "message": f"模板 {template_code} 不存在，请更新数据", "data": None}
 
             # 发送请求
-            env_settings = settings.get_sms_config(self.environment)
-            url = f"{env_settings['api_base_url']}/send-sms"
-            headers = {**env_settings["headers"], 'Content-Type': 'application/json'}
+            env_settings = self._get_env_settings(token)
+            url = f"{env_settings['sms_api_base_url']}/send-sms"
+            headers = {**env_settings["sms_headers"], 'Content-Type': 'application/json'}
 
             results = []
             for worker in workers:
@@ -440,10 +440,85 @@ class SMSService:
             logger.error(f"补发短信失败: {str(e)}")
             return {"success": False, "message": f"补发短信失败: {str(e)}", "data": None}
 
-    def _get_env_settings(self):
-        """获取当前环境对应的配置"""
+    def _get_env_settings(self, token: Optional[str] = None):
+        """
+        获取当前环境对应的配置
+        :param token: Optional[str] - Admin Access Token override
+        """
         config = settings.get_sms_config(self.environment)
+        
+        # Override token if provided
+        if token:
+            config['headers']['Authorization'] = f"Bearer {token}"
+            # Ensure correct tenant ID for the Admin API context if needed, but for SMS API often tenant-id is fixed to '1' or whatever.
+            # However, user said "login -> get access token -> use it". 
+            # If we are using the Admin Token, we might need to adjust tenant-id too?
+            # The USER REQUEST says: "fetching sms logs... tenant-id: 1". 
+            # The Login Request also has "tenant-id: 1".
+            # My settings have SMS_TENANT_ID = "1". So it matches. I don't need to change tenant-id unless it's different.
+        
         return {
             "sms_api_base_url": config["api_base_url"],
             "sms_headers": config["headers"]
         }
+
+    def admin_login(self) -> Dict[str, Any]:
+        """管理员登录获取Token"""
+        is_prod = self.environment == "prod"
+        base_url = settings.SMS_ADMIN_API_URL_PROD if is_prod else settings.SMS_ADMIN_API_URL_TEST
+        
+        # Payload (Password is ALREADY ENCRYPTED as per plan)
+        payload = {
+            "tenantName": settings.SMS_ADMIN_TENANT_NAME_PROD if is_prod else settings.SMS_ADMIN_TENANT_NAME_TEST,
+            "username": settings.SMS_ADMIN_USERNAME_PROD if is_prod else settings.SMS_ADMIN_USERNAME_TEST,
+            "password": settings.SMS_ADMIN_PASSWORD_PROD if is_prod else settings.SMS_ADMIN_PASSWORD_TEST,
+            "code": settings.SMS_ADMIN_CAPTCHA_CODE,
+            "captchaId": settings.SMS_ADMIN_CAPTCHA_ID,
+            "rememberMe": True
+        }
+        
+        url = f"{base_url}/system/auth/login"
+        headers = {
+            "content-type": "application/json",
+            "tenant-id": settings.SMS_ADMIN_TENANT_ID_PROD if is_prod else settings.SMS_ADMIN_TENANT_ID_TEST
+        }
+        
+        try:
+            logger.info(f"Admin Login Request to {url} with user {payload['username']}")
+            response = requests.post(url, json=payload, headers=headers, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Admin Login Failed: {str(e)}")
+            raise
+
+    def get_sms_logs(self, token: str, page: int = 1, page_size: int = 10, 
+                     mobile: str = None, send_status: str = None, 
+                     receive_status: str = None) -> Dict[str, Any]:
+        """获取短信日志"""
+        is_prod = self.environment == "prod"
+        base_url = settings.SMS_ADMIN_API_URL_PROD if is_prod else settings.SMS_ADMIN_API_URL_TEST
+        
+        params = {
+            "pageNo": page,
+            "pageSize": page_size,
+            "channelId": "",
+            "templateId": "",
+            "mobile": mobile or "",
+            "sendStatus": send_status or "",
+            "receiveStatus": receive_status or ""
+        }
+        
+        url = f"{base_url}/system/sms-log/page"
+        headers = {
+            "authorization": f"Bearer {token}",
+            "tenant-id": settings.SMS_ADMIN_TENANT_ID_PROD if is_prod else settings.SMS_ADMIN_TENANT_ID_TEST
+        }
+        
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Fetch SMS Logs Failed: {str(e)}")
+            raise

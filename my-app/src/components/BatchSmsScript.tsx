@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Badge } from './ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -53,11 +54,32 @@ interface ApiResponse<T = unknown> {
     total?: number;
     success_count?: number;
     failure_count?: number;
+    msg?: string; // Support alternative message field
+}
+
+interface LoginData {
+    accessToken: string;
+}
+
+interface LogData {
+    list: SMSLogItem[];
+    total: number;
 }
 
 interface TemplateParam {
     name: string;
     value: string;
+}
+
+interface SMSLogItem {
+    id: number;
+    sendTime: number;
+    mobile: string;
+    templateContent: string;
+    sendStatus: number;
+    receiveStatus: number;
+    templateCode: string;
+    apiSendMsg: string;
 }
 
 type ResendType = 'mobile' | 'batch';
@@ -211,6 +233,114 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
 
     // Templates
     const [allTemplates, setAllTemplates] = useState<Template[]>([]);
+
+    // Admin Login State
+    const [adminToken, setAdminToken] = useState<string>('');
+    const [showLoginPrompt, setShowLoginPrompt] = useState(false);
+    const [secretKey, setSecretKey] = useState('');
+    const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+    // SMS Logs State
+    const [smsLogs, setSmsLogs] = useState<SMSLogItem[]>([]);
+    const [logsLoading, setLogsLoading] = useState(false);
+    const [logPage, setLogPage] = useState(1);
+    const [logTotal, setLogTotal] = useState(0);
+    // Log Filters
+    const [logFilterMobile, setLogFilterMobile] = useState('');
+    const [logFilterSendStatus, setLogFilterSendStatus] = useState<string>('');
+    const [logFilterReceiveStatus, setLogFilterReceiveStatus] = useState<string>('');
+
+    // Clear token on environment change
+    useEffect(() => {
+        setAdminToken('');
+        setSmsLogs([]);
+        setLogTotal(0);
+        setLogPage(1);
+    }, [environment]);
+
+    // Handlers
+    const handleAdminLogin = async () => {
+        if (secretKey !== 'wjc') {
+            toast.error('密钥错误，无权访问');
+            return;
+        }
+
+        const api = getSmsApi();
+        if (!api) {
+            toast.error('API未配置');
+            return;
+        }
+
+        setIsLoggingIn(true);
+        try {
+            const res = await api.post<ApiResponse<LoginData>>('/system/auth/login', { environment });
+            if (res.data.success || res.data.code === 0) {
+                const token = res.data.data?.accessToken;
+                if (token) {
+                    setAdminToken(token);
+                    toast.success('管理员登录成功');
+                    setShowLoginPrompt(false);
+                    setSecretKey('');
+                } else {
+                    toast.error('登录失败：未获取到Token');
+                }
+            } else {
+                toast.error(`登录失败: ${res.data.message || res.data.msg}`);
+            }
+        } catch (error) {
+            toast.error(getErrorMessage(error, '登录请求失败'));
+        } finally {
+            setIsLoggingIn(false);
+        }
+    };
+
+    const fetchLogs = async (page = 1, filters?: { mobile?: string; sendStatus?: string; receiveStatus?: string }) => {
+        if (!adminToken) {
+            toast.error('请先登录管理员账号');
+            return;
+        }
+
+        const api = getSmsApi();
+        if (!api) {
+            toast.error('API未配置');
+            return;
+        }
+
+
+
+        setLogsLoading(true);
+        try {
+            const res = await api.post<ApiResponse<LogData>>('/sms/logs', {
+                environment,
+                token: adminToken,
+                page,
+                pageSize: 10,
+                mobile: (filters?.mobile !== undefined ? filters.mobile : logFilterMobile) || undefined,
+                sendStatus: (filters?.sendStatus !== undefined ? filters.sendStatus : logFilterSendStatus) || undefined,
+                receiveStatus: (filters?.receiveStatus !== undefined ? filters.receiveStatus : logFilterReceiveStatus) || undefined
+            });
+
+            if (res.data.code === 0 && res.data.data) {
+                setSmsLogs(res.data.data.list || []);
+                setLogTotal(res.data.data.total || 0);
+                setLogPage(page);
+                toast.success('日志刷新成功');
+            } else {
+                toast.error(`获取日志失败: ${res.data.message || res.data.msg}`);
+            }
+        } catch (error) {
+            toast.error(getErrorMessage(error, '获取日志失败'));
+        } finally {
+            setLogsLoading(false);
+        }
+    };
+
+    const resetFilters = () => {
+        setLogFilterMobile('');
+        setLogFilterSendStatus('');
+        setLogFilterReceiveStatus('');
+        fetchLogs(1, { mobile: '', sendStatus: '', receiveStatus: '' });
+    };
     const [allowedTemplates, setAllowedTemplates] = useState<Template[]>([]);
     const [templateFilter, setTemplateFilter] = useState('');
     const [allowedFilter, setAllowedFilter] = useState('');
@@ -334,6 +464,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
             const res = await api.post<ApiResponse>('/sms/templates/update', {
                 environment,
                 timeout: clampTimeout(timeout),
+                token: adminToken || undefined,
             });
 
             // 判断更新是否成功
@@ -440,6 +571,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                 use_preset_mobiles: usePresetMobiles,
                 mobiles: mobileList,
                 params: paramsObj,
+                token: adminToken || undefined,
             });
 
             if (!mountedRef.current) return;
@@ -477,6 +609,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                 use_preset_mobiles: usePresetMobiles,
                 mobiles: mobileList,
                 random_send: randomSend,
+                token: adminToken || undefined,
             });
 
             if (!mountedRef.current) return;
@@ -521,6 +654,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                 timeout: clampTimeout(timeout),
                 template_code: 'reset_worker_sign',
                 ...params,
+                token: adminToken || undefined,
             });
 
             if (mountedRef.current) {
@@ -587,16 +721,32 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                         ? bs.status.loading
                                         : bs.status.ready}
                         </Badge>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="ml-auto"
+                            onClick={() => adminToken ? setAdminToken('') : setShowLoginPrompt(true)}
+                        >
+                            {adminToken ? (
+                                <span className="text-green-500 font-bold flex items-center gap-1">
+                                    <Check className="w-3 h-3" />
+                                    已登录 (Admin)
+                                </span>
+                            ) : (
+                                <span className="text-muted-foreground text-xs">登录</span>
+                            )}
+                        </Button>
                     </div>
                     <p className="text-muted-foreground">{bs.subtitle}</p>
                 </div>
 
                 <Tabs defaultValue="templateManagement" className="space-y-6">
-                    <TabsList className="grid w-full grid-cols-4">
+                    <TabsList className="grid w-full grid-cols-5">
                         <TabsTrigger value="templateManagement">{bs.tabs.template}</TabsTrigger>
                         <TabsTrigger value="singleSend">{bs.tabs.single}</TabsTrigger>
                         <TabsTrigger value="batchSend">{bs.tabs.batch}</TabsTrigger>
                         <TabsTrigger value="resendSign">{bs.tabs.resend}</TabsTrigger>
+                        <TabsTrigger value="smsLogs">短信日志</TabsTrigger>
                     </TabsList>
 
                     {/* 模板管理 */}
@@ -1355,8 +1505,191 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                             </Card>
                         )}
                     </TabsContent>
+
+                    {/* 短信日志 */}
+                    <TabsContent value="smsLogs" className="space-y-6 animate-in fade-in-50 duration-300">
+                        <Card>
+                            <CardHeader>
+                                <div className="space-y-4">
+                                    <div className="flex justify-between items-center">
+                                        <CardTitle>短信发送日志</CardTitle>
+                                        <div className="flex gap-2">
+                                            <Button variant="outline" size="sm" onClick={() => fetchLogs(1)} disabled={logsLoading}>
+                                                <Refresh className={`w-4 h-4 mr-2 ${logsLoading ? 'animate-spin' : ''}`} />
+                                                刷新
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-4 items-end bg-muted/50 p-4 rounded-lg">
+                                        <div className="w-full sm:w-48 space-y-2">
+                                            <Label>手机号</Label>
+                                            <Input
+                                                placeholder="输入手机号筛选"
+                                                value={logFilterMobile}
+                                                onChange={(e) => setLogFilterMobile(e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="w-full sm:w-32 space-y-2">
+                                            <Label>发送状态</Label>
+                                            <Select value={logFilterSendStatus} onValueChange={(val) => setLogFilterSendStatus(val === 'all' ? '' : val)}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="全部" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="all">全部</SelectItem>
+                                                    <SelectItem value="10">成功 (10)</SelectItem>
+                                                    <SelectItem value="20">失败 (20)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="w-full sm:w-32 space-y-2">
+                                            <Label>接收状态</Label>
+                                            <Select value={logFilterReceiveStatus} onValueChange={(val) => setLogFilterReceiveStatus(val === 'all' ? '' : val)}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="全部" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="all">全部</SelectItem>
+                                                    <SelectItem value="10">成功 (10)</SelectItem>
+                                                    <SelectItem value="20">失败 (20)</SelectItem>
+                                                    <SelectItem value="0">等待 (0)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Button
+                                            onClick={() => fetchLogs(1)}
+                                            disabled={logsLoading}
+                                            className="mb-0.5"
+                                        >
+                                            查询
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            onClick={resetFilters}
+                                            disabled={logsLoading}
+                                            className="mb-0.5"
+                                        >
+                                            重置
+                                        </Button>
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>ID</TableHead>
+                                            <TableHead>手机号</TableHead>
+                                            <TableHead>模板代码</TableHead>
+                                            <TableHead>内容</TableHead>
+                                            <TableHead>发送状态</TableHead>
+                                            <TableHead>接收状态</TableHead>
+                                            <TableHead>发送时间</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {smsLogs.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                                    暂无日志数据
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            smsLogs.map((log) => (
+                                                <TableRow key={log.id}>
+                                                    <TableCell>{log.id}</TableCell>
+                                                    <TableCell>{log.mobile}</TableCell>
+                                                    <TableCell>{log.templateCode}</TableCell>
+                                                    <TableCell className="max-w-xs truncate" title={log.templateContent}>
+                                                        {log.templateContent}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={log.sendStatus === 10 ? 'default' : 'secondary'}>
+                                                            {log.sendStatus === 10 ? '成功' : log.sendStatus === 20 ? '失败' : '未知'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={log.receiveStatus === 10 ? 'default' : log.receiveStatus === 20 ? 'destructive' : 'secondary'}>
+                                                            {log.receiveStatus === 10 ? '成功' : log.receiveStatus === 20 ? '失败' : '等待结果'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>{new Date(log.sendTime).toLocaleString()}</TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+
+                                {/* Pagination */}
+                                {logTotal > 0 && (
+                                    <div className="flex justify-between items-center mt-4">
+                                        <div className="text-sm text-muted-foreground">
+                                            共 {logTotal} 条记录
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={logPage <= 1 || logsLoading}
+                                                onClick={() => fetchLogs(logPage - 1)}
+                                            >
+                                                上一页
+                                            </Button>
+                                            <span className="flex items-center px-2 text-sm">
+                                                Page {logPage}
+                                            </span>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={logsLoading || smsLogs.length < 10} // Simple check, ideally check against total/pageSize
+                                                onClick={() => fetchLogs(logPage + 1)}
+                                            >
+                                                下一页
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
                 </Tabs>
             </div>
+
+            {/* Login Prompt Dialog */}
+            <Dialog open={showLoginPrompt} onOpenChange={setShowLoginPrompt}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>管理员登录</DialogTitle>
+                        <DialogDescription>
+                            请输入访问密钥以登录 {environment === 'test' ? '测试' : '生产'} 环境后台
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="secretKey" className="text-right">
+                                密钥
+                            </Label>
+                            <Input
+                                id="secretKey"
+                                type="password"
+                                value={secretKey}
+                                onChange={(e) => setSecretKey(e.target.value)}
+                                className="col-span-3"
+                                placeholder="请输入密钥"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleAdminLogin();
+                                }}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowLoginPrompt(false)}>取消</Button>
+                        <LoadingButton onClick={handleAdminLogin} isLoading={isLoggingIn}>
+                            登录
+                        </LoadingButton>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

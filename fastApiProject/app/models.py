@@ -182,6 +182,23 @@ class SMSTemplateItem(BaseModel):
 class SMSBaseRequest(BaseModel):
     environment: Literal["test", "prod"] = Field(..., description="环境")
     timeout: int = Field(15, ge=5, le=60, description="超时时间(秒)")
+    token: Optional[str] = Field(None, description="Admin Access Token override")
+
+
+class AdminLoginRequest(BaseModel):
+    environment: Literal["test", "prod"] = Field(..., description="环境")
+
+
+class SMSLogRequest(BaseModel):
+    token: str = Field(..., description="Access Token")
+    environment: Literal["test", "prod"] = Field(..., description="环境")
+    page: int = Field(default=1, description="页码")
+    pageSize: int = Field(default=10, description="每页数量")
+    mobile: Optional[str] = Field(None, description="手机号")
+    templateId: Optional[str] = Field(None, description="模板ID")
+    channelId: Optional[str] = Field(None, description="渠道ID")
+    sendStatus: Optional[str] = Field(None, description="发送状态")
+    receiveStatus: Optional[str] = Field(None, description="接收状态")
 
 
 class SMSSendSingleRequest(SMSBaseRequest):
@@ -366,73 +383,6 @@ class TaxCalculationResultItem(BaseModel):
     quick_deduction: float = Field(..., description="速算扣除数")
     accumulated_total_tax: float = Field(..., description="累计应纳税额")
     prev_accumulated_tax: float = Field(..., description="上期累计已缴税额")
-class SMSTemplateItem(BaseModel):
-    id: int = Field(..., description="模板ID")
-    name: str = Field(..., description="模板名称")
-    code: str = Field(..., description="模板编码")
-    content: str = Field(..., description="模板内容")
-    params: List[str] = Field(..., description="模板参数列表")
-
-
-class SMSBaseRequest(BaseModel):
-    environment: Literal["test", "prod"] = Field(..., description="环境")
-    timeout: int = Field(15, ge=5, le=60, description="超时时间(秒)")
-
-
-class SMSSendSingleRequest(SMSBaseRequest):
-    template_code: str = Field(..., description="模板编码")
-    use_preset_mobiles: bool = Field(True, description="是否使用预设手机号")
-    mobiles: List[str] = Field(default_factory=list, description="手机号列表，use_preset_mobiles为False时必填")
-    params: Dict[str, str] = Field(..., description="模板参数")
-
-
-class SMSBatchSendRequest(SMSBaseRequest):
-    template_codes: List[str] = Field(..., description="选中的模板编码列表")
-    use_preset_mobiles: bool = Field(True, description="是否使用预设手机号")
-    mobiles: List[str] = Field(default_factory=list, description="手机号列表，use_preset_mobiles为False时必填")
-    random_send: bool = Field(False, description="是否随机选择手机号发送")
-
-
-class SMSResendRequest(SMSBaseRequest):
-    batch_no: Optional[str] = Field(None, description="批次号")
-    mobiles: Optional[List[str]] = Field(None, description="手机号列表，与batch_no二选一")
-    tax_id: int = Field(None, description="税地ID")
-
-class AllowedSMSTemplateItem(BaseModel):
-    code: str = Field(..., description="模板编码")
-    name: str = Field(..., description="模板名称")
-
-class SMSTemplateResponse(BaseModel):
-    success: bool = Field(..., description="是否成功")
-    message: str = Field(..., description="处理信息")
-    data: Optional[List[AllowedSMSTemplateItem]] = Field(None, description="模板列表")
-    request_id: str = Field(..., description="请求ID")
-
-
-class SMSSendResponse(BaseModel):
-    success: bool = Field(..., description="是否成功")
-    message: str = Field(..., description="处理信息")
-    data: List[Dict[str, Any]] = Field(..., description="发送结果")
-    request_id: str = Field(..., description="请求ID")
-    total: int = Field(..., description="总发送数量")
-    success_count: int = Field(..., description="成功数量")
-    failure_count: int = Field(..., description="失败数量")
-
-
-class SMSResendDataItem(BaseModel):
-    name: str = Field(..., description="姓名")
-    mobile: str = Field(..., description="手机号")
-    worker_id: int = Field(..., description="工人ID")
-    tax_id: int = Field(..., description="税地ID")
-    deadline: str = Field(..., description="截止日期")
-
-
-class SMSResendResponse(BaseModel):
-    success: bool = Field(..., description="是否成功")
-    message: str = Field(..., description="处理信息")
-    data: List[Dict[str, Any]] = Field(..., description="补发结果")
-    request_id: str = Field(..., description="请求ID")
-    workers: List[SMSResendDataItem] = Field(..., description="补发人员列表")
 
 
 # 在app/models.py中添加（可放在文件末尾）
