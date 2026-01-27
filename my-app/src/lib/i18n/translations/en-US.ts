@@ -41,6 +41,38 @@ export const enUS: Translations = {
         },
     },
 
+    serverMonitoring: {
+        title: 'System Monitor',
+        back: 'Back',
+        live: 'Live Monitoring',
+        offline: 'Offline',
+        pause: 'Pause',
+        resume: 'Resume',
+        refresh: 'Refresh',
+        interval: 'Refresh Interval',
+        cpuLoad: 'CPU Load',
+        coresActive: 'Cores Active',
+        memory: 'Memory',
+        netInOut: 'Network In/Out',
+        sysLoad: 'System Load',
+        cpuHistory: 'CPU Usage History',
+        memTrend: 'Memory Usage Trend',
+        coreMap: 'Core Activity Map',
+        diskUsage: 'Disk Usage',
+        sysInfo: 'System Info',
+        total: 'Total',
+        idle: 'Idle',
+        active: 'Active',
+        heavy: 'Heavy',
+        lowSpace: 'LOW SPACE',
+        used: 'used',
+        hostname: 'Hostname',
+        os: 'OS',
+        kernel: 'Kernel',
+        uptime: 'Uptime',
+        server: 'Server',
+    },
+
     // Auth / Login
     auth: {
         title: 'Authorization',
@@ -83,6 +115,7 @@ export const enUS: Translations = {
         systemRunning: 'System Running',
         serviceNormal: 'Service Normal',
         allNodesOnline: 'All Nodes Online',
+        opsCenter: 'Operations Center',
     },
 
     // Header
@@ -133,6 +166,10 @@ export const enUS: Translations = {
             hs: {
                 name: 'HS Auxiliary System',
                 desc: 'Next generation dashboard and utility tools',
+            },
+            ops: {
+                name: 'Operations Center',
+                desc: 'Monitor server resources and system health',
             },
         },
         devTools: {
@@ -201,6 +238,10 @@ export const enUS: Translations = {
             deliveryTool: {
                 name: 'Delivery Submission Tool',
                 description: 'Help operators quickly submit task deliverables for users',
+            },
+            serverMonitoring: {
+                name: 'Server Monitoring',
+                description: 'Real-time server CPU, memory, disk, and network monitoring',
             },
         },
     },

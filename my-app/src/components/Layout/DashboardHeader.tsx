@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, CircleHelp, Lock, Settings, Cloud, Terminal, Play, Sparkles, Users, FileText } from 'lucide-react';
+import { Search, CircleHelp, Lock, Settings, Cloud, Terminal, Play, Sparkles, Users, FileText, Server } from 'lucide-react';
 import { TimeChip } from '../ui/TimeChip';
 import { WeatherChip } from '../ui/WeatherChip';
 import { LanguageSwitcher } from '../ui/LanguageSwitcher';
@@ -105,6 +105,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                                         teamResources: 'team-resources',
                                         aiResources: 'ai-resources',
                                         help: 'help',
+                                        'ops-center': 'ops-center',
                                     };
                                     const view = toolViewMap[result.id];
                                     if (view) setCurrentView(view);
@@ -126,6 +127,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                                         if (result.id === 'aiResources') return { icon: <Sparkles className="w-4 h-4" />, bg: 'bg-purple-50 text-purple-600' };
                                         if (result.id === 'teamResources') return { icon: <Users className="w-4 h-4" />, bg: 'bg-orange-50 text-orange-600' };
                                         if (result.id === 'help') return { icon: <FileText className="w-4 h-4" />, bg: 'bg-green-50 text-green-600' };
+                                        if (result.id === 'ops-center') return { icon: <Server className="w-4 h-4" />, bg: 'bg-teal-50 text-teal-600' };
                                         return { icon: <Terminal className="w-4 h-4" />, bg: 'bg-gray-100 text-gray-600' };
                                     default:
                                         return { icon: <Settings className="w-4 h-4" />, bg: 'bg-gray-100 text-gray-500' };

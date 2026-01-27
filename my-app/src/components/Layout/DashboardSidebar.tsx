@@ -1,7 +1,7 @@
 import React from 'react';
 import { Wrench, ScanLine, CircleHelp, ScrollText, LogOut, ChevronRight, Server, CheckCircle, Users, Sparkles } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
-import type { ViewType } from '@/lib/types';
+import type { ViewType, User } from '@/lib/types';
 
 interface SidebarProps {
     currentView: string;
@@ -9,6 +9,7 @@ interface SidebarProps {
     setSelectedSystem: (sys: string) => void;
     setScriptQuery: (q: string) => void;
     setShowLogoutConfirm: (show: boolean) => void;
+    currentUser: User | null;
 }
 
 export const DashboardSidebar: React.FC<SidebarProps> = ({
@@ -16,7 +17,8 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     setCurrentView,
     setSelectedSystem,
     setScriptQuery,
-    setShowLogoutConfirm
+    setShowLogoutConfirm,
+    currentUser
 }) => {
     const { t } = useI18n();
 
@@ -45,6 +47,16 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                         </div>
                         <span>{t.nav.home}</span>
                     </div>
+                    {/* Operations Center (Restricted) */}
+                    {currentUser?.permissions['server-monitoring'] && (
+                        <div
+                            className={`sidebar-nav-item ${currentView === 'ops-center' ? 'active' : ''}`}
+                            onClick={() => setCurrentView('ops-center')}
+                        >
+                            <Server className="w-[18px] h-[18px]" />
+                            <span>{t.nav.opsCenter}</span>
+                        </div>
+                    )}
                     <div
                         className={`sidebar-nav-item ${currentView === 'system' ? 'active' : ''}`}
                         onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}

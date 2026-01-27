@@ -7,7 +7,8 @@ import {
     Send,
     FileText,
     Percent,
-    BarChart3
+    BarChart3,
+    Activity
 } from 'lucide-react';
 import type { User, Script, SystemConfig } from './types';
 
@@ -27,7 +28,8 @@ export const keyUserMap: Record<string, User> = {
             'payment-stats': true,
             'delivery-tool': true,
             'dev-tools': true,
-            'cert-health': true
+            'cert-health': true,
+            'server-monitoring': true
         },
         name: '系统管理员'
     },
@@ -56,7 +58,8 @@ export const keyUserMap: Record<string, User> = {
             'payment-stats': true,
             'delivery-tool': true,
             'dev-tools': true,
-            'cert-health': true
+            'cert-health': true,
+            'server-monitoring': true
         },
         name: 'JC'
     },
@@ -73,7 +76,8 @@ export const keyUserMap: Record<string, User> = {
             'tax-calculation': true,
             'payment-stats': true,
             'delivery-tool': true,
-            'cert-health': true
+            'cert-health': true,
+            'server-monitoring': true
         },
         name: '**'
     },
@@ -147,7 +151,7 @@ export const allScripts: Record<string, SystemConfig> = {
                 description: '协助运营人员为指定用户快速提交任务交付物',
                 icon: React.createElement(FileText, { className: "w-5 h-5" }),
                 status: 'beta' as const
-            }
+            },
         ]
     },
     haoshi: {

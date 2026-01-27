@@ -43,10 +43,15 @@ const OCRScript = dynamic(() => import("@/components/OCRScript"), { loading: () 
 const DeliveryScript = dynamic(() => import("./components/DeliveryScript"), { loading: () => <LoadingComponent />, ssr: false });
 const DevTools = dynamic(() => import("./components/DevTools"), { loading: () => <LoadingComponent />, ssr: false });
 const TeamResourcesContainer = dynamic(() => import("./components/TeamResources/TeamResourcesContainer").then(mod => ({ default: mod.TeamResourcesContainer })), { loading: () => <LoadingComponent />, ssr: false });
+const ServerMonitoringScript = dynamic(() => import("./pages/ops/ServerMonitoring"), { loading: () => <LoadingComponent />, ssr: false });
 
 
 // Layout 组件导入
 import { HelpPage } from './components/Layout/HelpPage';
+// ... (start of file remains same until imports)
+
+// ...
+
 import { DashboardSidebar } from './components/Layout/DashboardSidebar';
 import { DashboardHeader as DashHeader } from './components/Layout/DashboardHeader';
 import { AIResourcesContainer } from './components/AIResources';
@@ -165,6 +170,22 @@ function AppContent() {
             results.push({ id: 'haoshi', name: t.home.search.hs.name, desc: t.home.search.hs.desc, type: 'hs' });
         }
 
+        // 运维中心 (需权限)
+        if (currentUser?.permissions['server-monitoring']) {
+            const opsName = t.home.search.ops.name.toLowerCase();
+            const opsDesc = t.home.search.ops.desc.toLowerCase();
+            const keywords = ['ops', 'monitor', 'server', 'System', '运维', '监控', '服务器', '系统'];
+
+            if (opsName.includes(query) || opsDesc.includes(query) || keywords.some(k => k.includes(query))) {
+                results.push({
+                    id: 'ops-center',
+                    name: t.home.search.ops.name,
+                    desc: t.home.search.ops.desc,
+                    type: 'tool'
+                });
+            }
+        }
+
         // CM脚本工具 - ID必须匹配 renderScript 中的 switch case 值
         const scriptItems = [
             { key: 'settlement', configKey: 'settlement', keywords: ['结算', '处理', 'settlement', '批量'] },
@@ -198,6 +219,9 @@ function AppContent() {
         ];
 
         toolItems.forEach(item => {
+            // 权限控制 checks
+            if (item.id === 'devtools' && !currentUser?.permissions['dev-tools']) return;
+
             if (item.name.toLowerCase().includes(query) || item.desc.toLowerCase().includes(query) || item.keywords.some(k => k.includes(query))) {
                 if (!results.find(r => r.id === item.id)) {
                     results.push({ id: item.id, name: item.name, desc: item.desc, type: 'tool' });
@@ -206,7 +230,7 @@ function AppContent() {
         });
 
         return results.slice(0, 8); // 最多显示8条结果
-    }, [homeSearchQuery, t, language]);
+    }, [homeSearchQuery, t, language, currentUser]);
 
     // 时钟
     useEffect(() => {
@@ -420,6 +444,7 @@ function AppContent() {
         'tax-calculation': 'taxCalculation',
         'payment-stats': 'paymentStats',
         'delivery-tool': 'deliveryTool',
+        'server-monitoring': 'serverMonitoring'
     };
 
     const getSystemName = (systemId: string): string => {
@@ -494,6 +519,8 @@ function AppContent() {
                 return <PaymentStatsScript onBack={() => setCurrentView('system')} />;
             case 'delivery-tool':
                 return <DeliveryScript onBack={() => setCurrentView('system')} />;
+            case 'server-monitoring':
+                return <ServerMonitoringScript onBack={() => setCurrentView('system')} />;
             default:
                 return null;
         }
@@ -897,6 +924,7 @@ function AppContent() {
                 setSelectedSystem={setSelectedSystem}
                 setScriptQuery={setScriptQuery}
                 setShowLogoutConfirm={setShowLogoutConfirm}
+                currentUser={currentUser}
             />
 
             <div className="flex-1 flex flex-col min-w-0 h-full relative z-0">
@@ -948,6 +976,11 @@ function AppContent() {
                     {currentView === 'ai-resources' && (
                         <div className="h-full p-0">
                             <AIResourcesContainer onBack={() => setCurrentView('home')} isAdmin={true} />
+                        </div>
+                    )}
+                    {currentView === 'ops-center' && (
+                        <div className="h-full p-0">
+                            <ServerMonitoringScript onBack={() => setCurrentView('home')} />
                         </div>
                     )}
                 </main>

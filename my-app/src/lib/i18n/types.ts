@@ -41,6 +41,42 @@ export interface Translations {
     };
   };
 
+  serverMonitoring: {
+    title: string;
+    back: string;
+    // Status
+    live: string;
+    offline: string; // Added just in case
+    // Actions
+    pause: string;
+    resume: string;
+    refresh: string;
+    interval: string;
+    // Metrics Labels
+    cpuLoad: string;
+    coresActive: string;
+    memory: string;
+    netInOut: string;
+    sysLoad: string;
+    cpuHistory: string;
+    memTrend: string;
+    coreMap: string;
+    diskUsage: string;
+    sysInfo: string;
+    // Data Labels
+    total: string;
+    idle: string;
+    active: string;
+    heavy: string;
+    lowSpace: string;
+    used: string;
+    hostname: string;
+    os: string;
+    kernel: string;
+    uptime: string;
+    server: string;
+  };
+
   // Auth / Login
   auth: {
     title: string;
@@ -83,6 +119,7 @@ export interface Translations {
     systemRunning: string;
     serviceNormal: string;
     allNodesOnline: string;
+    opsCenter: string;
   };
 
   // Header
@@ -133,6 +170,10 @@ export interface Translations {
         name: string;
         desc: string;
       };
+      ops: {
+        name: string;
+        desc: string;
+      };
     };
     devTools: {
       title: string;
@@ -165,6 +206,7 @@ export interface Translations {
       taxCalculation: { name: string; description: string; };
       paymentStats: { name: string; description: string; };
       deliveryTool: { name: string; description: string; };
+      serverMonitoring: { name: string; description: string; };
     };
   };
 
@@ -580,7 +622,6 @@ export interface Translations {
       messages: {
         mobileInvalid: string;
         loginFailed: string;
-        processError: string;
         loginSuccess: string;
         noLogin: string;
         refreshSuccess: string;
@@ -597,8 +638,10 @@ export interface Translations {
         requestError: string;
         minAttachment: string;
         required: string;
+        processError: string;
       };
     };
+
     ocr: {
       title: string;
       subtitle: string;

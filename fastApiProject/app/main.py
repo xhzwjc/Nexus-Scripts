@@ -10,6 +10,7 @@ from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 import logging
 import uuid
 from typing import Optional, List, Dict, Any
+import asyncio
 
 from starlette.responses import StreamingResponse
 
@@ -25,6 +26,7 @@ from .models import (
 )
 from .services import EnterpriseSettlementService, AccountBalanceService, CommissionCalculationService, \
     MobileTaskService, SMSService, PaymentStatsService
+from .services.monitoring_service import check_and_alert
 from .config import settings
 
 # 配置日志
@@ -40,6 +42,25 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None
 )
+
+@app.on_event("startup")
+async def startup_event():
+    """启动时初始化"""
+    logger.info("Starting background tasks...")
+    asyncio.create_task(background_monitoring_loop())
+
+async def background_monitoring_loop():
+    """后台监控循环"""
+    while True:
+        try:
+            # 首次启动等待 10 秒
+            await asyncio.sleep(10)
+            await check_and_alert()
+        except Exception as e:
+            logger.error(f"Error in monitoring loop: {e}")
+        # 每 5 分钟检查一次
+        await asyncio.sleep(300)
+
 
 # 挂载静态文件目录（关键：让FastAPI能访问本地资源）
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -1003,3 +1024,135 @@ async def chat_with_ai(
         ),
         media_type='text/event-stream'
     )
+
+
+# ================= 服务器监控接口 =================
+from .services.monitoring_service import (
+    load_servers, save_servers, get_all_metrics, fetch_server_metrics,
+    get_server_by_id, add_server as add_server_config, update_server, delete_server,
+    check_server_health, ServerConfig
+)
+
+@app.get("/api/monitoring/servers", tags=["服务器监控"])
+async def list_monitoring_servers():
+    """获取所有服务器配置列表"""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[服务器监控] 获取服务器列表 | 请求ID: {request_id}")
+    servers = load_servers()
+    return {
+        "success": True,
+        "data": [s.dict() for s in servers],
+        "total": len(servers),
+        "request_id": request_id
+    }
+
+
+@app.post("/api/monitoring/servers", tags=["服务器监控"])
+async def add_monitoring_server(server: ServerConfig):
+    """添加服务器"""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[服务器监控] 添加服务器 | 请求ID: {request_id} | 名称: {server.name} | 主机: {server.host}")
+    
+    if not add_server_config(server):
+        raise HTTPException(status_code=400, detail=f"服务器 ID '{server.id}' 已存在")
+    
+    return {
+        "success": True,
+        "message": f"服务器 '{server.name}' 添加成功",
+        "request_id": request_id
+    }
+
+
+@app.put("/api/monitoring/servers/{server_id}", tags=["服务器监控"])
+async def update_monitoring_server(server_id: str, server: ServerConfig):
+    """更新服务器配置"""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[服务器监控] 更新服务器 | 请求ID: {request_id} | ID: {server_id}")
+    
+    if not update_server(server_id, server):
+        raise HTTPException(status_code=404, detail=f"服务器 '{server_id}' 不存在")
+    
+    return {
+        "success": True,
+        "message": f"服务器 '{server.name}' 更新成功",
+        "request_id": request_id
+    }
+
+
+@app.delete("/api/monitoring/servers/{server_id}", tags=["服务器监控"])
+async def delete_monitoring_server(server_id: str):
+    """删除服务器"""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[服务器监控] 删除服务器 | 请求ID: {request_id} | ID: {server_id}")
+    
+    if not delete_server(server_id):
+        raise HTTPException(status_code=404, detail=f"服务器 '{server_id}' 不存在")
+    
+    return {
+        "success": True,
+        "message": "服务器删除成功",
+        "request_id": request_id
+    }
+
+
+@app.get("/api/monitoring/metrics", tags=["服务器监控"])
+async def get_monitoring_metrics():
+    """获取所有服务器实时指标"""
+    request_id = str(uuid.uuid4())
+    start_time = _time.time()
+    logger.info(f"[服务器监控] 获取所有指标 | 请求ID: {request_id}")
+    
+    metrics = await get_all_metrics()
+    elapsed = round(_time.time() - start_time, 2)
+    
+    online_count = sum(1 for m in metrics if m.online)
+    logger.info(f"[服务器监控] 指标获取完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 在线: {online_count}/{len(metrics)}")
+    
+    return {
+        "success": True,
+        "data": [m.dict() for m in metrics],
+        "summary": {
+            "total": len(metrics),
+            "online": online_count,
+            "offline": len(metrics) - online_count
+        },
+        "request_id": request_id
+    }
+
+
+@app.get("/api/monitoring/servers/{server_id}/metrics", tags=["服务器监控"])
+async def get_server_detail_metrics(server_id: str):
+    """获取单台服务器详细指标"""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[服务器监控] 获取服务器详情 | 请求ID: {request_id} | ID: {server_id}")
+    
+    server = get_server_by_id(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail=f"服务器 '{server_id}' 不存在")
+    
+    metrics = await fetch_server_metrics(server)
+    
+    return {
+        "success": True,
+        "data": metrics.dict(),
+        "request_id": request_id
+    }
+
+
+@app.get("/api/monitoring/servers/{server_id}/health", tags=["服务器监控"])
+async def check_server_health_status(server_id: str):
+    """检查服务器健康状态（无需Agent鉴权）"""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[服务器监控] 健康检查 | 请求ID: {request_id} | ID: {server_id}")
+    
+    server = get_server_by_id(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail=f"服务器 '{server_id}' 不存在")
+    
+    health = await check_server_health(server)
+    
+    return {
+        "success": True,
+        "data": health,
+        "request_id": request_id
+    }

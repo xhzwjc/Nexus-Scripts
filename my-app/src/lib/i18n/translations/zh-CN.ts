@@ -41,6 +41,38 @@ export const zhCN: Translations = {
         },
     },
 
+    serverMonitoring: {
+        title: '系统监控',
+        back: '返回',
+        live: '实时监控',
+        offline: '离线',
+        pause: '暂停',
+        resume: '恢复',
+        refresh: '刷新',
+        interval: '刷新频率',
+        cpuLoad: 'CPU 负载',
+        coresActive: '活跃核心',
+        memory: '内存',
+        netInOut: '网络 入/出',
+        sysLoad: '系统负载',
+        cpuHistory: 'CPU 使用率历史',
+        memTrend: '内存使用趋势',
+        coreMap: '核心活动图',
+        diskUsage: '磁盘使用率',
+        sysInfo: '系统信息',
+        total: '总计',
+        idle: '空闲',
+        active: '活跃',
+        heavy: '高负载',
+        lowSpace: '空间不足',
+        used: '已用',
+        hostname: '主机名',
+        os: '操作系统',
+        kernel: '内核',
+        uptime: '运行时间',
+        server: '服务器',
+    },
+
     // Auth / Login
     auth: {
         title: '访问授权',
@@ -83,6 +115,7 @@ export const zhCN: Translations = {
         systemRunning: '系统运行中',
         serviceNormal: '服务正常',
         allNodesOnline: '所有节点在线',
+        opsCenter: '运维中心',
     },
 
     // Header
@@ -139,6 +172,10 @@ export const zhCN: Translations = {
             hs: {
                 name: 'HS 辅助系统',
                 desc: '新一代数据看板与辅助工具集',
+            },
+            ops: {
+                name: '运维中心',
+                desc: '核心服务器资源与系统健康监控',
             },
         },
     },
@@ -200,6 +237,10 @@ export const zhCN: Translations = {
             deliveryTool: {
                 name: '交付物提交工具',
                 description: '协助运营人员为指定用户快速提交任务交付物',
+            },
+            serverMonitoring: {
+                name: '服务器监控',
+                description: '实时监控服务器 CPU、内存、磁盘和网络状态',
             },
         },
     },
