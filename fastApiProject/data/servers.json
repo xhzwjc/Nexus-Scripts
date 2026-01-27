@@ -10,17 +10,5 @@
             "windows",
             "dev"
         ]
-    },
-    {
-        "id": "local-windows",
-        "name": "本地开发机",
-        "host": "127.0.0.1",
-        "port": 9200,
-        "enabled": true,
-        "description": "本地Windows开发机器",
-        "tags": [
-            "windows",
-            "dev"
-        ]
     }
 ]

@@ -13,8 +13,10 @@ import threading
 import os
 from datetime import datetime
 from flask import Flask, jsonify, request, abort
+# from flask_cors import CORS
 
 app = Flask(__name__)
+# CORS(app)
 
 # ========== 配置 ==========
 API_KEY = os.getenv("AGENT_API_KEY", "your-secret-api-key-here")  # 生产环境请设置环境变量

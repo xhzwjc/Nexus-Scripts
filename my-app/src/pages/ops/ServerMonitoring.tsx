@@ -303,117 +303,204 @@ const ServerMonitor: React.FC<ServerMonitorProps> = ({ onBack }) => {
 
     const API_BASE = getApiBaseUrl();
 
-    // Fetch Function
-    const fetchMetrics = useCallback(async () => {
-        try {
-            const resp = await fetch(`${API_BASE}/api/monitoring/metrics`).catch(() => null);
-            let newMetrics: SystemMetrics[] = [];
+    // Helper: Map API data to SystemMetrics
+    const mapApiDataToSystemMetrics = (serverData: ApiServerData): SystemMetrics => ({
+        id: serverData.server_id,
+        name: serverData.server_name,
+        timestamp: serverData.timestamp ? new Date(serverData.timestamp).getTime() : Date.now(),
+        cpu: {
+            total: serverData.cpu_percent || 0,
+            cores: (serverData.cpu_per_core || []).map((usage: number, i: number) => ({
+                id: i,
+                usage: usage
+            }))
+        },
+        memory: {
+            usedGb: serverData.memory_used_gb || 0,
+            totalGb: serverData.memory_total_gb || 0,
+            percent: serverData.memory_percent || 0
+        },
+        network: {
+            upKbps: (serverData.net_sent_mbps || 0) * 1024,
+            downKbps: (serverData.net_recv_mbps || 0) * 1024
+        },
+        load: {
+            one: serverData.load_1min || 0,
+            five: serverData.load_5min || 0,
+            fifteen: serverData.load_15min || 0
+        },
+        disk: (serverData.disks || []).map((d: ApiDiskData) => ({
+            mount: d.mount,
+            label: d.device || 'Disk',
+            usedGb: d.used_gb,
+            totalGb: d.total_gb,
+            usagePercent: d.percent
+        })),
+        uptime: serverData.boot_time
+            ? (Date.now() - new Date(serverData.boot_time).getTime()) / 1000
+            : 0
+    });
 
+    // 1. Initial Load: Fetch Server List Config
+    useEffect(() => {
+        const fetchServerList = async () => {
+            try {
+                // Try fetching real server list
+                const resp = await fetch(`${API_BASE}/api/monitoring/servers`).catch(() => null);
+                if (resp && resp.ok) {
+                    const json = await resp.json();
+                    if (json.success && Array.isArray(json.data)) {
+                        const configs = json.data;
+                        if (configs.length > 0) {
+                            // Local interface for Server Config
+                            interface ServerConfig {
+                                id: string;
+                                name: string;
+                            }
+
+                            // Init server list with empty metrics
+                            const initialList = configs.map((cfg: ServerConfig) => ({
+                                id: cfg.id,
+                                name: cfg.name,
+                                timestamp: Date.now(),
+                                cpu: { total: 0, cores: [] },
+                                memory: { usedGb: 0, totalGb: 0, percent: 0 },
+                                network: { upKbps: 0, downKbps: 0 },
+                                load: { one: 0, five: 0, fifteen: 0 },
+                                disk: [],
+                                uptime: 0
+                            }));
+                            setServerList(initialList);
+                            // Auto-select first if none selected
+                            if (!selectedServerId) setSelectedServerId(initialList[0].id);
+                            return;
+                        }
+                    }
+                }
+
+                // Fallback Mock Logic (if API fails or returns empty)
+                if (serverList.length === 0) {
+                    const mockIds = ['local-1', 'local-2'];
+                    const mockList = mockIds.map((mid, idx) => {
+                        const prev = historyMap[mid]?.[historyMap[mid].length - 1];
+                        return generateMockMetrics(prev, idx);
+                    });
+                    setServerList(mockList);
+                    if (!selectedServerId) setSelectedServerId(mockIds[0]);
+                }
+            } catch (e) {
+                console.error("Failed to fetch server list", e);
+            }
+        };
+
+        fetchServerList();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [API_BASE]);
+
+
+    // Ref for history map to avoid dependency cycle in callback
+    const historyMapRef = useRef(historyMap);
+    // Sync ref
+    useEffect(() => {
+        historyMapRef.current = historyMap;
+    }, [historyMap]);
+
+
+    // 2. Poll Active Server Metrics
+    const fetchActiveServerMetrics = useCallback(async () => {
+        if (!selectedServerId) return;
+
+        try {
+            // Check if it's a mock server ID
+            if (['local-1', 'local-2'].includes(selectedServerId)) {
+                // Use Mock Logic
+                const currentHistory = historyMapRef.current;
+                const prev = currentHistory[selectedServerId]?.[currentHistory[selectedServerId].length - 1];
+                const mockData = generateMockMetrics(prev, selectedServerId === 'local-1' ? 0 : 1);
+
+                setServerList(prevList => prevList.map(s => s.id === selectedServerId ? mockData : s));
+                setHistoryMap(prev => {
+                    const next = { ...prev };
+                    const serverHist = next[selectedServerId] || [];
+                    const newHist = [...serverHist, mockData];
+                    if (newHist.length > 30) next[selectedServerId] = newHist.slice(newHist.length - 30);
+                    else next[selectedServerId] = newHist;
+                    return next;
+                });
+                return;
+            }
+
+            // Real API Fetch
+            const resp = await fetch(`${API_BASE}/api/monitoring/servers/${selectedServerId}/metrics`).catch(() => null);
             if (resp && resp.ok) {
                 const json = await resp.json();
-                if (json.success && Array.isArray(json.data)) {
-                    // Map API data to SystemMetrics
-                    newMetrics = json.data.map((serverData: ApiServerData) => ({
-                        id: serverData.server_id,
-                        name: serverData.server_name,
-                        timestamp: serverData.timestamp ? new Date(serverData.timestamp).getTime() : Date.now(),
-                        cpu: {
-                            total: serverData.cpu_percent || 0,
-                            cores: (serverData.cpu_per_core || []).map((usage: number, i: number) => ({
-                                id: i,
-                                usage: usage
-                            }))
-                        },
-                        memory: {
-                            usedGb: serverData.memory_used_gb || 0,
-                            totalGb: serverData.memory_total_gb || 0,
-                            percent: serverData.memory_percent || 0
-                        },
-                        network: {
-                            upKbps: (serverData.net_sent_mbps || 0) * 1024,
-                            downKbps: (serverData.net_recv_mbps || 0) * 1024
-                        },
-                        load: {
-                            one: serverData.load_1min || 0,
-                            five: serverData.load_5min || 0,
-                            fifteen: serverData.load_15min || 0
-                        },
-                        disk: (serverData.disks || []).map((d: ApiDiskData) => ({
-                            mount: d.mount,
-                            label: d.device || 'Disk',
-                            usedGb: d.used_gb,
-                            totalGb: d.total_gb,
-                            usagePercent: d.percent
-                        })),
-                        uptime: serverData.boot_time
-                            ? (Date.now() - new Date(serverData.boot_time).getTime()) / 1000
-                            : 0
-                    }));
+                if (json.success && json.data) {
+                    const newMetric = mapApiDataToSystemMetrics(json.data);
+
+                    // Update Server List (single item)
+                    setServerList(prevList => {
+                        // If server exists, update it. If not (rare race condition), ignore or add?
+                        // Better to only update existing to maintain order
+                        return prevList.map(s => s.id === newMetric.id ? newMetric : s);
+                    });
+
+                    // Update History
+                    setHistoryMap(prev => {
+                        const next = { ...prev };
+                        const serverHist = next[newMetric.id] || [];
+                        const newHist = [...serverHist, newMetric];
+                        if (newHist.length > 30) next[newMetric.id] = newHist.slice(newHist.length - 30);
+                        else next[newMetric.id] = newHist;
+                        return next;
+                    });
                 }
             }
-
-            // Deduplicate metrics by ID
-            const uniqueMetricsMap = new Map();
-            newMetrics.forEach(m => uniqueMetricsMap.set(m.id, m));
-            newMetrics = Array.from(uniqueMetricsMap.values());
-
-            // Fallback Mock Logic
-            if (newMetrics.length === 0) {
-                // If we have history, use last point to generate next mock
-                // Mocking 2 servers
-                const mockIds = ['local-1', 'local-2'];
-                newMetrics = mockIds.map((mid, idx) => {
-                    const prev = historyMap[mid]?.[historyMap[mid].length - 1];
-                    return generateMockMetrics(prev, idx);
-                });
-            }
-
-            // Update State
-            setServerList(newMetrics);
-
-            // Auto-select first if none selected
-            if (!selectedServerId && newMetrics.length > 0) {
-                setSelectedServerId(newMetrics[0].id);
-            } else if (selectedServerId && !newMetrics.find(m => m.id === selectedServerId)) {
-                // IF selected server disappeared, fallback to first
-                if (newMetrics.length > 0) setSelectedServerId(newMetrics[0].id);
-            }
-
-            // Update History for ALL servers
-            setHistoryMap(prev => {
-                const next = { ...prev };
-                newMetrics.forEach(m => {
-                    const serverHist = next[m.id] || [];
-                    const newHist = [...serverHist, m];
-                    // Keep last 30 points
-                    if (newHist.length > 30) next[m.id] = newHist.slice(newHist.length - 30);
-                    else next[m.id] = newHist;
-                });
-                return next;
-            });
-
         } catch (e) {
-            console.error("Fetch failed", e);
+            console.error("Fetch active server failed", e);
         }
-    }, [API_BASE]); // Removed 'historyMap' and 'selectedServerId' dependencies to prevent recreation
+    }, [selectedServerId, API_BASE]); // Removed historyMap dependency
 
     // Polling Effect
     useEffect(() => {
-        if (!isPolling) {
+        if (!isPolling || !selectedServerId) {
             if (timerRef.current) clearInterval(timerRef.current);
             return;
         }
 
-        // Immediate fetch
-        fetchMetrics();
+        // Immediate fetch on selection change only if we don't have recent data?
+        // Or strictly strictly follow poll interval?
+        // User requested "immediately fetch active server" when loading "Lazy Load",
+        // but we need to avoid the loop.
+        // Since fetchActiveServerMetrics is STABLE now (unless selectedServerId changes),
+        // this effect will only re-run when ID changes or interval changes.
 
-        // precise interval
-        timerRef.current = setInterval(fetchMetrics, pollInterval);
+        fetchActiveServerMetrics();
+
+        // Interval fetch
+        timerRef.current = setInterval(fetchActiveServerMetrics, pollInterval);
 
         return () => {
             if (timerRef.current) clearInterval(timerRef.current);
         };
-    }, [isPolling, pollInterval, fetchMetrics]);
+    }, [isPolling, pollInterval, selectedServerId, fetchActiveServerMetrics]);
+
+
+
+    // Ensure valid selection when server list updates
+    useEffect(() => {
+        if (serverList.length === 0) return;
+
+        // 1. If nothing is selected, select the first one
+        if (!selectedServerId) {
+            setSelectedServerId(serverList[0].id);
+            return;
+        }
+
+        // 2. If the currently selected server is no longer in the list, select the first one
+        if (!serverList.find(s => s.id === selectedServerId)) {
+            setSelectedServerId(serverList[0].id);
+        }
+    }, [serverList, selectedServerId]);
 
 
     // Derived data for current view
@@ -614,7 +701,7 @@ const ServerMonitor: React.FC<ServerMonitorProps> = ({ onBack }) => {
                             <div className="h-4 w-px bg-slate-200 dark:bg-slate-800 mx-1" />
 
                             <button
-                                onClick={() => fetchMetrics()}
+                                onClick={() => fetchActiveServerMetrics()}
                                 className="p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
                                 title={t.refresh}
                             >
