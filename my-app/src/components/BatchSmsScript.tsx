@@ -242,6 +242,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
     const [showLoginPrompt, setShowLoginPrompt] = useState(false);
     const [secretKey, setSecretKey] = useState('');
     const [isLoggingIn, setIsLoggingIn] = useState(false);
+    const [loginError, setLoginError] = useState('');
 
     // SMS Logs State
     const [smsLogs, setSmsLogs] = useState<SMSLogItem[]>([]);
@@ -263,14 +264,15 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
 
     // Handlers
     const handleAdminLogin = async () => {
+        setLoginError('');
         if (secretKey !== 'wjc') {
-            toast.error(bs.login.toast.invalidKey);
+            setLoginError(bs.login.toast.invalidKey);
             return;
         }
 
         const api = getSmsApi();
         if (!api) {
-            toast.error(bs.login.toast.apiMissing);
+            setLoginError(bs.login.toast.apiMissing);
             return;
         }
 
@@ -285,13 +287,13 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                     setShowLoginPrompt(false);
                     setSecretKey('');
                 } else {
-                    toast.error(bs.login.toast.fail);
+                    setLoginError(bs.login.toast.fail);
                 }
             } else {
-                toast.error(bs.login.toast.error.replace('{msg}', res.data.message || res.data.msg || ''));
+                setLoginError(bs.login.toast.error.replace('{msg}', res.data.message || res.data.msg || ''));
             }
         } catch (error) {
-            toast.error(getErrorMessage(error, bs.login.toast.errorRequest));
+            setLoginError(getErrorMessage(error, bs.login.toast.errorRequest));
         } finally {
             setIsLoggingIn(false);
         }
@@ -1684,6 +1686,11 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                 }}
                             />
                         </div>
+                        {loginError && (
+                            <p className="text-sm text-red-500 text-center animate-in fade-in slide-in-from-top-1">
+                                {loginError}
+                            </p>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setShowLoginPrompt(false)}>{bs.login.cancel}</Button>
