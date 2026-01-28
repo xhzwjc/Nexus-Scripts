@@ -145,5 +145,15 @@
 - 🛑 禁止行为：
   - ❌ 直接对 JSX 元素做 `||` 运算
 - ✅ 解决策略：
-  - 判断原始数据源（如 `map[key]`）是否存在的真值
   - 使用条件渲染 `condition ? <A /> : <B />`
+
+---
+
+## M014｜环境配置未同步至 Deployment
+- 🧠 AI 行为：只修改了代码中的 `.env` 加载逻辑或 `.env` 文件，忘记更新 `docker-compose.yml` 或 K8s 配置
+- 💥 后果：运行时环境变量缺失（Frontend/Backend 500 Error），且 `.env` 通常被 gitignore 导致部署无效
+- 🛑 禁止行为：
+  - ❌ 新增 `os.getenv` / `process.env` 后不检查部署配置
+- ✅ 解决策略：
+  - 新增环境变量时，必须同步检查并更新 `docker-compose.yml` 的 `environment` 列表
+  - 如果是敏感变量，需提醒用户在生产环境 Dashboard/Secrets 中配置
