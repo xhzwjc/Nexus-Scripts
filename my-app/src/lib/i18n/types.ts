@@ -1090,12 +1090,35 @@ export interface Translations {
         resending: string;
         loading: string;
         ready: string;
+        processing: string;
       };
       tabs: {
         template: string;
         single: string;
         batch: string;
         resend: string;
+        logs: string;
+      };
+      login: {
+        button: string;
+        loggedIn: string;
+        title: string;
+        description: string;
+        secretLabel: string;
+        secretPlaceholder: string;
+        cancel: string;
+        submit: string;
+        envTest: string;
+        envProd: string;
+        toast: {
+          invalidKey: string;
+          apiMissing: string;
+          success: string;
+          fail: string;
+          error: string;
+          errorRequest: string;
+          loginRequired: string;
+        };
       };
       template: {
         configTitle: string;
@@ -1206,6 +1229,47 @@ export interface Translations {
         resendSuccess: string;
         resendFail: string;
         noResult: string;
+      };
+      logs: {
+        title: string;
+        refresh: string;
+        query: string;
+        reset: string;
+        filters: {
+          mobile: string;
+          mobilePlaceholder: string;
+          sendStatus: string;
+          receiveStatus: string;
+          all: string;
+          success: string;
+          failed: string;
+          pending: string;
+        };
+        table: {
+          id: string;
+          mobile: string;
+          templateCode: string;
+          content: string;
+          sendStatus: string;
+          receiveStatus: string;
+          sendTime: string;
+          empty: string;
+          unknown: string;
+          success: string;
+          failed: string;
+          waiting: string;
+        };
+        pagination: {
+          total: string;
+          prev: string;
+          next: string;
+          page: string;
+        };
+        toast: {
+          refreshSuccess: string;
+          fetchFail: string;
+          fetchFailMsg: string;
+        };
       };
     };
     taxReport: {

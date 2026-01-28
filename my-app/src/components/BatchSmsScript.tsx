@@ -204,23 +204,26 @@ const LoadingButton = ({
     children: React.ReactNode;
     className?: string;
     icon?: React.ElementType;
-}) => (
-    <Button onClick={onClick} disabled={!!disabled || !!isLoading} className={className}>
-        {isLoading ? (
-            <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                处理中...
-            </>
-        ) : Icon ? (
-            <>
-                <Icon className="w-4 h-4 mr-2" />
-                {children}
-            </>
-        ) : (
-            children
-        )}
-    </Button>
-);
+}) => {
+    const { t } = useI18n();
+    return (
+        <Button onClick={onClick} disabled={!!disabled || !!isLoading} className={className}>
+            {isLoading ? (
+                <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {t.scripts.batchSms.status.processing}
+                </>
+            ) : Icon ? (
+                <>
+                    <Icon className="w-4 h-4 mr-2" />
+                    {children}
+                </>
+            ) : (
+                children
+            )}
+        </Button>
+    );
+};
 
 // ===== Component =====
 export default function SmsManagementScript({ onBack }: { onBack: () => void }) {
@@ -261,13 +264,13 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
     // Handlers
     const handleAdminLogin = async () => {
         if (secretKey !== 'wjc') {
-            toast.error('密钥错误，无权访问');
+            toast.error(bs.login.toast.invalidKey);
             return;
         }
 
         const api = getSmsApi();
         if (!api) {
-            toast.error('API未配置');
+            toast.error(bs.login.toast.apiMissing);
             return;
         }
 
@@ -278,17 +281,17 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                 const token = res.data.data?.accessToken;
                 if (token) {
                     setAdminToken(token);
-                    toast.success('管理员登录成功');
+                    toast.success(bs.login.toast.success);
                     setShowLoginPrompt(false);
                     setSecretKey('');
                 } else {
-                    toast.error('登录失败：未获取到Token');
+                    toast.error(bs.login.toast.fail);
                 }
             } else {
-                toast.error(`登录失败: ${res.data.message || res.data.msg}`);
+                toast.error(bs.login.toast.error.replace('{msg}', res.data.message || res.data.msg || ''));
             }
         } catch (error) {
-            toast.error(getErrorMessage(error, '登录请求失败'));
+            toast.error(getErrorMessage(error, bs.login.toast.errorRequest));
         } finally {
             setIsLoggingIn(false);
         }
@@ -296,13 +299,13 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
 
     const fetchLogs = async (page = 1, filters?: { mobile?: string; sendStatus?: string; receiveStatus?: string }) => {
         if (!adminToken) {
-            toast.error('请先登录管理员账号');
+            toast.error(bs.login.toast.loginRequired);
             return;
         }
 
         const api = getSmsApi();
         if (!api) {
-            toast.error('API未配置');
+            toast.error(bs.login.toast.apiMissing);
             return;
         }
 
@@ -324,12 +327,12 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                 setSmsLogs(res.data.data.list || []);
                 setLogTotal(res.data.data.total || 0);
                 setLogPage(page);
-                toast.success('日志刷新成功');
+                toast.success(bs.logs.toast.refreshSuccess);
             } else {
-                toast.error(`获取日志失败: ${res.data.message || res.data.msg}`);
+                toast.error(bs.logs.toast.fetchFailMsg.replace('{msg}', res.data.message || res.data.msg || ''));
             }
         } catch (error) {
-            toast.error(getErrorMessage(error, '获取日志失败'));
+            toast.error(getErrorMessage(error, bs.logs.toast.fetchFail));
         } finally {
             setLogsLoading(false);
         }
@@ -730,10 +733,10 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                             {adminToken ? (
                                 <span className="text-green-500 font-bold flex items-center gap-1">
                                     <Check className="w-3 h-3" />
-                                    已登录 (Admin)
+                                    {bs.login.loggedIn}
                                 </span>
                             ) : (
-                                <span className="text-muted-foreground text-xs">登录</span>
+                                <span className="text-muted-foreground text-xs">{bs.login.button}</span>
                             )}
                         </Button>
                     </div>
@@ -746,7 +749,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                         <TabsTrigger value="singleSend">{bs.tabs.single}</TabsTrigger>
                         <TabsTrigger value="batchSend">{bs.tabs.batch}</TabsTrigger>
                         <TabsTrigger value="resendSign">{bs.tabs.resend}</TabsTrigger>
-                        <TabsTrigger value="smsLogs">短信日志</TabsTrigger>
+                        <TabsTrigger value="smsLogs">{bs.tabs.logs}</TabsTrigger>
                     </TabsList>
 
                     {/* 模板管理 */}
@@ -1512,47 +1515,47 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                             <CardHeader>
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center">
-                                        <CardTitle>短信发送日志</CardTitle>
+                                        <CardTitle>{bs.logs.title}</CardTitle>
                                         <div className="flex gap-2">
                                             <Button variant="outline" size="sm" onClick={() => fetchLogs(1)} disabled={logsLoading}>
                                                 <Refresh className={`w-4 h-4 mr-2 ${logsLoading ? 'animate-spin' : ''}`} />
-                                                刷新
+                                                {bs.logs.refresh}
                                             </Button>
                                         </div>
                                     </div>
                                     <div className="flex flex-wrap gap-4 items-end bg-muted/50 p-4 rounded-lg">
                                         <div className="w-full sm:w-48 space-y-2">
-                                            <Label>手机号</Label>
+                                            <Label>{bs.logs.filters.mobile}</Label>
                                             <Input
-                                                placeholder="输入手机号筛选"
+                                                placeholder={bs.logs.filters.mobilePlaceholder}
                                                 value={logFilterMobile}
                                                 onChange={(e) => setLogFilterMobile(e.target.value)}
                                             />
                                         </div>
                                         <div className="w-full sm:w-32 space-y-2">
-                                            <Label>发送状态</Label>
+                                            <Label>{bs.logs.filters.sendStatus}</Label>
                                             <Select value={logFilterSendStatus} onValueChange={(val) => setLogFilterSendStatus(val === 'all' ? '' : val)}>
                                                 <SelectTrigger>
-                                                    <SelectValue placeholder="全部" />
+                                                    <SelectValue placeholder={bs.logs.filters.all} />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    <SelectItem value="all">全部</SelectItem>
-                                                    <SelectItem value="10">成功 (10)</SelectItem>
-                                                    <SelectItem value="20">失败 (20)</SelectItem>
+                                                    <SelectItem value="all">{bs.logs.filters.all}</SelectItem>
+                                                    <SelectItem value="10">{bs.logs.filters.success}</SelectItem>
+                                                    <SelectItem value="20">{bs.logs.filters.failed}</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>
                                         <div className="w-full sm:w-32 space-y-2">
-                                            <Label>接收状态</Label>
+                                            <Label>{bs.logs.filters.receiveStatus}</Label>
                                             <Select value={logFilterReceiveStatus} onValueChange={(val) => setLogFilterReceiveStatus(val === 'all' ? '' : val)}>
                                                 <SelectTrigger>
-                                                    <SelectValue placeholder="全部" />
+                                                    <SelectValue placeholder={bs.logs.filters.all} />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    <SelectItem value="all">全部</SelectItem>
-                                                    <SelectItem value="10">成功 (10)</SelectItem>
-                                                    <SelectItem value="20">失败 (20)</SelectItem>
-                                                    <SelectItem value="0">等待 (0)</SelectItem>
+                                                    <SelectItem value="all">{bs.logs.filters.all}</SelectItem>
+                                                    <SelectItem value="10">{bs.logs.filters.success}</SelectItem>
+                                                    <SelectItem value="20">{bs.logs.filters.failed}</SelectItem>
+                                                    <SelectItem value="0">{bs.logs.filters.pending}</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>
@@ -1561,7 +1564,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                             disabled={logsLoading}
                                             className="mb-0.5"
                                         >
-                                            查询
+                                            {bs.logs.query}
                                         </Button>
                                         <Button
                                             variant="outline"
@@ -1569,7 +1572,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                             disabled={logsLoading}
                                             className="mb-0.5"
                                         >
-                                            重置
+                                            {bs.logs.reset}
                                         </Button>
                                     </div>
                                 </div>
@@ -1578,20 +1581,20 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead>ID</TableHead>
-                                            <TableHead>手机号</TableHead>
-                                            <TableHead>模板代码</TableHead>
-                                            <TableHead>内容</TableHead>
-                                            <TableHead>发送状态</TableHead>
-                                            <TableHead>接收状态</TableHead>
-                                            <TableHead>发送时间</TableHead>
+                                            <TableHead>{bs.logs.table.id}</TableHead>
+                                            <TableHead>{bs.logs.table.mobile}</TableHead>
+                                            <TableHead>{bs.logs.table.templateCode}</TableHead>
+                                            <TableHead>{bs.logs.table.content}</TableHead>
+                                            <TableHead>{bs.logs.table.sendStatus}</TableHead>
+                                            <TableHead>{bs.logs.table.receiveStatus}</TableHead>
+                                            <TableHead>{bs.logs.table.sendTime}</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {smsLogs.length === 0 ? (
                                             <TableRow>
                                                 <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                                                    暂无日志数据
+                                                    {bs.logs.table.empty}
                                                 </TableCell>
                                             </TableRow>
                                         ) : (
@@ -1605,12 +1608,12 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                     </TableCell>
                                                     <TableCell>
                                                         <Badge variant={log.sendStatus === 10 ? 'default' : 'secondary'}>
-                                                            {log.sendStatus === 10 ? '成功' : log.sendStatus === 20 ? '失败' : '未知'}
+                                                            {log.sendStatus === 10 ? bs.logs.table.success : log.sendStatus === 20 ? bs.logs.table.failed : bs.logs.table.unknown}
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell>
                                                         <Badge variant={log.receiveStatus === 10 ? 'default' : log.receiveStatus === 20 ? 'destructive' : 'secondary'}>
-                                                            {log.receiveStatus === 10 ? '成功' : log.receiveStatus === 20 ? '失败' : '等待结果'}
+                                                            {log.receiveStatus === 10 ? bs.logs.table.success : log.receiveStatus === 20 ? bs.logs.table.failed : bs.logs.table.waiting}
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell>{new Date(log.sendTime).toLocaleString()}</TableCell>
@@ -1624,7 +1627,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                 {logTotal > 0 && (
                                     <div className="flex justify-between items-center mt-4">
                                         <div className="text-sm text-muted-foreground">
-                                            共 {logTotal} 条记录
+                                            {bs.logs.pagination.total.replace('{total}', logTotal.toString())}
                                         </div>
                                         <div className="flex gap-2">
                                             <Button
@@ -1633,10 +1636,10 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                 disabled={logPage <= 1 || logsLoading}
                                                 onClick={() => fetchLogs(logPage - 1)}
                                             >
-                                                上一页
+                                                {bs.logs.pagination.prev}
                                             </Button>
                                             <span className="flex items-center px-2 text-sm">
-                                                Page {logPage}
+                                                {bs.logs.pagination.page.replace('{page}', logPage.toString())}
                                             </span>
                                             <Button
                                                 variant="outline"
@@ -1644,7 +1647,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                 disabled={logsLoading || smsLogs.length < 10} // Simple check, ideally check against total/pageSize
                                                 onClick={() => fetchLogs(logPage + 1)}
                                             >
-                                                下一页
+                                                {bs.logs.pagination.next}
                                             </Button>
                                         </div>
                                     </div>
@@ -1659,15 +1662,15 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
             <Dialog open={showLoginPrompt} onOpenChange={setShowLoginPrompt}>
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
-                        <DialogTitle>管理员登录</DialogTitle>
+                        <DialogTitle>{bs.login.title}</DialogTitle>
                         <DialogDescription>
-                            请输入访问密钥以登录 {environment === 'test' ? '测试' : '生产'} 环境后台
+                            {bs.login.description.replace('{env}', environment === 'test' ? bs.login.envTest : bs.login.envProd)}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="secretKey" className="text-right">
-                                密钥
+                                {bs.login.secretLabel}
                             </Label>
                             <Input
                                 id="secretKey"
@@ -1675,7 +1678,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                 value={secretKey}
                                 onChange={(e) => setSecretKey(e.target.value)}
                                 className="col-span-3"
-                                placeholder="请输入密钥"
+                                placeholder={bs.login.secretPlaceholder}
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter') handleAdminLogin();
                                 }}
@@ -1683,9 +1686,9 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setShowLoginPrompt(false)}>取消</Button>
+                        <Button variant="outline" onClick={() => setShowLoginPrompt(false)}>{bs.login.cancel}</Button>
                         <LoadingButton onClick={handleAdminLogin} isLoading={isLoggingIn}>
-                            登录
+                            {bs.login.submit}
                         </LoadingButton>
                     </DialogFooter>
                 </DialogContent>
