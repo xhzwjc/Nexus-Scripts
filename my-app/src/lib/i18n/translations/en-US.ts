@@ -960,6 +960,13 @@ export const enUS: Translations = {
                 querying: 'Querying',
                 ready: 'Ready',
             },
+            tabs: {
+                single: 'Single Enterprise Check',
+                batch: 'Batch Check',
+            },
+            actions: {
+                startBatch: 'Start Batch Check',
+            },
             params: {
                 title: 'Parameters',
                 env: 'Environment',

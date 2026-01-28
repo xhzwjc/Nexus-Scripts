@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import {
@@ -43,6 +44,7 @@ interface BalanceResult {
     tax_address: string;
     enterprise_name: string;
     is_correct: boolean;
+    tenant_id?: number;
     total_deductions: number;
     total_recharges: number;
     total_refunds: number;
@@ -58,7 +60,7 @@ interface BalanceScriptProps {
 // 骨架屏行组件（10 行用）
 const SkeletonRow = () => (
     <TableRow>
-        {Array.from({ length: 9 }).map((_, i) => (
+        {Array.from({ length: 10 }).map((_, i) => (
             <TableCell key={i}>
                 <Skeleton className="h-5" />
             </TableCell>
@@ -71,20 +73,36 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
     const balance = t.scripts.balance; // Helper shorthand
 
     const [environment, setEnvironment] = useState('test');
+    const [activeTab, setActiveTab] = useState('single');
     const [tenantId, setTenantId] = useState('');
     const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
     const [isQuerying, setIsQuerying] = useState(false);
     const [isFetchingEnterprises, setIsFetchingEnterprises] = useState(false);
-    const [results, setResults] = useState<BalanceResult[]>([]);
-    const [queryCount, setQueryCount] = useState(0);
-    const [errorCount, setErrorCount] = useState(0);
-    const [hasQueried, setHasQueried] = useState(false);
+    // 结果状态分离 - 单个企业
+    const [singleResults, setSingleResults] = useState<BalanceResult[]>([]);
+    const [singleQueryCount, setSingleQueryCount] = useState(0);
+    const [singleErrorCount, setSingleErrorCount] = useState(0);
+    const [singleHasQueried, setSingleHasQueried] = useState(false);
+    const [singleCurrentPage, setSingleCurrentPage] = useState(1);
+
+    // 结果状态分离 - 批量
+    const [batchResults, setBatchResults] = useState<BalanceResult[]>([]);
+    const [batchQueryCount, setBatchQueryCount] = useState(0);
+    const [batchErrorCount, setBatchErrorCount] = useState(0);
+    const [batchHasQueried, setBatchHasQueried] = useState(false);
+    const [batchCurrentPage, setBatchCurrentPage] = useState(1);
+
+    // 根据当前 Tab 计算活动状态
+    const activeResults = activeTab === 'single' ? singleResults : batchResults;
+    const activeQueryCount = activeTab === 'single' ? singleQueryCount : batchQueryCount;
+    const activeErrorCount = activeTab === 'single' ? singleErrorCount : batchErrorCount;
+    const activeHasQueried = activeTab === 'single' ? singleHasQueried : batchHasQueried;
+    const activeCurrentPage = activeTab === 'single' ? singleCurrentPage : batchCurrentPage;
 
     // 分页
-    const [currentPage, setCurrentPage] = useState(1);
     const pageSize = 10;
-    const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
-    const paginatedResults = results.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+    const totalPages = Math.max(1, Math.ceil(activeResults.length / pageSize));
+    const paginatedResults = activeResults.slice((activeCurrentPage - 1) * pageSize, activeCurrentPage * pageSize);
 
     const tableTopRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
@@ -156,8 +174,12 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
     };
 
     const handlePageChange = (page: number) => {
-        if (page >= 1 && page <= totalPages && page !== currentPage) {
-            setCurrentPage(page);
+        if (page >= 1 && page <= totalPages && page !== activeCurrentPage) {
+            if (activeTab === 'single') {
+                setSingleCurrentPage(page);
+            } else {
+                setBatchCurrentPage(page);
+            }
             // 翻页后回到结果顶部
             // 用 rAF 确保 DOM 更新后滚动更顺滑
             requestAnimationFrame(scrollToTableTop);
@@ -190,16 +212,35 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
         }
     }, [environment, balance.messages.listFail]);
 
-    // 环境变更时重新获取企业列表
+    // 环境变更时重新获取企业列表，并清空当前选择
     useEffect(() => {
         const controller = new AbortController();
         fetchEnterprises(controller.signal);
+
+        // 环境切换时，简单的清空 ID 和 搜索词，防止测试环境 ID 混入生产环境查询
+        setTenantId('');
+        setSearchTerm('');
+        setSelectedEnterprise(undefined);
+        // 也清空单条查询结果，避免混淆
+        setSingleResults([]);
+        setSingleQueryCount(0);
+        setSingleErrorCount(0);
+        setSingleHasQueried(false);
+        setSingleCurrentPage(1);
+
+        // 也清空批量查询结果，确保环境不混淆
+        setBatchResults([]);
+        setBatchQueryCount(0);
+        setBatchErrorCount(0);
+        setBatchHasQueried(false);
+        setBatchCurrentPage(1);
+
         return () => controller.abort();
     }, [fetchEnterprises]);
 
     // 查询
     const startQuery = async () => {
-        if (!tenantId || isNaN(Number(tenantId))) {
+        if (activeTab === 'single' && (!tenantId || isNaN(Number(tenantId)))) {
             toast.error(balance.messages.inputValidId);
             inputRef.current?.focus();
             return;
@@ -209,40 +250,62 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
         if (!base) return;
 
         setIsQuerying(true);
-        setHasQueried(true);
-        setResults([]);
-        setCurrentPage(1);
+        // 设置当前Tab的查询状态
+        if (activeTab === 'single') {
+            setSingleHasQueried(true);
+            setSingleResults([]);
+            setSingleCurrentPage(1);
+        } else {
+            setBatchHasQueried(true);
+            setBatchResults([]);
+            setBatchCurrentPage(1);
+        }
 
         try {
             const response = await axios.post<ApiResponse<BalanceResult[]>>(
                 `${base}/balance/verify`,
                 {
-                    tenant_id: Number(tenantId),
+                    tenant_id: activeTab === 'single' ? Number(tenantId) : undefined,
                     environment: environment,
-                    timeout: 15
+                    timeout: activeTab === 'batch' ? 120 : 15
                 }
             );
 
             if (response.data.success) {
                 const data = response.data.data as BalanceResult[];
-                setResults(data);
+                const errors = data.filter((r) => !r.is_correct).length;
+
+                if (activeTab === 'single') {
+                    setSingleResults(data);
+                    setSingleErrorCount(errors);
+                    setSingleQueryCount((prev) => prev + 1);
+                } else {
+                    // 批量模式下对结果进行排序：先按 tenant_id (企业)，再按 tax_location_id
+                    const sortedData = [...data].sort((a, b) => {
+                        const tenantA = a.tenant_id ?? 0;
+                        const tenantB = b.tenant_id ?? 0;
+                        if (tenantA !== tenantB) return tenantA - tenantB;
+                        return a.tax_location_id - b.tax_location_id;
+                    });
+                    setBatchResults(sortedData);
+                    setBatchErrorCount(errors);
+                    setBatchQueryCount((prev) => prev + 1);
+                }
+
                 if (data.length === 0) {
                     toast.info(balance.messages.noData);
                 } else {
                     toast.success(balance.messages.verifySuccess);
                 }
-                const errors = data.filter((r) => !r.is_correct).length;
-                setErrorCount(errors);
-                setQueryCount((prev) => prev + 1);
             } else {
                 toast.error(response.data.message || balance.messages.fail);
-                setResults([]);
+                if (activeTab === 'single') setSingleResults([]); else setBatchResults([]);
             }
         } catch (err) {
             console.error('API调用错误:', err);
             const errorMsg = err instanceof Error ? err.message : balance.messages.fail;
             toast.error(errorMsg);
-            setResults([]);
+            if (activeTab === 'single') setSingleResults([]); else setBatchResults([]);
         } finally {
             setIsQuerying(false);
             // 查询完成后把视线带到结果顶部
@@ -252,21 +315,29 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
 
     // 重置
     const resetResults = () => {
-        setResults([]);
-        setQueryCount(0);
-        setErrorCount(0);
-        setTenantId('');
-        setHasQueried(false);
-        setCurrentPage(1);
-        setSearchTerm('');
-        setSelectedEnterprise(undefined);
-        inputRef.current?.focus();
+        if (activeTab === 'single') {
+            setSingleResults([]);
+            setSingleQueryCount(0);
+            setSingleErrorCount(0);
+            setSingleHasQueried(false);
+            setSingleCurrentPage(1);
+            setTenantId('');
+            setSearchTerm('');
+            setSelectedEnterprise(undefined);
+            inputRef.current?.focus();
+        } else {
+            setBatchResults([]);
+            setBatchQueryCount(0);
+            setBatchErrorCount(0);
+            setBatchHasQueried(false);
+            setBatchCurrentPage(1);
+        }
         toast.info(balance.messages.reset);
     };
 
     // 导出 CSV
     const exportCSV = () => {
-        if (!results.length) return;
+        if (!activeResults.length) return;
         const headers = [
             balance.table.taxId,
             balance.table.taxAddress,
@@ -279,7 +350,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
             balance.table.diff,
             balance.table.result
         ];
-        const rows = results.map((r) => [
+        const rows = activeResults.map((r) => [
             r.tax_location_id,
             `"${(r.tax_address || '').replace(/"/g, '""')}"`,
             `"${(r.enterprise_name || '').replace(/"/g, '""')}"`,
@@ -296,7 +367,8 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = balance.messages.file.replace('{id}', tenantId || '未命名');
+        const fileNameSuffix = activeTab === 'single' ? (tenantId || '未命名') : '批量全部';
+        a.download = balance.messages.file.replace('{id}', fileNameSuffix);
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -321,195 +393,265 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                     <p className="text-muted-foreground">{balance.subtitle}</p>
                 </div>
 
-                {/* 查询参数 */}
-                <Card>
-                    <CardHeader className="pb-4">
-                        <CardTitle>{balance.params.title}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                            <div>
-                                <Label htmlFor="environment">{balance.params.env}</Label>
-                                <Select value={environment} onValueChange={setEnvironment} disabled={isQuerying}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder={balance.params.envPlaceholder} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="test">{balance.params.envTest}</SelectItem>
-                                        <SelectItem value="prod">{balance.params.envProd}</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                {/* 查询参数 Tabs */}
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                    <TabsList className="grid w-full grid-cols-2 mb-4">
+                        <TabsTrigger value="single">{balance.tabs.single}</TabsTrigger>
+                        <TabsTrigger value="batch">{balance.tabs.batch}</TabsTrigger>
+                    </TabsList>
 
-                            <div>
-                                <Label htmlFor="tenant-id">{balance.params.label}</Label>
-                                <div className="relative">
-                                    {/* 输入框 - 输入企业名称或ID */}
-                                    <Input
-                                        id="tenant-id"
-                                        ref={inputRef}
-                                        value={searchTerm}
-                                        onChange={(e) => {
-                                            const inputValue = e.target.value;
-                                            setSearchTerm(inputValue);
-                                            setIsDropdownOpen(true);
+                    <TabsContent value="single">
+                        <Card>
+                            <CardHeader className="pb-4">
+                                <CardTitle>{balance.params.title}</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                    <div>
+                                        <Label htmlFor="environment">{balance.params.env}</Label>
+                                        <Select value={environment} onValueChange={setEnvironment} disabled={isQuerying}>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder={balance.params.envPlaceholder} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="test">{balance.params.envTest}</SelectItem>
+                                                <SelectItem value="prod">{balance.params.envProd}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
 
-                                            // 输入是纯数字 → 暂存 tenantId
-                                            if (/^\d+$/.test(inputValue)) {
-                                                setTenantId(inputValue);
-                                                setSelectedEnterprise(undefined);
-                                            } else {
-                                                setTenantId('');
-                                                setSelectedEnterprise(undefined);
-                                            }
-                                        }}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                                // 如果输入的是数字，直接用 tenantId 查询
-                                                if (!isQuerying && tenantId) {
-                                                    startQuery();
-                                                    setIsDropdownOpen(false);
-                                                }
-                                                // 如果输入的是文字，尝试选第一个匹配项
-                                                else {
-                                                    const matched = enterprises.find(ent =>
-                                                        ent.enterprise_name.includes(searchTerm) ||
-                                                        ent.tenant_id.toString().includes(searchTerm)
-                                                    );
-                                                    if (matched) {
-                                                        setTenantId(matched.tenant_id.toString());
-                                                        setSelectedEnterprise(matched);
-                                                        setSearchTerm(matched.enterprise_name);
-                                                        startQuery();
+                                    <div>
+                                        <Label htmlFor="tenant-id">{balance.params.label}</Label>
+                                        <div className="relative">
+                                            {/* 输入框 - 输入企业名称或ID */}
+                                            <Input
+                                                id="tenant-id"
+                                                ref={inputRef}
+                                                value={searchTerm}
+                                                onChange={(e) => {
+                                                    const inputValue = e.target.value;
+                                                    setSearchTerm(inputValue);
+                                                    setIsDropdownOpen(true);
+
+                                                    // 输入是纯数字 → 暂存 tenantId
+                                                    if (/^\d+$/.test(inputValue)) {
+                                                        setTenantId(inputValue);
+                                                        setSelectedEnterprise(undefined);
+                                                    } else {
+                                                        setTenantId('');
+                                                        setSelectedEnterprise(undefined);
+                                                    }
+                                                }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        // 如果输入的是数字，直接用 tenantId 查询
+                                                        if (!isQuerying && tenantId) {
+                                                            startQuery();
+                                                            setIsDropdownOpen(false);
+                                                        }
+                                                        // 如果输入的是文字，尝试选第一个匹配项
+                                                        else {
+                                                            const matched = enterprises.find(ent =>
+                                                                ent.enterprise_name.includes(searchTerm) ||
+                                                                ent.tenant_id.toString().includes(searchTerm)
+                                                            );
+                                                            if (matched) {
+                                                                setTenantId(matched.tenant_id.toString());
+                                                                setSelectedEnterprise(matched);
+                                                                setSearchTerm(matched.enterprise_name);
+                                                                startQuery();
+                                                                setIsDropdownOpen(false);
+                                                            }
+                                                        }
+                                                    }
+                                                    // 新增：按ESC键关闭下拉框
+                                                    if (e.key === 'Escape') {
                                                         setIsDropdownOpen(false);
                                                     }
-                                                }
-                                            }
-                                            // 新增：按ESC键关闭下拉框
-                                            if (e.key === 'Escape') {
-                                                setIsDropdownOpen(false);
-                                            }
-                                        }}
-                                        onClick={() => setIsDropdownOpen(true)}
-                                        placeholder={balance.params.searchPlaceholder}
-                                        disabled={isQuerying || isFetchingEnterprises}
-                                        className="pr-8"
-                                    />
+                                                }}
+                                                onClick={() => setIsDropdownOpen(true)}
+                                                placeholder={balance.params.searchPlaceholder}
+                                                disabled={isQuerying || isFetchingEnterprises}
+                                                className="pr-8"
+                                            />
 
-                                    {/* 清除按钮 */}
-                                    {searchTerm && (
-                                        <button
-                                            type="button"
-                                            className="absolute inset-y-0 right-2 flex items-center text-gray-400 hover:text-gray-600"
-                                            onClick={(e) => {
-                                                // 阻止事件冒泡，避免触发输入框的点击事件
-                                                e.stopPropagation();
-                                                setSearchTerm('');
-                                                setTenantId('');
-                                                setSelectedEnterprise(undefined);
-                                                setIsDropdownOpen(false);
-                                            }}
-                                        >
-                                            ✕
-                                        </button>
-                                    )}
+                                            {/* 清除按钮 */}
+                                            {searchTerm && (
+                                                <button
+                                                    type="button"
+                                                    className="absolute inset-y-0 right-2 flex items-center text-gray-400 hover:text-gray-600"
+                                                    onClick={(e) => {
+                                                        // 阻止事件冒泡，避免触发输入框的点击事件
+                                                        e.stopPropagation();
+                                                        setSearchTerm('');
+                                                        setTenantId('');
+                                                        setSelectedEnterprise(undefined);
+                                                        setIsDropdownOpen(false);
+                                                    }}
+                                                >
+                                                    ✕
+                                                </button>
+                                            )}
 
-                                    {/* 下拉过滤列表 - 添加ref属性 */}
-                                    {isDropdownOpen && (
-                                        <div
-                                            ref={dropdownRef}
-                                            className="absolute z-10 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-lg max-h-60 overflow-auto"
-                                        >
-                                            {isFetchingEnterprises ? (
-                                                <div className="flex justify-center p-4">
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                    <span className="ml-2 text-sm">{t.common.loading}...</span>
-                                                </div>
-                                            ) : enterprises.length === 0 ? (
-                                                <div className="p-4 text-center text-sm text-muted-foreground">
-                                                    {balance.empty.noData}
-                                                </div>
-                                            ) : (
-                                                enterprises
-                                                    .filter(ent => {
-                                                        const searchLower = searchTerm.toLowerCase();
-                                                        return (
-                                                            ent.tenant_id.toString().includes(searchLower) ||
-                                                            ent.enterprise_name.toLowerCase().includes(searchLower)
-                                                        );
-                                                    })
-                                                    .map(enterprise => (
-                                                        <div
-                                                            key={enterprise.tenant_id}
-                                                            className="cursor-pointer px-4 py-2 hover:bg-accent hover:text-accent-foreground text-sm"
-                                                            onClick={() => {
-                                                                setTenantId(enterprise.tenant_id.toString());
-                                                                setSelectedEnterprise(enterprise);
-                                                                setSearchTerm(enterprise.enterprise_name);
-                                                                setIsDropdownOpen(false);
-                                                            }}
-                                                        >
-                                                            {enterprise.enterprise_name}（{enterprise.tenant_id}）
+                                            {/* 下拉过滤列表 - 添加ref属性 */}
+                                            {isDropdownOpen && (
+                                                <div
+                                                    ref={dropdownRef}
+                                                    className="absolute z-10 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-lg max-h-60 overflow-auto"
+                                                >
+                                                    {isFetchingEnterprises ? (
+                                                        <div className="flex justify-center p-4">
+                                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                                            <span className="ml-2 text-sm">{t.common.loading}...</span>
                                                         </div>
-                                                    ))
+                                                    ) : enterprises.length === 0 ? (
+                                                        <div className="p-4 text-center text-sm text-muted-foreground">
+                                                            {balance.empty.noData}
+                                                        </div>
+                                                    ) : (
+                                                        enterprises
+                                                            .filter(ent => {
+                                                                const searchLower = searchTerm.toLowerCase();
+                                                                return (
+                                                                    ent.tenant_id.toString().includes(searchLower) ||
+                                                                    ent.enterprise_name.toLowerCase().includes(searchLower)
+                                                                );
+                                                            })
+                                                            .map(enterprise => (
+                                                                <div
+                                                                    key={enterprise.tenant_id}
+                                                                    className="cursor-pointer px-4 py-2 hover:bg-accent hover:text-accent-foreground text-sm"
+                                                                    onClick={() => {
+                                                                        setTenantId(enterprise.tenant_id.toString());
+                                                                        setSelectedEnterprise(enterprise);
+                                                                        setSearchTerm(enterprise.enterprise_name);
+                                                                        setIsDropdownOpen(false);
+                                                                    }}
+                                                                >
+                                                                    {enterprise.enterprise_name}（{enterprise.tenant_id}）
+                                                                </div>
+                                                            ))
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
-                                    )}
+
+                                    </div>
+
+                                    <div className="md:col-span-1 flex gap-3">
+                                        <Button
+                                            onClick={startQuery}
+                                            disabled={!environment || !tenantId || isQuerying}
+                                            className="flex-1"
+                                        >
+                                            {isQuerying ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                    {balance.params.querying}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Search className="w-4 h-4 mr-2" />
+                                                    {balance.params.query}
+                                                </>
+                                            )}
+                                        </Button>
+
+                                        <Button onClick={resetResults} variant="outline" disabled={isQuerying}>
+                                            <RotateCcw className="w-4 h-4 mr-2" />
+                                            {balance.params.reset}
+                                        </Button>
+                                    </div>
+
+                                    <div className="md:col-span-1">
+                                        <Button
+                                            onClick={exportCSV}
+                                            variant="secondary"
+                                            disabled={!activeResults.length || isQuerying}
+                                            className="w-full"
+                                        >
+                                            <FileDown className="w-4 h-4 mr-2" />
+                                            {balance.params.export}
+                                        </Button>
+                                    </div>
                                 </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
 
-                            </div>
+                    <TabsContent value="batch">
+                        <Card>
+                            <CardHeader className="pb-4">
+                                <CardTitle>{balance.tabs.batch}</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                    <div>
+                                        <Label htmlFor="environment-batch">{balance.params.env}</Label>
+                                        <Select value={environment} onValueChange={setEnvironment} disabled={isQuerying}>
+                                            <SelectTrigger id="environment-batch">
+                                                <SelectValue placeholder={balance.params.envPlaceholder} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="test">{balance.params.envTest}</SelectItem>
+                                                <SelectItem value="prod">{balance.params.envProd}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
 
-                            <div className="md:col-span-1 flex gap-3">
-                                <Button
-                                    onClick={startQuery}
-                                    disabled={!environment || !tenantId || isQuerying}
-                                    className="flex-1"
-                                >
-                                    {isQuerying ? (
-                                        <>
-                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                            {balance.params.querying}
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Search className="w-4 h-4 mr-2" />
-                                            {balance.params.query}
-                                        </>
-                                    )}
-                                </Button>
+                                    <div className="md:col-span-1 flex gap-3">
+                                        <Button
+                                            onClick={startQuery}
+                                            disabled={!environment || isQuerying}
+                                            className="flex-1"
+                                        >
+                                            {isQuerying ? (
+                                                <>
+                                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                    {balance.params.querying}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Search className="w-4 h-4 mr-2" />
+                                                    {balance.actions.startBatch}
+                                                </>
+                                            )}
+                                        </Button>
 
-                                <Button onClick={resetResults} variant="outline" disabled={isQuerying}>
-                                    <RotateCcw className="w-4 h-4 mr-2" />
-                                    {balance.params.reset}
-                                </Button>
-                            </div>
+                                        <Button onClick={resetResults} variant="outline" disabled={isQuerying}>
+                                            <RotateCcw className="w-4 h-4 mr-2" />
+                                            {balance.params.reset}
+                                        </Button>
+                                    </div>
 
-                            <div className="md:col-span-1">
-                                <Button
-                                    onClick={exportCSV}
-                                    variant="secondary"
-                                    disabled={!results.length || isQuerying}
-                                    className="w-full"
-                                >
-                                    <FileDown className="w-4 h-4 mr-2" />
-                                    {balance.params.export}
-                                </Button>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
+                                    <div className="md:col-span-1 md:col-start-4">
+                                        <Button
+                                            onClick={exportCSV}
+                                            variant="secondary"
+                                            disabled={!activeResults.length || isQuerying}
+                                            className="w-full"
+                                        >
+                                            <FileDown className="w-4 h-4 mr-2" />
+                                            {balance.params.export}
+                                        </Button>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                </Tabs>
 
                 {/* KPI 概览 */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     {[
-                        { icon: CheckCircle, color: 'text-emerald-600', label: balance.kpi.queryCount, value: queryCount },
-                        { icon: null, color: '', label: balance.kpi.totalTax, value: results.length },
-                        { icon: AlertTriangle, color: 'text-red-600', label: balance.kpi.errorTax, value: errorCount },
+                        { icon: CheckCircle, color: 'text-emerald-600', label: balance.kpi.queryCount, value: activeQueryCount },
+                        { icon: null, color: '', label: balance.kpi.totalTax, value: activeResults.length },
+                        { icon: AlertTriangle, color: 'text-red-600', label: balance.kpi.errorTax, value: activeErrorCount },
                         {
                             icon: CheckCircle,
                             color: 'text-emerald-600',
                             label: balance.kpi.normalTax,
-                            value: Math.max(results.length - errorCount, 0)
+                            value: Math.max(activeResults.length - activeErrorCount, 0)
                         }
                     ].map((item, index) => (
                         <Card key={index} className="border-muted/50">
@@ -538,7 +680,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                             <CardTitle>{balance.table.title}</CardTitle>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <span>{balance.table.pageSize.replace('{size}', pageSize.toString())}</span>
-                                {results.length > 0 && <span>· {balance.table.total.replace('{total}', results.length.toString())}</span>}
+                                {activeResults.length > 0 && <span>· {balance.table.total.replace('{total}', activeResults.length.toString())}</span>}
                             </div>
                         </div>
                     </CardHeader>
@@ -563,7 +705,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                             <TableBody>
                                 {isQuerying ? (
                                     Array.from({ length: pageSize }).map((_, i) => <SkeletonRow key={i} />)
-                                ) : results.length === 0 ? (
+                                ) : activeResults.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={9} className="h-48 p-0">
                                             <div
@@ -572,7 +714,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                                     <Info className="h-5 w-5 text-muted-foreground" />
                                                 </div>
                                                 <p className="text-base font-medium">
-                                                    {hasQueried ? balance.messages.noData : balance.empty.ready}
+                                                    {activeHasQueried ? balance.messages.noData : balance.empty.ready}
                                                 </p>
                                                 <p className="text-sm text-muted-foreground">
                                                     {balance.empty.instruction}
@@ -581,9 +723,9 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    paginatedResults.map((result) => (
+                                    paginatedResults.map((result, index) => (
                                         <TableRow
-                                            key={result.tax_location_id}
+                                            key={`${result.tenant_id ?? 'unknown'}-${result.tax_location_id}-${index}`}
                                             className={`odd:bg-muted/30 ${!result.is_correct ? 'bg-red-50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-900/20' : ''
                                                 }`}
                                         >
@@ -631,24 +773,24 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                         </Table>
 
                         {/* 分页条 (keeping hardcoded generic text like 'Previous' or using t.common if available, but for now just replacing what I planned) */}
-                        {results.length > 0 && (
+                        {activeResults.length > 0 && (
                             <div
                                 className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:justify-between items-center p-4 border-t">
                                 <div className="text-sm text-muted-foreground">
                                     {/* Using t.balance.table.total or similar to construct "Page X / Y" ? Or just keep basic structure for now */}
-                                    {t.common.pagination.prefix} {currentPage} {t.common.pagination.separator} {totalPages} {t.common.pagination.suffix}
+                                    {t.common.pagination.prefix} {activeCurrentPage} {t.common.pagination.separator} {totalPages} {t.common.pagination.suffix}
                                 </div>
                                 <div className="flex items-center gap-1 sm:gap-2">
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        disabled={currentPage === 1}
-                                        onClick={() => handlePageChange(currentPage - 1)}
+                                        disabled={activeCurrentPage === 1}
+                                        onClick={() => handlePageChange(activeCurrentPage - 1)}
                                     >
                                         {t.common.prev}
                                     </Button>
 
-                                    {getPageNumbers(currentPage, totalPages).map((p, idx) =>
+                                    {getPageNumbers(activeCurrentPage, totalPages).map((p, idx) =>
                                         p === '...' ? (
                                             <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">
                                                 ...
@@ -656,7 +798,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                         ) : (
                                             <Button
                                                 key={p}
-                                                variant={currentPage === p ? 'secondary' : 'outline'}
+                                                variant={activeCurrentPage === p ? 'secondary' : 'outline'}
                                                 size="sm"
                                                 onClick={() => handlePageChange(p as number)}
                                             >
@@ -668,8 +810,8 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        disabled={currentPage === totalPages}
-                                        onClick={() => handlePageChange(currentPage + 1)}
+                                        disabled={activeCurrentPage === totalPages}
+                                        onClick={() => handlePageChange(activeCurrentPage + 1)}
                                     >
                                         {t.common.next}
                                     </Button>

@@ -934,6 +934,13 @@ export interface Translations {
         querying: string;
         ready: string;
       };
+      tabs: {
+        single: string;
+        batch: string;
+      };
+      actions: {
+        startBatch: string;
+      };
       params: {
         title: string;
         env: string;

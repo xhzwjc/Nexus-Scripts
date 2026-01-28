@@ -959,6 +959,13 @@ export const zhCN: Translations = {
                 querying: '查询中',
                 ready: '就绪',
             },
+            tabs: {
+                single: '单企业核对',
+                batch: '批量核对',
+            },
+            actions: {
+                startBatch: '开始批量核对',
+            },
             params: {
                 title: '查询参数',
                 env: '环境',

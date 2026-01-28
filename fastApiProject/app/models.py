@@ -36,13 +36,14 @@ class SettlementResponse(BaseModel):
 
 # 账户核对相关模型（新增）
 class BalanceVerificationRequest(BaseModel):
-    tenant_id: int = Field(..., ge=1, description="企业租户ID")
+    tenant_id: Optional[int] = Field(None, description="企业租户ID，不传为此查询全部")
     environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
-    timeout: int = Field(15, ge=5, le=60, description="超时时间(秒)")
+    timeout: int = Field(15, ge=5, le=600, description="超时时间(秒)")
 
 
 class BalanceVerificationResultItem(BaseModel):
     tax_location_id: int = Field(..., description="税地ID")
+    tenant_id: int = Field(..., description="租户ID")
     tax_address: str = Field(..., description="税地地址")
     enterprise_name: str = Field(..., description="企业名称")
     is_correct: bool = Field(..., description="余额是否正确")
@@ -59,7 +60,7 @@ class BalanceVerificationResponse(BaseModel):
     message: str = Field(..., description="处理信息")
     data: Optional[List[BalanceVerificationResultItem]] = Field(None, description="核对结果")
     request_id: str = Field(..., description="请求ID")
-    enterprise_id: int = Field(..., description="企业ID")
+    enterprise_id: Optional[int] = Field(None, description="企业ID")
 
 
 class CommissionCalculationRequest(BaseModel):
