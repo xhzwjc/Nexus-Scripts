@@ -29,6 +29,7 @@ results/log/
 .venv/
 env/
 venv/
+ven/
 **/ven/
 
 # Pytest run history
