@@ -17,7 +17,7 @@ import { useI18n } from '@/lib/i18n';
 // ==================== 可配置常量 ====================
 // 检测超时时间（毫秒），超过此时间视为异常中断
 // 可手动修改此值进行测试，例如改为 10000 (10秒) 进行超时测试
-const HEALTH_CHECK_TIMEOUT_MS = 60000; // 默认 1 分钟
+const HEALTH_CHECK_TIMEOUT_MS = 60000; // 默认 1 分钟-前端检测全局超时时间
 
 interface EnvCheckResult {
     url: string;

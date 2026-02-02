@@ -111,6 +111,24 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
     const [isChecking, setIsChecking] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0 });
     const [showHealthy, setShowHealthy] = useState(false);
+    const abortControllerRef = React.useRef<AbortController | null>(null);
+
+    // 组件卸载时取消检测
+    React.useEffect(() => {
+        return () => {
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+        };
+    }, []);
+
+    // 关闭回调中也主动取消
+    const handleClose = useCallback(() => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        onClose();
+    }, [onClose]);
 
     // 收集所有需要检测的系统和环境
     const collectSystems = useCallback(() => {
@@ -159,7 +177,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
     }, [groups]);
 
     // 检测单个URL
-    const checkSingleUrl = async (url: string): Promise<{
+    const checkSingleUrl = async (url: string, signal?: AbortSignal): Promise<{
         accessible: boolean;
         responseTime: number;
         ssl: EnvCheckResult['ssl'];
@@ -170,6 +188,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url }),
+                signal,
             });
 
             const data = await response.json();
@@ -180,6 +199,9 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                 error: data.error,
             };
         } catch (error) {
+            if ((error as Error).name === 'AbortError') {
+                throw error;
+            }
             return {
                 accessible: false,
                 responseTime: 0,
@@ -194,6 +216,12 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
         const systems = collectSystems();
         if (systems.length === 0) return;
 
+        // 取消之前的检测
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+
         // 计算总URL数量
         const totalUrls = systems.reduce((sum, s) => sum + s.envUrls.length, 0);
 
@@ -203,46 +231,55 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
 
         let checkedCount = 0;
 
-        // 逐个系统检测
-        for (const system of systems) {
-            const envResults: EnvCheckResult[] = [];
+        try {
+            // 逐个系统检测
+            for (const system of systems) {
+                const envResults: EnvCheckResult[] = [];
 
-            // 检测该系统的所有环境
-            for (const envUrl of system.envUrls) {
-                const checkResult = await checkSingleUrl(envUrl.url);
+                // 检测该系统的所有环境
+                for (const envUrl of system.envUrls) {
+                    const checkResult = await checkSingleUrl(envUrl.url, abortControllerRef.current.signal);
 
-                const envResult: EnvCheckResult = {
-                    url: envUrl.url,
-                    env: envUrl.env,
-                    envLabel: tr['env' + envUrl.env.charAt(0).toUpperCase() + envUrl.env.slice(1) as keyof typeof tr] || envLabels[envUrl.env],
-                    accessible: checkResult.accessible,
-                    responseTime: checkResult.responseTime,
-                    ssl: checkResult.ssl,
-                    error: checkResult.error,
-                    status: 'unknown',
+                    const envResult: EnvCheckResult = {
+                        url: envUrl.url,
+                        env: envUrl.env,
+                        envLabel: tr['env' + envUrl.env.charAt(0).toUpperCase() + envUrl.env.slice(1) as keyof typeof tr] || envLabels[envUrl.env],
+                        accessible: checkResult.accessible,
+                        responseTime: checkResult.responseTime,
+                        ssl: checkResult.ssl,
+                        error: checkResult.error,
+                        status: 'unknown',
+                    };
+
+                    envResult.status = getEnvStatus(envResult, envUrl.skipCertCheck);
+                    envResults.push(envResult);
+
+                    checkedCount++;
+                    setProgress({ current: checkedCount, total: totalUrls });
+                }
+
+                // 更新系统结果
+                const systemResult: SystemHealthResult = {
+                    systemId: system.systemId,
+                    systemName: system.systemName,
+                    groupName: system.groupName,
+                    envResults,
+                    overallStatus: getOverallStatus(envResults),
+                    checkedAt: new Date().toISOString(),
                 };
 
-                envResult.status = getEnvStatus(envResult, envUrl.skipCertCheck);
-                envResults.push(envResult);
-
-                checkedCount++;
-                setProgress({ current: checkedCount, total: totalUrls });
+                setResults(prev => new Map(prev).set(system.systemId, systemResult));
             }
-
-            // 更新系统结果
-            const systemResult: SystemHealthResult = {
-                systemId: system.systemId,
-                systemName: system.systemName,
-                groupName: system.groupName,
-                envResults,
-                overallStatus: getOverallStatus(envResults),
-                checkedAt: new Date().toISOString(),
-            };
-
-            setResults(prev => new Map(prev).set(system.systemId, systemResult));
+        } catch (error) {
+            if ((error as Error).name === 'AbortError') {
+                console.log('Health check aborted');
+            } else {
+                console.error('Health check failed:', error);
+            }
+        } finally {
+            setIsChecking(false);
+            abortControllerRef.current = null;
         }
-
-        setIsChecking(false);
     };
 
     // 按状态分组结果
@@ -276,7 +313,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                             <p className="text-sm text-muted-foreground">{tr.healthCheckDesc}</p>
                         </div>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={onClose}>
+                    <Button variant="ghost" size="icon" onClick={handleClose}>
                         <X className="w-5 h-5" />
                     </Button>
                 </div>
