@@ -88,14 +88,6 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
         return false;
     }, [userKey]);
 
-    const markRunInSession = useCallback(() => {
-        try {
-            sessionStorage.setItem(SESSION_CHECK_KEY, JSON.stringify({ userKey, timestamp: Date.now() }));
-        } catch {
-            // ignore
-        }
-    }, [userKey]);
-
     // 保存检测结果到sessionStorage
     const saveResult = useCallback((result: HealthCheckState) => {
         try {
@@ -311,40 +303,50 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
         // 检测逻辑
         const doCheck = async (): Promise<'success' | 'error'> => {
             try {
-                for (const envInfo of allEnvs) {
-                    // 检查是否已超时或取消
-                    if (abortControllerRef.current?.signal.aborted) {
-                        throw new Error('Aborted');
-                    }
+                const signal = abortControllerRef.current?.signal;
 
-                    const result = await checkSingleUrl(envInfo.url, abortControllerRef.current?.signal);
-                    checkedCount++;
+                // 检测模式配置：1 为顺序执行，2 为并发执行（分批）
+                const DETECTION_MODE: number = 2;
+                const BATCH_SIZE = DETECTION_MODE === 1 ? 1 : 5;
 
-                    // 判断是否有问题
-                    let hasIssue = !result.accessible;
+                // 分批次检测，避免同时发起上百个请求造成浏览器或后端阻塞
+                for (let i = 0; i < allEnvs.length; i += BATCH_SIZE) {
+                    if (signal?.aborted) break;
 
-                    // 如果可访问，且未忽略证书检测，才检查证书问题
-                    if (result.accessible && !envInfo.skipCertCheck) {
-                        if (result.daysRemaining !== undefined && result.daysRemaining <= 30) {
-                            hasIssue = true;
+                    const batch = allEnvs.slice(i, i + BATCH_SIZE);
+                    await Promise.all(batch.map(async (envInfo) => {
+                        const result = await checkSingleUrl(envInfo.url, signal);
+
+                        if (signal?.aborted) return;
+                        checkedCount++;
+
+                        // 判断是否有问题
+                        let hasIssue = !result.accessible;
+
+                        // 如果可访问，且未忽略证书检测，才检查证书问题
+                        if (result.accessible && !envInfo.skipCertCheck) {
+                            if (result.daysRemaining !== undefined && result.daysRemaining <= 30) {
+                                hasIssue = true;
+                            }
                         }
-                    }
 
-                    if (hasIssue) {
-                        foundIssues.push({
-                            ...envInfo,
-                            envLabel: envLabels[envInfo.env],
-                            daysRemaining: result.daysRemaining,
-                            error: result.error,
-                            accessible: result.accessible,
-                        });
-                    }
+                        if (hasIssue) {
+                            foundIssues.push({
+                                ...envInfo,
+                                envLabel: envLabels[envInfo.env],
+                                daysRemaining: result.daysRemaining,
+                                error: result.error,
+                                accessible: result.accessible,
+                            });
+                        }
 
-                    setState(prev => ({ ...prev, checkedEnvs: checkedCount }));
+                        setState(prev => ({ ...prev, checkedEnvs: checkedCount }));
+                    }));
                 }
 
                 return 'success';
-            } catch {
+            } catch (err) {
+                if ((err as Error).message === 'Aborted') return 'error';
                 return 'error';
             }
         };

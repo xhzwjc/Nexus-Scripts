@@ -221,6 +221,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
             abortControllerRef.current.abort();
         }
         abortControllerRef.current = new AbortController();
+        const signal = abortControllerRef.current.signal;
 
         // 计算总URL数量
         const totalUrls = systems.reduce((sum, s) => sum + s.envUrls.length, 0);
@@ -231,45 +232,66 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
 
         let checkedCount = 0;
 
+        // 检测模式配置：1 为顺序执行，2 为并发执行（分批）
+        const DETECTION_MODE: number = 2;
+        const BATCH_SIZE = DETECTION_MODE === 1 ? 1 : 10;
+
         try {
-            // 逐个系统检测
-            for (const system of systems) {
-                const envResults: EnvCheckResult[] = [];
+            // 准备所有需要检测的任务
+            const tasks: (() => Promise<void>)[] = [];
 
-                // 检测该系统的所有环境
-                for (const envUrl of system.envUrls) {
-                    const checkResult = await checkSingleUrl(envUrl.url, abortControllerRef.current.signal);
+            systems.forEach(system => {
+                tasks.push(async () => {
+                    const envResults: EnvCheckResult[] = [];
 
-                    const envResult: EnvCheckResult = {
-                        url: envUrl.url,
-                        env: envUrl.env,
-                        envLabel: tr['env' + envUrl.env.charAt(0).toUpperCase() + envUrl.env.slice(1) as keyof typeof tr] || envLabels[envUrl.env],
-                        accessible: checkResult.accessible,
-                        responseTime: checkResult.responseTime,
-                        ssl: checkResult.ssl,
-                        error: checkResult.error,
-                        status: 'unknown',
-                    };
+                    // 并行检测单个系统的所有环境 (系统内通常只有 1-3 个环境，可以并行)
+                    await Promise.all(system.envUrls.map(async (envUrl) => {
+                        if (signal.aborted) return;
+                        try {
+                            const checkResult = await checkSingleUrl(envUrl.url, signal);
+                            const envResult: EnvCheckResult = {
+                                url: envUrl.url,
+                                env: envUrl.env,
+                                envLabel: tr['env' + envUrl.env.charAt(0).toUpperCase() + envUrl.env.slice(1) as keyof typeof tr] || envLabels[envUrl.env],
+                                accessible: checkResult.accessible,
+                                responseTime: checkResult.responseTime,
+                                ssl: checkResult.ssl,
+                                error: checkResult.error,
+                                status: 'unknown',
+                            };
+                            envResult.status = getEnvStatus(envResult, envUrl.skipCertCheck);
+                            envResults.push(envResult);
+                        } catch (err) {
+                            if ((err as Error).name !== 'AbortError') console.error(`Failed: ${envUrl.url}`, err);
+                        } finally {
+                            if (!signal.aborted) {
+                                checkedCount++;
+                                setProgress(prev => ({ ...prev, current: checkedCount }));
+                            }
+                        }
+                    }));
 
-                    envResult.status = getEnvStatus(envResult, envUrl.skipCertCheck);
-                    envResults.push(envResult);
+                    if (!signal.aborted) {
+                        const systemResult: SystemHealthResult = {
+                            systemId: system.systemId,
+                            systemName: system.systemName,
+                            groupName: system.groupName,
+                            envResults,
+                            overallStatus: getOverallStatus(envResults),
+                            checkedAt: new Date().toISOString(),
+                        };
+                        setResults(prev => new Map(prev).set(system.systemId, systemResult));
+                    }
+                });
+            });
 
-                    checkedCount++;
-                    setProgress({ current: checkedCount, total: totalUrls });
-                }
-
-                // 更新系统结果
-                const systemResult: SystemHealthResult = {
-                    systemId: system.systemId,
-                    systemName: system.systemName,
-                    groupName: system.groupName,
-                    envResults,
-                    overallStatus: getOverallStatus(envResults),
-                    checkedAt: new Date().toISOString(),
-                };
-
-                setResults(prev => new Map(prev).set(system.systemId, systemResult));
+            // 使用限制并发的池执行任务
+            for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
+                if (signal.aborted) break;
+                const batch = tasks.slice(i, i + BATCH_SIZE);
+                await Promise.all(batch.map(task => task()));
             }
+
         } catch (error) {
             if ((error as Error).name === 'AbortError') {
                 console.log('Health check aborted');
@@ -277,8 +299,10 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                 console.error('Health check failed:', error);
             }
         } finally {
-            setIsChecking(false);
-            abortControllerRef.current = null;
+            if (!signal.aborted) {
+                setIsChecking(false);
+                abortControllerRef.current = null;
+            }
         }
     };
 

@@ -71,7 +71,7 @@ function checkSSL(urlString: string): Promise<HealthCheckResult['ssl']> {
                 }
             });
 
-            socket.setTimeout(5000, () => {
+            socket.setTimeout(8000, () => {
                 socket.destroy();
                 resolve({ valid: true, error: 'Timeout' });
             });
@@ -102,7 +102,7 @@ function checkAccessibility(urlString: string): Promise<{ accessible: boolean; r
                 port: url.port || (isHttps ? 443 : 80),
                 path: url.pathname || '/',
                 method: 'GET',
-                timeout: 5000,
+                timeout: 8000,
                 rejectUnauthorized: false,
                 headers: {
                     'User-Agent': 'Mozilla/5.0 HealthCheck/1.0'
@@ -132,7 +132,7 @@ function checkAccessibility(urlString: string): Promise<{ accessible: boolean; r
                 resolve({ accessible: false, responseTime: Date.now() - startTime, error: 'Timeout' });
             });
 
-            req.setTimeout(5000, () => {
+            req.setTimeout(8000, () => {
                 req.destroy();
                 resolve({ accessible: false, responseTime: Date.now() - startTime, error: 'Socket timeout' });
             });
