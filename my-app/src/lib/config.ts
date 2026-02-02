@@ -163,7 +163,7 @@ export const allScripts: Record<string, SystemConfig> = {
 
 // ============== 天气缓存配置 ==============
 export const WEATHER_CACHE_KEY = 'heweather_bj_cache';
-export const WEATHER_TTL = 10 * 60 * 1000; // 10 分钟
+export const WEATHER_TTL = 3 * 60 * 60 * 1000; // 3 小时
 
 // ============== 工具函数 ==============
 export const getEndOfDayTimestamp = (): number => {

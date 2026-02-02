@@ -346,7 +346,12 @@ function AppContent() {
                 }
             } catch { /* ignore */ }
         }
-        refreshWeather({ background: hasCached });
+
+        // 仅在无缓存或缓存失效时，才进行初始化刷新
+        if (!hasCached) {
+            refreshWeather({ background: false });
+        }
+
         const i = setInterval(() => refreshWeather({ background: true }), WEATHER_TTL);
         return () => clearInterval(i);
     }, [refreshWeather]);
