@@ -26,8 +26,8 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         <aside className="dashboard-sidebar w-[260px] h-screen flex flex-col py-6 px-4 z-40 bg-[var(--glass-bg)] backdrop-blur-xl border-r border-[var(--sidebar-border)] shadow-sm shrink-0">
             {/* Logo */}
             <div className="flex items-center gap-2.5 px-3 mb-8">
-                <div className="w-8 h-8 bg-gradient-to-br from-teal-500 to-teal-600 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-lg">
-                    S
+                <div className="w-10 h-10 flex items-center justify-center overflow-hidden">
+                    <img src="/logo.svg" alt="Logo" className="w-full h-full object-contain" />
                 </div>
                 <span className="font-semibold text-[var(--text-primary)] text-[15px]">
                     ScriptHub <span className="font-normal text-[var(--text-secondary)]">Dashboard</span>
