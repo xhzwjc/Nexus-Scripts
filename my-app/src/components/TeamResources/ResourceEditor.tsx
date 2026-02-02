@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Plus, Save, Trash2, ArrowLeft, Building2, Database, Globe, Key, Upload, X, GripVertical } from 'lucide-react';
+import { Plus, Save, Trash2, ArrowLeft, Building2, Database, Globe, Key, Upload, X, GripVertical, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
 import {
@@ -369,6 +369,43 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
         toast.success(tr.clearedEnv.replace('{env}', envName));
     };
 
+    const handleExport = () => {
+        let text = `=========================================\n`;
+        text += `       ${tr.exportHeader}\n`;
+        text += `=========================================\n`;
+        text += `${tr.exportGeneratedAt.replace('{date}', new Date().toLocaleString())}\n\n`;
+
+        editedGroups.forEach(group => {
+            text += `\n【${tr.exportGroup.replace('{name}', group.name)}】\n`;
+            text += `-----------------------------------------\n`;
+
+            group.systems.forEach(system => {
+                text += `${tr.exportSystem.replace('{name}', system.name)}\n`;
+
+                (['dev', 'test', 'prod'] as Environment[]).forEach(env => {
+                    const envData = system.environments[env];
+                    if (envData && envData.url) {
+                        const envName = env === 'dev' ? tr.envDev : env === 'test' ? tr.envTest : tr.envProd;
+                        // 格式：  环境:  URL
+                        text += `  ${envName}:  ${envData.url}\n`;
+                    }
+                });
+                text += `\n`;
+            });
+        });
+
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = tr.exportFileName.replace('{date}', new Date().toISOString().split('T')[0]);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast.success(tr.exportSuccess);
+    };
+
     const handleSaveClick = async () => {
         if (isSaving) return;
         setIsSaving(true);
@@ -432,6 +469,10 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                     <h2 className="text-lg font-bold text-[var(--text-primary)]">{tr.resourceManage}</h2>
                 </div>
                 <div className="flex gap-2">
+                    <Button variant="outline" onClick={handleExport} disabled={isSaving}>
+                        <Download className="w-4 h-4 mr-2" />
+                        {tr.exportResources}
+                    </Button>
                     <Button variant="outline" onClick={onCancel} disabled={isSaving}>{tr.cancel}</Button>
                     <Button onClick={handleSaveClick} disabled={isSaving}>
                         {isSaving ? (

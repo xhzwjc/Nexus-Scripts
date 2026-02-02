@@ -373,6 +373,16 @@ export const enUS: Translations = {
         clearThisEnv: 'Clear this environment',
         skipHealthCheck: 'Skip Health Check',
         skipCertCheck: 'Skip Certificate Check',
+        // Export
+        exportResources: 'Export Details',
+        exportFileName: 'Team_Resources_Export_{date}.txt',
+        exportHeader: 'Team Resources Export (Internal Use Only)',
+        exportGeneratedAt: 'Generated at: {date}',
+        exportGroup: 'Group: {name}',
+        exportSystem: 'System: {name}',
+        exportDescription: 'Description: {desc}',
+        exportCredentials: 'Credentials:',
+        exportSuccess: 'Resource details exported',
     },
 
     // Header Health Indicator

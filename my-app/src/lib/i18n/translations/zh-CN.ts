@@ -372,6 +372,16 @@ export const zhCN: Translations = {
         clearThisEnv: '一键清空此环境',
         skipHealthCheck: '忽略检测',
         skipCertCheck: '忽略证书检测',
+        // 导出
+        exportResources: '导出明细',
+        exportFileName: '团队资源导出_{date}.txt',
+        exportHeader: '团队资源信息导出 (内部专用)',
+        exportGeneratedAt: '生成时间: {date}',
+        exportGroup: '集团: {name}',
+        exportSystem: '系统: {name}',
+        exportDescription: '描述: {desc}',
+        exportCredentials: '凭证信息:',
+        exportSuccess: '资源明细已导出',
     },
 
     // Header Health Indicator

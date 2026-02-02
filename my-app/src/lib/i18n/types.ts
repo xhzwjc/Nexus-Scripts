@@ -325,6 +325,16 @@ export interface Translations {
     clearThisEnv: string;
     skipHealthCheck: string;
     skipCertCheck: string;
+    // Export
+    exportResources: string;
+    exportFileName: string;
+    exportHeader: string;
+    exportGeneratedAt: string;
+    exportGroup: string;
+    exportSystem: string;
+    exportDescription: string;
+    exportCredentials: string;
+    exportSuccess: string;
   };
 
   // Header Health Indicator
