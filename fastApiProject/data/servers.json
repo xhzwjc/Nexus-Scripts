@@ -2,7 +2,7 @@
     {
         "id": "local-windows-docker",
         "name": "Windows(D)",
-        "host": "192.168.20.120",
+        "host": "host.docker.internal",
         "port": 9200,
         "enabled": true,
         "description": "Docker容器通过局域网IP访问宿主机",
