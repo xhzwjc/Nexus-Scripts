@@ -459,20 +459,6 @@
       "order": 3
     },
     {
-      "id": "poe-aggregator",
-      "name": "Poe",
-      "description": "多模型聚合与自定义机器人",
-      "url": "https://poe.com",
-      "logoUrl": "https://poe.com/favicon.ico",
-      "category": "chat",
-      "tags": [
-        "聚合",
-        "自定义",
-        "API"
-      ],
-      "order": 3
-    },
-    {
       "id": "crewai",
       "name": "CrewAI",
       "description": "领先的多代理协作框架，构建AI团队执行复杂任务",
@@ -2815,6 +2801,315 @@
         "优化"
       ],
       "order": 60
+    },
+    {
+      "id": "mistral-chat",
+      "name": "Mistral Le Chat",
+      "description": "Mistral官方对话产品，欧洲领先的高性能开源大模型，推理与代码能力强",
+      "url": "https://chat.mistral.ai",
+      "logoUrl": "https://chat.mistral.ai/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "开源",
+        "欧洲",
+        "推理",
+        "代码"
+      ],
+      "order": 30
+    },
+    {
+      "id": "superagi",
+      "name": "SuperAGI",
+      "description": "企业级AI Agent平台，支持任务编排、记忆管理和工具市场",
+      "url": "https://superagi.com",
+      "logoUrl": "https://superagi.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "Agent平台",
+        "企业级",
+        "多代理",
+        "自动化"
+      ],
+      "order": 33
+    },
+    {
+      "id": "pixverse",
+      "name": "PixVerse",
+      "description": "面向短视频创作的AI视频生成工具，写实风格强，模板化程度高",
+      "url": "https://pixverse.ai",
+      "logoUrl": "https://pixverse.ai/favicon.ico",
+      "category": "video",
+      "tags": [
+        "短视频",
+        "写实",
+        "模板",
+        "社媒"
+      ],
+      "order": 35
+    },
+    {
+      "id": "haiper",
+      "name": "Haiper",
+      "description": "轻量级文本到视频生成工具，生成速度快，适合社交媒体内容",
+      "url": "https://haiper.ai",
+      "logoUrl": "https://haiper.ai/favicon.ico",
+      "category": "video",
+      "tags": [
+        "视频生成",
+        "轻量",
+        "快速",
+        "社媒"
+      ],
+      "order": 36
+    },
+    {
+      "id": "mem-ai",
+      "name": "Mem.ai",
+      "description": "AI原生第二大脑工具，自动整理信息并建立知识关联",
+      "url": "https://mem.ai",
+      "logoUrl": "https://mem.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "第二大脑",
+        "知识管理",
+        "自动整理"
+      ],
+      "order": 37
+    },
+    {
+      "id": "taskade-ai",
+      "name": "Taskade AI",
+      "description": "融合AI Agent的任务与项目管理工具，支持自动化流程和团队协作",
+      "url": "https://www.taskade.com",
+      "logoUrl": "https://www.taskade.com/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "项目管理",
+        "Agent",
+        "协作",
+        "自动化"
+      ],
+      "order": 38
+    },
+    {
+      "id": "rime-ai",
+      "name": "Rime AI",
+      "description": "高情感表现力的AI语音合成平台，强调自然语调与情绪表达",
+      "url": "https://rime.ai",
+      "logoUrl": "https://rime.ai/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "TTS",
+        "情感语音",
+        "自然表达"
+      ],
+      "order": 39
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "description": "统一访问多种大模型的API网关，适合开发者进行模型对比与切换",
+      "url": "https://openrouter.ai",
+      "logoUrl": "https://openrouter.ai/favicon.ico",
+      "category": "other",
+      "tags": [
+        "API聚合",
+        "多模型",
+        "开发者"
+      ],
+      "order": 41
+    },
+    {
+      "id": "openclaw-oss",
+      "name": "OpenClaw (OSS)",
+      "description": "开源、自托管的个人 AI 助手，可在本地运行，通过消息渠道驱动 Agent 执行真实任务，强调隐私与自动化",
+      "url": "https://github.com/clawdbot/clawdbot",
+      "logoUrl": "https://raw.githubusercontent.com/clawdbot/clawdbot/main/assets/logo.png",
+      "category": "agent",
+      "tags": [
+        "开源",
+        "个人助手",
+        "Agent",
+        "自托管",
+        "自动化"
+      ],
+      "order": 42
+    },
+    {
+      "id": "krea-ai",
+      "name": "Krea AI",
+      "description": "面向设计师的实时AI图像生成与风格控制工具，强调一致性和可控性",
+      "url": "https://www.krea.ai",
+      "logoUrl": "https://www.krea.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "设计",
+        "实时生成",
+        "风格控制"
+      ],
+      "order": 43
+    },
+    {
+      "id": "vectorizer-ai",
+      "name": "Vectorizer AI",
+      "description": "将位图自动转换为高质量SVG矢量图的AI工具",
+      "url": "https://vectorizer.ai",
+      "logoUrl": "https://vectorizer.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "矢量化",
+        "SVG",
+        "Logo"
+      ],
+      "order": 46
+    },
+    {
+      "id": "magnific-ai",
+      "name": "Magnific AI",
+      "description": "高质量AI图像放大与细节增强工具，深受设计师欢迎",
+      "url": "https://magnific.ai",
+      "logoUrl": "https://magnific.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "图像增强",
+        "超分辨率"
+      ],
+      "order": 47
+    },
+    {
+      "id": "fooocus",
+      "name": "Fooocus",
+      "description": "面向设计师的开源Stable Diffusion图像生成工具，即开即用",
+      "url": "https://github.com/lllyasviel/Fooocus",
+      "logoUrl": "https://raw.githubusercontent.com/lllyasviel/Fooocus/main/assets/logo.png",
+      "category": "image",
+      "tags": [
+        "开源",
+        "Stable Diffusion",
+        "本地部署"
+      ],
+      "order": 48
+    },
+    {
+      "id": "comfyui",
+      "name": "ComfyUI",
+      "description": "基于节点的Stable Diffusion工作流工具，适合专业级图像生成",
+      "url": "https://github.com/comfyanonymous/ComfyUI",
+      "logoUrl": "https://raw.githubusercontent.com/comfyanonymous/ComfyUI/master/web/assets/favicon.ico",
+      "category": "image",
+      "tags": [
+        "开源",
+        "工作流",
+        "Stable Diffusion"
+      ],
+      "order": 49
+    },
+    {
+      "id": "minimax-ai",
+      "name": "MiniMax AI",
+      "description": "中国多模态 AI 平台，提供覆盖文本、图像、视频、音频等能力的生成与推理服务，具备强大的模型生态和开放平台支持。",
+      "url": "https://minimax.ad/",
+      "logoUrl": "https://minimax.ad/favicon.ico",
+      "category": "image",
+      "tags": [
+        "多模态",
+        "图像生成",
+        "视频生成",
+        "音频",
+        "创意",
+        "AI 平台"
+      ],
+      "order": 51
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity",
+      "description": "AI驱动的答案搜索引擎，提供可靠来源引用与实时信息",
+      "url": "https://www.perplexity.ai",
+      "logoUrl": "https://www.perplexity.ai/favicon.ico",
+      "category": "search",
+      "tags": [
+        "搜索",
+        "研究",
+        "实时",
+        "引用"
+      ],
+      "order": 11
+    },
+    {
+      "id": "continue",
+      "name": "Continue",
+      "description": "开源AI代码助手，支持VSCode集成与本地/远程模型",
+      "url": "https://continue.dev",
+      "logoUrl": "https://continue.dev/favicon.ico",
+      "category": "code",
+      "tags": [
+        "开源",
+        "代码助手",
+        "VSCode",
+        "本地模型"
+      ],
+      "order": 20
+    },
+    {
+      "id": "zapier",
+      "name": "Zapier",
+      "description": "无代码自动化平台，集成AI代理与数千应用工作流",
+      "url": "https://zapier.com",
+      "logoUrl": "https://zapier.com/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "自动化",
+        "无代码",
+        "代理",
+        "集成"
+      ],
+      "order": 20
+    },
+    {
+      "id": "opusclip",
+      "name": "Opus Clip",
+      "description": "AI长视频转短视频工具，自动剪辑高光时刻适合社交媒体",
+      "url": "https://www.opus.pro",
+      "logoUrl": "https://www.opus.pro/favicon.ico",
+      "category": "video",
+      "tags": [
+        "视频剪辑",
+        "短视频",
+        "社交媒体",
+        "自动高光"
+      ],
+      "order": 22
+    },
+    {
+      "id": "replicate",
+      "name": "Replicate",
+      "description": "云端运行开源AI模型平台，支持快速部署与API调用",
+      "url": "https://replicate.com",
+      "logoUrl": "https://replicate.com/favicon.ico",
+      "category": "other",
+      "tags": [
+        "模型运行",
+        "开源",
+        "API",
+        "云端"
+      ],
+      "order": 10
+    },
+    {
+      "id": "swarm",
+      "name": "OpenAI Swarm",
+      "description": "OpenAI轻量级多代理协调框架，适合构建代理团队",
+      "url": "https://github.com/openai/swarm",
+      "logoUrl": "https://openai.com/favicon.ico",
+      "category": "agent",
+      "tags": [
+        "OpenAI",
+        "多代理",
+        "开源",
+        "协调框架"
+      ],
+      "order": 22
     }
   ]
 }
