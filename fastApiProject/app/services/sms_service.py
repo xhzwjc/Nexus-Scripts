@@ -494,7 +494,9 @@ class SMSService:
 
     def get_sms_logs(self, token: str, page: int = 1, page_size: int = 10, 
                      mobile: str = None, send_status: str = None, 
-                     receive_status: str = None) -> Dict[str, Any]:
+                     receive_status: str = None,
+                     send_time: List[str] = None, template_type: int = None,
+                     template_id: str = None) -> Dict[str, Any]:
         """获取短信日志"""
         is_prod = self.environment == "prod"
         base_url = settings.SMS_ADMIN_API_URL_PROD if is_prod else settings.SMS_ADMIN_API_URL_TEST
@@ -503,11 +505,18 @@ class SMSService:
             "pageNo": page,
             "pageSize": page_size,
             "channelId": "",
-            "templateId": "",
+            "templateId": template_id or "",
             "mobile": mobile or "",
             "sendStatus": send_status or "",
-            "receiveStatus": receive_status or ""
+            "receiveStatus": receive_status or "",
+            # "templateType": template_type if template_type is not None else "", # Backend doesn't support this
         }
+        
+        # Handle sendTime array format normally accepted by the upstream API
+        # sendTime[0]=start&sendTime[1]=end
+        if send_time and len(send_time) >= 2:
+            params["sendTime[0]"] = send_time[0]
+            params["sendTime[1]"] = send_time[1]
         
         url = f"{base_url}/system/sms-log/page"
         headers = {

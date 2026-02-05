@@ -23,12 +23,16 @@ from .models import (
     MobileParseResponse, MobileParseRequest, TaxCalculationResponse, TaxCalculationRequest,
     PaymentStatsRequest, PaymentStatsResponse,
     DeliveryLoginRequest, DeliveryTaskRequest, DeliverySubmitRequest, DeliveryWorkerInfoRequest,
-    AdminLoginRequest, SMSLogRequest
+    AdminLoginRequest, SMSLogRequest,
+    AIResourcesDataResponse, AIResourcesSaveRequest
 )
 from .services import EnterpriseSettlementService, AccountBalanceService, CommissionCalculationService, \
     MobileTaskService, SMSService, PaymentStatsService
 from .services.monitoring_service import check_and_alert, load_servers, fetch_server_metrics, get_server_by_id, add_server as add_server_config, update_server, delete_server, check_server_health, ServerConfig
+from .services.ai_resource_service import AiResourceService
 from .config import settings
+from .database import get_db
+from sqlalchemy.orm import Session
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -533,7 +537,10 @@ async def get_sms_logs(request: SMSLogRequest):
         page_size=request.pageSize,
         mobile=request.mobile,
         send_status=request.sendStatus,
-        receive_status=request.receiveStatus
+        receive_status=request.receiveStatus,
+        send_time=request.sendTime,
+        template_type=request.templateType,
+        template_id=request.templateId
     )
 
 
@@ -1181,3 +1188,31 @@ async def check_server_health_status(server_id: str):
         "data": health,
         "request_id": request_id
     }
+
+
+# AI 资源管理接口
+@app.get("/ai-resources/data", response_model=AIResourcesDataResponse, tags=["AI资源"])
+async def get_ai_resources(db: Session = Depends(get_db)):
+    """获取所有 AI 资源数据"""
+    service = AiResourceService(db)
+    return service.get_all_data()
+
+@app.post("/ai-resources/save", tags=["AI资源"])
+async def save_ai_resources(request: AIResourcesSaveRequest, db: Session = Depends(get_db)):
+    """保存 AI 资源数据（同步模式）"""
+    service = AiResourceService(db)
+    try:
+        service.save_all_data(request.categories, request.resources)
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error saving AI resources: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/ai-resources/{resource_id}", tags=["AI资源"])
+async def delete_ai_resource(resource_id: str, db: Session = Depends(get_db)):
+    """删除 AI 资源"""
+    service = AiResourceService(db)
+    if service.delete_resource(resource_id):
+        return {"success": True}
+    else:
+        raise HTTPException(status_code=404, detail="Resource not found")

@@ -1270,20 +1270,30 @@ export const zhCN: Translations = {
                 refresh: '刷新',
                 query: '查询',
                 reset: '重置',
+                export: '导出',
                 filters: {
                     mobile: '手机号',
                     mobilePlaceholder: '输入手机号筛选',
                     sendStatus: '发送状态',
                     receiveStatus: '接收状态',
+                    templateType: '短信类型',
+                    templateId: '模板ID',
+                    sendTime: '发送时间',
                     all: '全部',
                     success: '成功 (10)',
                     failed: '失败 (20)',
                     pending: '等待 (0)',
+                    types: {
+                        verification: '验证码 (1)',
+                        notification: '通知 (2)',
+                        marketing: '营销 (3)',
+                    }
                 },
                 table: {
                     id: 'ID',
                     mobile: '手机号',
                     templateCode: '模板代码',
+                    templateType: '类型',
                     content: '内容',
                     sendStatus: '发送状态',
                     receiveStatus: '接收状态',
@@ -1293,12 +1303,18 @@ export const zhCN: Translations = {
                     success: '成功',
                     failed: '失败',
                     waiting: '等待结果',
+                    types: {
+                        verification: '验证码',
+                        notification: '通知',
+                        marketing: '营销',
+                    }
                 },
                 pagination: {
                     total: '共 {total} 条记录',
                     prev: '上一页',
                     next: '下一页',
-                    page: 'Page {page}',
+                    size: '每页条数',
+                    page: '第 {page} 页',
                 },
                 toast: {
                     refreshSuccess: '日志刷新成功',

@@ -21,8 +21,9 @@ class Settings:
     BASE_URL_PROD = os.getenv("BASE_URL_PROD")
     BASE_URL_LOCAL = os.getenv("BASE_URL_LOCAL")
 
-    # 默认环境 (test, prod, local)
-    ENVIRONMENT = os.getenv("ENVIRONMENT", "prod")
+    # 默认环境 (local, test, prod)
+    # 修改默认值为 local，确保在 Docker 或本地开发时默认连接本地库
+    ENVIRONMENT = os.getenv("ENVIRONMENT", "local")
 
     # 账户余额核对 - 数据库配置（新增）
     # 测试环境数据库
@@ -73,8 +74,18 @@ class Settings:
         return self.get_base_url()
 
     def get_db_config(self, environment: Optional[str] = None):
-        """根据当前环境获取数据库配置（供账户余额核对使用）"""
+        """根据当前环境获取数据库配置"""
+        # 第一步：正常解析环境
         env = self.resolve_environment(environment)
+        
+        # 第二步：强行干预逻辑（针对 AI 资源本地化需求）
+        # 只要 detected 到了本地数据库的配置，且没有被明确传入 'prod' 或 'test' 参数
+        # 我们就认为用户是想访问本地库，不再受 ENVIRONMENT 变量的干扰
+        local_db_name = os.getenv("DB_LOCAL_DATABASE")
+        if not environment and local_db_name:
+            # 只要配置了本地库名，就强行切换到 local 环境配置
+            env = "local"
+
         if env == "prod":
             return {
                 "host": self.DB_PROD_HOST,
@@ -89,7 +100,7 @@ class Settings:
                 "port": self.DB_LOCAL_PORT,
                 "user": self.DB_LOCAL_USER,
                 "password": self.DB_LOCAL_PASSWORD,
-                "database": self.DB_LOCAL_DATABASE
+                "database": self.DB_LOCAL_DATABASE or "db_fwos_local"
             }
         # 默认返回测试环境配置
         return {

@@ -23,22 +23,24 @@ services:
     restart: always
     environment:
       - TZ=Asia/Shanghai
+      - NEXT_PUBLIC_API_BASE_URL=http://fastapi:8091
     networks:
       - app-network
 
   # 后端FastAPI服务
   fastapi:
     build:
-      context: ./fastApiProject
+      context: ./fastapiProject
     image: project-root-fastapi:v1.0.0
     restart: always
     volumes:
+      - ./fastapiProject:/app               # 映射代码目录，实现实时同步
       - paddlex_models:/root/.paddlex       # PaddleX 模型缓存
       - paddle_models:/root/.paddleocr      # PaddleOCR 模型缓存
     ports:
       - "8091:8091"
     environment:
-      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - ENVIRONMENT=${ENVIRONMENT:-local}
       - DB_TEST_HOST=${DB_TEST_HOST}
       - DB_TEST_PORT=${DB_TEST_PORT}
       - DB_TEST_USER=${DB_TEST_USER}
@@ -49,6 +51,11 @@ services:
       - DB_PROD_USER=${DB_PROD_USER}
       - DB_PROD_PASSWORD=${DB_PROD_PASSWORD}
       - DB_PROD_DATABASE=${DB_PROD_DATABASE}
+      - DB_LOCAL_HOST=${DB_LOCAL_HOST}
+      - DB_LOCAL_PORT=${DB_LOCAL_PORT}
+      - DB_LOCAL_USER=${DB_LOCAL_USER}
+      - DB_LOCAL_PASSWORD=${DB_LOCAL_PASSWORD}
+      - DB_LOCAL_DATABASE=${DB_LOCAL_DATABASE}
       - BASE_URL_TEST=${BASE_URL_TEST}
       - BASE_URL_PROD=${BASE_URL_PROD}
       - BASE_URL_LOCAL=${BASE_URL_LOCAL}

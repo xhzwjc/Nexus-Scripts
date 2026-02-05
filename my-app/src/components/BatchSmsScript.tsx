@@ -79,7 +79,9 @@ interface SMSLogItem {
     sendStatus: number;
     receiveStatus: number;
     templateCode: string;
+    templateId?: string; // Added field
     apiSendMsg: string;
+    templateType?: number; // 1: 验证码, 2: 通知, 3: 营销
 }
 
 type ResendType = 'mobile' | 'batch';
@@ -248,11 +250,22 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
     const [smsLogs, setSmsLogs] = useState<SMSLogItem[]>([]);
     const [logsLoading, setLogsLoading] = useState(false);
     const [logPage, setLogPage] = useState(1);
+    const [logPageSize, setLogPageSize] = useState(10);
     const [logTotal, setLogTotal] = useState(0);
     // Log Filters
     const [logFilterMobile, setLogFilterMobile] = useState('');
     const [logFilterSendStatus, setLogFilterSendStatus] = useState<string>('');
     const [logFilterReceiveStatus, setLogFilterReceiveStatus] = useState<string>('');
+    const [logFilterSendTime, setLogFilterSendTime] = useState<string>(''); // YYYY-MM-DD
+    const [logFilterTemplateType, setLogFilterTemplateType] = useState<string>('0'); // 0 for all
+    const [logFilterTemplateId, setLogFilterTemplateId] = useState<string>('');
+
+    // Frontend Filtering for SMS Type
+    const filteredSmsLogs = useMemo(() => {
+        if (logFilterTemplateType === '0') return smsLogs;
+        const type = Number(logFilterTemplateType);
+        return smsLogs.filter(log => log.templateType === type);
+    }, [smsLogs, logFilterTemplateType]);
 
     // Clear token on environment change
     useEffect(() => {
@@ -299,7 +312,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
         }
     };
 
-    const fetchLogs = async (page = 1, filters?: { mobile?: string; sendStatus?: string; receiveStatus?: string }) => {
+    const fetchLogs = async (page = 1, filters?: { mobile?: string; sendStatus?: string; receiveStatus?: string; sendTime?: string; templateId?: string }, pageSize?: number) => {
         if (!adminToken) {
             toast.error(bs.login.toast.loginRequired);
             return;
@@ -311,18 +324,36 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
             return;
         }
 
-
-
         setLogsLoading(true);
         try {
+            // Unify get params
+            const fMobile = filters?.mobile !== undefined ? filters.mobile : logFilterMobile;
+            const fSendStatus = filters?.sendStatus !== undefined ? filters.sendStatus : logFilterSendStatus;
+            const fReceiveStatus = filters?.receiveStatus !== undefined ? filters.receiveStatus : logFilterReceiveStatus;
+            const fSendTime = filters?.sendTime !== undefined ? filters.sendTime : logFilterSendTime;
+            const fTemplateId = filters?.templateId !== undefined ? filters.templateId : logFilterTemplateId;
+            // NOTE: templateType is filtered on Frontend now
+
+            // Construct time range if date is selected
+            let timeRange: string[] | undefined = undefined;
+            if (fSendTime) {
+                // Backend expects comma-joined string, handled by sms_service.py joining list
+                timeRange = [`${fSendTime} 00:00:00`, `${fSendTime} 23:59:59`];
+            }
+
+            const currentSize = pageSize || logPageSize;
+
             const res = await api.post<ApiResponse<LogData>>('/sms/logs', {
                 environment,
                 token: adminToken,
                 page,
-                pageSize: 10,
-                mobile: (filters?.mobile !== undefined ? filters.mobile : logFilterMobile) || undefined,
-                sendStatus: (filters?.sendStatus !== undefined ? filters.sendStatus : logFilterSendStatus) || undefined,
-                receiveStatus: (filters?.receiveStatus !== undefined ? filters.receiveStatus : logFilterReceiveStatus) || undefined
+                pageSize: currentSize,
+                mobile: fMobile || undefined,
+                sendStatus: fSendStatus || undefined,
+                receiveStatus: fReceiveStatus || undefined,
+                sendTime: timeRange,
+                templateId: fTemplateId || undefined,
+                // templateType removed as backend doesn't support it
             });
 
             if (res.data.code === 0 && res.data.data) {
@@ -344,7 +375,10 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
         setLogFilterMobile('');
         setLogFilterSendStatus('');
         setLogFilterReceiveStatus('');
-        fetchLogs(1, { mobile: '', sendStatus: '', receiveStatus: '' });
+        setLogFilterSendTime('');
+        setLogFilterTemplateType('0');
+        setLogFilterTemplateId('');
+        fetchLogs(1, { mobile: '', sendStatus: '', receiveStatus: '', sendTime: '', templateId: '' });
     };
     const [allowedTemplates, setAllowedTemplates] = useState<Template[]>([]);
     const [templateFilter, setTemplateFilter] = useState('');
@@ -637,10 +671,20 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
         if (!api) return;
         setIsResending(true);
         try {
+            let mobileList: string[] = [];
             if (resendType === 'mobile') {
-                const m = resendMobile.trim();
                 const taxId = resendTaxId.trim();
-                if (!CN_MOBILE_REGEX.test(m)) throw new Error(bs.messages.mobileInvalid);
+
+                // Parse mobiles from string (newlines or commas)
+                const rawMobiles = resendMobile.replace(/，/g, ',').split(/[\n,]/);
+                mobileList = rawMobiles.map(m => m.trim()).filter(m => m);
+
+                if (mobileList.length === 0) throw new Error(bs.messages.mobileInvalid);
+
+                // Optional: Check if at least one looks like a valid mobile
+                // const hasValid = mobileList.some(m => CN_MOBILE_REGEX.test(m));
+                // if (!hasValid) throw new Error(bs.messages.mobileInvalid);
+
                 if (!taxId) throw new Error(bs.resend.taxIdHint);
             } else {
                 if (!resendBatchNo.trim()) throw new Error(bs.resend.batchNoHint);
@@ -649,7 +693,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
             const params =
                 resendType === 'mobile'
                     ? {
-                        mobiles: [resendMobile.trim()],
+                        mobiles: mobileList,
                         tax_id: resendTaxId.trim()
                     }
                     : { batch_no: resendBatchNo.trim() };
@@ -700,6 +744,62 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
         const a = document.createElement('a');
         a.href = url;
         a.download = `sms_send_results_${new Date().getTime()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const handleExport = () => {
+        if (filteredSmsLogs.length === 0) return toast.info(bs.logs.table.empty);
+
+        // CSV Header
+        const headers = [
+            bs.logs.table.id,
+            bs.logs.table.mobile,
+            bs.logs.table.templateCode,
+            bs.logs.table.templateType,
+            bs.logs.table.content,
+            bs.logs.table.sendStatus,
+            bs.logs.table.receiveStatus,
+            bs.logs.table.sendTime
+        ].join(',');
+
+        // CSV Rows
+        const rows = filteredSmsLogs.map(log => {
+            const type = log.templateType === 1 ? bs.logs.table.types.verification :
+                log.templateType === 2 ? bs.logs.table.types.notification :
+                    log.templateType === 3 ? bs.logs.table.types.marketing : '-';
+
+            const sendStatus = log.sendStatus === 10 ? bs.logs.table.success :
+                log.sendStatus === 20 ? bs.logs.table.failed : bs.logs.table.unknown;
+
+            const receiveStatus = log.receiveStatus === 10 ? bs.logs.table.success :
+                log.receiveStatus === 20 ? bs.logs.table.failed : bs.logs.table.waiting;
+
+            // Escape quotes and wrap in quotes for CSV safety
+            // Remove $ placeholders globally
+            const cleanContent = (log.templateContent || '').replace(/\$/g, '');
+            const content = `"${cleanContent.replace(/"/g, '""')}"`;
+            const date = log.sendTime ? new Date(log.sendTime).toLocaleString() : '-';
+
+            return [
+                log.id,
+                log.mobile,
+                log.templateCode,
+                type,
+                content,
+                sendStatus,
+                receiveStatus,
+                date
+            ].join(',');
+        });
+
+        const csvContent = [headers, ...rows].join('\n');
+        // Add BOM for Excel compatibility with UTF-8
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `sms_logs_${new Date().toISOString().slice(0, 10)}.csv`;
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -1421,13 +1521,12 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                         <div className="space-y-4">
                                             <div>
                                                 <Label htmlFor="resend-mobile-input">{bs.resend.mobileLabel}</Label>
-                                                <Input
+                                                <Textarea
                                                     id="resend-mobile-input"
                                                     value={resendMobile}
                                                     onChange={(e) => setResendMobile(e.target.value)}
                                                     placeholder={bs.resend.mobilePlaceholder}
-                                                    maxLength={11}
-                                                    required
+                                                    rows={4}
                                                 />
                                                 <p className="text-xs text-muted-foreground mt-1">{bs.resend.mobileHint}</p>
                                             </div>
@@ -1561,99 +1660,194 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <Button
-                                            onClick={() => fetchLogs(1)}
-                                            disabled={logsLoading}
-                                            className="mb-0.5"
-                                        >
-                                            {bs.logs.query}
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            onClick={resetFilters}
-                                            disabled={logsLoading}
-                                            className="mb-0.5"
-                                        >
-                                            {bs.logs.reset}
-                                        </Button>
+                                        <div className="w-full sm:w-40 space-y-2">
+                                            <Label>{bs.logs.filters.sendTime}</Label>
+                                            <Input
+                                                type="date"
+                                                value={logFilterSendTime}
+                                                onChange={(e) => setLogFilterSendTime(e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="w-full sm:w-40 space-y-2">
+                                            <Label>{bs.logs.filters.templateId}</Label>
+                                            <Input
+                                                placeholder={bs.logs.filters.templateId}
+                                                value={logFilterTemplateId}
+                                                onChange={(e) => setLogFilterTemplateId(e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="w-full sm:w-32 space-y-2">
+                                            <Label>{bs.logs.filters.templateType}</Label>
+                                            <Select value={logFilterTemplateType} onValueChange={(val) => setLogFilterTemplateType(val)}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder={bs.logs.filters.all} />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="0">{bs.logs.filters.all}</SelectItem>
+                                                    <SelectItem value="1">{bs.logs.filters.types.verification}</SelectItem>
+                                                    <SelectItem value="2">{bs.logs.filters.types.notification}</SelectItem>
+                                                    <SelectItem value="3">{bs.logs.filters.types.marketing}</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="w-full sm:w-auto pb-0">
+                                            <Button onClick={() => fetchLogs(1)} disabled={logsLoading}>
+                                                <Search className="w-4 h-4 mr-2" />
+                                                {bs.logs.query}
+                                            </Button>
+                                            <Button variant="ghost" onClick={resetFilters} className="ml-2">
+                                                <RotateCcw className="w-4 h-4 mr-2" />
+                                                {bs.logs.reset}
+                                            </Button>
+                                            <Button variant="outline" onClick={handleExport} className="ml-2" disabled={logsLoading || filteredSmsLogs.length === 0}>
+                                                <Download className="w-4 h-4 mr-2" />
+                                                {bs.logs.export}
+                                            </Button>
+                                        </div>
                                     </div>
                                 </div>
                             </CardHeader>
                             <CardContent>
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>{bs.logs.table.id}</TableHead>
-                                            <TableHead>{bs.logs.table.mobile}</TableHead>
-                                            <TableHead>{bs.logs.table.templateCode}</TableHead>
-                                            <TableHead>{bs.logs.table.content}</TableHead>
-                                            <TableHead>{bs.logs.table.sendStatus}</TableHead>
-                                            <TableHead>{bs.logs.table.receiveStatus}</TableHead>
-                                            <TableHead>{bs.logs.table.sendTime}</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {smsLogs.length === 0 ? (
+                                <div className="rounded-md border">
+                                    <Table>
+                                        <TableHeader>
                                             <TableRow>
-                                                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                                                    {bs.logs.table.empty}
-                                                </TableCell>
+                                                <TableHead>{bs.logs.table.id}</TableHead>
+                                                <TableHead>{bs.logs.table.mobile}</TableHead>
+                                                <TableHead>{bs.logs.table.templateCode}</TableHead>
+                                                <TableHead>{bs.logs.table.templateType}</TableHead>
+                                                <TableHead>{bs.logs.table.content}</TableHead>
+                                                <TableHead>{bs.logs.table.sendStatus}</TableHead>
+                                                <TableHead>{bs.logs.table.receiveStatus}</TableHead>
+                                                <TableHead>{bs.logs.table.sendTime}</TableHead>
                                             </TableRow>
-                                        ) : (
-                                            smsLogs.map((log) => (
-                                                <TableRow key={log.id}>
-                                                    <TableCell>{log.id}</TableCell>
-                                                    <TableCell>{log.mobile}</TableCell>
-                                                    <TableCell>{log.templateCode}</TableCell>
-                                                    <TableCell className="max-w-xs truncate" title={log.templateContent}>
-                                                        {log.templateContent}
+                                        </TableHeader>
+                                        <TableBody>
+                                            {logsLoading ? (
+                                                <TableRow>
+                                                    <TableCell colSpan={8} className="h-24 text-center">
+                                                        <Loader2 className="w-6 h-6 animate-spin mx-auto text-primary" />
                                                     </TableCell>
-                                                    <TableCell>
-                                                        <Badge variant={log.sendStatus === 10 ? 'default' : 'secondary'}>
-                                                            {log.sendStatus === 10 ? bs.logs.table.success : log.sendStatus === 20 ? bs.logs.table.failed : bs.logs.table.unknown}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Badge variant={log.receiveStatus === 10 ? 'default' : log.receiveStatus === 20 ? 'destructive' : 'secondary'}>
-                                                            {log.receiveStatus === 10 ? bs.logs.table.success : log.receiveStatus === 20 ? bs.logs.table.failed : bs.logs.table.waiting}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell>{new Date(log.sendTime).toLocaleString()}</TableCell>
                                                 </TableRow>
-                                            ))
-                                        )}
-                                    </TableBody>
-                                </Table>
+                                            ) : filteredSmsLogs.length === 0 ? (
+                                                <TableRow>
+                                                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                                                        {bs.logs.table.empty}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ) : (
+                                                filteredSmsLogs.map((log) => (
+                                                    <TableRow key={log.id}>
+                                                        <TableCell>{log.id}</TableCell>
+                                                        <TableCell>{log.mobile}</TableCell>
+                                                        <TableCell>
+                                                            <div className="flex flex-col gap-1">
+                                                                <div className="flex items-center gap-2">
+                                                                    <Badge variant="outline">{log.templateCode}</Badge>
+                                                                    {log.templateId && <span className="text-xs text-muted-foreground">({log.templateId})</span>}
+                                                                </div>
+                                                                {allTemplatesFormatted[log.templateCode] && (
+                                                                    <span className="text-xs text-muted-foreground">
+                                                                        {allTemplatesFormatted[log.templateCode]}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {log.templateType === 1 && <Badge variant="secondary">{bs.logs.table.types.verification}</Badge>}
+                                                            {log.templateType === 2 && <Badge variant="default">{bs.logs.table.types.notification}</Badge>}
+                                                            {log.templateType === 3 && <Badge variant="outline" className="border-orange-500 text-orange-500">{bs.logs.table.types.marketing}</Badge>}
+                                                            {!log.templateType && <span className="text-xs text-muted-foreground">-</span>}
+                                                        </TableCell>
+                                                        <TableCell className="max-w-[200px] truncate" title={log.templateContent}>
+                                                            {log.templateContent}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {log.sendStatus === 10 ? (
+                                                                <Badge className="bg-green-500">{bs.logs.table.success}</Badge>
+                                                            ) : log.sendStatus === 20 ? (
+                                                                <Badge variant="destructive">{bs.logs.table.failed}</Badge>
+                                                            ) : (
+                                                                <Badge variant="secondary">{bs.logs.table.unknown}</Badge>
+                                                            )}
+                                                            {log.sendStatus === 20 && log.apiSendMsg && (
+                                                                <p className="text-xs text-red-500 mt-1 truncate max-w-[100px]" title={log.apiSendMsg}>
+                                                                    {log.apiSendMsg}
+                                                                </p>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {log.receiveStatus === 10 ? (
+                                                                <Badge className="bg-green-500">{bs.logs.table.success}</Badge>
+                                                            ) : log.receiveStatus === 20 ? (
+                                                                <Badge variant="destructive">{bs.logs.table.failed}</Badge>
+                                                            ) : (
+                                                                <Badge variant="outline" className="text-yellow-600 border-yellow-600">
+                                                                    {bs.logs.table.waiting}
+                                                                </Badge>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {log.sendTime ? new Date(log.sendTime).toLocaleString() : '-'}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </div>
 
                                 {/* Pagination */}
-                                {logTotal > 0 && (
-                                    <div className="flex justify-between items-center mt-4">
-                                        <div className="text-sm text-muted-foreground">
-                                            {bs.logs.pagination.total.replace('{total}', logTotal.toString())}
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                disabled={logPage <= 1 || logsLoading}
-                                                onClick={() => fetchLogs(logPage - 1)}
-                                            >
-                                                {bs.logs.pagination.prev}
-                                            </Button>
-                                            <span className="flex items-center px-2 text-sm">
-                                                {bs.logs.pagination.page.replace('{page}', logPage.toString())}
-                                            </span>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                disabled={logsLoading || smsLogs.length < 10} // Simple check, ideally check against total/pageSize
-                                                onClick={() => fetchLogs(logPage + 1)}
-                                            >
-                                                {bs.logs.pagination.next}
-                                            </Button>
-                                        </div>
+                                <div className="mt-4 flex flex-wrap justify-between items-center gap-4">
+                                    <div className="text-sm text-muted-foreground">
+                                        {bs.logs.pagination.total.replace('{total}', String(logTotal))}
                                     </div>
-                                )}
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 mr-4">
+                                            <span className="text-sm text-muted-foreground">{bs.logs.pagination.size}</span>
+                                            <Select
+                                                value={String(logPageSize)}
+                                                onValueChange={(val) => {
+                                                    setLogPageSize(Number(val));
+                                                    // Immediately fetch with new size, reset to page 1
+                                                    setTimeout(() => fetchLogs(1, undefined, Number(val)), 0);
+                                                }}
+                                            >
+                                                <SelectTrigger className="w-[80px] h-8">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="10">10</SelectItem>
+                                                    <SelectItem value="20">20</SelectItem>
+                                                    <SelectItem value="30">30</SelectItem>
+                                                    <SelectItem value="50">50</SelectItem>
+                                                    <SelectItem value="100">100</SelectItem>
+                                                    <SelectItem value="200">200</SelectItem>
+                                                    <SelectItem value="500">500</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => fetchLogs(logPage - 1)}
+                                            disabled={logPage <= 1 || logsLoading}
+                                        >
+                                            {bs.logs.pagination.prev}
+                                        </Button>
+                                        <span className="text-sm">
+                                            {bs.logs.pagination.page.replace('{page}', String(logPage))}
+                                        </span>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => fetchLogs(logPage + 1)}
+                                            disabled={logPage * logPageSize >= logTotal || logsLoading}
+                                        >
+                                            {bs.logs.pagination.next}
+                                        </Button>
+                                    </div>
+                                </div>
                             </CardContent>
                         </Card>
                     </TabsContent>

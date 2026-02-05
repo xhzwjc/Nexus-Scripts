@@ -42,6 +42,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
     const [logoCache, setLogoCache] = useState<Record<string, string>>({});
     const [isDownloading, setIsDownloading] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 });
+    const [isSaving, setIsSaving] = useState(false);
 
     const deferredSearchQuery = useDeferredValue(searchQuery);
 
@@ -233,6 +234,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
     }, [logoCache]);
 
     const handleSave = async (updatedData: AIResourcesData) => {
+        setIsSaving(true);
         try {
             const res = await fetch('/api/ai-resources/save', {
                 method: 'POST',
@@ -249,6 +251,8 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
             }
         } catch {
             toast.error(tr.saveFail);
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -271,6 +275,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
         return (
             <AIResourceEditor
                 data={data}
+                isSaving={isSaving}
                 onCancel={() => setIsEditing(false)}
                 onSave={handleSave}
             />

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Plus, Trash2, Save, GripVertical, Search, X, Edit2, Check } from 'lucide-react';
+import Image from 'next/image';
 import * as LucideIcons from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +12,7 @@ import { useI18n } from '@/lib/i18n';
 
 interface AIResourceEditorProps {
     data: AIResourcesData;
+    isSaving?: boolean;
     onCancel: () => void;
     onSave: (data: AIResourcesData) => void;
 }
@@ -28,7 +30,7 @@ const AVAILABLE_ICONS = [
     'FileText', 'Camera', 'Mic', 'Search', 'MoreHorizontal'
 ];
 
-export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorProps) {
+export function AIResourceEditor({ data, isSaving, onCancel, onSave }: AIResourceEditorProps) {
     const { t } = useI18n();
     const tr = t.aiResources;
     const [editedData, setEditedData] = useState<AIResourcesData>(() => ({
@@ -43,6 +45,7 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
     const [editingCategory, setEditingCategory] = useState<AICategory | null>(null);
     const [logoCache, setLogoCache] = useState<Record<string, string>>({});
     const [logosToDelete, setLogosToDelete] = useState<Set<string>>(new Set());
+    const [isInternalSaving, setIsInternalSaving] = useState(false);
 
     // 加载logo列表
     useEffect(() => {
@@ -170,24 +173,29 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
 
     // 保存时同时删除标记的logo
     const handleSaveWithLogos = async () => {
-        // 删除标记的logo
-        if (logosToDelete.size > 0) {
-            const deletePromises = Array.from(logosToDelete).map(async (id) => {
-                try {
-                    await fetch('/api/ai-resources/logo', {
-                        method: 'DELETE',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ id })
-                    });
-                } catch {
-                    // ignore individual errors
-                }
-            });
-            await Promise.all(deletePromises);
-            toast.success(tr.deletedIcons.replace('{count}', String(logosToDelete.size)));
+        setIsInternalSaving(true);
+        try {
+            // 删除标记的logo
+            if (logosToDelete.size > 0) {
+                const deletePromises = Array.from(logosToDelete).map(async (id) => {
+                    try {
+                        await fetch('/api/ai-resources/logo', {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ id })
+                        });
+                    } catch {
+                        // ignore individual errors
+                    }
+                });
+                await Promise.all(deletePromises);
+                toast.success(tr.deletedIcons.replace('{count}', String(logosToDelete.size)));
+            }
+            // 保存数据
+            await onSave(editedData);
+        } finally {
+            setIsInternalSaving(false);
         }
-        // 保存数据
-        onSave(editedData);
     };
 
     return (
@@ -206,8 +214,12 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                         <Button variant="outline" onClick={onCancel}>
                             {tr.cancel}
                         </Button>
-                        <Button onClick={handleSaveWithLogos} className="bg-blue-500 hover:bg-blue-600 gap-2">
-                            <Save className="w-4 h-4" />
+                        <Button onClick={handleSaveWithLogos} disabled={isSaving || isInternalSaving} className="bg-blue-500 hover:bg-blue-600 gap-2">
+                            {(isSaving || isInternalSaving) ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                                <Save className="w-4 h-4" />
+                            )}
                             {tr.save}{logosToDelete.size > 0 && ` (${tr.deleteIcons.replace('{count}', String(logosToDelete.size))})`}
                         </Button>
                     </div>
@@ -293,10 +305,13 @@ export function AIResourceEditor({ data, onCancel, onSave }: AIResourceEditorPro
                                                         <div className={`w-8 h-8 rounded-lg bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center overflow-hidden border flex-shrink-0 ${logosToDelete.has(resource.id) ? 'border-destructive/50 opacity-50' : 'border-border'
                                                             }`}>
                                                             {logoCache[resource.id] && !logosToDelete.has(resource.id) ? (
-                                                                <img
+                                                                <Image
                                                                     src={logoCache[resource.id]}
                                                                     alt=""
+                                                                    width={20}
+                                                                    height={20}
                                                                     className="w-5 h-5 object-contain"
+                                                                    unoptimized
                                                                 />
                                                             ) : (
                                                                 <LucideIcons.Sparkles className="w-4 h-4 text-muted-foreground/50" />
@@ -619,11 +634,14 @@ function ResourceEditModal({
                             {/* Icon预览 */}
                             <div className="w-16 h-16 rounded-xl bg-white flex items-center justify-center overflow-hidden border border-border">
                                 {iconPath && !imgError ? (
-                                    <img
+                                    <Image
                                         src={iconPath}
                                         alt="icon"
+                                        width={40}
+                                        height={40}
                                         className="w-10 h-10 object-contain"
                                         onError={() => setImgError(true)}
+                                        unoptimized
                                     />
                                 ) : (
                                     <LucideIcons.Sparkles className="w-6 h-6 text-slate-300" />

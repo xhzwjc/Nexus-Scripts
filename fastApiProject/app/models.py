@@ -200,6 +200,9 @@ class SMSLogRequest(BaseModel):
     channelId: Optional[str] = Field(None, description="渠道ID")
     sendStatus: Optional[str] = Field(None, description="发送状态")
     receiveStatus: Optional[str] = Field(None, description="接收状态")
+    # New fields for filtering
+    sendTime: Optional[List[str]] = Field(None, description="发送时间范围 [start, end]")
+    templateType: Optional[int] = Field(None, description="短信类型: 1-验证码, 2-通知, 3-营销")
 
 
 class SMSSendSingleRequest(SMSBaseRequest):
@@ -614,4 +617,30 @@ class ChatResponse(BaseModel):
     response: str = Field(..., description="AI回复内容")
     request_id: str = Field(..., description="请求ID")
     success: bool = Field(True, description="是否成功")
+
+
+# AI 资源管理模型
+class AICategoryBase(BaseModel):
+    id: str
+    name: str = Field(..., description="分类名称")
+    icon: Optional[str] = Field(None, description="图标名称")
+    order: int = Field(99, description="排序")
+
+class AIResourceBase(BaseModel):
+    id: str
+    name: str = Field(..., description="标题")
+    description: Optional[str] = Field(None, description="描述")
+    url: str = Field(..., description="链接")
+    logoUrl: Optional[str] = Field(None, description="Logo图标")
+    category: str = Field(..., description="分类ID")
+    tags: Optional[List[str]] = Field(None, description="标签列表")
+    order: int = Field(99, description="排序")
+
+class AIResourcesDataResponse(BaseModel):
+    categories: List[AICategoryBase]
+    resources: List[AIResourceBase]
+
+class AIResourcesSaveRequest(BaseModel):
+    categories: List[AICategoryBase]
+    resources: List[AIResourceBase]
 

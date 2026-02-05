@@ -1,3 +1,4 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -5,14 +6,17 @@ from urllib.parse import quote_plus
 from .config import settings
 
 # 获取当前环境的数据库配置
-env = "test"  # 默认为测试环境，实际应根据配置或环境变量动态获取
-db_config = settings.get_db_config(env)
+db_config = settings.get_db_config()
 
 SQLALCHEMY_DATABASE_URL = (
     f"mysql+pymysql://{db_config['user']}:{quote_plus(db_config['password'])}@"
     f"{db_config['host']}:{db_config['port']}/{db_config['database']}"
     "?charset=utf8mb4"
 )
+
+# 打印正在使用的数据库（方便调试）
+# print(f"--- [DATABASE] Environment: {os.getenv('ENVIRONMENT', 'local')} ---")
+# print(f"--- [DATABASE] Connecting to: {db_config['host']}:{db_config['port']}/{db_config['database']} ---")
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,

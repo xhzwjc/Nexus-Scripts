@@ -21,4 +21,4 @@ COPY . .
 
 EXPOSE 8091
 
-CMD ["gunicorn", "run:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8091"]
+CMD ["gunicorn", "run:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8091", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "info", "--capture-output"]

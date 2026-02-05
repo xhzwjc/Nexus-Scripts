@@ -1,40 +1,44 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-import { INITIAL_AI_RESOURCES } from '@/lib/ai-resources-data';
 
 export const dynamic = 'force-dynamic';
-
-const DATA_FILE = path.join(process.cwd(), 'data', 'ai-resources.json');
-
-// 确保data目录存在
-function ensureDataDir() {
-    const dataDir = path.dirname(DATA_FILE);
-    if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
-    }
-}
 
 // GET: 获取资源数据
 export async function GET() {
     try {
-        ensureDataDir();
+        // 1. 自动判断后端地址
+        // 如果在 Docker 中，优先使用服务名；如果在本地开发，使用 localhost
+        let backendUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8091';
 
-        if (fs.existsSync(DATA_FILE)) {
-            const content = fs.readFileSync(DATA_FILE, 'utf-8');
-            const data = JSON.parse(content);
-            return NextResponse.json(data, {
-                headers: {
-                    'Cache-Control': 'public, max-age=60, stale-while-revalidate=600',
-                },
-            });
+        // 如果内部请求，将 https 转换为 http (如果是内网 IP 或 hostname)
+        if (backendUrl.includes('.ts.net')) {
+            // 如果是外部 Tailscale 地址，在容器内部可能需要直接连 fastapi 容器
+            backendUrl = 'http://fastapi:8091';
         }
 
-        // 如果文件不存在，返回初始数据并保存
-        fs.writeFileSync(DATA_FILE, JSON.stringify(INITIAL_AI_RESOURCES, null, 2));
-        return NextResponse.json(INITIAL_AI_RESOURCES);
+        const res = await fetch(`${backendUrl}/ai-resources/data`, {
+            cache: 'no-store',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            signal: AbortSignal.timeout(15000)
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            return NextResponse.json(data);
+        }
+
+        console.error('FastAPI backend error during GET');
+        return NextResponse.json(
+            { error: 'Failed to fetch data from backend' },
+            { status: res.status }
+        );
     } catch (error) {
-        console.error('Failed to load AI resources:', error);
-        return NextResponse.json(INITIAL_AI_RESOURCES);
+        console.error('Failed to load AI resources from backend:', error);
+
+        return NextResponse.json(
+            { error: 'Backend service unavailable' },
+            { status: 503 }
+        );
     }
 }

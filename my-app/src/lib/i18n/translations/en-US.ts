@@ -1271,20 +1271,30 @@ export const enUS: Translations = {
                 refresh: 'Refresh',
                 query: 'Search',
                 reset: 'Reset',
+                export: 'Export',
                 filters: {
                     mobile: 'Mobile Number',
                     mobilePlaceholder: 'Enter mobile number',
                     sendStatus: 'Send Status',
                     receiveStatus: 'Receive Status',
+                    templateType: 'SMS Type',
+                    templateId: 'Template ID',
+                    sendTime: 'Send Time',
                     all: 'All',
                     success: 'Success (10)',
                     failed: 'Failed (20)',
                     pending: 'Pending (0)',
+                    types: {
+                        verification: 'Verification (1)',
+                        notification: 'Notification (2)',
+                        marketing: 'Marketing (3)',
+                    }
                 },
                 table: {
                     id: 'ID',
                     mobile: 'Mobile',
                     templateCode: 'Template Code',
+                    templateType: 'Type',
                     content: 'Content',
                     sendStatus: 'Send Status',
                     receiveStatus: 'Receive Status',
@@ -1294,11 +1304,17 @@ export const enUS: Translations = {
                     success: 'Success',
                     failed: 'Failed',
                     waiting: 'Waiting',
+                    types: {
+                        verification: 'Verification',
+                        notification: 'Notification',
+                        marketing: 'Marketing',
+                    }
                 },
                 pagination: {
                     total: 'Total {total} records',
                     prev: 'Prev',
                     next: 'Next',
+                    size: 'Page Size',
                     page: 'Page {page}',
                 },
                 toast: {

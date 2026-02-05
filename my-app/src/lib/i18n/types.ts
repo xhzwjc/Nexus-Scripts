@@ -1245,20 +1245,30 @@ export interface Translations {
         refresh: string;
         query: string;
         reset: string;
+        export: string;
         filters: {
           mobile: string;
           mobilePlaceholder: string;
           sendStatus: string;
           receiveStatus: string;
+          templateType: string;
+          templateId: string;
+          sendTime: string;
           all: string;
           success: string;
           failed: string;
           pending: string;
+          types: {
+            verification: string;
+            notification: string;
+            marketing: string;
+          }
         };
         table: {
           id: string;
           mobile: string;
           templateCode: string;
+          templateType: string;
           content: string;
           sendStatus: string;
           receiveStatus: string;
@@ -1268,14 +1278,19 @@ export interface Translations {
           success: string;
           failed: string;
           waiting: string;
+          types: {
+            verification: string;
+            notification: string;
+            marketing: string;
+          }
         };
         pagination: {
           total: string;
           prev: string;
           next: string;
           page: string;
-        };
-        toast: {
+          size: string;
+        }; toast: {
           refreshSuccess: string;
           fetchFail: string;
           fetchFailMsg: string;
