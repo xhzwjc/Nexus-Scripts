@@ -337,6 +337,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
         setSmsLogs([]);
         setLogTotal(0);
         setLogPage(1);
+        setIsPaginationChanging(false);
     }, [environment]);
 
     // Handlers
@@ -388,7 +389,16 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
             return;
         }
 
-        setLogsLoading(true);
+        const isChangingPageSize = pageSize !== undefined && pageSize !== logPageSize;
+        const isChangingPage = page !== logPage;
+
+        // 分页大小改变时不显示全屏 loading，只设置分页 loading
+        if (isChangingPageSize) {
+            setIsPaginationChanging(true);
+        } else {
+            setLogsLoading(true);
+        }
+
         try {
             // Unify get params
             const fMobile = filters?.mobile !== undefined ? filters.mobile : logFilterMobile;
@@ -424,6 +434,9 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                 setSmsLogs(res.data.data.list || []);
                 setLogTotal(res.data.data.total || 0);
                 setLogPage(page);
+                if (pageSize !== undefined && pageSize !== logPageSize) {
+                    setLogPageSize(pageSize);
+                }
                 toast.success(bs.logs.toast.refreshSuccess);
             } else {
                 toast.error(bs.logs.toast.fetchFailMsg.replace('{msg}', res.data.message || res.data.msg || ''));
@@ -432,6 +445,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
             toast.error(getErrorMessage(error, bs.logs.toast.fetchFail));
         } finally {
             setLogsLoading(false);
+            setIsPaginationChanging(false);
         }
     };
 
@@ -1835,34 +1849,38 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                     <div className="flex items-center gap-2">
                                         <div className="flex items-center gap-2 mr-4">
                                             <span className="text-sm text-muted-foreground">{bs.logs.pagination.size}</span>
-                                            <Select
-                                                value={String(logPageSize)}
-                                                onValueChange={(val) => {
-                                                    const newSize = Number(val);
-                                                    setLogPageSize(newSize);
-                                                    // Only fetch if the size actually changed
-                                                    if (newSize !== logPageSize) {
-                                                        fetchLogs(1, undefined, newSize);
-                                                    }
-                                                }}
-                                            >
-                                                <SelectTrigger className="w-[80px] h-8">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="10">10</SelectItem>
-                                                    <SelectItem value="20">20</SelectItem>
-                                                    <SelectItem value="30">30</SelectItem>
-                                                    <SelectItem value="50">50</SelectItem>
-                                                    <SelectItem value="100">100</SelectItem>
-                                                </SelectContent>
-                                            </Select>
+                                            {isPaginationChanging ? (
+                                                <div className="w-[80px] h-8 flex items-center justify-center">
+                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                </div>
+                                            ) : (
+                                                <Select
+                                                    value={String(logPageSize)}
+                                                    onValueChange={(val) => {
+                                                        const newSize = Number(val);
+                                                        if (newSize !== logPageSize) {
+                                                            fetchLogs(1, undefined, newSize);
+                                                        }
+                                                    }}
+                                                >
+                                                    <SelectTrigger className="w-[80px] h-8">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="10">10</SelectItem>
+                                                        <SelectItem value="20">20</SelectItem>
+                                                        <SelectItem value="30">30</SelectItem>
+                                                        <SelectItem value="50">50</SelectItem>
+                                                        <SelectItem value="100">100</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            )}
                                         </div>
                                         <Button
                                             variant="outline"
                                             size="sm"
                                             onClick={() => fetchLogs(logPage - 1)}
-                                            disabled={logPage <= 1 || logsLoading}
+                                            disabled={logPage <= 1 || logsLoading || isPaginationChanging}
                                         >
                                             {bs.logs.pagination.prev}
                                         </Button>
@@ -1873,7 +1891,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                             variant="outline"
                                             size="sm"
                                             onClick={() => fetchLogs(logPage + 1)}
-                                            disabled={logPage * logPageSize >= logTotal || logsLoading}
+                                            disabled={logPage * logPageSize >= logTotal || logsLoading || isPaginationChanging}
                                         >
                                             {bs.logs.pagination.next}
                                         </Button>
