@@ -192,6 +192,7 @@ const RadioButton = ({
     </div>
 );
 
+// 优化后的短信日志行组件
 const LoadingButton = ({
     onClick,
     disabled,
@@ -232,6 +233,68 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
     const { t } = useI18n();
     const bs = t.scripts.batchSms;
 
+    // 优化后的短信日志行组件（放在内部以访问 bs 变量）
+    const SmsLogRow = React.memo(({ log, allTemplatesFormatted }: { log: SMSLogItem; allTemplatesFormatted: Record<string, string> }) => {
+        return (
+            <TableRow>
+                <TableCell>{log.id}</TableCell>
+                <TableCell>{log.mobile}</TableCell>
+                <TableCell>
+                    <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                            <Badge variant="outline">{log.templateCode}</Badge>
+                            {log.templateId && <span className="text-xs text-muted-foreground">({log.templateId})</span>}
+                        </div>
+                        {allTemplatesFormatted[log.templateCode] && (
+                            <span className="text-xs text-muted-foreground">
+                                {allTemplatesFormatted[log.templateCode]}
+                            </span>
+                        )}
+                    </div>
+                </TableCell>
+                <TableCell>
+                    {log.templateType === 1 && <Badge variant="secondary">{bs.logs.table.types.verification}</Badge>}
+                    {log.templateType === 2 && <Badge variant="default">{bs.logs.table.types.notification}</Badge>}
+                    {log.templateType === 3 && <Badge variant="outline" className="border-orange-500 text-orange-500">{bs.logs.table.types.marketing}</Badge>}
+                    {!log.templateType && <span className="text-xs text-muted-foreground">-</span>}
+                </TableCell>
+                <TableCell className="max-w-[200px] truncate" title={log.templateContent}>
+                    {log.templateContent}
+                </TableCell>
+                <TableCell>
+                    {log.sendStatus === 10 ? (
+                        <Badge className="bg-green-500">{bs.logs.table.success}</Badge>
+                    ) : log.sendStatus === 20 ? (
+                        <Badge variant="destructive">{bs.logs.table.failed}</Badge>
+                    ) : (
+                        <Badge variant="secondary">{bs.logs.table.unknown}</Badge>
+                    )}
+                    {log.sendStatus === 20 && log.apiSendMsg && (
+                        <p className="text-xs text-red-500 mt-1 truncate max-w-[100px]" title={log.apiSendMsg}>
+                            {log.apiSendMsg}
+                        </p>
+                    )}
+                </TableCell>
+                <TableCell>
+                    {log.receiveStatus === 10 ? (
+                        <Badge className="bg-green-500">{bs.logs.table.success}</Badge>
+                    ) : log.receiveStatus === 20 ? (
+                        <Badge variant="destructive">{bs.logs.table.failed}</Badge>
+                    ) : (
+                        <Badge variant="outline" className="text-yellow-600 border-yellow-600">
+                            {bs.logs.table.waiting}
+                        </Badge>
+                    )}
+                </TableCell>
+                <TableCell>
+                    {log.sendTime ? new Date(log.sendTime).toLocaleString() : '-'}
+                </TableCell>
+            </TableRow>
+        );
+    });
+
+    SmsLogRow.displayName = 'SmsLogRow';
+
     // Shared config
     const [environment, setEnvironment] = useState<'test' | 'prod'>('test');
     const [timeout, setTimeoutValue] = useState<number>(15);
@@ -249,6 +312,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
     // SMS Logs State
     const [smsLogs, setSmsLogs] = useState<SMSLogItem[]>([]);
     const [logsLoading, setLogsLoading] = useState(false);
+    const [isPaginationChanging, setIsPaginationChanging] = useState(false);
     const [logPage, setLogPage] = useState(1);
     const [logPageSize, setLogPageSize] = useState(10);
     const [logTotal, setLogTotal] = useState(0);
@@ -412,7 +476,6 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
     const [expandedResult, setExpandedResult] = useState<string | null>(null);
 
     // Formatting view
-    const [allTemplatesFormatted, setAllTemplatesFormatted] = useState<Record<string, string>>({});
     const [showFormatted, setShowFormatted] = useState(false);
     const [copySuccess, setCopySuccess] = useState(false);
 
@@ -443,10 +506,32 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
         );
     }, [allowedTemplates, allowedFilter]);
 
+    // 将 allTemplatesFormatted 改为 useMemo，避免每次更新触发整个组件重新渲染
+    const allTemplatesFormatted = useMemo(() => {
+        const formatted: Record<string, string> = {};
+        allTemplates.forEach((t) => {
+            formatted[t.code] = (t.name || '').trim();
+        });
+        return formatted;
+    }, [allTemplates]);
+
     const isAllowed = useCallback(
         (code: string) => allowedTemplates.some((t) => t.code === code),
         [allowedTemplates]
     );
+
+    // 使用 useCallback 优化输入框处理函数
+    const handleMobileFilterChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setLogFilterMobile(e.target.value);
+    }, []);
+
+    const handleSendTimeFilterChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setLogFilterSendTime(e.target.value);
+    }, []);
+
+    const handleTemplateIdFilterChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setLogFilterTemplateId(e.target.value);
+    }, []);
 
     // ===== Actions =====
     const fetchAllowedTemplates = async () => {
@@ -482,12 +567,6 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
 
             setAllTemplates(templates);
             toast.success(res.data.message || bs.messages.fetchSuccess);
-
-            const formatted: Record<string, string> = {};
-            templates.forEach((t) => {
-                formatted[t.code] = (t.name || '').trim();
-            });
-            setAllTemplatesFormatted(formatted);
         } catch (err) {
             toast.error(getErrorMessage(err, bs.messages.fetchFail));
         } finally {
@@ -1630,7 +1709,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                             <Input
                                                 placeholder={bs.logs.filters.mobilePlaceholder}
                                                 value={logFilterMobile}
-                                                onChange={(e) => setLogFilterMobile(e.target.value)}
+                                                onChange={handleMobileFilterChange}
                                             />
                                         </div>
                                         <div className="w-full sm:w-32 space-y-2">
@@ -1665,7 +1744,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                             <Input
                                                 type="date"
                                                 value={logFilterSendTime}
-                                                onChange={(e) => setLogFilterSendTime(e.target.value)}
+                                                onChange={handleSendTimeFilterChange}
                                             />
                                         </div>
                                         <div className="w-full sm:w-40 space-y-2">
@@ -1673,7 +1752,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                             <Input
                                                 placeholder={bs.logs.filters.templateId}
                                                 value={logFilterTemplateId}
-                                                onChange={(e) => setLogFilterTemplateId(e.target.value)}
+                                                onChange={handleTemplateIdFilterChange}
                                             />
                                         </div>
                                         <div className="w-full sm:w-32 space-y-2">
@@ -1737,60 +1816,11 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                 </TableRow>
                                             ) : (
                                                 filteredSmsLogs.map((log) => (
-                                                    <TableRow key={log.id}>
-                                                        <TableCell>{log.id}</TableCell>
-                                                        <TableCell>{log.mobile}</TableCell>
-                                                        <TableCell>
-                                                            <div className="flex flex-col gap-1">
-                                                                <div className="flex items-center gap-2">
-                                                                    <Badge variant="outline">{log.templateCode}</Badge>
-                                                                    {log.templateId && <span className="text-xs text-muted-foreground">({log.templateId})</span>}
-                                                                </div>
-                                                                {allTemplatesFormatted[log.templateCode] && (
-                                                                    <span className="text-xs text-muted-foreground">
-                                                                        {allTemplatesFormatted[log.templateCode]}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            {log.templateType === 1 && <Badge variant="secondary">{bs.logs.table.types.verification}</Badge>}
-                                                            {log.templateType === 2 && <Badge variant="default">{bs.logs.table.types.notification}</Badge>}
-                                                            {log.templateType === 3 && <Badge variant="outline" className="border-orange-500 text-orange-500">{bs.logs.table.types.marketing}</Badge>}
-                                                            {!log.templateType && <span className="text-xs text-muted-foreground">-</span>}
-                                                        </TableCell>
-                                                        <TableCell className="max-w-[200px] truncate" title={log.templateContent}>
-                                                            {log.templateContent}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            {log.sendStatus === 10 ? (
-                                                                <Badge className="bg-green-500">{bs.logs.table.success}</Badge>
-                                                            ) : log.sendStatus === 20 ? (
-                                                                <Badge variant="destructive">{bs.logs.table.failed}</Badge>
-                                                            ) : (
-                                                                <Badge variant="secondary">{bs.logs.table.unknown}</Badge>
-                                                            )}
-                                                            {log.sendStatus === 20 && log.apiSendMsg && (
-                                                                <p className="text-xs text-red-500 mt-1 truncate max-w-[100px]" title={log.apiSendMsg}>
-                                                                    {log.apiSendMsg}
-                                                                </p>
-                                                            )}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            {log.receiveStatus === 10 ? (
-                                                                <Badge className="bg-green-500">{bs.logs.table.success}</Badge>
-                                                            ) : log.receiveStatus === 20 ? (
-                                                                <Badge variant="destructive">{bs.logs.table.failed}</Badge>
-                                                            ) : (
-                                                                <Badge variant="outline" className="text-yellow-600 border-yellow-600">
-                                                                    {bs.logs.table.waiting}
-                                                                </Badge>
-                                                            )}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            {log.sendTime ? new Date(log.sendTime).toLocaleString() : '-'}
-                                                        </TableCell>
-                                                    </TableRow>
+                                                    <SmsLogRow
+                                                        key={log.id}
+                                                        log={log}
+                                                        allTemplatesFormatted={allTemplatesFormatted}
+                                                    />
                                                 ))
                                             )}
                                         </TableBody>
@@ -1808,9 +1838,12 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                             <Select
                                                 value={String(logPageSize)}
                                                 onValueChange={(val) => {
-                                                    setLogPageSize(Number(val));
-                                                    // Immediately fetch with new size, reset to page 1
-                                                    setTimeout(() => fetchLogs(1, undefined, Number(val)), 0);
+                                                    const newSize = Number(val);
+                                                    setLogPageSize(newSize);
+                                                    // Only fetch if the size actually changed
+                                                    if (newSize !== logPageSize) {
+                                                        fetchLogs(1, undefined, newSize);
+                                                    }
                                                 }}
                                             >
                                                 <SelectTrigger className="w-[80px] h-8">
@@ -1822,8 +1855,6 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                                                     <SelectItem value="30">30</SelectItem>
                                                     <SelectItem value="50">50</SelectItem>
                                                     <SelectItem value="100">100</SelectItem>
-                                                    <SelectItem value="200">200</SelectItem>
-                                                    <SelectItem value="500">500</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>
