@@ -19,10 +19,6 @@ const EMPTY_DATA: AIResourcesData = {
     resources: []
 };
 
-// 分页渲染配置
-const INITIAL_BATCH_SIZE = 50;
-const APPEND_BATCH_SIZE = 30; // 每一帧追加的数量
-
 export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
     const { t } = useI18n();
     const tr = t.aiResources;
@@ -31,9 +27,6 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
     const [data, setData] = useState<AIResourcesData>(EMPTY_DATA);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
-
-    // 渲染控制状态
-    const [visibleCount, setVisibleCount] = useState(INITIAL_BATCH_SIZE);
 
     // UI 状态
     const [searchQuery, setSearchQuery] = useState('');
@@ -64,11 +57,6 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
     }, []);
 
     const isSuperAdmin = currentUserKey === 'wjc';
-
-    // 重置可见数量当筛选改变时
-    useEffect(() => {
-        setVisibleCount(INITIAL_BATCH_SIZE);
-    }, [activeCategory, deferredSearchQuery]);
 
     // 加载数据
     useEffect(() => {
@@ -119,14 +107,9 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
 
                 if (error instanceof Error && error.name === 'AbortError' && isTimeout) {
                     setLoadError('网络超时，请检查网络连接后重试');
-                } else if (!(error instanceof Error && error.name === 'AbortError')) {
-                    // 即使失败也尝试显示本地初始数据（如果有的话，但这里主要是API驱动）
-                    // 目前设计是API失败就显示错误，或者我们可以fallback到初始空状态
                 }
             } finally {
                 clearTimeout(timeoutId);
-                // 只要主数据promise结束（无论成功失败），就停止loading状态
-                // logo可以在后台继续加载
                 if (isMounted) {
                     setIsLoading(false);
                 }
@@ -141,7 +124,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
         };
     }, []);
 
-    // 渐进式渲染剩余数据
+    // 筛选资源（直接渲染全部，不做分批）
     const filteredResources = useMemo(() => {
         let resources = data.resources;
 
@@ -160,18 +143,6 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
 
         return resources.sort((a, b) => (a.order || 99) - (b.order || 99));
     }, [data.resources, activeCategory, deferredSearchQuery]);
-
-    useEffect(() => {
-        if (isLoading) return;
-
-        // 如果还有未显示的条目，且当前没有正在进行的渲染帧
-        if (visibleCount < filteredResources.length) {
-            const timer = requestAnimationFrame(() => {
-                setVisibleCount(prev => Math.min(prev + APPEND_BATCH_SIZE, filteredResources.length));
-            });
-            return () => cancelAnimationFrame(timer);
-        }
-    }, [visibleCount, filteredResources.length, isLoading]);
 
     const refreshLogos = async () => {
         try {
@@ -391,27 +362,17 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
                     </div>
                 ) : (
                     <div
-                        key={activeCategory} // 关键修复：切换分类时强制重绘，确保动画重置
+                        key={activeCategory}
                         className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3"
                     >
-                        {filteredResources.slice(0, visibleCount).map((resource, index) => {
-                            // 仅对首批加载的项目应用渐显动画
-                            const isInitialBatch = index < INITIAL_BATCH_SIZE;
-                            return (
-                                <div
-                                    key={resource.id}
-                                    style={isInitialBatch ? {
-                                        opacity: 0,
-                                        animation: `sunlight-reveal 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards ${index * 30}ms`
-                                    } : undefined}
-                                >
-                                    <ResourceCard
-                                        resource={resource}
-                                        logo={getLogo(resource.id)}
-                                    />
-                                </div>
-                            );
-                        })}
+                        {filteredResources.map((resource) => (
+                            <div key={resource.id}>
+                                <ResourceCard
+                                    resource={resource}
+                                    logo={getLogo(resource.id)}
+                                />
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>

@@ -11,6 +11,7 @@ import logging
 import uuid
 from typing import Optional, List, Dict, Any
 import asyncio
+import time
 
 from starlette.responses import StreamingResponse
 
@@ -1191,18 +1192,37 @@ async def check_server_health_status(server_id: str):
 
 
 # AI 资源管理接口
+# 内存缓存
+_ai_resources_cache: Dict[str, Any] = {}
+_ai_resources_cache_time: float = 0
+_AI_RESOURCES_CACHE_TTL = 60  # 60秒缓存
+
 @app.get("/ai-resources/data", response_model=AIResourcesDataResponse, tags=["AI资源"])
 async def get_ai_resources(db: Session = Depends(get_db)):
-    """获取所有 AI 资源数据"""
+    """获取所有 AI 资源数据（含缓存）"""
+    global _ai_resources_cache, _ai_resources_cache_time
+    
+    current_time = time.time()
+    if _ai_resources_cache and (current_time - _ai_resources_cache_time) < _AI_RESOURCES_CACHE_TTL:
+        return _ai_resources_cache
+    
     service = AiResourceService(db)
-    return service.get_all_data()
+    data = service.get_all_data()
+    _ai_resources_cache = data
+    _ai_resources_cache_time = current_time
+    return data
 
 @app.post("/ai-resources/save", tags=["AI资源"])
 async def save_ai_resources(request: AIResourcesSaveRequest, db: Session = Depends(get_db)):
     """保存 AI 资源数据（同步模式）"""
+    global _ai_resources_cache, _ai_resources_cache_time
+    
     service = AiResourceService(db)
     try:
         service.save_all_data(request.categories, request.resources)
+        # 清除缓存
+        _ai_resources_cache = {}
+        _ai_resources_cache_time = 0
         return {"success": True}
     except Exception as e:
         logger.error(f"Error saving AI resources: {e}")
@@ -1211,8 +1231,13 @@ async def save_ai_resources(request: AIResourcesSaveRequest, db: Session = Depen
 @app.delete("/ai-resources/{resource_id}", tags=["AI资源"])
 async def delete_ai_resource(resource_id: str, db: Session = Depends(get_db)):
     """删除 AI 资源"""
+    global _ai_resources_cache, _ai_resources_cache_time
+    
     service = AiResourceService(db)
     if service.delete_resource(resource_id):
+        # 清除缓存
+        _ai_resources_cache = {}
+        _ai_resources_cache_time = 0
         return {"success": True}
     else:
         raise HTTPException(status_code=404, detail="Resource not found")
