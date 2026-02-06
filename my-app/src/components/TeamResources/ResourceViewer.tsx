@@ -13,9 +13,10 @@ interface ResourceViewerProps {
     onLock: () => void;
     onManage: () => void;
     isAdmin: boolean;
+    logoVersion?: number;
 }
 
-export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: ResourceViewerProps) {
+export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin, logoVersion }: ResourceViewerProps) {
     const { t } = useI18n();
     const tr = t.teamResources;
     const [activeGroup, setActiveGroup] = useState<string>(data[0]?.id || '');
@@ -110,11 +111,12 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin }: Reso
                                         )}
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         <img
-                                            src={group.logo}
+                                            src={group.logo.startsWith('data:') ? group.logo : `${group.logo}?v=${logoVersion || 0}`}
                                             alt={group.name}
                                             loading="lazy"
                                             className={`w-full h-full object-contain relative z-10 transition-opacity duration-300 ${loadedLogos.has(group.id) ? 'opacity-100' : 'opacity-0'}`}
                                             onLoad={() => handleLogoLoad(group.id)}
+                                            onError={() => handleLogoLoad(group.id)} // 出错也显示（可能显示破碎图，但好过全白），或者可以在这里切换 default
                                         />
                                     </div>
                                 </div>

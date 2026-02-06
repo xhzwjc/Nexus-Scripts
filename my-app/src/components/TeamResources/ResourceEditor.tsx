@@ -31,6 +31,7 @@ interface ResourceEditorProps {
     groups: ResourceGroup[];
     onCancel: () => void;
     onSave: (groups: ResourceGroup[]) => Promise<void> | void;
+    logoVersion?: number;
 }
 
 // 可拖拽的集团项
@@ -109,7 +110,7 @@ function SortableSystemItem({ system, isActive, onClick, onDelete }: {
     );
 }
 
-export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps) {
+export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: ResourceEditorProps) {
     const { t } = useI18n();
     const tr = t.teamResources;
     const [editedGroups, setEditedGroups] = useState<ResourceGroup[]>(JSON.parse(JSON.stringify(groups)));
@@ -167,6 +168,13 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
             toast.error(tr.keepOneGroup);
             return;
         }
+
+        // 检查该集团是否有服务器端的 Logo，如果有则标记为待删除
+        const groupToDelete = editedGroups.find(g => g.id === groupId);
+        if (groupToDelete?.logo && groupToDelete.logo.startsWith('/team-logos/')) {
+            setLogosToDelete(prev => [...prev, groupId]);
+        }
+
         setEditedGroups(editedGroups.filter(g => g.id !== groupId));
         if (activeGroupId === groupId) {
             setActiveGroupId(editedGroups[0]?.id || '');
@@ -240,6 +248,9 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                 reader.onerror = reject;
                 reader.readAsDataURL(file);
             });
+
+            // 如果此前标记了要删除该 Logo，现在要上传新的，则撤销删除操作
+            setLogosToDelete(prev => prev.filter(id => id !== currentGroup.id));
 
             // 暂存 Base64，用于预览和后续上传
             setPendingLogos(prev => ({ ...prev, [currentGroup.id]: base64 }));
@@ -539,7 +550,7 @@ export function ResourceEditor({ groups, onCancel, onSave }: ResourceEditorProps
                                 {currentGroup.logo ? (
                                     <div className="relative w-full h-16 bg-white rounded-lg border border-[var(--border-subtle)] overflow-hidden group">
                                         <img
-                                            src={currentGroup.logo}
+                                            src={currentGroup.logo.startsWith('data:') ? currentGroup.logo : `${currentGroup.logo}?v=${logoVersion || 0}`}
                                             alt="Group Logo"
                                             className="w-full h-full object-contain"
                                         />

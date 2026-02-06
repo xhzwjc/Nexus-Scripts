@@ -4,11 +4,11 @@ import { ResourceViewer } from './ResourceViewer';
 import { ResourceEditor } from './ResourceEditor';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ResourceGroup, INITIAL_RESOURCE_DATA, ENCRYPTION_KEY } from '@/lib/team-resources-data';
-import CryptoJS from 'crypto-js';
+import { ResourceGroup, INITIAL_RESOURCE_DATA } from '@/lib/team-resources-data';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
 import { TeamResourceSkeleton } from './TeamResourceSkeleton';
+
 
 // 30分钟超时（毫秒）
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -45,6 +45,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
     const [isEditing, setIsEditing] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null); // 新增：加载错误状态
+    const [logoVersion, setLogoVersion] = useState(Date.now()); // 新增：用于刷新 Logo 缓存的标识
     const lastActivityRef = useRef<number>(Date.now());
 
     // 更新最后活动时间
@@ -56,6 +57,8 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
 
     // 加载数据
     useEffect(() => {
+        if (isLocked) return;
+
         let isMounted = true; // 追踪组件是否已挂载
         const controller = new AbortController();
         let isTimeout = false; // 追踪是否是超时导致的abort
@@ -68,34 +71,25 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
         const loadData = async () => {
             try {
                 setLoadError(null);
-                const res = await fetch('/api/resources/data', { signal: controller.signal });
+                // 通过 Next.js API 路由获取数据
+                const res = await fetch('/api/team-resources/data', { signal: controller.signal });
                 const json = await res.json();
 
-                if (!isMounted) return; // 组件已卸载，不更新状态
+                if (!isMounted) return;
 
-                if (json.encrypted) {
-                    // 解密数据
-                    const bytes = CryptoJS.AES.decrypt(json.encrypted, ENCRYPTION_KEY);
-                    const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-                    if (decrypted) {
-                        setData(JSON.parse(decrypted));
-                    } else {
-                        // 解密失败，使用初始数据
-                        setData(INITIAL_RESOURCE_DATA);
-                    }
+                if (json.success && json.data) {
+                    setData(json.data);
                 } else {
                     // 无数据，使用初始数据
                     setData(INITIAL_RESOURCE_DATA);
                 }
             } catch (error) {
-                if (!isMounted) return; // 组件已卸载，不更新状态
+                if (!isMounted) return;
 
                 console.error('Failed to load resources:', error);
-                // 只有真正的超时才显示错误，组件卸载导致的abort忽略
                 if (error instanceof Error && error.name === 'AbortError' && isTimeout) {
                     setLoadError('网络超时，请检查网络连接后重试');
                 } else if (!(error instanceof Error && error.name === 'AbortError')) {
-                    // 非abort错误，使用初始数据
                     setData(INITIAL_RESOURCE_DATA);
                 }
             } finally {
@@ -161,19 +155,16 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
 
     const handleSave = async (updatedGroups: ResourceGroup[]) => {
         try {
-            // 加密数据
-            const jsonStr = JSON.stringify(updatedGroups);
-            const encrypted = CryptoJS.AES.encrypt(jsonStr, ENCRYPTION_KEY).toString();
-
-            // 保存到后端
-            const res = await fetch('/api/resources/save', {
+            // 通过 Next.js API 路由保存数据
+            const res = await fetch('/api/team-resources/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ encrypted })
+                body: JSON.stringify({ groups: updatedGroups })
             });
 
             if (res.ok) {
                 setData(updatedGroups);
+                setLogoVersion(Date.now()); // 更新 Logo 版本，强制刷新图片
                 setIsEditing(false);
                 toast.success(tr.saveSuccess);
             } else {
@@ -222,6 +213,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
                 groups={data}
                 onCancel={() => setIsEditing(false)}
                 onSave={handleSave}
+                logoVersion={logoVersion}
             />
         );
     }
@@ -234,6 +226,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
                 onLock={handleLock}
                 onManage={() => setIsEditing(true)}
                 isAdmin={isAdmin}
+                logoVersion={logoVersion}
             />
         </div>
     );

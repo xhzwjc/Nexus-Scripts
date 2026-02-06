@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DECIMAL, BigInteger, DateTime
+from sqlalchemy import Column, Integer, String, DECIMAL, BigInteger, DateTime, Text
 from sqlalchemy.sql import func
 from .database import Base
 
@@ -56,6 +56,70 @@ class AiResource(Base):
     logo_url = Column(String(500))
     category_id = Column(String(50), index=True)  # 被 AI 驱动的代码逻辑引用的分类 ID 字符串
     tags = Column(String(500))  # Stored as comma-separated
+    sort_order = Column(Integer, default=99)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    deleted = Column(Integer, default=0)
+
+
+# ==================== Team Resources ====================
+
+class TeamResourceGroup(Base):
+    """团队资源 - 集团表"""
+    __tablename__ = "team_resource_groups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(String(50), unique=True, index=True)  # 原有字符串 ID
+    name = Column(String(100), nullable=False)
+    logo = Column(Text)  # Base64 或 URL，可能较大，使用 Text 类型
+    sort_order = Column(Integer, default=99)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    deleted = Column(Integer, default=0)
+
+
+class TeamResourceSystem(Base):
+    """团队资源 - 系统表"""
+    __tablename__ = "team_resource_systems"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    system_id = Column(String(50), unique=True, index=True)  # 原有字符串 ID
+    group_id = Column(String(50), index=True)  # 关联集团
+    name = Column(String(100), nullable=False)
+    description = Column(String(500))
+    sort_order = Column(Integer, default=99)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    deleted = Column(Integer, default=0)
+
+
+class TeamResourceEnvironment(Base):
+    """团队资源 - 环境表"""
+    __tablename__ = "team_resource_environments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    system_id = Column(String(50), index=True)  # 关联系统
+    env_type = Column(String(10))  # 'dev', 'test', 'prod'
+    url = Column(String(500))
+    admin_url = Column(String(500))
+    skip_health_check = Column(Integer, default=0)
+    skip_cert_check = Column(Integer, default=0)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    deleted = Column(Integer, default=0)
+
+
+class TeamResourceCredential(Base):
+    """团队资源 - 凭证表"""
+    __tablename__ = "team_resource_credentials"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cred_id = Column(String(50), index=True)  # 原有字符串 ID
+    environment_id = Column(Integer, index=True)  # 关联环境表的 id
+    label = Column(String(100))
+    username = Column(String(100))
+    password = Column(String(200))  # 明文存储
+    note = Column(String(500))
     sort_order = Column(Integer, default=99)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

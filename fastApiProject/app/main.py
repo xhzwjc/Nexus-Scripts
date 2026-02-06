@@ -1216,3 +1216,113 @@ async def delete_ai_resource(resource_id: str, db: Session = Depends(get_db)):
         return {"success": True}
     else:
         raise HTTPException(status_code=404, detail="Resource not found")
+
+
+# ==================== 团队资源管理接口 ====================
+from .services.team_resource_service import TeamResourceService
+
+@app.get("/team-resources/data", tags=["团队资源"])
+async def get_team_resources(db: Session = Depends(get_db)):
+    """获取所有团队资源数据"""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[团队资源] 获取数据 | 请求ID: {request_id}")
+    service = TeamResourceService(db)
+    data = service.get_all_data()
+    logger.info(f"[团队资源] 获取成功 | 请求ID: {request_id} | 集团数: {len(data)}")
+    return {"success": True, "data": data, "request_id": request_id}
+
+
+@app.post("/team-resources/save", tags=["团队资源"])
+async def save_team_resources(request: Request, db: Session = Depends(get_db)):
+    """保存团队资源数据"""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[团队资源] 保存数据 | 请求ID: {request_id}")
+    try:
+        body = await request.json()
+        groups_data = body.get("groups", [])
+        service = TeamResourceService(db)
+        service.save_all_data(groups_data)
+        logger.info(f"[团队资源] 保存成功 | 请求ID: {request_id} | 集团数: {len(groups_data)}")
+        return {"success": True, "request_id": request_id}
+    except Exception as e:
+        logger.error(f"[团队资源] 保存失败 | 请求ID: {request_id} | 错误: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/team-resources/import", tags=["团队资源"])
+async def import_team_resources(request: Request, db: Session = Depends(get_db)):
+    """从 JSON 导入团队资源到数据库（用于迁移）"""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[团队资源] 导入数据 | 请求ID: {request_id}")
+    try:
+        body = await request.json()
+        groups_data = body.get("groups", [])
+        service = TeamResourceService(db)
+        stats = service.import_from_json(groups_data)
+        logger.info(f"[团队资源] 导入成功 | 请求ID: {request_id} | 统计: {stats}")
+        return {"success": True, "stats": stats, "request_id": request_id}
+    except Exception as e:
+        logger.error(f"[团队资源] 导入失败 | 请求ID: {request_id} | 错误: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/team-resources/migrate-from-encrypted", tags=["团队资源"])
+async def migrate_from_encrypted(request: Request, db: Session = Depends(get_db)):
+    """从加密 JSON 迁移团队资源到数据库"""
+    from Crypto.Cipher import AES
+    from Crypto.Protocol.KDF import PBKDF2
+    import base64
+    import hashlib
+    
+    request_id = str(uuid.uuid4())
+    logger.info(f"[团队资源] 加密数据迁移 | 请求ID: {request_id}")
+    
+    try:
+        body = await request.json()
+        encrypted_data = body.get("encrypted", "")
+        encryption_key = body.get("key", "ScriptHub@TeamResources#2024!Secure")
+        
+        if not encrypted_data:
+            raise HTTPException(status_code=400, detail="No encrypted data provided")
+        
+        # CryptoJS AES 解密（兼容前端 CryptoJS 格式）
+        # CryptoJS 使用 OpenSSL 格式：Salted__<8 bytes salt><ciphertext>
+        raw = base64.b64decode(encrypted_data)
+        
+        if raw[:8] == b'Salted__':
+            salt = raw[8:16]
+            ciphertext = raw[16:]
+            
+            # 使用 EVP_BytesToKey 派生密钥和 IV
+            def evp_bytes_to_key(password: bytes, salt: bytes, key_len: int = 32, iv_len: int = 16):
+                d = b''
+                d_i = b''
+                while len(d) < key_len + iv_len:
+                    d_i = hashlib.md5(d_i + password + salt).digest()
+                    d += d_i
+                return d[:key_len], d[key_len:key_len + iv_len]
+            
+            key, iv = evp_bytes_to_key(encryption_key.encode(), salt)
+            cipher = AES.new(key, AES.MODE_CBC, iv)
+            decrypted_padded = cipher.decrypt(ciphertext)
+            
+            # PKCS7 unpadding
+            pad_len = decrypted_padded[-1]
+            decrypted = decrypted_padded[:-pad_len].decode('utf-8')
+            
+            groups_data = json.loads(decrypted)
+            
+            service = TeamResourceService(db)
+            stats = service.import_from_json(groups_data)
+            
+            logger.info(f"[团队资源] 加密迁移成功 | 请求ID: {request_id} | 统计: {stats}")
+            return {"success": True, "stats": stats, "request_id": request_id}
+        else:
+            raise HTTPException(status_code=400, detail="Invalid encrypted data format")
+            
+    except json.JSONDecodeError as e:
+        logger.error(f"[团队资源] JSON解析失败 | 请求ID: {request_id} | 错误: {e}")
+        raise HTTPException(status_code=400, detail=f"JSON parse error: {e}")
+    except Exception as e:
+        logger.error(f"[团队资源] 加密迁移失败 | 请求ID: {request_id} | 错误: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
