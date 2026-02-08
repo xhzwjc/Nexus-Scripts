@@ -119,6 +119,42 @@ function clampTimeout(value: number, min = 1, max = 60, defaultVal = 15) {
     return Math.min(Math.max(Math.floor(value), min), max);
 }
 
+const AUTH_ERROR_CODES = new Set<number>([401, 403]);
+function isAuthErrorMessage(message?: string) {
+    if (!message) return false;
+    const msg = message.toLowerCase();
+    const hasToken = msg.includes('token');
+    const hasExpired =
+        msg.includes('过期') ||
+        msg.includes('expired') ||
+        msg.includes('失效') ||
+        msg.includes('无效') ||
+        msg.includes('invalid');
+    const hasAuth =
+        msg.includes('未登录') ||
+        msg.includes('登录') ||
+        msg.includes('登陆') ||
+        msg.includes('认证') ||
+        msg.includes('授权') ||
+        msg.includes('unauthorized') ||
+        msg.includes('forbidden');
+    return (hasToken && (hasExpired || hasAuth)) || (hasExpired && hasAuth) || msg.includes('请先登录') || msg.includes('请重新登录');
+}
+
+function isAuthErrorResponse(res?: ApiResponse) {
+    if (!res) return false;
+    if (AUTH_ERROR_CODES.has(res.code)) return true;
+    return isAuthErrorMessage(res.message || res.msg);
+}
+
+function isAuthErrorFromAxios(err: unknown) {
+    if (!axios.isAxiosError(err)) return false;
+    const status = err.response?.status;
+    if (status && AUTH_ERROR_CODES.has(status)) return true;
+    const data = err.response?.data as { message?: string; msg?: string; detail?: string } | undefined;
+    return isAuthErrorMessage(data?.message || data?.msg || data?.detail);
+}
+
 const CN_MOBILE_REGEX = /^1[3-9]\d{9}$/;
 
 function parseMobiles(text: string) {
@@ -340,6 +376,18 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
         setIsPaginationChanging(false);
     }, [environment]);
 
+    const clearLogData = (resetPage = true) => {
+        setSmsLogs([]);
+        setLogTotal(0);
+        if (resetPage) setLogPage(1);
+    };
+
+    const handleAuthExpired = (message?: string) => {
+        clearLogData(true);
+        setAdminToken('');
+        toast.error(message || bs.login.toast.loginRequired);
+    };
+
     // Handlers
     const handleAdminLogin = async () => {
         setLoginError('');
@@ -439,10 +487,20 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
                 }
                 toast.success(bs.logs.toast.refreshSuccess);
             } else {
-                toast.error(bs.logs.toast.fetchFailMsg.replace('{msg}', res.data.message || res.data.msg || ''));
+                if (isAuthErrorResponse(res.data)) {
+                    handleAuthExpired(res.data.message || res.data.msg);
+                } else {
+                    toast.error(bs.logs.toast.fetchFailMsg.replace('{msg}', res.data.message || res.data.msg || ''));
+                }
             }
         } catch (error) {
-            toast.error(getErrorMessage(error, bs.logs.toast.fetchFail));
+            if (isAuthErrorFromAxios(error)) {
+                const ax = error as AxiosError<{ detail?: string; message?: string; msg?: string }>;
+                const msg = ax.response?.data?.message || ax.response?.data?.msg || ax.response?.data?.detail;
+                handleAuthExpired(msg);
+            } else {
+                toast.error(getErrorMessage(error, bs.logs.toast.fetchFail));
+            }
         } finally {
             setLogsLoading(false);
             setIsPaginationChanging(false);
