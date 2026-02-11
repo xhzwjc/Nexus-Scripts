@@ -7,7 +7,7 @@ export default function HomePage() {
   return (
     <>
       <App />
-      <AiAssistant />
+      {/* <AiAssistant /> */}
     </>
   );
 }

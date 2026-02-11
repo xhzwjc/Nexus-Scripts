@@ -845,7 +845,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                 <Badge variant="outline" className="font-mono flex-shrink-0 ml-2">
                                     MyStatus: {activeTask.myStatus}
                                 </Badge>
-                                <Button
+                                {/* <Button
                                     variant="outline"
                                     size="sm"
                                     className="ml-2 h-7 px-2.5 text-xs bg-gradient-to-r from-violet-500/10 to-purple-500/10 border-violet-300/50 dark:border-violet-500/30 text-violet-700 dark:text-violet-300 hover:from-violet-500/20 hover:to-purple-500/20 transition-all"
@@ -862,7 +862,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                 >
                                     <Sparkles className="w-3.5 h-3.5 mr-1" />
                                     AI填表
-                                </Button>
+                                </Button> */}
                             </>
                         )}
                     </div>
