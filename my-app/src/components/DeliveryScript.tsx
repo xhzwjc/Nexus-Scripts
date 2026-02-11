@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
+import { Card, CardHeader, CardTitle, CardDescription } from './ui/card';
 
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+
 import { Badge } from './ui/badge';
 import {
     ArrowLeft, Loader2, Upload, File as FileIcon, X, CheckCircle, AlertCircle,
@@ -141,60 +141,64 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
         setIsLoggingIn(true);
         const newUsers: UserData[] = [];
+        const BATCH_SIZE = 5;
 
         try {
-            for (const mobile of uniqueMobiles) {
-                // 1. Login
-                try {
-                    const loginRes = await axios.post(`${apiBaseUrl}/delivery/login`, {
-                        mobile, environment, code: '987654'
-                    });
+            // Process in batches to balance speed and server load
+            for (let i = 0; i < uniqueMobiles.length; i += BATCH_SIZE) {
+                const batch = uniqueMobiles.slice(i, i + BATCH_SIZE);
 
-                    if (!loginRes.data.success) {
-                        toast.error(dm.loginFailed.replace('{mobile}', mobile).replace('{msg}', loginRes.data.msg));
-                        continue;
-                    }
-
-                    const token = loginRes.data.token;
-
-                    // 2. Get Worker Info (Realname)
-                    let realname = mobile;
+                const batchResults = await Promise.all(batch.map(async (mobile) => {
                     try {
-                        const infoRes = await axios.post(`${apiBaseUrl}/delivery/worker-info`, {
-                            environment, token
+                        // 1. Login
+                        const loginRes = await axios.post(`${apiBaseUrl}/delivery/login`, {
+                            mobile, environment, code: '987654'
                         });
-                        if (infoRes.data && infoRes.data.code === 0 && infoRes.data.data) {
-                            realname = infoRes.data.data.realname || mobile;
+
+                        if (!loginRes.data.success) {
+                            return { error: dm.loginFailed.replace('{mobile}', mobile).replace('{msg}', loginRes.data.msg) };
                         }
-                    } catch (e) {
-                        console.error(`Get worker info failed for ${mobile}`, e);
-                    }
 
-                    // 3. Get Tasks
-                    let userTasks: Task[] = [];
-                    try {
-                        const taskRes = await axios.post(`${apiBaseUrl}/delivery/tasks`, {
-                            environment, token, status: 0
-                        });
-                        if (taskRes.data && taskRes.data.code === 0 && taskRes.data.data?.list) {
-                            // Filter myStatus=4 (Wait for delivery)
-                            userTasks = (taskRes.data.data.list as Task[]).filter(t => t.myStatus === 4 && !t.taskName?.includes('【测试'));
+                        const token = loginRes.data.token;
+
+                        // 2. Get Worker Info and Tasks in parallel
+                        const [infoRes, taskRes] = await Promise.allSettled([
+                            axios.post(`${apiBaseUrl}/delivery/worker-info`, { environment, token }),
+                            axios.post(`${apiBaseUrl}/delivery/tasks`, { environment, token, status: 0 })
+                        ]);
+
+                        let realname = mobile;
+                        if (infoRes.status === 'fulfilled' && infoRes.value.data && infoRes.value.data.code === 0 && infoRes.value.data.data) {
+                            realname = infoRes.value.data.data.realname || mobile;
                         }
+
+                        let userTasks: Task[] = [];
+                        if (taskRes.status === 'fulfilled' && taskRes.value.data && taskRes.value.data.code === 0 && taskRes.value.data.data?.list) {
+                            userTasks = (taskRes.value.data.data.list as Task[]).filter(t => t.myStatus === 4 && !t.taskName?.includes('【测试'));
+                        }
+
+                        return {
+                            user: {
+                                mobile,
+                                token,
+                                realname,
+                                tasks: userTasks
+                            }
+                        };
                     } catch (e) {
-                        console.error(`Get tasks failed for ${mobile}`, e);
+                        console.error(`Process mobile ${mobile} failed`, e);
+                        return { error: dm.processError.replace('{mobile}', mobile) };
                     }
+                }));
 
-                    newUsers.push({
-                        mobile,
-                        token,
-                        realname,
-                        tasks: userTasks
-                    });
-
-                } catch (e) {
-                    console.error(`Process mobile ${mobile} failed`, e);
-                    toast.error(dm.processError.replace('{mobile}', mobile));
-                }
+                // Collect results and show errors
+                batchResults.forEach(res => {
+                    if (res.user) {
+                        newUsers.push(res.user);
+                    } else if (res.error) {
+                        toast.error(res.error);
+                    }
+                });
             }
 
             if (newUsers.length > 0) {
@@ -233,25 +237,29 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
         try {
             const updatedUsers = [...users];
             let successCount = 0;
+            const BATCH_SIZE = 5;
 
-            for (let i = 0; i < updatedUsers.length; i++) {
-                const user = updatedUsers[i];
-                try {
-                    const taskRes = await axios.post(`${apiBaseUrl}/delivery/tasks`, {
-                        environment, token: user.token, status: 0
-                    });
-                    if (taskRes.data && taskRes.data.code === 0 && taskRes.data.data?.list) {
-                        // Filter myStatus=4
-                        const newTasks = (taskRes.data.data.list as Task[]).filter(t => t.myStatus === 4);
-                        updatedUsers[i] = { ...user, tasks: newTasks };
-                        successCount++;
+            for (let i = 0; i < updatedUsers.length; i += BATCH_SIZE) {
+                const batchIndices = Array.from({ length: Math.min(BATCH_SIZE, updatedUsers.length - i) }, (_, idx) => i + idx);
+
+                await Promise.all(batchIndices.map(async (idx) => {
+                    const user = updatedUsers[idx];
+                    try {
+                        const taskRes = await axios.post(`${apiBaseUrl}/delivery/tasks`, {
+                            environment, token: user.token, status: 0
+                        });
+                        if (taskRes.data && taskRes.data.code === 0 && taskRes.data.data?.list) {
+                            // Filter myStatus=4
+                            const newTasks = (taskRes.data.data.list as Task[]).filter(t => t.myStatus === 4);
+                            updatedUsers[idx] = { ...user, tasks: newTasks };
+                            successCount++;
+                        }
+                    } catch (e) {
+                        console.error(`Refresh tasks failed for ${user.mobile}`, e);
                     }
-                } catch (e) {
-                    console.error(`Refresh tasks failed for ${user.mobile}`, e);
-                }
+                }));
             }
 
-            setUsers(updatedUsers);
             setUsers(updatedUsers);
             toast.success(dm.refreshSuccess.replace('{count}', String(successCount)).replace('{total}', String(updatedUsers.length)));
 
@@ -578,7 +586,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
     // 1. Navigation Header
     const renderHeader = () => (
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-4">
                 <Button variant="ghost" size="icon" onClick={() => {
                     if (step === 'process') {
@@ -610,68 +618,108 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
     // 2. Login View
     const renderLogin = () => (
-        <div className="max-w-md mx-auto mt-20 animate-in fade-in zoom-in-95 duration-500">
-            <Card
-                className="border-0 shadow-2xl bg-[var(--glass-bg)] backdrop-blur-3xl ring-1 ring-[var(--border-subtle)]/40 rounded-[40px] overflow-hidden">
-                <CardHeader className="text-center pb-2 pt-8">
-                    <div
-                        className="mx-auto w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-4 shadow-[0_8px_24px_rgba(var(--primary-rgb),0.15)]">
-                        <User className="h-8 w-8 text-primary" />
+        <div className="flex flex-col md:flex-row w-full max-w-5xl mx-auto mt-10 md:mt-20 overflow-hidden bg-[var(--card-bg)] border border-[var(--border-subtle)]/40 rounded-3xl shadow-2xl animate-in fade-in zoom-in-95 duration-500">
+            {/* Left: Brand Area */}
+            <div className="md:w-5/12 bg-[var(--surface-brand)]/5 p-8 md:p-12 flex flex-col justify-between relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-primary/5 to-transparent pointer-events-none" />
+                <div className="relative z-10">
+                    <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-6">
+                        <Sparkles className="w-6 h-6 text-primary" />
                     </div>
-                    <CardTitle className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">{dt.login.title}</CardTitle>
-                    <CardDescription className="text-[var(--text-secondary)] font-medium">{dt.login.desc}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6 px-8 pb-10">
+                    <h3 className="text-2xl font-bold text-[var(--text-primary)] mb-2 tracking-tight">
+                        {dt.login.title}
+                    </h3>
+                    <p className="text-[var(--text-secondary)] mb-8 leading-relaxed">
+                        {dt.subTitleLogin}
+                    </p>
+
+                    <div className="space-y-4">
+                        {[dt.login.brandFeature1, dt.login.brandFeature2, dt.login.brandFeature3].map((feature, idx) => (
+                            <div key={idx} className="flex items-center space-x-3 text-sm font-medium text-[var(--text-secondary)]">
+                                <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                                    <CheckCircle className="w-3 h-3 text-primary" />
+                                </div>
+                                <span>{feature}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="relative z-10 mt-12">
+                    <p className="text-xs text-[var(--text-tertiary)] opacity-60">
+                        &copy; 2026 Delivery Tool. Internal Use Only.
+                    </p>
+                </div>
+            </div>
+
+            {/* Right: Login Form */}
+            <div className="md:w-7/12 p-8 md:p-12 bg-[var(--card-bg)] flex flex-col justify-center">
+                <div className="max-w-md mx-auto w-full space-y-8">
                     <div className="space-y-2">
-                        <Label className="text-[var(--text-secondary)] font-semibold text-xs ml-1">{dt.login.envLabel}</Label>
-                        <Select value={environment} onValueChange={setEnvironment}>
-                            <SelectTrigger
-                                className="rounded-2xl border-[var(--border-subtle)]/40 bg-[var(--card-bg)]/50 h-10 ring-0 focus:ring-2 focus:ring-primary/10 shadow-sm transition-all hover:bg-[var(--card-bg)]/80">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent
-                                className="rounded-xl border-[var(--border-subtle)]/20 bg-[var(--card-bg)]/80 backdrop-blur-xl shadow-xl">
-                                <SelectItem value="test"
-                                    className="rounded-lg my-1 mx-1 focus:bg-primary/5 focus:text-primary cursor-pointer">Test Env</SelectItem>
-                                <SelectItem value="prod"
-                                    className="rounded-lg my-1 mx-1 focus:bg-primary/5 focus:text-primary cursor-pointer">Prod Env</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <Label className="text-[var(--text-secondary)] font-semibold text-xs uppercase tracking-wider ml-1">
+                            {dt.login.envLabel}
+                        </Label>
+                        <div className="bg-[var(--background-secondary)] p-1 rounded-xl flex space-x-1">
+                            {['prod', 'test'].map((env) => (
+                                <button
+                                    key={env}
+                                    onClick={() => setEnvironment(env)}
+                                    className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all duration-200 ${environment === env
+                                        ? 'bg-[var(--card-bg)] text-[var(--text-primary)] shadow-sm ring-1 ring-black/5 dark:ring-white/10'
+                                        : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                                        }`}
+                                >
+                                    {env === 'prod' ? 'Prod Env' : 'Test Env'}
+                                </button>
+                            ))}
+                        </div>
                     </div>
 
                     <div className="space-y-2">
-                        <Label className="text-[var(--text-secondary)] font-semibold text-xs ml-1">{dt.login.mobileLabel}</Label>
-                        <Textarea
-                            placeholder={dt.login.mobilePlaceholder}
-                            rows={8}
-                            className="rounded-2xl border-[var(--border-subtle)]/40 bg-[var(--card-bg)]/50 font-mono text-sm resize-none ring-0 focus:ring-2 focus:ring-primary/10 shadow-inner p-4 transition-all focus:bg-[var(--card-bg)]/80"
-                            value={mobileInput}
-                            onChange={e => setMobileInput(e.target.value)}
-                        />
-                        <p className="text-[10px] text-[var(--text-tertiary)] text-right pr-2">{dt.login.mobileHint}</p>
+                        <Label className="text-[var(--text-secondary)] font-semibold text-xs uppercase tracking-wider ml-1">
+                            {dt.login.mobileLabel}
+                        </Label>
+                        <div className="relative">
+                            <Textarea
+                                placeholder={dt.login.mobilePlaceholder}
+                                rows={5}
+                                className="rounded-xl border-[var(--border-subtle)] bg-[var(--background-secondary)]/30 font-mono text-sm resize-none ring-0 focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-all p-4 max-h-[300px] overflow-y-auto"
+                                value={mobileInput}
+                                onChange={e => setMobileInput(e.target.value)}
+                            />
+                            <div className="absolute bottom-3 right-3 text-[10px] text-[var(--text-tertiary)] bg-[var(--card-bg)] px-2 py-0.5 rounded-full border border-[var(--border-subtle)]/50">
+                                {dt.login.mobileHint}
+                            </div>
+                        </div>
                     </div>
 
                     <Button
-                        className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_8px_20px_rgba(var(--primary-rgb),0.25)] hover:shadow-[0_12px_28px_rgba(var(--primary-rgb),0.35)] active:scale-[0.97] transition-all duration-300 font-medium text-base"
+                        className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 hover:shadow-primary/30 active:scale-[0.98] transition-all duration-300 font-medium text-base group"
                         onClick={handleLogin}
                         disabled={isLoggingIn}
                     >
-                        {isLoggingIn ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : null}
-                        {isLoggingIn ? dt.login.submitting : dt.login.submitBtn}
+                        {isLoggingIn ? (
+                            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        ) : (
+                            <span className="flex items-center">
+                                {dt.login.submitBtn}
+                                <ArrowLeft className="ml-2 h-4 w-4 rotate-180 transition-transform group-hover:translate-x-1" />
+                            </span>
+                        )}
+                        {isLoggingIn && dt.login.submitting}
                     </Button>
-                </CardContent>
-            </Card>
+                </div>
+            </div>
         </div>
     );
 
 
-    // 3. Main Process View
     const renderProcess = () => (
-        <div className="flex flex-col lg:grid lg:grid-cols-4 gap-6 p-2">
+        <div className="flex-1 flex flex-col lg:grid lg:grid-cols-4 gap-4 p-1 h-full">
             {/* Sidebar: Users Tree */}
             <Card
-                className="lg:col-span-1 flex flex-col min-h-[400px] max-h-[calc(100vh-180px)] border-0 bg-[var(--glass-bg)] backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-[var(--border-subtle)]/20 rounded-[32px] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.06)]">
-                <CardHeader className="py-5 px-5 border-b border-[var(--border-subtle)]/50 bg-[var(--card-bg)]/40 backdrop-blur-md">
+                className="lg:col-span-1 flex flex-col h-full sticky top-2 max-h-[calc(100vh-230px)] border-0 bg-[var(--glass-bg)] backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-[var(--border-subtle)]/20 rounded-[32px] overflow-hidden transition-all duration-500 hover:shadow-[0_12px_48px_rgba(0,0,0,0.06)]">
+                <CardHeader className="py-5 px-5 border-b border-[var(--border-subtle)]/50 bg-[var(--card-bg)]/40 backdrop-blur-md shrink-0">
                     <CardTitle className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">{dt.process.teamTitle}
                         ({users.length})</CardTitle>
                 </CardHeader>
@@ -750,7 +798,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                         })}
                     </div>
                 </div>
-                <div className="p-4 border-t border-[var(--border-subtle)]/20 bg-[var(--card-bg)]/40 backdrop-blur-md">
+                <div className="p-4 border-t border-[var(--border-subtle)]/20 bg-[var(--card-bg)]/40 backdrop-blur-md shrink-0">
                     <Button
                         variant="outline"
                         size="sm"
@@ -767,7 +815,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
             {/* Main: Form Area */}
             <Card
-                className="lg:col-span-3 flex flex-col bg-[var(--glass-bg)] backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-[var(--border-subtle)]/20 rounded-[32px] border-0 transition-all duration-500 hover:shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
+                className="lg:col-span-3 flex flex-col h-full bg-[var(--glass-bg)] backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.04)] ring-1 ring-[var(--border-subtle)]/20 rounded-[32px] border-0 transition-all duration-500 hover:shadow-[0_16px_64px_rgba(0,0,0,0.06)]">
                 <CardHeader
                     className="py-5 px-6 border-b border-[var(--border-subtle)]/50 bg-[var(--card-bg)]/40 backdrop-blur-md sticky top-0 z-10">
                     <div className="flex items-center justify-between overflow-hidden">
@@ -1008,7 +1056,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
     );
 
     return (
-        <div className="container max-w-7xl mx-auto py-6 animate-in fade-in duration-500">
+        <div className="container max-w-7xl mx-auto py-4 animate-in fade-in duration-500 flex flex-col min-h-[calc(100vh-140px)]">
 
             {/* Modal */}
             {previewImage && (

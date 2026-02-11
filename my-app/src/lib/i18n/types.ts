@@ -599,6 +599,9 @@ export interface Translations {
         mobileHint: string;
         submitBtn: string;
         submitting: string;
+        brandFeature1: string;
+        brandFeature2: string;
+        brandFeature3: string;
       };
       process: {
         teamTitle: string;

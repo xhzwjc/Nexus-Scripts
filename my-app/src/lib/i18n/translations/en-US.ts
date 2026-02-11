@@ -619,6 +619,9 @@ export const enUS: Translations = {
             login: {
                 title: 'Batch Login',
                 desc: 'Enter mobile numbers to start',
+                brandFeature1: 'Batch login multiple accounts',
+                brandFeature2: 'Auto-fetch pending tasks',
+                brandFeature3: 'Submit deliverables in one click',
                 envLabel: 'Environment',
                 mobileLabel: 'Mobile List',
                 mobilePlaceholder: '19999999999\n18888888888',

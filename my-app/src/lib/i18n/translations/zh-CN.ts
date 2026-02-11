@@ -618,6 +618,9 @@ export const zhCN: Translations = {
             login: {
                 title: '批量登录',
                 desc: '请输入手机号列表开启任务',
+                brandFeature1: '多账号批量同时登录',
+                brandFeature2: '自动获取待交付任务',
+                brandFeature3: '一键提交交付物',
                 envLabel: '环境选择',
                 mobileLabel: '手机号列表',
                 mobilePlaceholder: '19999999999\n18888888888',
