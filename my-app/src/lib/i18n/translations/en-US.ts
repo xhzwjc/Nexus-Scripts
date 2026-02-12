@@ -1603,6 +1603,8 @@ export const enUS: Translations = {
                     invoiced: 'Invoiced',
                     ratio: 'Uninvoiced Ratio',
                     total: 'Total',
+                    service: 'Service Fee',
+                    taxAmount: 'I-Tax',
                 },
                 empty: {
                     instruction: 'Click "Start Calculation" to view data',

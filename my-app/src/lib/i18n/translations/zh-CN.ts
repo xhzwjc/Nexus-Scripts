@@ -1602,6 +1602,8 @@ export const zhCN: Translations = {
                     invoiced: '已开票金额',
                     ratio: '未开票占比',
                     total: '总金额',
+                    service: '服务费',
+                    taxAmount: '代扣个税',
                 },
                 empty: {
                     instruction: '请点击“开始统计”查看数据',

@@ -41,6 +41,7 @@ interface TaxAddressStat {
     invoiced_amount: number;
     uninvoiced_amount: number;
     total_amount: number;
+    service_amount: number;
     tax_amount: number;
 }
 
@@ -414,6 +415,8 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                                 <TableHead className="text-right">{tr.tables.headers.invoiced}</TableHead>
                                                 <TableHead className="text-right">{tr.tables.headers.ratio}</TableHead>
                                                 <TableHead className="text-right">{tr.tables.headers.total}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.service}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.taxAmount}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -425,17 +428,19 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                                         <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
                                                         <TableCell className="text-right"><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
                                                         <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
                                                     </TableRow>
                                                 ))
                                             ) : !statsData ? (
                                                 <TableRow>
-                                                    <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                                                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                                                         {tr.tables.empty.instruction}
                                                     </TableCell>
                                                 </TableRow>
                                             ) : statsData.tax_address_stats.length === 0 ? (
                                                 <TableRow>
-                                                    <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                                                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                                                         {tr.tables.empty.noData}
                                                     </TableCell>
                                                 </TableRow>
@@ -459,6 +464,12 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                                         </TableCell>
                                                         <TableCell className="text-right font-mono">
                                                             {formatCurrency(row.total_amount)}
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-mono text-amber-600">
+                                                            {formatCurrency(row.service_amount)}
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-mono text-emerald-600">
+                                                            {formatCurrency(row.tax_amount)}
                                                         </TableCell>
                                                     </TableRow>
                                                 ))
@@ -491,6 +502,8 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                                 <TableHead className="text-right">{tr.tables.headers.invoiced}</TableHead>
                                                 <TableHead className="text-right">{tr.tables.headers.ratio}</TableHead>
                                                 <TableHead className="text-right">{tr.tables.headers.total}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.service}</TableHead>
+                                                <TableHead className="text-right">{tr.tables.headers.taxAmount}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -503,17 +516,19 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                                         <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
                                                         <TableCell className="text-right"><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
                                                         <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
+                                                        <TableCell className="text-right"><Skeleton className="h-4 w-24 ml-auto" /></TableCell>
                                                     </TableRow>
                                                 ))
                                             ) : !statsData ? (
                                                 <TableRow>
-                                                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                                                    <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
                                                         {tr.tables.empty.instruction}
                                                     </TableCell>
                                                 </TableRow>
                                             ) : (!statsData.enterprise_stats || statsData.enterprise_stats.length === 0) ? (
                                                 <TableRow>
-                                                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                                                    <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
                                                         {tr.tables.empty.noData}
                                                     </TableCell>
                                                 </TableRow>
@@ -539,6 +554,12 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                                         </TableCell>
                                                         <TableCell className="text-right font-mono">
                                                             {formatCurrency(row.total_amount)}
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-mono text-amber-600">
+                                                            {formatCurrency(row.service_amount)}
+                                                        </TableCell>
+                                                        <TableCell className="text-right font-mono text-emerald-600">
+                                                            {formatCurrency(row.tax_amount)}
                                                         </TableCell>
                                                     </TableRow>
                                                 ))

@@ -1576,6 +1576,8 @@ export interface Translations {
           invoiced: string;
           ratio: string;
           total: string;
+          service: string;
+          taxAmount: string;
         };
         empty: {
           instruction: string;
