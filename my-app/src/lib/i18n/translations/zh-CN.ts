@@ -1570,20 +1570,20 @@ export const zhCN: Translations = {
                 basedOn: '基于 {count} 个企业的统计结果',
                 totalService: '平台总服务费',
                 serviceDesc: '所有已选企业的服务费总和',
-                totalTax: '平台总税金',
+                totalTax: '平台总代扣个税',
             },
             charts: {
                 monthlyTitle: '月度结算金额趋势与明细',
                 noData: '暂无数据',
                 records: '{count} 条记录',
                 serviceFee: '服务费: {amount}',
-                taxAmount: '税金: {amount}',
+                taxAmount: '个税: {amount}',
                 table: {
                     enterprise: '企业名称',
                     tax: '税地名称',
                     amount: '总金额',
                     service: '总服务费',
-                    taxAmount: '总税金',
+                    taxAmount: '总代扣个税',
                 },
             },
             tables: {
