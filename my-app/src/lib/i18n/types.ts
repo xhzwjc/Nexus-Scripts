@@ -1544,17 +1544,20 @@ export interface Translations {
         basedOn: string;
         totalService: string;
         serviceDesc: string;
+        totalTax: string;
       };
       charts: {
         monthlyTitle: string;
         noData: string;
         records: string;
         serviceFee: string;
+        taxAmount: string;
         table: {
           enterprise: string;
           tax: string;
           amount: string;
           service: string;
+          taxAmount: string;
         };
       };
       tables: {

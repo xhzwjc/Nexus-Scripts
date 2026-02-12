@@ -68,25 +68,28 @@ class PaymentStatsService:
         ids_str = ",".join(map(str, enterprise_ids))
         inclusion_clause = f"AND b.enterprise_id IN ({ids_str})"
 
-        # 综合查询：同时获取企业和税地维度的基础数据
-        # 过滤测试税地 (2, 3)
+        # 唯一查询：获取按月、企业、税地分组的细项数据
         sql_query = f"""
             SELECT
+                DATE_FORMAT(b.payment_over_time, '%%Y-%%m') as month,
                 e.enterprise_name,
                 b.enterprise_id,
-                b.tax_id,
                 MAX(b.tax_address) as tax_address,
+                b.tax_id,
+                SUM(ROUND(b.pay_amount, 2)) as amount,
+                SUM(ROUND(b.service_amount, 2)) as service_amount,
+                SUM(ROUND(b.tax_amount, 2)) as tax_amount,
                 SUM(ROUND(CASE WHEN b.has_invoiced = 2 THEN b.pay_amount ELSE 0 END, 2)) AS invoiced_amount,
-                SUM(ROUND(CASE WHEN b.has_invoiced != 2 THEN b.pay_amount ELSE 0 END, 2)) AS uninvoiced_amount,
-                SUM(ROUND(b.service_amount, 2)) AS service_amount
+                SUM(ROUND(CASE WHEN b.has_invoiced != 2 THEN b.pay_amount ELSE 0 END, 2)) AS uninvoiced_amount
             FROM biz_balance_worker b
             LEFT JOIN biz_enterprise_base e ON b.enterprise_id = e.id
             WHERE b.pay_status = 3
-#             AND b.tax_id NOT IN (2, 3)
+            AND b.tax_id NOT IN (2, 3)
             {inclusion_clause}
-            GROUP BY b.tax_id, b.enterprise_id
+            GROUP BY month, b.enterprise_id, b.tax_id
+            ORDER BY month DESC, amount DESC
         """
-        # print(sql_query)
+        # print("支付统计数据查询 (按月/企业/税地)：", sql_query)
         try:
             with self.engine.connect() as conn:
                 df = pd.read_sql(sql_query, conn)
@@ -95,121 +98,110 @@ class PaymentStatsService:
                     return {
                         "total_settlement": 0.0,
                         "total_service_amount": 0.0,
+                        "total_tax_amount": 0.0,
                         "tax_address_stats": [],
                         "enterprise_stats": [],
                         "monthly_stats": []
                     }
 
-                # 1. 构造企业-税地维度统计 (EnterpriseTaxStatItem)
+                # --- 1. 计算全局总计 ---
+                total_settlement = round(df['amount'].sum(), 2)
+                total_service_amount = round(df['service_amount'].sum(), 2)
+                total_tax_amount = round(df['tax_amount'].sum(), 2)
+
+                # --- 2. 构造企业-税地维度统计 (EnterpriseTaxStatItem) ---
+                # 聚合各个月份的数据
+                df_ent = df.groupby(['enterprise_id', 'enterprise_name', 'tax_id', 'tax_address'], as_index=False).agg({
+                    'invoiced_amount': 'sum',
+                    'uninvoiced_amount': 'sum',
+                    'service_amount': 'sum',
+                    'tax_amount': 'sum',
+                    'amount': 'sum'
+                })
+                
                 enterprise_stats = []
-                for _, row in df.iterrows():
-                    inv = row['invoiced_amount'] or 0
-                    uninv = row['uninvoiced_amount'] or 0
-                    svc = row['service_amount'] or 0
+                for _, row in df_ent.iterrows():
                     enterprise_stats.append({
                         "enterprise_name": row['enterprise_name'] or f"未知企业({row['enterprise_id']})",
                         "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
-                        "invoiced_amount": inv,
-                        "uninvoiced_amount": uninv,
-                        "total_amount": inv + uninv,
-                        "service_amount": svc
+                        "invoiced_amount": round(row['invoiced_amount'], 2),
+                        "uninvoiced_amount": round(row['uninvoiced_amount'], 2),
+                        "total_amount": round(row['amount'], 2),
+                        "service_amount": round(row['service_amount'], 2),
+                        "tax_amount": round(row['tax_amount'], 2)
                     })
 
-                # 2. 聚合生成税地维度统计 (TaxAddressStatItem)
-                # 按 tax_id 分组求和
-                df_tax_agg = df.groupby(['tax_id', 'tax_address'], as_index=False).agg({
+                # --- 3. 构造税地维度统计 (TaxAddressStatItem) ---
+                df_tax = df.groupby(['tax_id', 'tax_address'], as_index=False).agg({
                     'invoiced_amount': 'sum',
                     'uninvoiced_amount': 'sum',
-                    'service_amount': 'sum'
+                    'service_amount': 'sum',
+                    'tax_amount': 'sum',
+                    'amount': 'sum'
                 })
-
+                
                 tax_address_stats = []
-                for _, row in df_tax_agg.iterrows():
-                    inv = row['invoiced_amount'] or 0
-                    uninv = row['uninvoiced_amount'] or 0
-                    svc = row['service_amount'] or 0
+                for _, row in df_tax.iterrows():
                     tax_address_stats.append({
                         "tax_id": row['tax_id'],
                         "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
-                        "invoiced_amount": inv,
-                        "uninvoiced_amount": uninv,
-                        "total_amount": inv + uninv,
-                        "service_amount": svc
+                        "invoiced_amount": round(row['invoiced_amount'], 2),
+                        "uninvoiced_amount": round(row['uninvoiced_amount'], 2),
+                        "total_amount": round(row['amount'], 2),
+                        "service_amount": round(row['service_amount'], 2),
+                        "tax_amount": round(row['tax_amount'], 2)
                     })
-
                 # 按未开票金额降序排序
                 tax_address_stats.sort(key=lambda x: x['uninvoiced_amount'], reverse=True)
 
-                # 3. 计算总金额
-                total_settlement = df['invoiced_amount'].sum() + df['uninvoiced_amount'].sum()
-                total_service_amount = df['service_amount'].sum()
-
-                # 4. 按月统计结算金额
-                # 新增查询：按月分组
-                # 4. 按月统计结算金额
-                # 新增查询：按月、企业、税地分组
-                sql_monthly = f"""
-                    SELECT
-                        DATE_FORMAT(b.payment_over_time, '%%Y-%%m') as month,
-                        e.enterprise_name,
-                        b.enterprise_id,
-                        MAX(b.tax_address) as tax_address,
-                        b.tax_id,
-                        SUM(ROUND(b.pay_amount, 2)) as amount,
-                        SUM(ROUND(b.service_amount, 2)) as service_amount,
-                        SUM(ROUND(CASE WHEN b.has_invoiced = 2 THEN b.pay_amount ELSE 0 END, 2)) AS invoiced_amount,
-                        SUM(ROUND(CASE WHEN b.has_invoiced != 2 THEN b.pay_amount ELSE 0 END, 2)) AS uninvoiced_amount
-                    FROM biz_balance_worker b
-                    LEFT JOIN biz_enterprise_base e ON b.enterprise_id = e.id
-                    WHERE b.pay_status = 3
-                    AND b.tax_id NOT IN (2, 3)
-                    {inclusion_clause}
-                    GROUP BY month, b.enterprise_id, b.tax_id
-                    ORDER BY month DESC, amount DESC
-                """
-                df_monthly = pd.read_sql(sql_monthly, conn)
-
-                # 处理数据：将扁平的 DataFrame 转换为 month -> details 结构
-                monthly_stats_map = {}  # month -> {amount: 0, details: []}
-
-                for _, row in df_monthly.iterrows():
+                # --- 4. 构造月度统计 (MonthlyStatItem) ---
+                monthly_stats_map = {}
+                for _, row in df.iterrows():
                     month = row['month']
                     if not month: continue
-
                     if month not in monthly_stats_map:
                         monthly_stats_map[month] = {
                             "month": month,
                             "amount": 0.0,
                             "service_amount": 0.0,
+                            "tax_amount": 0.0,
                             "details": []
                         }
-
-                    inv = row['invoiced_amount'] or 0
-                    uninv = row['uninvoiced_amount'] or 0
-                    total = row['amount'] or 0
-                    service_amount = row['service_amount'] or 0
-
-                    monthly_stats_map[month]['amount'] += total
-                    monthly_stats_map[month]['service_amount'] += service_amount
+                    
+                    monthly_stats_map[month]['amount'] += row['amount']
+                    monthly_stats_map[month]['service_amount'] += row['service_amount']
+                    monthly_stats_map[month]['tax_amount'] += row['tax_amount']
                     monthly_stats_map[month]['details'].append({
                         "enterprise_name": row['enterprise_name'] or f"未知企业({row['enterprise_id']})",
                         "tax_address": row['tax_address'] or f"未知税地({row['tax_id']})",
-                        "invoiced_amount": inv,
-                        "uninvoiced_amount": uninv,
-                        "total_amount": total,
-                        "service_amount": service_amount
+                        "invoiced_amount": round(row['invoiced_amount'], 2),
+                        "uninvoiced_amount": round(row['uninvoiced_amount'], 2),
+                        "total_amount": round(row['amount'], 2),
+                        "service_amount": round(row['service_amount'], 2),
+                        "tax_amount": round(row['tax_amount'], 2)
                     })
 
-                # Round values in monthly stats
-                for item in monthly_stats_map.values():
-                    item['amount'] = round(item['amount'], 2)
-                    item['service_amount'] = round(item['service_amount'], 2)
-                
+                # 给月度汇总值取整
+                for m_item in monthly_stats_map.values():
+                    m_item['amount'] = round(m_item['amount'], 2)
+                    m_item['service_amount'] = round(m_item['service_amount'], 2)
+                    m_item['tax_amount'] = round(m_item['tax_amount'], 2)
+
                 monthly_stats = list(monthly_stats_map.values())
+
+                return {
+                    "total_settlement": float(total_settlement),
+                    "total_service_amount": float(total_service_amount),
+                    "total_tax_amount": float(total_tax_amount),
+                    "tax_address_stats": tax_address_stats,
+                    "enterprise_stats": enterprise_stats,
+                    "monthly_stats": monthly_stats
+                }
 
                 result = {
                     "total_settlement": round(float(total_settlement), 2),
                     "total_service_amount": round(float(total_service_amount), 2),
+                    "total_tax_amount": round(float(total_tax_amount), 2),
                     "tax_address_stats": tax_address_stats,
                     "enterprise_stats": enterprise_stats,
                     "monthly_stats": monthly_stats

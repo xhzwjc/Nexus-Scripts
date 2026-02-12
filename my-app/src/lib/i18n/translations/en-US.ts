@@ -1571,17 +1571,20 @@ export const enUS: Translations = {
                 basedOn: 'Based on {count} enterprises',
                 totalService: 'Total Service Fee',
                 serviceDesc: 'Sum of service fees for selected enterprises',
+                totalTax: 'Total Tax',
             },
             charts: {
                 monthlyTitle: 'Monthly Settlement Trend & Details',
                 noData: 'No Data',
                 records: '{count} records',
                 serviceFee: 'Service Fee: {amount}',
+                taxAmount: 'Tax: {amount}',
                 table: {
                     enterprise: 'Enterprise',
                     tax: 'Tax Location',
                     amount: 'Total Amount',
                     service: 'Service Fee',
+                    taxAmount: 'Total Tax',
                 },
             },
             tables: {

@@ -41,6 +41,7 @@ interface TaxAddressStat {
     invoiced_amount: number;
     uninvoiced_amount: number;
     total_amount: number;
+    tax_amount: number;
 }
 
 interface EnterpriseTaxStat {
@@ -50,18 +51,21 @@ interface EnterpriseTaxStat {
     uninvoiced_amount: number;
     total_amount: number;
     service_amount: number;
+    tax_amount: number;
 }
 
 interface MonthlyStatItem {
     month: string;
     amount: number;
     service_amount: number;
+    tax_amount: number;
     details: EnterpriseTaxStat[];
 }
 
 interface PaymentStatsData {
     total_settlement: number;
     total_service_amount: number;
+    total_tax_amount: number;
     tax_address_stats: TaxAddressStat[];
     enterprise_stats: EnterpriseTaxStat[];
     monthly_stats: MonthlyStatItem[];
@@ -300,23 +304,23 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                     {/* Main Content */}
                     <div className="lg:col-span-3 space-y-6">
                         {/* KPI Cards */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <Card className="bg-primary/5 border-primary/20">
-                                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-                                    <CardTitle className="text-sm font-medium text-muted-foreground">{tr.kpi.totalSettlement}</CardTitle>
-                                    <div className="text-xs text-muted-foreground">
+                                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0 text-primary">
+                                    <CardTitle className="text-sm font-medium">{tr.kpi.totalSettlement}</CardTitle>
+                                    <div className="text-xs opacity-70">
                                         {tr.kpi.taxCount.replace('{count}', statsData ? statsData.tax_address_stats.length.toString() : '-')}
                                     </div>
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="text-3xl font-bold text-primary">
+                                    <div className="text-2xl font-bold">
                                         {isCalculating ? (
-                                            <Skeleton className="h-9 w-32" />
+                                            <Skeleton className="h-8 w-32" />
                                         ) : (
                                             statsData ? formatCurrency(statsData.total_settlement) : '---'
                                         )}
                                     </div>
-                                    <div className="text-xs text-muted-foreground mt-1">
+                                    <div className="text-xs opacity-70 mt-1">
                                         {isCalculating ? (
                                             <Skeleton className="h-3 w-48" />
                                         ) : (
@@ -325,27 +329,42 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                                     </div>
                                 </CardContent>
                             </Card>
-                            <Card>
-                                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
-                                    <CardTitle className="text-sm font-medium text-muted-foreground">{tr.kpi.totalService}</CardTitle>
-                                    <div className="text-xs text-muted-foreground">
-                                        {tr.kpi.taxCount.replace('{count}', statsData ? statsData.tax_address_stats.length.toString() : '-')}
-                                    </div>
+                            <Card className="bg-amber-500/5 border-amber-500/20">
+                                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0 text-amber-600">
+                                    <CardTitle className="text-sm font-medium">{tr.kpi.totalService}</CardTitle>
+                                    <BarChart3 className="w-4 h-4 opacity-70" />
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="text-3xl font-bold text-amber-600">
+                                    <div className="text-2xl font-bold">
                                         {isCalculating ? (
-                                            <Skeleton className="h-9 w-32" />
+                                            <Skeleton className="h-8 w-32" />
                                         ) : (
                                             statsData ? formatCurrency(statsData.total_service_amount) : '---'
                                         )}
                                     </div>
-                                    <div className="text-xs text-muted-foreground mt-1">
+                                    <div className="text-xs opacity-70 mt-1">
                                         {tr.kpi.serviceDesc}
                                     </div>
                                 </CardContent>
                             </Card>
-
+                            <Card className="bg-emerald-500/5 border-emerald-500/20">
+                                <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0 text-emerald-600">
+                                    <CardTitle className="text-sm font-medium">{tr.kpi.totalTax}</CardTitle>
+                                    <Calculator className="w-4 h-4 opacity-70" />
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="text-2xl font-bold">
+                                        {isCalculating ? (
+                                            <Skeleton className="h-8 w-32" />
+                                        ) : (
+                                            statsData ? formatCurrency(statsData.total_tax_amount) : '---'
+                                        )}
+                                    </div>
+                                    <div className="text-xs opacity-70 mt-1">
+                                        {tr.kpi.taxCount.replace('{count}', statsData ? statsData.tax_address_stats.length.toString() : '-')}
+                                    </div>
+                                </CardContent>
+                            </Card>
                         </div>
 
                         {/* Monthly Histogram & Details */}
@@ -567,6 +586,9 @@ function MonthlyItem({
                         <span className="text-xs text-muted-foreground font-mono">
                             {tr.charts.serviceFee.replace('{amount}', formatCurrency(item.service_amount))}
                         </span>
+                        <span className="text-xs text-emerald-600 font-mono">
+                            {tr.charts.taxAmount.replace('{amount}', formatCurrency(item.tax_amount))}
+                        </span>
                     </div>
                     {isOpen ? <ChevronUp className="h-4 w-4 text-[var(--text-tertiary)]" /> : <ChevronDown className="h-4 w-4 text-[var(--text-tertiary)]" />}
                 </div>
@@ -587,6 +609,7 @@ function MonthlyItem({
                                 <TableHead className="h-8">{tr.charts.table.tax}</TableHead>
                                 <TableHead className="h-8 text-right">{tr.charts.table.amount}</TableHead>
                                 <TableHead className="h-8 text-right">{tr.charts.table.service}</TableHead>
+                                <TableHead className="h-8 text-right">{tr.charts.table.taxAmount}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -599,6 +622,9 @@ function MonthlyItem({
                                     </TableCell>
                                     <TableCell className="py-2 text-xs text-right font-mono">
                                         {formatCurrency(detail.service_amount)}
+                                    </TableCell>
+                                    <TableCell className="py-2 text-xs text-right font-mono text-emerald-600">
+                                        {formatCurrency(detail.tax_amount)}
                                     </TableCell>
                                 </TableRow>
                             ))}
