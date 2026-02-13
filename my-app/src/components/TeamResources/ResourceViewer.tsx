@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Search, Lock, ArrowLeft, Settings, FolderOpen, Building2, Shield } from 'lucide-react';
 import { SystemCard } from './SystemCard';
 import { HealthCheckPanel } from './HealthCheckPanel';
+import { EmptyState } from './EmptyState';
 import { useI18n } from '@/lib/i18n';
 
 interface ResourceViewerProps {
@@ -96,11 +97,12 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin, logoVe
                             key={group.id}
                             onClick={() => setActiveGroup(group.id)}
                             className={`
-                                w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+                                w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                                 ${activeGroup === group.id
                                     ? 'bg-primary/10 text-primary'
                                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                                 }
+                                ${searchQuery && !filteredGroups.some(g => g.id === group.id) ? 'opacity-30 grayscale' : ''}
                             `}
                         >
                             {group.logo ? (
@@ -158,21 +160,19 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin, logoVe
                         ))}
 
                         {filteredGroups.length === 0 && (
-                            <div className="col-span-full text-center py-20 text-muted-foreground">
-                                {tr.noSystems}
-                            </div>
+                            <EmptyState description={tr.noSystems} />
                         )}
 
                         {!searchQuery && currentGroup?.systems.length === 0 && (
-                            <div className="col-span-full text-center py-20 text-muted-foreground">
-                                <FolderOpen className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
-                                <p>{tr.noSystemsInGroup}</p>
-                                {isAdmin && (
+                            <EmptyState
+                                icon={FolderOpen}
+                                description={tr.noSystemsInGroup}
+                                action={isAdmin && (
                                     <Button variant="outline" className="mt-4" onClick={onManage}>
                                         {tr.addSystem}
                                     </Button>
                                 )}
-                            </div>
+                            />
                         )}
                     </div>
                 </div>

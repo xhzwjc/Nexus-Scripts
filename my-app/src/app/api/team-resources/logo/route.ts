@@ -7,6 +7,11 @@ export const dynamic = 'force-dynamic';
 
 const LOGOS_DIR = path.join(process.cwd(), 'public', 'team-logos');
 
+// 校验 groupId 格式，防止路径遍历
+function isValidGroupId(groupId: string): boolean {
+    return /^[a-zA-Z0-9_-]+$/.test(groupId);
+}
+
 // 确保目录存在
 function ensureDir() {
     if (!fs.existsSync(LOGOS_DIR)) {
@@ -23,6 +28,10 @@ export async function POST(request: NextRequest) {
 
         if (!groupId || !base64) {
             return NextResponse.json({ error: 'Missing groupId or base64' }, { status: 400 });
+        }
+
+        if (!isValidGroupId(groupId)) {
+            return NextResponse.json({ error: 'Invalid groupId format' }, { status: 400 });
         }
 
         // 提取 Base64 数据部分 (去掉 data:image/xxx;base64, 前缀)
@@ -60,6 +69,10 @@ export async function DELETE(request: NextRequest) {
 
         if (!groupId) {
             return NextResponse.json({ error: 'Missing groupId' }, { status: 400 });
+        }
+
+        if (!isValidGroupId(groupId)) {
+            return NextResponse.json({ error: 'Invalid groupId format' }, { status: 400 });
         }
 
         const logoPath = path.join(LOGOS_DIR, `${groupId}.webp`);

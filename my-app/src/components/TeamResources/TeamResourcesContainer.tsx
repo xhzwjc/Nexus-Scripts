@@ -66,7 +66,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
         const timeoutId = setTimeout(() => {
             isTimeout = true;
             controller.abort();
-        }, 120000); // 120秒超时，解决远程访问慢的问题
+        }, 20000); // 20秒超时
 
         const loadData = async () => {
             try {
@@ -88,7 +88,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
 
                 console.error('Failed to load resources:', error);
                 if (error instanceof Error && error.name === 'AbortError' && isTimeout) {
-                    setLoadError('网络超时，请检查网络连接后重试');
+                    setLoadError(tr.networkTimeout);
                 } else if (!(error instanceof Error && error.name === 'AbortError')) {
                     setData(INITIAL_RESOURCE_DATA);
                 }
@@ -112,6 +112,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
             controller.abort();
             clearTimeout(timeoutId);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isLocked, updateActivity]);
 
     // 监听用户活动，更新最后活动时间
@@ -201,7 +202,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
             <div className="h-full flex flex-col items-center justify-center gap-4">
                 <div className="text-red-500">{loadError}</div>
                 <Button variant="outline" onClick={() => window.location.reload()}>
-                    重新加载
+                    {tr.reload}
                 </Button>
             </div>
         );

@@ -45,11 +45,13 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
     // 当系统数据变化时重新计算默认环境
     React.useEffect(() => {
         setEnv(getDefaultEnv());
-        setFaviconError(false); // 重置favicon错误状态
+        // 重置时先不重置 faviconError，由下方的 cache check 决定
+        // setFaviconError(false); 
     }, [getDefaultEnv]);
 
     // 从URL中提取favicon地址
     const faviconUrl = useMemo(() => {
+        // ... logic unchanged ...
         // 优先使用生产环境，然后测试，最后开发
         const envOrder: Environment[] = ['prod', 'test', 'dev'];
         for (const envKey of envOrder) {
@@ -71,6 +73,22 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
         }
         return null;
     }, [system.environments]);
+
+    // 缓存检查 effect
+    React.useEffect(() => {
+        if (!faviconUrl) {
+            setFaviconError(true);
+            return;
+        }
+        // 检查缓存
+        const cacheKey = `fav_status_${faviconUrl}`;
+        const status = sessionStorage.getItem(cacheKey);
+        if (status === 'error') {
+            setFaviconError(true);
+        } else {
+            setFaviconError(false);
+        }
+    }, [faviconUrl]);
 
     const toggleReveal = (id: string) => {
         setRevealedCreds(prev => ({
@@ -113,12 +131,16 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                             <img
                                 src={faviconUrl}
                                 alt=""
-                                className="w-5 h-5 object-contain absolute opacity-0 transition-opacity duration-500"
-                                onError={() => setFaviconError(true)}
+                                loading="lazy"
+                                onError={() => {
+                                    setFaviconError(true);
+                                    if (faviconUrl) sessionStorage.setItem(`fav_status_${faviconUrl}`, 'error');
+                                }}
                                 onLoad={(e) => {
                                     const target = e.target as HTMLImageElement;
                                     target.classList.remove('opacity-0');
                                     target.classList.add('opacity-100');
+                                    if (faviconUrl) sessionStorage.setItem(`fav_status_${faviconUrl}`, 'ok');
                                 }}
                             />
                         )}

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ResourceGroup, SystemResource, Credential, Environment, SystemEnvironment } from '@/lib/team-resources-data';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -113,9 +113,10 @@ function SortableSystemItem({ system, isActive, onClick, onDelete }: {
 export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: ResourceEditorProps) {
     const { t } = useI18n();
     const tr = t.teamResources;
-    const [editedGroups, setEditedGroups] = useState<ResourceGroup[]>(JSON.parse(JSON.stringify(groups)));
+    const [editedGroups, setEditedGroups] = useState<ResourceGroup[]>(() => structuredClone(groups));
     const [activeGroupId, setActiveGroupId] = useState<string>(groups[0]?.id || '');
     const [activeSystemId, setActiveSystemId] = useState<string>('');
+    const [isDirty, setIsDirty] = useState(false);
 
     const currentGroup = editedGroups.find(g => g.id === activeGroupId);
     const currentSystem = currentGroup?.systems.find(s => s.id === activeSystemId);
@@ -126,13 +127,38 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     );
 
+    // 脏数据保护：离开页面时提示
+    useEffect(() => {
+        if (!isDirty) return;
+        const handler = (e: BeforeUnloadEvent) => {
+            e.preventDefault();
+        };
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, [isDirty]);
+
+    // 包装 setEditedGroups 自动标记脏状态
+    const updateGroups = useCallback((updater: ResourceGroup[] | ((prev: ResourceGroup[]) => ResourceGroup[])) => {
+        setEditedGroups(updater);
+        setIsDirty(true);
+    }, []);
+
+    // 安全取消：未保存时确认
+    const handleCancel = useCallback(() => {
+        if (isDirty) {
+            if (!window.confirm(tr.unsavedChangesConfirm)) return;
+        }
+        onCancel();
+    }, [isDirty, tr.unsavedChangesConfirm, onCancel]);
+
     // 集团拖拽结束
     const handleGroupDragEnd = (event: DragEndEvent) => {
         const { active, over } = event;
         if (over && active.id !== over.id) {
             const oldIndex = editedGroups.findIndex(g => g.id === active.id);
             const newIndex = editedGroups.findIndex(g => g.id === over.id);
-            setEditedGroups(arrayMove(editedGroups, oldIndex, newIndex));
+            setEditedGroups(prev => arrayMove(prev, oldIndex, newIndex));
+            setIsDirty(true);
         }
     };
 
@@ -143,7 +169,7 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
             const oldIndex = currentGroup.systems.findIndex(s => s.id === active.id);
             const newIndex = currentGroup.systems.findIndex(s => s.id === over.id);
             const newSystems = arrayMove(currentGroup.systems, oldIndex, newIndex);
-            setEditedGroups(editedGroups.map(g =>
+            updateGroups(editedGroups.map(g =>
                 g.id === currentGroup.id ? { ...g, systems: newSystems } : g
             ));
         }
@@ -151,13 +177,13 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
 
     // 添加集团
     const handleAddGroup = () => {
-        const id = `group-${Date.now()}`;
+        const id = `group-${crypto.randomUUID()}`;
         const newGroup: ResourceGroup = {
             id,
             name: tr.newGroup,
             systems: []
         };
-        setEditedGroups([...editedGroups, newGroup]);
+        updateGroups([...editedGroups, newGroup]);
         setActiveGroupId(id);
         setActiveSystemId('');
     };
@@ -175,9 +201,10 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
             setLogosToDelete(prev => [...prev, groupId]);
         }
 
-        setEditedGroups(editedGroups.filter(g => g.id !== groupId));
+        const remaining = editedGroups.filter(g => g.id !== groupId);
+        updateGroups(remaining);
         if (activeGroupId === groupId) {
-            setActiveGroupId(editedGroups[0]?.id || '');
+            setActiveGroupId(remaining[0]?.id || '');
             setActiveSystemId('');
         }
     };
@@ -185,7 +212,7 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
     // 添加系统
     const handleAddSystem = () => {
         if (!currentGroup) return;
-        const id = `sys-${Date.now()}`;
+        const id = `sys-${crypto.randomUUID()}`;
         const newSystem: SystemResource = {
             id,
             name: tr.newSystem,
@@ -198,7 +225,7 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
             }
             return g;
         });
-        setEditedGroups(updated);
+        updateGroups(updated);
         setActiveSystemId(id);
     };
 
@@ -219,7 +246,7 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
 
     // 更新集团名称
     const handleUpdateGroupName = (name: string) => {
-        setEditedGroups(editedGroups.map(g => g.id === activeGroupId ? { ...g, name } : g));
+        updateGroups(editedGroups.map(g => g.id === activeGroupId ? { ...g, name } : g));
     };
 
     // 更新集团LOGO - 延迟上传策略
@@ -255,13 +282,13 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
             // 暂存 Base64，用于预览和后续上传
             setPendingLogos(prev => ({ ...prev, [currentGroup.id]: base64 }));
             // 同时更新编辑状态中的 logo 为 Base64（用于预览）
-            setEditedGroups(editedGroups.map(g =>
+            updateGroups(editedGroups.map(g =>
                 g.id === activeGroupId ? { ...g, logo: base64 } : g
             ));
             toast.success(tr.logoUploaded);
         } catch (error) {
             console.error('Logo read failed:', error);
-            toast.error('Logo 读取失败');
+            toast.error(tr.logoReadFailed);
         } finally {
             // 清空 input 以便重复上传同一文件
             if (logoInputRef.current) logoInputRef.current.value = '';
@@ -283,7 +310,7 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
             return updated;
         });
         // 更新编辑状态
-        setEditedGroups(editedGroups.map(g =>
+        updateGroups(editedGroups.map(g =>
             g.id === activeGroupId ? { ...g, logo: undefined } : g
         ));
     };
@@ -335,7 +362,7 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
             newEnvs[env] = { url: '', creds: [] };
         }
         const newCred: Credential = {
-            id: `cred-${Date.now()}`,
+            id: `cred-${crypto.randomUUID()}`,
             label: tr.newAccount,
             username: '',
             password: ''
@@ -474,7 +501,7 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
             {/* 顶部工具栏 */}
             <div className="h-16 flex items-center justify-between px-6 bg-[var(--card-bg)] border-b border-[var(--border-subtle)]">
                 <div className="flex items-center gap-3">
-                    <Button variant="ghost" size="icon" onClick={onCancel}>
+                    <Button variant="ghost" size="icon" onClick={handleCancel}>
                         <ArrowLeft className="w-5 h-5" />
                     </Button>
                     <h2 className="text-lg font-bold text-[var(--text-primary)]">{tr.resourceManage}</h2>
@@ -484,7 +511,7 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
                         <Download className="w-4 h-4 mr-2" />
                         {tr.exportResources}
                     </Button>
-                    <Button variant="outline" onClick={onCancel} disabled={isSaving}>{tr.cancel}</Button>
+                    <Button variant="outline" onClick={handleCancel} disabled={isSaving}>{tr.cancel}</Button>
                     <Button onClick={handleSaveClick} disabled={isSaving}>
                         {isSaving ? (
                             <>

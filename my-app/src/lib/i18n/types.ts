@@ -335,6 +335,11 @@ export interface Translations {
     exportDescription: string;
     exportCredentials: string;
     exportSuccess: string;
+    // Container
+    networkTimeout: string;
+    reload: string;
+    logoReadFailed: string;
+    unsavedChangesConfirm: string;
   };
 
   // Header Health Indicator

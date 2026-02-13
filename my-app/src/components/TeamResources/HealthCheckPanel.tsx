@@ -52,11 +52,7 @@ interface HealthCheckPanelProps {
     onClose: () => void;
 }
 
-const envLabels: Record<Environment, string> = {
-    dev: '开发',
-    test: '测试',
-    prod: '生产'
-};
+
 
 // 根据单个环境检测结果判断状态
 // 根据单个环境检测结果判断状态
@@ -130,22 +126,23 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
         onClose();
     }, [onClose]);
 
-    // 收集所有需要检测的系统和环境
-    const collectSystems = useCallback(() => {
-        const systems: {
+    // 收集所有需要检测的系统和环境 (使用 useMemo 缓存计算结果)
+    const systems = React.useMemo(() => {
+        const list: {
             systemId: string;
             systemName: string;
             groupName: string;
             envUrls: {
                 env: Environment;
                 url: string;
+                envLabel: string;
                 skipCertCheck?: boolean;
             }[];
         }[] = [];
 
         for (const group of groups) {
             for (const system of group.systems) {
-                const envUrls: { env: Environment; url: string; skipCertCheck?: boolean }[] = [];
+                const envUrls: { env: Environment; url: string; envLabel: string; skipCertCheck?: boolean }[] = [];
 
                 // 收集所有有效的环境URL
                 const envOrder: Environment[] = ['prod', 'test', 'dev'];
@@ -157,13 +154,14 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                         envUrls.push({
                             env: envKey,
                             url: env.url.trim(),
+                            envLabel: envKey === 'dev' ? tr.envDev : envKey === 'test' ? tr.envTest : tr.envProd,
                             skipCertCheck: env.skipCertCheck
                         });
                     }
                 }
 
                 if (envUrls.length > 0) {
-                    systems.push({
+                    list.push({
                         systemId: system.id,
                         systemName: system.name,
                         groupName: group.name,
@@ -173,8 +171,8 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
             }
         }
 
-        return systems;
-    }, [groups]);
+        return list;
+    }, [groups, tr]);
 
     // 检测单个URL
     const checkSingleUrl = async (url: string, signal?: AbortSignal): Promise<{
@@ -213,7 +211,6 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
 
     // 开始批量检测
     const startCheck = async () => {
-        const systems = collectSystems();
         if (systems.length === 0) return;
 
         // 取消之前的检测
@@ -252,7 +249,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
                             const envResult: EnvCheckResult = {
                                 url: envUrl.url,
                                 env: envUrl.env,
-                                envLabel: tr['env' + envUrl.env.charAt(0).toUpperCase() + envUrl.env.slice(1) as keyof typeof tr] || envLabels[envUrl.env],
+                                envLabel: envUrl.envLabel,
                                 accessible: checkResult.accessible,
                                 responseTime: checkResult.responseTime,
                                 ssl: checkResult.ssl,
@@ -320,7 +317,6 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
     });
 
     const totalChecked = results.size;
-    const systems = collectSystems();
     const totalUrls = systems.reduce((sum, s) => sum + s.envUrls.length, 0);
 
     return (

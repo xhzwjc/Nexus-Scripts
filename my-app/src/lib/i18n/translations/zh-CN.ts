@@ -382,6 +382,11 @@ export const zhCN: Translations = {
         exportDescription: '描述: {desc}',
         exportCredentials: '凭证信息:',
         exportSuccess: '资源明细已导出',
+        // Container
+        networkTimeout: '网络超时，请检查网络连接后重试',
+        reload: '重新加载',
+        logoReadFailed: 'Logo 读取失败',
+        unsavedChangesConfirm: '有未保存的修改，确定要放弃吗？',
     },
 
     // Header Health Indicator

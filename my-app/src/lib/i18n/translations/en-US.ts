@@ -383,6 +383,11 @@ export const enUS: Translations = {
         exportDescription: 'Description: {desc}',
         exportCredentials: 'Credentials:',
         exportSuccess: 'Resource details exported',
+        // Container
+        networkTimeout: 'Network timeout, please check your connection and retry',
+        reload: 'Reload',
+        logoReadFailed: 'Failed to read logo',
+        unsavedChangesConfirm: 'You have unsaved changes. Are you sure you want to discard them?',
     },
 
     // Header Health Indicator
