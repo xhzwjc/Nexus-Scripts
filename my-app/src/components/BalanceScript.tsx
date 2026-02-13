@@ -23,7 +23,8 @@ import { Skeleton } from './ui/skeleton';
 import { getApiBaseUrl } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
-// API响应数据结构
+// ===== 接口定义 =====
+
 interface ApiResponse<T = unknown> {
     success: boolean;
     message: string;
@@ -32,13 +33,11 @@ interface ApiResponse<T = unknown> {
     enterprise_id: number;
 }
 
-// 企业信息结构
 interface Enterprise {
     tenant_id: number;
     enterprise_name: string;
 }
 
-// 余额核对结果结构
 interface BalanceResult {
     tax_location_id: number;
     tax_address: string;
@@ -57,8 +56,47 @@ interface BalanceScriptProps {
     onBack: () => void;
 }
 
-// 骨架屏行组件（10 行用）
-const SkeletonRow = () => (
+// ===== Tab 统一状态 =====
+
+interface TabState {
+    results: BalanceResult[];
+    queryCount: number;
+    errorCount: number;
+    hasQueried: boolean;
+    currentPage: number;
+}
+
+const INITIAL_TAB_STATE: TabState = {
+    results: [],
+    queryCount: 0,
+    errorCount: 0,
+    hasQueried: false,
+    currentPage: 1,
+};
+
+// ===== 常量 =====
+
+const PAGE_SIZE = 10;
+const MAX_DROPDOWN_ITEMS = 50;
+
+// ===== 组件外部纯工具函数 =====
+
+/** 生成分页按钮序列（带省略号） */
+const getPageNumbers = (current: number, total: number): (number | '...')[] => {
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const pages: (number | '...')[] = [1];
+    if (current > 4) pages.push('...');
+    const start = Math.max(2, current - 1);
+    const end = Math.min(total - 1, current + 1);
+    for (let p = start; p <= end; p++) pages.push(p);
+    if (current < total - 3) pages.push('...');
+    pages.push(total);
+    return pages;
+};
+
+// ===== 骨架屏行组件（React.memo 避免重复渲染） =====
+
+const SkeletonRow = React.memo(() => (
     <TableRow>
         {Array.from({ length: 10 }).map((_, i) => (
             <TableCell key={i}>
@@ -66,63 +104,49 @@ const SkeletonRow = () => (
             </TableCell>
         ))}
     </TableRow>
-);
+));
+SkeletonRow.displayName = 'SkeletonRow';
+
+// ===== 主组件 =====
 
 export default function BalanceScript({ onBack }: BalanceScriptProps) {
     const { t } = useI18n();
-    const balance = t.scripts.balance; // Helper shorthand
+    const balance = t.scripts.balance;
 
+    // -- 基础状态 --
     const [environment, setEnvironment] = useState('test');
-    const [activeTab, setActiveTab] = useState('single');
+    const [activeTab, setActiveTab] = useState<'single' | 'batch'>('single');
     const [tenantId, setTenantId] = useState('');
     const [enterprises, setEnterprises] = useState<Enterprise[]>([]);
     const [isQuerying, setIsQuerying] = useState(false);
     const [isFetchingEnterprises, setIsFetchingEnterprises] = useState(false);
-    // 结果状态分离 - 单个企业
-    const [singleResults, setSingleResults] = useState<BalanceResult[]>([]);
-    const [singleQueryCount, setSingleQueryCount] = useState(0);
-    const [singleErrorCount, setSingleErrorCount] = useState(0);
-    const [singleHasQueried, setSingleHasQueried] = useState(false);
-    const [singleCurrentPage, setSingleCurrentPage] = useState(1);
 
-    // 结果状态分离 - 批量
-    const [batchResults, setBatchResults] = useState<BalanceResult[]>([]);
-    const [batchQueryCount, setBatchQueryCount] = useState(0);
-    const [batchErrorCount, setBatchErrorCount] = useState(0);
-    const [batchHasQueried, setBatchHasQueried] = useState(false);
-    const [batchCurrentPage, setBatchCurrentPage] = useState(1);
+    // -- 统一 Tab 状态（取代 10 个独立 state） --
+    const [tabStates, setTabStates] = useState<Record<string, TabState>>({
+        single: { ...INITIAL_TAB_STATE },
+        batch: { ...INITIAL_TAB_STATE },
+    });
 
-    // 根据当前 Tab 计算活动状态
-    const activeResults = activeTab === 'single' ? singleResults : batchResults;
-    const activeQueryCount = activeTab === 'single' ? singleQueryCount : batchQueryCount;
-    const activeErrorCount = activeTab === 'single' ? singleErrorCount : batchErrorCount;
-    const activeHasQueried = activeTab === 'single' ? singleHasQueried : batchHasQueried;
-    const activeCurrentPage = activeTab === 'single' ? singleCurrentPage : batchCurrentPage;
+    // -- 下拉框 --
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
 
-    // 分页
-    const pageSize = 10;
-    const totalPages = Math.max(1, Math.ceil(activeResults.length / pageSize));
-    const paginatedResults = activeResults.slice((activeCurrentPage - 1) * pageSize, activeCurrentPage * pageSize);
-
+    // -- Refs --
     const tableTopRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
-    // 新增：下拉容器的引用
     const dropdownRef = useRef<HTMLDivElement | null>(null);
+    const isDropdownOpenRef = useRef(false);
 
-    // 控制下拉框显示状态
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    // 搜索关键词
-    const [searchTerm, setSearchTerm] = useState('');
-    // 选中的企业信息
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const [selectedEnterprise, setSelectedEnterprise] = useState<Enterprise | undefined>(undefined);
+    // 同步 ref（让事件监听器读取最新值）
+    useEffect(() => {
+        isDropdownOpenRef.current = isDropdownOpen;
+    }, [isDropdownOpen]);
 
-    // 新增：点击空白处关闭下拉框的处理
+    // 点击空白处关闭下拉框（只绑定一次，用 ref 读取状态）
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            // 如果下拉框是打开的，且点击的不是下拉框内部或输入框
             if (
-                isDropdownOpen &&
+                isDropdownOpenRef.current &&
                 dropdownRef.current &&
                 !dropdownRef.current.contains(event.target as Node) &&
                 inputRef.current &&
@@ -131,62 +155,97 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                 setIsDropdownOpen(false);
             }
         };
-
-        // 监听全局点击事件
         document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            // 组件卸载时移除监听
-            document.removeEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // ===== 派生状态（useMemo 缓存） =====
+
+    const activeState = useMemo(() => tabStates[activeTab], [tabStates, activeTab]);
+
+    const totalPages = useMemo(
+        () => Math.max(1, Math.ceil(activeState.results.length / PAGE_SIZE)),
+        [activeState.results.length]
+    );
+
+    const paginatedResults = useMemo(
+        () => activeState.results.slice(
+            (activeState.currentPage - 1) * PAGE_SIZE,
+            activeState.currentPage * PAGE_SIZE
+        ),
+        [activeState.results, activeState.currentPage]
+    );
+
+    // 过滤企业列表（限制最多显示 MAX_DROPDOWN_ITEMS 条）
+    const filteredEnterpriseData = useMemo(() => {
+        const searchLower = searchTerm.toLowerCase();
+        const matched = enterprises.filter(
+            ent =>
+                ent.tenant_id.toString().includes(searchLower) ||
+                ent.enterprise_name.toLowerCase().includes(searchLower)
+        );
+        return {
+            items: matched.slice(0, MAX_DROPDOWN_ITEMS),
+            hasMore: matched.length > MAX_DROPDOWN_ITEMS,
         };
-    }, [isDropdownOpen]);
+    }, [enterprises, searchTerm]);
 
     // 货币格式化
     const currency = useMemo(
-        () =>
-            new Intl.NumberFormat('zh-CN', {
-                style: 'currency',
-                currency: 'CNY',
-                minimumFractionDigits: 2
-            }),
+        () => new Intl.NumberFormat('zh-CN', {
+            style: 'currency',
+            currency: 'CNY',
+            minimumFractionDigits: 2,
+        }),
         []
     );
-    const formatCurrency = (amount: number) => currency.format(amount);
+    const formatCurrency = useCallback(
+        (amount: number) => currency.format(amount),
+        [currency]
+    );
 
-    // 生成分页按钮（带省略）
-    const getPageNumbers = (current: number, total: number) => {
-        if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-        const pages: (number | '...')[] = [];
-        const add = (p: number | '...') => pages.push(p);
+    // KPI 卡片配置
+    const kpiItems = useMemo(() => [
+        { icon: CheckCircle, color: 'text-emerald-600', label: balance.kpi.queryCount, value: activeState.queryCount },
+        { icon: null, color: '', label: balance.kpi.totalTax, value: activeState.results.length },
+        { icon: AlertTriangle, color: 'text-red-600', label: balance.kpi.errorTax, value: activeState.errorCount },
+        {
+            icon: CheckCircle,
+            color: 'text-emerald-600',
+            label: balance.kpi.normalTax,
+            value: Math.max(activeState.results.length - activeState.errorCount, 0),
+        },
+    ], [balance.kpi, activeState.queryCount, activeState.results.length, activeState.errorCount]);
 
-        add(1);
-        if (current > 4) add('...');
-        const start = Math.max(2, current - 1);
-        const end = Math.min(total - 1, current + 1);
-        for (let p = start; p <= end; p++) add(p);
-        if (current < total - 3) add('...');
-        add(total);
-        return pages;
-    };
+    // ===== Tab 状态辅助函数 =====
 
-    const scrollToTableTop = () => {
-        // 平滑滚动到结果卡片顶部
-        tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
+    const updateTabState = useCallback((tab: string, updater: (prev: TabState) => Partial<TabState>) => {
+        setTabStates(prev => ({
+            ...prev,
+            [tab]: { ...prev[tab], ...updater(prev[tab]) },
+        }));
+    }, []);
 
-    const handlePageChange = (page: number) => {
-        if (page >= 1 && page <= totalPages && page !== activeCurrentPage) {
-            if (activeTab === 'single') {
-                setSingleCurrentPage(page);
-            } else {
-                setBatchCurrentPage(page);
-            }
-            // 翻页后回到结果顶部
-            // 用 rAF 确保 DOM 更新后滚动更顺滑
-            requestAnimationFrame(scrollToTableTop);
+    const resetTabState = useCallback((tab: string) => {
+        setTabStates(prev => ({
+            ...prev,
+            [tab]: { ...INITIAL_TAB_STATE },
+        }));
+    }, []);
+
+    // ===== 分页 =====
+
+    const handlePageChange = useCallback((page: number) => {
+        if (page >= 1 && page <= totalPages && page !== activeState.currentPage) {
+            updateTabState(activeTab, () => ({ currentPage: page }));
+            requestAnimationFrame(() => {
+                tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
         }
-    };
+    }, [totalPages, activeState.currentPage, activeTab, updateTabState]);
 
-    // 获取企业列表
+    // ===== API 调用 =====
+
     const fetchEnterprises = useCallback(async (signal?: AbortSignal) => {
         const base = getApiBaseUrl();
         if (!base) return;
@@ -199,7 +258,6 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
             );
             if (response.data.success) {
                 setEnterprises(response.data.data as Enterprise[]);
-                // toast.success(response.data.message || '企业列表已更新');
             } else {
                 toast.error(response.data.message || balance.messages.listFail);
             }
@@ -212,34 +270,21 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
         }
     }, [environment, balance.messages.listFail]);
 
-    // 环境变更时重新获取企业列表，并清空当前选择
+    // 环境变更时重新获取企业列表并清空所有状态
     useEffect(() => {
         const controller = new AbortController();
         fetchEnterprises(controller.signal);
-
-        // 环境切换时，简单的清空 ID 和 搜索词，防止测试环境 ID 混入生产环境查询
         setTenantId('');
         setSearchTerm('');
-        setSelectedEnterprise(undefined);
-        // 也清空单条查询结果，避免混淆
-        setSingleResults([]);
-        setSingleQueryCount(0);
-        setSingleErrorCount(0);
-        setSingleHasQueried(false);
-        setSingleCurrentPage(1);
-
-        // 也清空批量查询结果，确保环境不混淆
-        setBatchResults([]);
-        setBatchQueryCount(0);
-        setBatchErrorCount(0);
-        setBatchHasQueried(false);
-        setBatchCurrentPage(1);
-
+        setTabStates({
+            single: { ...INITIAL_TAB_STATE },
+            batch: { ...INITIAL_TAB_STATE },
+        });
         return () => controller.abort();
     }, [fetchEnterprises]);
 
     // 查询
-    const startQuery = async () => {
+    const startQuery = useCallback(async () => {
         if (activeTab === 'single' && (!tenantId || isNaN(Number(tenantId)))) {
             toast.error(balance.messages.inputValidId);
             inputRef.current?.focus();
@@ -250,47 +295,41 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
         if (!base) return;
 
         setIsQuerying(true);
-        // 设置当前Tab的查询状态
-        if (activeTab === 'single') {
-            setSingleHasQueried(true);
-            setSingleResults([]);
-            setSingleCurrentPage(1);
-        } else {
-            setBatchHasQueried(true);
-            setBatchResults([]);
-            setBatchCurrentPage(1);
-        }
+        updateTabState(activeTab, () => ({
+            hasQueried: true,
+            results: [],
+            currentPage: 1,
+        }));
 
         try {
             const response = await axios.post<ApiResponse<BalanceResult[]>>(
                 `${base}/balance/verify`,
                 {
                     tenant_id: activeTab === 'single' ? Number(tenantId) : undefined,
-                    environment: environment,
-                    timeout: activeTab === 'batch' ? 120 : 15
+                    environment,
+                    timeout: activeTab === 'batch' ? 120 : 15,
                 }
             );
 
             if (response.data.success) {
                 const data = response.data.data as BalanceResult[];
-                const errors = data.filter((r) => !r.is_correct).length;
+                const errors = data.filter(r => !r.is_correct).length;
 
-                if (activeTab === 'single') {
-                    setSingleResults(data);
-                    setSingleErrorCount(errors);
-                    setSingleQueryCount((prev) => prev + 1);
-                } else {
-                    // 批量模式下对结果进行排序：先按 tenant_id (企业)，再按 tax_location_id
-                    const sortedData = [...data].sort((a, b) => {
+                // 批量模式排序：按 tenant_id → tax_location_id
+                const finalData = activeTab === 'batch'
+                    ? [...data].sort((a, b) => {
                         const tenantA = a.tenant_id ?? 0;
                         const tenantB = b.tenant_id ?? 0;
                         if (tenantA !== tenantB) return tenantA - tenantB;
                         return a.tax_location_id - b.tax_location_id;
-                    });
-                    setBatchResults(sortedData);
-                    setBatchErrorCount(errors);
-                    setBatchQueryCount((prev) => prev + 1);
-                }
+                    })
+                    : data;
+
+                updateTabState(activeTab, prev => ({
+                    results: finalData,
+                    errorCount: errors,
+                    queryCount: prev.queryCount + 1,
+                }));
 
                 if (data.length === 0) {
                     toast.info(balance.messages.noData);
@@ -299,70 +338,48 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                 }
             } else {
                 toast.error(response.data.message || balance.messages.fail);
-                if (activeTab === 'single') setSingleResults([]); else setBatchResults([]);
+                updateTabState(activeTab, () => ({ results: [] }));
             }
         } catch (err) {
             console.error('API调用错误:', err);
-            const errorMsg = err instanceof Error ? err.message : balance.messages.fail;
-            toast.error(errorMsg);
-            if (activeTab === 'single') setSingleResults([]); else setBatchResults([]);
+            toast.error(err instanceof Error ? err.message : balance.messages.fail);
+            updateTabState(activeTab, () => ({ results: [] }));
         } finally {
             setIsQuerying(false);
-            // 查询完成后把视线带到结果顶部
-            requestAnimationFrame(scrollToTableTop);
+            requestAnimationFrame(() => {
+                tableTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
         }
-    };
+    }, [activeTab, tenantId, environment, balance.messages, updateTabState]);
 
     // 重置
-    const resetResults = () => {
+    const resetResults = useCallback(() => {
+        resetTabState(activeTab);
         if (activeTab === 'single') {
-            setSingleResults([]);
-            setSingleQueryCount(0);
-            setSingleErrorCount(0);
-            setSingleHasQueried(false);
-            setSingleCurrentPage(1);
             setTenantId('');
             setSearchTerm('');
-            setSelectedEnterprise(undefined);
             inputRef.current?.focus();
-        } else {
-            setBatchResults([]);
-            setBatchQueryCount(0);
-            setBatchErrorCount(0);
-            setBatchHasQueried(false);
-            setBatchCurrentPage(1);
         }
         toast.info(balance.messages.reset);
-    };
+    }, [activeTab, resetTabState, balance.messages.reset]);
 
     // 导出 CSV
-    const exportCSV = () => {
-        if (!activeResults.length) return;
+    const exportCSV = useCallback(() => {
+        if (!activeState.results.length) return;
         const headers = [
-            balance.table.taxId,
-            balance.table.taxAddress,
-            balance.table.entName,
-            balance.table.deductions,
-            balance.table.recharges,
-            balance.table.refunds,
-            balance.table.expected,
-            balance.table.actual,
-            balance.table.diff,
-            balance.table.result
+            balance.table.taxId, balance.table.taxAddress, balance.table.entName,
+            balance.table.deductions, balance.table.recharges, balance.table.refunds,
+            balance.table.expected, balance.table.actual, balance.table.diff, balance.table.result,
         ];
-        const rows = activeResults.map((r) => [
+        const rows = activeState.results.map(r => [
             r.tax_location_id,
             `"${(r.tax_address || '').replace(/"/g, '""')}"`,
             `"${(r.enterprise_name || '').replace(/"/g, '""')}"`,
-            r.total_deductions,
-            r.total_recharges,
-            r.total_refunds,
-            r.expected_balance,
-            r.actual_balance,
-            r.balance_diff,
-            r.is_correct ? balance.table.correct : balance.table.abnormal // Simplified correct/abnormal
+            r.total_deductions, r.total_recharges, r.total_refunds,
+            r.expected_balance, r.actual_balance, r.balance_diff,
+            r.is_correct ? balance.table.correct : balance.table.abnormal,
         ]);
-        const csv = '\uFEFF' + [headers.join(','), ...rows.map((arr) => arr.join(','))].join('\n');
+        const csv = '\uFEFF' + [headers.join(','), ...rows.map(arr => arr.join(','))].join('\n');
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -371,7 +388,68 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
         a.download = balance.messages.file.replace('{id}', fileNameSuffix);
         a.click();
         URL.revokeObjectURL(url);
-    };
+    }, [activeState.results, activeTab, tenantId, balance.table, balance.messages.file]);
+
+    // ===== 渲染辅助：提取重复 JSX =====
+
+    /** 环境选择器（单个/批量 Tab 共用） */
+    const renderEnvironmentSelect = (selectId?: string) => (
+        <div>
+            <Label htmlFor={selectId || 'environment'}>{balance.params.env}</Label>
+            <Select value={environment} onValueChange={setEnvironment} disabled={isQuerying}>
+                <SelectTrigger id={selectId}>
+                    <SelectValue placeholder={balance.params.envPlaceholder} />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="test">{balance.params.envTest}</SelectItem>
+                    <SelectItem value="prod">{balance.params.envProd}</SelectItem>
+                </SelectContent>
+            </Select>
+        </div>
+    );
+
+    /** 操作按钮组：查询 + 重置 + 导出（单个/批量 Tab 共用） */
+    const renderActionButtons = (queryLabel: string, queryDisabled: boolean, exportColClass?: string) => (
+        <>
+            <div className="md:col-span-1 flex gap-3">
+                <Button
+                    onClick={startQuery}
+                    disabled={queryDisabled || isQuerying}
+                    className="flex-1"
+                >
+                    {isQuerying ? (
+                        <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            {balance.params.querying}
+                        </>
+                    ) : (
+                        <>
+                            <Search className="w-4 h-4 mr-2" />
+                            {queryLabel}
+                        </>
+                    )}
+                </Button>
+                <Button onClick={resetResults} variant="outline" disabled={isQuerying}>
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    {balance.params.reset}
+                </Button>
+            </div>
+
+            <div className={exportColClass || 'md:col-span-1'}>
+                <Button
+                    onClick={exportCSV}
+                    variant="secondary"
+                    disabled={!activeState.results.length || isQuerying}
+                    className="w-full"
+                >
+                    <FileDown className="w-4 h-4 mr-2" />
+                    {balance.params.export}
+                </Button>
+            </div>
+        </>
+    );
+
+    // ===== JSX =====
 
     return (
         <div className="min-h-screen colorful-background p-6">
@@ -394,12 +472,13 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                 </div>
 
                 {/* 查询参数 Tabs */}
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'single' | 'batch')} className="w-full">
                     <TabsList className="grid w-full grid-cols-2 mb-4">
                         <TabsTrigger value="single">{balance.tabs.single}</TabsTrigger>
                         <TabsTrigger value="batch">{balance.tabs.batch}</TabsTrigger>
                     </TabsList>
 
+                    {/* ====== 单个企业 Tab ====== */}
                     <TabsContent value="single">
                         <Card>
                             <CardHeader className="pb-4">
@@ -407,23 +486,11 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                             </CardHeader>
                             <CardContent>
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                                    <div>
-                                        <Label htmlFor="environment">{balance.params.env}</Label>
-                                        <Select value={environment} onValueChange={setEnvironment} disabled={isQuerying}>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder={balance.params.envPlaceholder} />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="test">{balance.params.envTest}</SelectItem>
-                                                <SelectItem value="prod">{balance.params.envProd}</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
+                                    {renderEnvironmentSelect()}
 
                                     <div>
                                         <Label htmlFor="tenant-id">{balance.params.label}</Label>
                                         <div className="relative">
-                                            {/* 输入框 - 输入企业名称或ID */}
                                             <Input
                                                 id="tenant-id"
                                                 ref={inputRef}
@@ -432,39 +499,25 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                                     const inputValue = e.target.value;
                                                     setSearchTerm(inputValue);
                                                     setIsDropdownOpen(true);
-
-                                                    // 输入是纯数字 → 暂存 tenantId
-                                                    if (/^\d+$/.test(inputValue)) {
-                                                        setTenantId(inputValue);
-                                                        setSelectedEnterprise(undefined);
-                                                    } else {
-                                                        setTenantId('');
-                                                        setSelectedEnterprise(undefined);
-                                                    }
+                                                    setTenantId(/^\d+$/.test(inputValue) ? inputValue : '');
                                                 }}
                                                 onKeyDown={(e) => {
                                                     if (e.key === 'Enter') {
-                                                        // 如果输入的是数字，直接用 tenantId 查询
                                                         if (!isQuerying && tenantId) {
                                                             startQuery();
                                                             setIsDropdownOpen(false);
-                                                        }
-                                                        // 如果输入的是文字，尝试选第一个匹配项
-                                                        else {
+                                                        } else {
                                                             const matched = enterprises.find(ent =>
                                                                 ent.enterprise_name.includes(searchTerm) ||
                                                                 ent.tenant_id.toString().includes(searchTerm)
                                                             );
                                                             if (matched) {
                                                                 setTenantId(matched.tenant_id.toString());
-                                                                setSelectedEnterprise(matched);
                                                                 setSearchTerm(matched.enterprise_name);
-                                                                startQuery();
                                                                 setIsDropdownOpen(false);
                                                             }
                                                         }
                                                     }
-                                                    // 新增：按ESC键关闭下拉框
                                                     if (e.key === 'Escape') {
                                                         setIsDropdownOpen(false);
                                                     }
@@ -481,11 +534,9 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                                     type="button"
                                                     className="absolute inset-y-0 right-2 flex items-center text-gray-400 hover:text-gray-600"
                                                     onClick={(e) => {
-                                                        // 阻止事件冒泡，避免触发输入框的点击事件
                                                         e.stopPropagation();
                                                         setSearchTerm('');
                                                         setTenantId('');
-                                                        setSelectedEnterprise(undefined);
                                                         setIsDropdownOpen(false);
                                                     }}
                                                 >
@@ -493,7 +544,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                                 </button>
                                             )}
 
-                                            {/* 下拉过滤列表 - 添加ref属性 */}
+                                            {/* 下拉过滤列表 */}
                                             {isDropdownOpen && (
                                                 <div
                                                     ref={dropdownRef}
@@ -502,83 +553,52 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                                     {isFetchingEnterprises ? (
                                                         <div className="flex justify-center p-4">
                                                             <Loader2 className="w-4 h-4 animate-spin" />
-                                                            <span className="ml-2 text-sm">{t.common.loading}...</span>
+                                                            <span className="ml-2 text-sm">{t.common.loading}</span>
                                                         </div>
                                                     ) : enterprises.length === 0 ? (
                                                         <div className="p-4 text-center text-sm text-muted-foreground">
                                                             {balance.empty.noData}
                                                         </div>
+                                                    ) : filteredEnterpriseData.items.length === 0 ? (
+                                                        /* 新增：过滤后无结果的提示 */
+                                                        <div className="p-4 text-center text-sm text-muted-foreground">
+                                                            {t.header.noResults}
+                                                        </div>
                                                     ) : (
-                                                        enterprises
-                                                            .filter(ent => {
-                                                                const searchLower = searchTerm.toLowerCase();
-                                                                return (
-                                                                    ent.tenant_id.toString().includes(searchLower) ||
-                                                                    ent.enterprise_name.toLowerCase().includes(searchLower)
-                                                                );
-                                                            })
-                                                            .map(enterprise => (
+                                                        <>
+                                                            {filteredEnterpriseData.items.map(enterprise => (
                                                                 <div
                                                                     key={enterprise.tenant_id}
                                                                     className="cursor-pointer px-4 py-2 hover:bg-accent hover:text-accent-foreground text-sm"
                                                                     onClick={() => {
                                                                         setTenantId(enterprise.tenant_id.toString());
-                                                                        setSelectedEnterprise(enterprise);
                                                                         setSearchTerm(enterprise.enterprise_name);
                                                                         setIsDropdownOpen(false);
                                                                     }}
                                                                 >
                                                                     {enterprise.enterprise_name}（{enterprise.tenant_id}）
                                                                 </div>
-                                                            ))
+                                                            ))}
+                                                            {/* 新增：超出限制时的提示 */}
+                                                            {filteredEnterpriseData.hasMore && (
+                                                                <div className="px-4 py-2 text-center text-xs text-muted-foreground border-t">
+                                                                    ...
+                                                                </div>
+                                                            )}
+                                                        </>
                                                     )}
                                                 </div>
                                             )}
                                         </div>
-
                                     </div>
 
-                                    <div className="md:col-span-1 flex gap-3">
-                                        <Button
-                                            onClick={startQuery}
-                                            disabled={!environment || !tenantId || isQuerying}
-                                            className="flex-1"
-                                        >
-                                            {isQuerying ? (
-                                                <>
-                                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                                    {balance.params.querying}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Search className="w-4 h-4 mr-2" />
-                                                    {balance.params.query}
-                                                </>
-                                            )}
-                                        </Button>
-
-                                        <Button onClick={resetResults} variant="outline" disabled={isQuerying}>
-                                            <RotateCcw className="w-4 h-4 mr-2" />
-                                            {balance.params.reset}
-                                        </Button>
-                                    </div>
-
-                                    <div className="md:col-span-1">
-                                        <Button
-                                            onClick={exportCSV}
-                                            variant="secondary"
-                                            disabled={!activeResults.length || isQuerying}
-                                            className="w-full"
-                                        >
-                                            <FileDown className="w-4 h-4 mr-2" />
-                                            {balance.params.export}
-                                        </Button>
-                                    </div>
+                                    {renderActionButtons(balance.params.query, !environment || !tenantId)}
                                 </div>
                             </CardContent>
                         </Card>
                     </TabsContent>
 
+                    {/* ====== 批量 Tab ====== */}
                     <TabsContent value="batch">
                         <Card>
                             <CardHeader className="pb-4">
@@ -586,55 +606,12 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                             </CardHeader>
                             <CardContent>
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                                    <div>
-                                        <Label htmlFor="environment-batch">{balance.params.env}</Label>
-                                        <Select value={environment} onValueChange={setEnvironment} disabled={isQuerying}>
-                                            <SelectTrigger id="environment-batch">
-                                                <SelectValue placeholder={balance.params.envPlaceholder} />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="test">{balance.params.envTest}</SelectItem>
-                                                <SelectItem value="prod">{balance.params.envProd}</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-
-                                    <div className="md:col-span-1 flex gap-3">
-                                        <Button
-                                            onClick={startQuery}
-                                            disabled={!environment || isQuerying}
-                                            className="flex-1"
-                                        >
-                                            {isQuerying ? (
-                                                <>
-                                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                                    {balance.params.querying}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Search className="w-4 h-4 mr-2" />
-                                                    {balance.actions.startBatch}
-                                                </>
-                                            )}
-                                        </Button>
-
-                                        <Button onClick={resetResults} variant="outline" disabled={isQuerying}>
-                                            <RotateCcw className="w-4 h-4 mr-2" />
-                                            {balance.params.reset}
-                                        </Button>
-                                    </div>
-
-                                    <div className="md:col-span-1 md:col-start-4">
-                                        <Button
-                                            onClick={exportCSV}
-                                            variant="secondary"
-                                            disabled={!activeResults.length || isQuerying}
-                                            className="w-full"
-                                        >
-                                            <FileDown className="w-4 h-4 mr-2" />
-                                            {balance.params.export}
-                                        </Button>
-                                    </div>
+                                    {renderEnvironmentSelect('environment-batch')}
+                                    {renderActionButtons(
+                                        balance.actions.startBatch,
+                                        !environment,
+                                        'md:col-span-1 md:col-start-4'
+                                    )}
                                 </div>
                             </CardContent>
                         </Card>
@@ -643,17 +620,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
 
                 {/* KPI 概览 */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    {[
-                        { icon: CheckCircle, color: 'text-emerald-600', label: balance.kpi.queryCount, value: activeQueryCount },
-                        { icon: null, color: '', label: balance.kpi.totalTax, value: activeResults.length },
-                        { icon: AlertTriangle, color: 'text-red-600', label: balance.kpi.errorTax, value: activeErrorCount },
-                        {
-                            icon: CheckCircle,
-                            color: 'text-emerald-600',
-                            label: balance.kpi.normalTax,
-                            value: Math.max(activeResults.length - activeErrorCount, 0)
-                        }
-                    ].map((item, index) => (
+                    {kpiItems.map((item, index) => (
                         <Card key={index} className="border-muted/50">
                             <CardContent className="pt-6">
                                 {isQuerying ? (
@@ -679,8 +646,8 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                         <div className="flex items-center justify-between">
                             <CardTitle>{balance.table.title}</CardTitle>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <span>{balance.table.pageSize.replace('{size}', pageSize.toString())}</span>
-                                {activeResults.length > 0 && <span>· {balance.table.total.replace('{total}', activeResults.length.toString())}</span>}
+                                <span>{balance.table.pageSize.replace('{size}', PAGE_SIZE.toString())}</span>
+                                {activeState.results.length > 0 && <span>· {balance.table.total.replace('{total}', activeState.results.length.toString())}</span>}
                             </div>
                         </div>
                     </CardHeader>
@@ -704,17 +671,16 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
 
                             <TableBody>
                                 {isQuerying ? (
-                                    Array.from({ length: pageSize }).map((_, i) => <SkeletonRow key={i} />)
-                                ) : activeResults.length === 0 ? (
+                                    Array.from({ length: PAGE_SIZE }).map((_, i) => <SkeletonRow key={i} />)
+                                ) : activeState.results.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={9} className="h-48 p-0">
-                                            <div
-                                                className="h-full w-full flex flex-col items-center justify-center text-center gap-3 p-8">
+                                        <TableCell colSpan={10} className="h-48 p-0">
+                                            <div className="h-full w-full flex flex-col items-center justify-center text-center gap-3 p-8">
                                                 <div className="rounded-full p-3 bg-muted">
                                                     <Info className="h-5 w-5 text-muted-foreground" />
                                                 </div>
                                                 <p className="text-base font-medium">
-                                                    {activeHasQueried ? balance.messages.noData : balance.empty.ready}
+                                                    {activeState.hasQueried ? balance.messages.noData : balance.empty.ready}
                                                 </p>
                                                 <p className="text-sm text-muted-foreground">
                                                     {balance.empty.instruction}
@@ -726,15 +692,13 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                     paginatedResults.map((result, index) => (
                                         <TableRow
                                             key={`${result.tenant_id ?? 'unknown'}-${result.tax_location_id}-${index}`}
-                                            className={`odd:bg-muted/30 ${!result.is_correct ? 'bg-red-50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-900/20' : ''
-                                                }`}
+                                            className={`odd:bg-muted/30 ${!result.is_correct ? 'bg-red-50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-900/20' : ''}`}
                                         >
                                             <TableCell className="tabular-nums">{result.tax_location_id}</TableCell>
                                             <TableCell className="max-w-[320px] truncate" title={result.tax_address}>
                                                 {result.tax_address}
                                             </TableCell>
-                                            <TableCell className="max-w-[240px] truncate"
-                                                title={result.enterprise_name}>
+                                            <TableCell className="max-w-[240px] truncate" title={result.enterprise_name}>
                                                 {result.enterprise_name}
                                             </TableCell>
                                             <TableCell className="text-right font-mono tabular-nums">
@@ -753,8 +717,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                                 {formatCurrency(result.actual_balance)}
                                             </TableCell>
                                             <TableCell
-                                                className={`text-right font-mono tabular-nums ${result.balance_diff !== 0 ? 'text-red-600 font-semibold' : 'text-emerald-600'
-                                                    }`}
+                                                className={`text-right font-mono tabular-nums ${result.balance_diff !== 0 ? 'text-red-600 font-semibold' : 'text-emerald-600'}`}
                                             >
                                                 {result.balance_diff === 0 ? balance.table.noDiff : formatCurrency(result.balance_diff)}
                                             </TableCell>
@@ -772,25 +735,23 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                             </TableBody>
                         </Table>
 
-                        {/* 分页条 (keeping hardcoded generic text like 'Previous' or using t.common if available, but for now just replacing what I planned) */}
-                        {activeResults.length > 0 && (
-                            <div
-                                className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:justify-between items-center p-4 border-t">
+                        {/* 分页条 */}
+                        {activeState.results.length > 0 && (
+                            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:justify-between items-center p-4 border-t">
                                 <div className="text-sm text-muted-foreground">
-                                    {/* Using t.balance.table.total or similar to construct "Page X / Y" ? Or just keep basic structure for now */}
-                                    {t.common.pagination.prefix} {activeCurrentPage} {t.common.pagination.separator} {totalPages} {t.common.pagination.suffix}
+                                    {t.common.pagination.prefix} {activeState.currentPage} {t.common.pagination.separator} {totalPages} {t.common.pagination.suffix}
                                 </div>
                                 <div className="flex items-center gap-1 sm:gap-2">
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        disabled={activeCurrentPage === 1}
-                                        onClick={() => handlePageChange(activeCurrentPage - 1)}
+                                        disabled={activeState.currentPage === 1}
+                                        onClick={() => handlePageChange(activeState.currentPage - 1)}
                                     >
                                         {t.common.prev}
                                     </Button>
 
-                                    {getPageNumbers(activeCurrentPage, totalPages).map((p, idx) =>
+                                    {getPageNumbers(activeState.currentPage, totalPages).map((p, idx) =>
                                         p === '...' ? (
                                             <span key={`ellipsis-${idx}`} className="px-2 text-muted-foreground">
                                                 ...
@@ -798,7 +759,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                         ) : (
                                             <Button
                                                 key={p}
-                                                variant={activeCurrentPage === p ? 'secondary' : 'outline'}
+                                                variant={activeState.currentPage === p ? 'secondary' : 'outline'}
                                                 size="sm"
                                                 onClick={() => handlePageChange(p as number)}
                                             >
@@ -810,8 +771,8 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        disabled={activeCurrentPage === totalPages}
-                                        onClick={() => handlePageChange(activeCurrentPage + 1)}
+                                        disabled={activeState.currentPage === totalPages}
+                                        onClick={() => handlePageChange(activeState.currentPage + 1)}
                                     >
                                         {t.common.next}
                                     </Button>
