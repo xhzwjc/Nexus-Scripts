@@ -677,7 +677,18 @@ export const enUS: Translations = {
                 submitFailed: 'Submission failed',
                 requestError: 'Submission request error',
                 minAttachment: 'Please upload at least one image or attachment',
-                required: 'Required'
+                required: 'Required',
+                requestTimeout: '{mobile} Request Timeout',
+                networkError: '{mobile} Network Error',
+                serverError: '{mobile} Server Error ({status})',
+                uploadTimeout: 'Upload Timeout: {name}',
+                uploadNetworkError: 'Network Error: {name}',
+                uploadServerError: 'Upload Failed ({status}): {name}',
+                submitTimeout: 'Submit Timeout, Please Retry',
+                submitNetworkError: 'Network Error, Please Check Connection',
+                submitServerError: 'Submit Failed ({status})',
+                batchProcessError: 'Batch Process Failed: {reason}',
+                loggedOut: 'Logged out'
             }
         },
         ocr: {

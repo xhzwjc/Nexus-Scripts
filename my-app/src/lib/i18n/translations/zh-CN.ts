@@ -676,7 +676,18 @@ export const zhCN: Translations = {
                 submitFailed: '提交失败',
                 requestError: '提交请求异常',
                 minAttachment: '请至少上传一张图片或一个附件',
-                required: '此项必填'
+                required: '此项必填',
+                requestTimeout: '{mobile} 请求超时',
+                networkError: '{mobile} 网络错误',
+                serverError: '{mobile} 服务器错误 ({status})',
+                uploadTimeout: '上传超时: {name}',
+                uploadNetworkError: '网络错误: {name}',
+                uploadServerError: '上传失败 ({status}): {name}',
+                submitTimeout: '提交超时，请重试',
+                submitNetworkError: '网络错误，请检查连接',
+                submitServerError: '提交失败 ({status})',
+                batchProcessError: '批次处理失败: {reason}',
+                loggedOut: '已退出登录'
             }
         },
         ocr: {

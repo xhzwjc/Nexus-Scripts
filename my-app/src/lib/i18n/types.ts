@@ -652,6 +652,17 @@ export interface Translations {
         minAttachment: string;
         required: string;
         processError: string;
+        requestTimeout: string;
+        networkError: string;
+        serverError: string;
+        uploadTimeout: string;
+        uploadNetworkError: string;
+        uploadServerError: string;
+        submitTimeout: string;
+        submitNetworkError: string;
+        submitServerError: string;
+        batchProcessError: string;
+        loggedOut: string;
       };
     };
 
