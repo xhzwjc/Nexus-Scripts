@@ -64,16 +64,34 @@ const DEFAULT_STATE: HealthCheckState = {
 export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, onHealthChange }: HeaderHealthIndicatorProps) {
     const { t } = useI18n();
     const tr = t.headerHealth;
-    const [state, setState] = useState<HealthCheckState>(DEFAULT_STATE);
+
+    // 使用 sessionStorage 记录当前会话是否已运行过检测
+    const SESSION_CHECK_KEY = 'health_check_ran';
+    const SESSION_RESULT_KEY = 'health_check_result';
+
+    // 同步读取 sessionStorage 缓存，避免刷新时先闪一下"全部健康"再变成实际状态
+    const [state, setState] = useState<HealthCheckState>(() => {
+        if (!hasPermission || !userKey) return DEFAULT_STATE;
+        try {
+            const data = sessionStorage.getItem(SESSION_RESULT_KEY);
+            if (data) {
+                const parsed = JSON.parse(data);
+                if (parsed.userKey === userKey && parsed.result && parsed.result.status === 'success') {
+                    return {
+                        ...parsed.result,
+                        lastChecked: new Date(parsed.timestamp),
+                    };
+                }
+            }
+        } catch { /* ignore */ }
+        return DEFAULT_STATE;
+    });
     const [groups, setGroups] = useState<ResourceGroup[]>([]);
     const [expanded, setExpanded] = useState(false);
     const isCheckingRef = useRef(false);
     const abortControllerRef = useRef<AbortController | null>(null);
     const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    // 使用 sessionStorage 记录当前会话是否已运行过检测
-    const SESSION_CHECK_KEY = 'health_check_ran';
-    const SESSION_RESULT_KEY = 'health_check_result';
 
     const hasRunInSession = useCallback(() => {
         try {
@@ -135,17 +153,17 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
         }
     }, []);
 
-    // 组件挂载时恢复检测结果（刷新页面时）
+    // 组件挂载时将同步恢复的缓存结果通知父组件
+    // （useState 的 lazy initializer 已经同步恢复了 state，这里只需通知 parent）
+    const initialNotifiedRef = useRef(false);
     useEffect(() => {
-        if (hasPermission && userKey && hasRunInSession()) {
-            // 已经运行过检测，恢复结果
-            const savedResult = restoreResult();
-            if (savedResult && savedResult.status === 'success') {
-                setState(savedResult);
-                onHealthChange?.(savedResult);
-            }
+        if (initialNotifiedRef.current) return;
+        initialNotifiedRef.current = true;
+        if (hasPermission && userKey && state.status === 'success') {
+            onHealthChange?.(state);
         }
-    }, [hasPermission, userKey, hasRunInSession, restoreResult, onHealthChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // 用户切换时重置状态
     useEffect(() => {

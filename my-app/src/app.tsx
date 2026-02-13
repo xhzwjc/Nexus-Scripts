@@ -124,8 +124,19 @@ function AppContent() {
     const [homeSearchQuery, setHomeSearchQuery] = useState('');
     const [showSearchResults, setShowSearchResults] = useState(false);
 
-    // 证书健康检测状态
-    const [healthCheckState, setHealthCheckState] = useState<{ status: 'idle' | 'loading' | 'success' | 'error'; healthPercent: number; issues: unknown[]; totalEnvs: number; checkedEnvs: number } | undefined>(undefined);
+    // 证书健康检测状态 — 同步从 sessionStorage 恢复缓存，避免刷新时闪烁
+    const [healthCheckState, setHealthCheckState] = useState<{ status: 'idle' | 'loading' | 'success' | 'error'; healthPercent: number; issues: unknown[]; totalEnvs: number; checkedEnvs: number } | undefined>(() => {
+        try {
+            const data = sessionStorage.getItem('health_check_result');
+            if (data) {
+                const parsed = JSON.parse(data);
+                if (parsed.result && parsed.result.status === 'success') {
+                    return parsed.result;
+                }
+            }
+        } catch { /* ignore */ }
+        return undefined;
+    });
     // 标记是否是新登录（而不是从 localStorage 恢复的会话）
     const [isFreshLogin, setIsFreshLogin] = useState(false);
 
