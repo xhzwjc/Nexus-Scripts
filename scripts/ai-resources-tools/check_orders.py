@@ -1,8 +1,12 @@
-import json, sys, io
+import json, sys, io, os
 from collections import defaultdict, Counter
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-with open("my-app/data/ai-resources.json", "r", encoding="utf-8") as f:
+# Robust path resolution
+base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+json_path = os.path.join(base_dir, "my-app", "data", "ai-resources.json")
+
+with open(json_path, "r", encoding="utf-8") as f:
     data = json.load(f)
 
 categories = {c["id"]: c for c in data["categories"]}
