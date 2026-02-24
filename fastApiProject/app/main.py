@@ -64,8 +64,8 @@ async def background_monitoring_loop():
             await check_and_alert()
         except Exception as e:
             logger.error(f"Error in monitoring loop: {e}")
-        # 每 5 分钟检查一次
-        await asyncio.sleep(300)
+        # 每 1 小时检查一次
+        await asyncio.sleep(3600)
 
 
 # 挂载静态文件目录（关键：让FastAPI能访问本地资源）
