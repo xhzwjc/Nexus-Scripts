@@ -145,10 +145,13 @@ export async function POST(request: NextRequest) {
             urlsToTry.push(logoUrl);
         }
 
-        // 2. GitHub 项目使用 OpenGraph 图片
+        // 2. GitHub 项目使用用户/组织头像或 OpenGraph 图片
         if (siteUrl && siteUrl.includes('github.com/')) {
             const match = siteUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
             if (match) {
+                // 优先使用用户/组织头像 ( sz=128 )
+                urlsToTry.push(`https://github.com/${match[1]}.png?size=128`);
+                // 备选使用 OpenGraph 图片
                 urlsToTry.push(`https://opengraph.githubassets.com/1/${match[1]}/${match[2]}`);
             }
         }
