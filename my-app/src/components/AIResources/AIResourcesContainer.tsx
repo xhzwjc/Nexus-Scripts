@@ -426,9 +426,9 @@ const ResourceCard = memo(function ResourceCard({ resource, logo }: { resource: 
                 <Image
                     src={logo}
                     alt={resource.name}
-                    width={28}
-                    height={28}
-                    className="object-contain"
+                    width={32}
+                    height={32}
+                    className="w-full h-full object-contain transition-all duration-300"
                     onError={() => setImgError(true)}
                     loading="lazy"
                     unoptimized
@@ -450,7 +450,7 @@ const ResourceCard = memo(function ResourceCard({ resource, logo }: { resource: 
                      transition-all duration-150 text-left w-full h-full"
         >
             <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/10 to-purple-500/10 p-0.5 shadow-sm group-hover:from-blue-500/30 group-hover:to-purple-500/30 transition-all duration-300">
-                <div className="w-full h-full rounded-[10px] bg-background/90 flex items-center justify-center overflow-hidden relative">
+                <div className="ai-resource-icon-box w-full h-full rounded-[10px] flex items-center justify-center overflow-hidden">
                     {renderLogo()}
                 </div>
             </div>

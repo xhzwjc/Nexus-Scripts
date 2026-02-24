@@ -505,3 +505,66 @@
 .dark .colorful-background {
     background: var(--page-bg);
 }
+
+/* ============================================
+   AI Resource Icon Adaptation (Final Seamless Integration)
+   ============================================ */
+.ai-resource-icon-box {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    /* 
+       Unified Framework: Forced solid white in light mode,
+       consistent light grey in dark mode. Eliminates double backgrounds.
+    */
+    background-color: #ffffff !important;
+    padding: 0;
+    /* Clear padding to let icons with backgrounds fill the space */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    /* Force-clip baked-in icon backgrounds to container's roundness */
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+/* Light Mode Enhancement */
+.ai-resource-icon-box img {
+    filter: none;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    /* Professional scaling */
+}
+
+/* Dark Mode Seamless Integration */
+.dark .ai-resource-icon-box {
+    /* 
+       "Light Stage" strategy to accommodate both dark icons (contrast) 
+       and white-background icons (multiplication).
+    */
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow:
+        0 4px 12px rgba(0, 0, 0, 0.3),
+        inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+}
+
+.dark .ai-resource-icon-box img {
+    /* 
+       Advanced Blending: Merges icon's white background into the stage.
+    */
+    mix-blend-mode: multiply;
+    /* Extra clarity for dark patterns */
+    filter: contrast(1.1) brightness(1.02);
+}
+
+/* Hover effects: Dynamic scaling and elevation */
+.group:hover .ai-resource-icon-box {
+    transform: translateY(-1.5px) scale(1.02);
+    box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.35),
+        inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.dark .group:hover .ai-resource-icon-box {
+    background-color: #ffffff !important;
+}
