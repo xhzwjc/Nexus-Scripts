@@ -162,8 +162,12 @@ export async function POST(request: NextRequest) {
 
         // 4. 公共 favicon 服务
         if (domain) {
-            urlsToTry.push(`https://icons.duckduckgo.com/ip3/${domain}.ico`);
+            // 优先使用 Google (高质量 sz=128)
             urlsToTry.push(`https://www.google.com/s2/favicons?domain=${domain}&sz=128`);
+            // 备选 Clearbit (经常提供透明背景大图)
+            urlsToTry.push(`https://logo.clearbit.com/${domain}`);
+            // 备选 DuckDuckGo
+            urlsToTry.push(`https://icons.duckduckgo.com/ip3/${domain}.ico`);
         }
 
         // 逐个尝试

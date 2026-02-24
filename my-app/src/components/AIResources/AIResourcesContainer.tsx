@@ -23,6 +23,21 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
     const { t } = useI18n();
     const tr = t.aiResources;
 
+    // 获取动态Logo URL (用于本地缺失时的即时显示)
+    const getDynamicLogoUrl = useCallback((resource: AIResource) => {
+        if (!resource.url) return null;
+        try {
+            const domain = new URL(resource.url).hostname.replace('www.', '');
+            if (domain.includes('github.com')) {
+                const match = resource.url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+                if (match) return `https://github.com/${match[1]}.png?size=128`;
+            }
+            return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+        } catch {
+            return null;
+        }
+    }, []);
+
     // 数据状态
     const [data, setData] = useState<AIResourcesData>(EMPTY_DATA);
     const [isLoading, setIsLoading] = useState(true);
@@ -370,6 +385,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
                                 <ResourceCard
                                     resource={resource}
                                     logo={getLogo(resource.id)}
+                                    getDynamicLogoUrl={getDynamicLogoUrl}
                                 />
                             </div>
                         ))}
@@ -409,11 +425,13 @@ const CategoryTab = memo(function CategoryTab({ active, onClick, label }: { acti
 });
 
 // 资源卡片组件
-const ResourceCard = memo(function ResourceCard({ resource, logo }: { resource: AIResource; logo: string | null; }) {
+const ResourceCard = memo(function ResourceCard({ resource, logo, getDynamicLogoUrl }: { resource: AIResource; logo: string | null; getDynamicLogoUrl: (r: AIResource) => string | null }) {
     const [imgError, setImgError] = useState(false);
 
     useEffect(() => {
-        if (logo) setImgError(false);
+        if (logo) {
+            setImgError(false);
+        }
     }, [logo]);
 
     const handleClick = useCallback(() => {
@@ -435,6 +453,24 @@ const ResourceCard = memo(function ResourceCard({ resource, logo }: { resource: 
                 />
             );
         }
+
+        // 方案B: 动态API预览 (即时方案)
+        const dynamicUrl = getDynamicLogoUrl(resource);
+        if (dynamicUrl && !imgError) {
+            return (
+                <Image
+                    src={dynamicUrl}
+                    alt={resource.name}
+                    width={32}
+                    height={32}
+                    className="w-full h-full object-contain grayscale-[0.3] opacity-80"
+                    onError={() => setImgError(true)}
+                    loading="lazy"
+                    unoptimized
+                />
+            );
+        }
+
         return (
             <span className="text-sm font-medium text-muted-foreground">
                 {resource.name.charAt(0).toUpperCase()}
