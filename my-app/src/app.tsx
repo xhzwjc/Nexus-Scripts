@@ -102,6 +102,7 @@ function AppContent() {
     const [isKeyInputFocused, setIsKeyInputFocused] = useState(false);
     const [isLoginKeyVisible, setIsLoginKeyVisible] = useState(false);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const loginKeyInputRef = useRef<HTMLInputElement>(null);
 
     const [systems, setSystems] = useState<Record<string, SystemConfig>>(allScripts);
     const [isLoading, setIsLoading] = useState(true);
@@ -401,14 +402,39 @@ function AppContent() {
         }, 100);
     }, []);
 
+    const showKeyValidationMessage = (message: string) => {
+        const inputEl = loginKeyInputRef.current;
+        if (!inputEl) return;
+
+        inputEl.setCustomValidity(message);
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                const activeInput = loginKeyInputRef.current;
+                if (!activeInput) return;
+                activeInput.focus();
+                activeInput.reportValidity();
+            });
+        });
+    };
+
     const validateKey = () => {
-        if (!userKey.trim()) return toast.error(t.auth.enterKey);
+        const inputEl = loginKeyInputRef.current;
+        const trimmedKey = userKey.trim();
+
+        if (!trimmedKey) {
+            showKeyValidationMessage(t.auth.enterKey);
+            return;
+        }
+
+        if (inputEl) inputEl.setCustomValidity('');
+
         setIsVerifying(true);
         setTimeout(() => {
-            const u = keyUserMap[userKey.trim()];
+            const u = keyUserMap[trimmedKey];
             if (u) {
                 localStorage.setItem('scriptHubAuth', JSON.stringify({
-                    key: userKey.trim(),
+                    key: trimmedKey,
                     user: u,
                     expiresAt: getEndOfDayTimestamp()
                 }));
@@ -419,8 +445,12 @@ function AppContent() {
                 lastActivityRef.current = Date.now();
                 localStorage.setItem('app_last_activity', lastActivityRef.current.toString());
                 toast.success(t.auth.verifySuccess);
-            } else toast.error(t.auth.invalidKey);
+                setIsVerifying(false);
+                return;
+            }
+
             setIsVerifying(false);
+            showKeyValidationMessage(t.auth.invalidKey);
         }, 500);
     };
 
@@ -558,7 +588,6 @@ function AppContent() {
     if (!currentUser) {
         return (
             <div className="min-h-screen colorful-background">
-                <Toaster richColors position="top-center" />
                 <div className="grid min-h-screen lg:grid-cols-[minmax(0,1.1fr)_minmax(460px,0.9fr)]">
                     <AnimatedLoginCharacters
                         isTyping={isKeyInputFocused}
@@ -603,13 +632,19 @@ function AppContent() {
                                         <div className="space-y-2">
                                             <div className="relative">
                                                 <Input
+                                                    ref={loginKeyInputRef}
                                                     type={isLoginKeyVisible ? 'text' : 'password'}
                                                     placeholder={t.auth.keyPlaceholder}
                                                     value={userKey}
-                                                    onChange={e => setUserKey(e.target.value)}
+                                                    onChange={e => {
+                                                        setUserKey(e.target.value);
+                                                        if (loginKeyInputRef.current) {
+                                                            loginKeyInputRef.current.setCustomValidity('');
+                                                        }
+                                                    }}
                                                     onFocus={() => setIsKeyInputFocused(true)}
                                                     onBlur={() => setIsKeyInputFocused(false)}
-                                                    disabled={isVerifying}
+                                                    readOnly={isVerifying}
                                                     autoComplete="current-password"
                                                     className="h-12 rounded-xl border-slate-300 bg-white pr-12 text-base text-slate-900 shadow-sm placeholder:text-slate-400"
                                                 />
@@ -897,7 +932,7 @@ function AppContent() {
                         {scripts.length > 0 ? t.system.searchHint : t.system.noScripts}
                     </p>
                     {scripts.length > 0 && (
-                        <Input
+                                                <Input
                             value={scriptQuery}
                             onChange={(event) => setScriptQuery(event.target.value)}
                             placeholder={t.system.searchPlaceholder}
@@ -973,7 +1008,7 @@ function AppContent() {
                     <p className="text-lg font-medium text-slate-700">{currentUser?.name}</p>
                     <p className="text-sm text-slate-500 -mt-2">{t.lock.description}</p>
                     <div className="lock-input-wrapper">
-                        <input
+                                                <Input
                             type="password"
                             placeholder={t.lock.unlockPlaceholder}
                             value={lockKey}
