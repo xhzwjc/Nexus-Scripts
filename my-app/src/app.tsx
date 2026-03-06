@@ -564,10 +564,9 @@ function AppContent() {
                         isTyping={isKeyInputFocused}
                         keyLength={userKey.length}
                         isKeyVisible={isLoginKeyVisible}
-                        isZh={language === 'zh-CN'}
                     />
 
-                    <div className="relative flex items-center justify-center px-6 py-10 sm:px-8 lg:px-12">
+                    <div className="relative flex items-center justify-center px-6 py-10 sm:px-8 lg:my-2 lg:mr-2 lg:ml-2 lg:rounded-3xl lg:border lg:border-slate-200/80 lg:bg-white lg:px-10 lg:text-slate-900 lg:shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
                         <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/20 to-background/80 lg:hidden" />
                         <div className="relative w-full max-w-md animate-fadeIn">
                             <div className="mb-8 flex items-center gap-3 lg:hidden">
@@ -582,15 +581,15 @@ function AppContent() {
                                 </div>
                             </div>
 
-                            <Card className="border-0 bg-card/90 shadow-2xl backdrop-blur-xl">
+                            <Card className="border border-slate-200 bg-white text-slate-900 shadow-xl">
                                 <CardHeader className="space-y-4 pb-4">
-                                    <div className="inline-flex w-fit items-center gap-2 rounded-full border border-border/60 bg-background/70 px-3 py-1 text-xs font-medium text-muted-foreground">
+                                    <div className="inline-flex w-fit items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
                                         <Lock className="h-3.5 w-3.5" />
                                         {language === 'zh-CN' ? '安全密钥验证' : 'Secure key verification'}
                                     </div>
                                     <div className="space-y-2">
                                         <CardTitle className="text-3xl tracking-tight">{t.auth.title}</CardTitle>
-                                        <CardDescription className="text-sm leading-6">{t.auth.description}</CardDescription>
+                                        <CardDescription className="text-sm leading-6 text-slate-500">{t.auth.description}</CardDescription>
                                     </div>
                                 </CardHeader>
                                 <CardContent>
@@ -612,11 +611,11 @@ function AppContent() {
                                                     onBlur={() => setIsKeyInputFocused(false)}
                                                     disabled={isVerifying}
                                                     autoComplete="current-password"
-                                                    className="h-12 rounded-xl border-border/60 bg-background/80 pr-12 text-base shadow-sm"
+                                                    className="h-12 rounded-xl border-slate-300 bg-white pr-12 text-base text-slate-900 shadow-sm placeholder:text-slate-400"
                                                 />
                                                 <button
                                                     type="button"
-                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed"
+                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 transition-colors hover:text-slate-700 disabled:cursor-not-allowed"
                                                     onMouseDown={(e) => e.preventDefault()}
                                                     onClick={() => setIsLoginKeyVisible(prev => !prev)}
                                                     disabled={isVerifying}
@@ -625,12 +624,12 @@ function AppContent() {
                                                     {isLoginKeyVisible ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                                                 </button>
                                             </div>
-                                            <p className="text-xs text-muted-foreground">
+                                            <p className="text-xs text-slate-500">
                                                 {language === 'zh-CN' ? '输入密钥后可按回车直接验证。' : 'Press Enter after typing your key to verify instantly.'}
                                             </p>
                                         </div>
 
-                                        <Button className="h-12 w-full rounded-xl text-base shadow-lg" type="submit" disabled={isVerifying}>
+                                        <Button className="h-12 w-full rounded-xl text-base font-medium !bg-black !text-white shadow-lg transition-colors hover:!bg-black/90 dark:!bg-black dark:hover:!bg-black/90 disabled:!bg-slate-300 disabled:!text-slate-500 disabled:shadow-none" type="submit" disabled={isVerifying}>
                                             {isVerifying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : t.auth.loginButton}
                                         </Button>
                                     </form>

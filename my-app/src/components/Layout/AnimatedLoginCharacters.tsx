@@ -7,7 +7,6 @@ type AnimatedLoginCharactersProps = {
     isTyping: boolean;
     keyLength: number;
     isKeyVisible: boolean;
-    isZh?: boolean;
 };
 
 type PupilProps = {
@@ -171,7 +170,7 @@ function useBlink(setBlinking: (value: boolean) => void) {
     }, [setBlinking]);
 }
 
-export function AnimatedLoginCharacters({ isTyping, keyLength, isKeyVisible, isZh = false }: AnimatedLoginCharactersProps) {
+export function AnimatedLoginCharacters({ isTyping, keyLength, isKeyVisible }: AnimatedLoginCharactersProps) {
     const [mouseX, setMouseX] = useState(0);
     const [mouseY, setMouseY] = useState(0);
     const [isPurpleBlinking, setIsPurpleBlinking] = useState(false);
@@ -262,18 +261,15 @@ export function AnimatedLoginCharacters({ isTyping, keyLength, isKeyVisible, isZ
     const isLeaning = isTyping || (keyLength > 0 && !isKeyVisible);
 
     return (
-        <div className="relative hidden lg:flex flex-col justify-between overflow-hidden border-r border-border/40 p-12 text-slate-900 dark:text-slate-100 bg-[radial-gradient(120%_120%_at_0%_0%,#e8f7ff_0%,#dff5f2_42%,#f4fbff_100%)] dark:bg-[radial-gradient(120%_120%_at_0%_0%,#0f172a_0%,#0b2530_42%,#102a43_100%)]">
+        <div className="relative hidden lg:flex flex-col overflow-hidden border-r border-border/40 p-12 text-slate-900 dark:text-slate-100 bg-[radial-gradient(120%_120%_at_0%_0%,#e8f7ff_0%,#dff5f2_42%,#f4fbff_100%)] dark:bg-[radial-gradient(120%_120%_at_0%_0%,#0f172a_0%,#0b2530_42%,#102a43_100%)]">
             <div className="relative z-20 flex items-center gap-3 text-lg font-semibold tracking-wide">
                 <div className="flex size-10 items-center justify-center rounded-2xl bg-slate-900/10 dark:bg-white/15 backdrop-blur-sm">
                     <Sparkles className="size-4" />
                 </div>
-                <div>
-                    <div>ScriptHub</div>
-                    <div className="text-xs font-medium uppercase tracking-[0.28em] text-slate-500 dark:text-slate-300/80">{isZh ? '登录安全动效' : 'Secure Login Motion'}</div>
-                </div>
+                <div className="mt-1">ScriptHub</div>
             </div>
 
-            <div className="relative z-20 flex h-[500px] items-end justify-center">
+            <div className="relative z-20 flex flex-1 items-center justify-center">
                 <div className="relative" style={{ width: '550px', height: '400px' }}>
                     <div
                         ref={purpleRef}
@@ -428,11 +424,6 @@ export function AnimatedLoginCharacters({ isTyping, keyLength, isKeyVisible, isZ
                 </div>
             </div>
 
-            <div className="relative z-20 flex items-center gap-8 text-sm font-medium text-slate-600 dark:text-slate-300/85">
-                <span>{isZh ? '访问行为感知' : 'Interaction sensing'}</span>
-                <span>{isZh ? '输入状态联动' : 'Typing state sync'}</span>
-                <span>{isZh ? '密钥可见提醒' : 'Visibility safety cue'}</span>
-            </div>
 
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(15,23,42,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.06)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(226,232,240,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(226,232,240,0.08)_1px,transparent_1px)] [background-size:24px_24px]" />
             <div className="pointer-events-none absolute right-1/4 top-1/4 size-64 rounded-full bg-cyan-300/35 dark:bg-cyan-500/25 blur-3xl" />
