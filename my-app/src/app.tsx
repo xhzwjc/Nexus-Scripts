@@ -11,6 +11,8 @@ import {
     Play,
     Lock,
     Loader2,
+    Eye,
+    EyeOff,
     Cloud,
     Server,
     ChevronRight,
@@ -59,6 +61,7 @@ import { ClothBackground } from './components/Layout/ClothBackground';
 import { BubuMascot } from './components/Layout/BubuMascot';
 import { QuickActions, saveRecentScript } from './components/Layout/QuickActions';
 import { DashboardLoadingScreen } from './components/Layout/DashboardLoadingScreen';
+import { AnimatedLoginCharacters } from './components/Layout/AnimatedLoginCharacters';
 
 // UI 组件导入
 import { ConfirmDialog } from './components/ui/ConfirmDialog';
@@ -96,6 +99,8 @@ function AppContent() {
     const [selectedSystem, setSelectedSystem] = useState<string>('');
     const [selectedScript, setSelectedScript] = useState<string>('');
     const [userKey, setUserKey] = useState('');
+    const [isKeyInputFocused, setIsKeyInputFocused] = useState(false);
+    const [isLoginKeyVisible, setIsLoginKeyVisible] = useState(false);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
 
     const [systems, setSystems] = useState<Record<string, SystemConfig>>(allScripts);
@@ -552,34 +557,91 @@ function AppContent() {
     // ============== 登录页面 ==============
     if (!currentUser) {
         return (
-            <div className="min-h-screen colorful-background flex items-center justify-center p-6">
+            <div className="min-h-screen colorful-background">
                 <Toaster richColors position="top-center" />
-                <Card className="w-full max-w-md animate-fadeIn shadow-xl border-0 bg-card/90 backdrop-blur">
-                    <CardHeader className="text-center">
-                        <CardTitle className="text-2xl flex items-center justify-center gap-2">
-                            <Lock className="w-5 h-5" /> {t.auth.title}
-                        </CardTitle>
-                        <CardDescription>{t.auth.description}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
+                <div className="grid min-h-screen lg:grid-cols-[minmax(0,1.1fr)_minmax(460px,0.9fr)]">
+                    <AnimatedLoginCharacters
+                        isTyping={isKeyInputFocused}
+                        keyLength={userKey.length}
+                        isKeyVisible={isLoginKeyVisible}
+                        isZh={language === 'zh-CN'}
+                    />
 
-                        <Input
-                            type="password"
-                            placeholder={t.auth.keyPlaceholder}
-                            value={userKey}
-                            onChange={e => setUserKey(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && !isVerifying && validateKey()}
-                            disabled={isVerifying}
-                        />
-                        <Button className="w-full" onClick={validateKey} disabled={isVerifying}>
-                            {isVerifying ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : t.auth.loginButton}
-                        </Button>
-                    </CardContent>
-                </Card>
+                    <div className="relative flex items-center justify-center px-6 py-10 sm:px-8 lg:px-12">
+                        <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/20 to-background/80 lg:hidden" />
+                        <div className="relative w-full max-w-md animate-fadeIn">
+                            <div className="mb-8 flex items-center gap-3 lg:hidden">
+                                <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-sm ring-1 ring-primary/15">
+                                    <Lock className="h-5 w-5" />
+                                </div>
+                                <div>
+                                    <div className="text-sm font-semibold uppercase tracking-[0.28em] text-primary/70">
+                                        {language === 'zh-CN' ? '密钥入口' : 'Key Access'}
+                                    </div>
+                                    <div className="text-lg font-semibold text-foreground">ScriptHub</div>
+                                </div>
+                            </div>
+
+                            <Card className="border-0 bg-card/90 shadow-2xl backdrop-blur-xl">
+                                <CardHeader className="space-y-4 pb-4">
+                                    <div className="inline-flex w-fit items-center gap-2 rounded-full border border-border/60 bg-background/70 px-3 py-1 text-xs font-medium text-muted-foreground">
+                                        <Lock className="h-3.5 w-3.5" />
+                                        {language === 'zh-CN' ? '安全密钥验证' : 'Secure key verification'}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <CardTitle className="text-3xl tracking-tight">{t.auth.title}</CardTitle>
+                                        <CardDescription className="text-sm leading-6">{t.auth.description}</CardDescription>
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    <form
+                                        className="space-y-5"
+                                        onSubmit={(e) => {
+                                            e.preventDefault();
+                                            if (!isVerifying) validateKey();
+                                        }}
+                                    >
+                                        <div className="space-y-2">
+                                            <div className="relative">
+                                                <Input
+                                                    type={isLoginKeyVisible ? 'text' : 'password'}
+                                                    placeholder={t.auth.keyPlaceholder}
+                                                    value={userKey}
+                                                    onChange={e => setUserKey(e.target.value)}
+                                                    onFocus={() => setIsKeyInputFocused(true)}
+                                                    onBlur={() => setIsKeyInputFocused(false)}
+                                                    disabled={isVerifying}
+                                                    autoComplete="current-password"
+                                                    className="h-12 rounded-xl border-border/60 bg-background/80 pr-12 text-base shadow-sm"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed"
+                                                    onMouseDown={(e) => e.preventDefault()}
+                                                    onClick={() => setIsLoginKeyVisible(prev => !prev)}
+                                                    disabled={isVerifying}
+                                                    aria-label={isLoginKeyVisible ? (language === 'zh-CN' ? '隐藏密钥' : 'Hide key') : (language === 'zh-CN' ? '显示密钥' : 'Show key')}
+                                                >
+                                                    {isLoginKeyVisible ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                                                </button>
+                                            </div>
+                                            <p className="text-xs text-muted-foreground">
+                                                {language === 'zh-CN' ? '输入密钥后可按回车直接验证。' : 'Press Enter after typing your key to verify instantly.'}
+                                            </p>
+                                        </div>
+
+                                        <Button className="h-12 w-full rounded-xl text-base shadow-lg" type="submit" disabled={isVerifying}>
+                                            {isVerifying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : t.auth.loginButton}
+                                        </Button>
+                                    </form>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    </div>
+                </div>
             </div>
         );
     }
-
     // ============== 登录后加载动画 ==============
     if (!isDashboardReady) {
         return (
