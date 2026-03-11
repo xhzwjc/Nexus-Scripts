@@ -1624,4 +1624,36 @@ export interface Translations {
     system: string;
     toggle: string;
   };
+
+  // Agent Chat
+  agentChat: {
+    title: string;
+    subtitle: string;
+    newChat: string;
+    newConversation: string;
+    prebuiltAssistants: string;
+    add: string;
+    conversationHistory: string;
+    noConversations: string;
+    welcomeTitle: string;
+    welcomeDesc: string;
+    startResumeScreening: string;
+    startFreeChat: string;
+    inputPlaceholder: string;
+    resumeInputPlaceholder: string;
+    addAssistantTitle: string;
+    assistantIcon: string;
+    assistantName: string;
+    assistantNamePlaceholder: string;
+    assistantDescription: string;
+    assistantDescPlaceholder: string;
+    systemPrompt: string;
+    systemPromptPlaceholder: string;
+    saveAssistant: string;
+    deleteAssistant: string;
+    assistantAdded: string;
+    assistantDeleted: string;
+    nameAndPromptRequired: string;
+    navLabel: string;
+  };
 }

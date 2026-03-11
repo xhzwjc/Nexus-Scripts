@@ -21,6 +21,7 @@ import {
     Terminal
 } from 'lucide-react';
 import './App.css';
+import './components/AgentChat/AgentChat.css';
 
 import dynamic from 'next/dynamic';
 
@@ -46,6 +47,7 @@ const DeliveryScript = dynamic(() => import("./components/DeliveryScript"), { lo
 const DevTools = dynamic(() => import("./components/DevTools"), { loading: () => <LoadingComponent />, ssr: false });
 const TeamResourcesContainer = dynamic(() => import("./components/TeamResources/TeamResourcesContainer").then(mod => ({ default: mod.TeamResourcesContainer })), { loading: () => <LoadingComponent />, ssr: false });
 const ServerMonitoringScript = dynamic(() => import("./pages/ops/ServerMonitoring"), { loading: () => <LoadingComponent />, ssr: false });
+const AgentChat = dynamic(() => import("./components/AgentChat/AgentChat"), { loading: () => <LoadingComponent />, ssr: false });
 
 
 // Layout 组件导入
@@ -232,6 +234,7 @@ function AppContent() {
             { id: 'devtools', name: t.devTools?.title || 'Developer Tools', desc: isZh ? 'JSON格式化、时间戳等实用工具' : 'JSON formatting, timestamp tools', keywords: ['开发者', 'dev', 'json', '工具', 'uuid', 'base64', 'developer', 'tools'] },
             { id: 'teamResources', name: t.teamResources?.viewerTitle || 'Team Resources', desc: isZh ? '系统账号与环境配置管理' : 'System account & environment management', keywords: ['团队', '资源', 'team', '账号', '环境', 'resources', 'account'] },
             { id: 'aiResources', name: t.aiResources?.title || 'AI Tools', desc: isZh ? '常用AI工具与资源导航' : 'AI tool resources navigation', keywords: ['ai', '人工智能', '工具库', 'chatgpt', 'artificial', 'intelligence'] },
+            { id: 'agent-chat', name: t.agentChat?.title || 'AI Agent', desc: isZh ? 'AI智能对话助手，简历筛选等预设工作流' : 'AI chat assistant with preset workflows', keywords: ['agent', '助手', 'ai', '对话', '简历', 'chat', 'resume', 'assistant'] },
             { id: 'help', name: t.helpPage?.title || 'Help Center', desc: isZh ? '使用指南与文档' : 'User guide & documentation', keywords: ['帮助', 'help', '文档', '指南', 'guide', 'documentation'] },
         ];
 
@@ -932,7 +935,7 @@ function AppContent() {
                         {scripts.length > 0 ? t.system.searchHint : t.system.noScripts}
                     </p>
                     {scripts.length > 0 && (
-                                                <Input
+                        <Input
                             value={scriptQuery}
                             onChange={(event) => setScriptQuery(event.target.value)}
                             placeholder={t.system.searchPlaceholder}
@@ -1008,7 +1011,7 @@ function AppContent() {
                     <p className="text-lg font-medium text-slate-700">{currentUser?.name}</p>
                     <p className="text-sm text-slate-500 -mt-2">{t.lock.description}</p>
                     <div className="lock-input-wrapper">
-                                                <Input
+                        <Input
                             type="password"
                             placeholder={t.lock.unlockPlaceholder}
                             value={lockKey}
@@ -1093,6 +1096,11 @@ function AppContent() {
                     {currentView === 'ops-center' && (
                         <div className="h-full p-0">
                             <ServerMonitoringScript onBack={() => setCurrentView('home')} />
+                        </div>
+                    )}
+                    {currentView === 'agent-chat' && (
+                        <div className="h-full p-0">
+                            <AgentChat onBack={() => setCurrentView('home')} />
                         </div>
                     )}
                 </main>

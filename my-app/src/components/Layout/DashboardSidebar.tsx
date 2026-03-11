@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wrench, ScanLine, CircleHelp, ScrollText, LogOut, ChevronRight, Server, CheckCircle, Users, Sparkles } from 'lucide-react';
+import { Wrench, ScanLine, CircleHelp, ScrollText, LogOut, ChevronRight, Server, CheckCircle, Users, Sparkles, Bot } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import type { ViewType, User } from '@/lib/types';
 
@@ -84,6 +84,13 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                     >
                         <Sparkles className="w-[18px] h-[18px]" />
                         <span>{t.nav.aiResources}</span>
+                    </div>
+                    <div
+                        className={`sidebar-nav-item ${currentView === 'agent-chat' ? 'active' : ''}`}
+                        onClick={() => setCurrentView('agent-chat')}
+                    >
+                        <Bot className="w-[18px] h-[18px]" />
+                        <span>{t.agentChat.navLabel}</span>
                     </div>
                 </nav>
             </div>

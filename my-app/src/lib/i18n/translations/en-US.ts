@@ -105,7 +105,7 @@ export const enUS: Translations = {
         cmTools: 'CM Tools',
         ocrTool: 'OCR Tool',
         teamResources: 'Team Resources',
-        aiResources: 'AI Resources',
+        aiResources: 'AI Studio',
         helpCenter: 'Help Center',
         systemLogs: 'System Logs (Contact Admin)',
         logout: 'Logout',
@@ -407,9 +407,9 @@ export const enUS: Translations = {
         envsChecked: ' Environments Checked',
     },
 
-    // AI Resources
+    // AI Studio
     aiResources: {
-        title: 'AI Tools',
+        title: 'AI Studio',
         back: 'Back',
         searchPlaceholder: 'Search...',
         allCategory: 'All',
@@ -1650,4 +1650,36 @@ export const enUS: Translations = {
         system: 'System',
         toggle: 'Toggle Theme'
     },
+
+    // Agent Chat
+    agentChat: {
+        title: 'AI Agent',
+        subtitle: 'Smart Chat Assistant · Preset Workflows',
+        newChat: 'New Chat',
+        newConversation: 'New Conversation',
+        prebuiltAssistants: 'Preset Assistants',
+        add: 'Add',
+        conversationHistory: 'History',
+        noConversations: 'No conversations yet',
+        welcomeTitle: 'Welcome to AI Agent',
+        welcomeDesc: 'Select a preset assistant to start working, or create a new conversation to ask freely. All data saved locally.',
+        startResumeScreening: 'Resume Screening',
+        startFreeChat: 'Free Chat',
+        inputPlaceholder: 'Type a message...',
+        resumeInputPlaceholder: 'Paste candidate resume content...',
+        addAssistantTitle: 'Add Custom Assistant',
+        assistantIcon: 'Icon (Emoji)',
+        assistantName: 'Assistant Name',
+        assistantNamePlaceholder: 'e.g., Code Review Assistant',
+        assistantDescription: 'Description',
+        assistantDescPlaceholder: 'Brief description of the assistant',
+        systemPrompt: 'System Prompt',
+        systemPromptPlaceholder: 'Enter system prompt to define assistant behavior...',
+        saveAssistant: 'Save Assistant',
+        deleteAssistant: 'Delete Assistant',
+        assistantAdded: 'Assistant added',
+        assistantDeleted: 'Assistant deleted',
+        nameAndPromptRequired: 'Please enter name and system prompt',
+        navLabel: 'AI Agent',
+    }
 };

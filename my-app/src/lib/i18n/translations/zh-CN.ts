@@ -105,7 +105,7 @@ export const zhCN: Translations = {
         cmTools: 'CM系统工具',
         ocrTool: 'OCR 工具',
         teamResources: '团队资源',
-        aiResources: 'AI资源导航',
+        aiResources: 'AI Studio',
         helpCenter: '帮助中心',
         systemLogs: '系统日志 (联系管理员)',
         logout: '退出登录',
@@ -408,7 +408,7 @@ export const zhCN: Translations = {
 
     // AI Resources
     aiResources: {
-        title: 'AI 工具库',
+        title: 'AI Studio',
         back: '返回',
         searchPlaceholder: '搜索...',
         allCategory: '全部',
@@ -1648,5 +1648,37 @@ export const zhCN: Translations = {
         dark: '深色模式',
         system: '跟随系统',
         toggle: '切换主题'
+    },
+
+    // Agent Chat
+    agentChat: {
+        title: 'AI Agent',
+        subtitle: '智能对话助手 · 预设专属工作流',
+        newChat: '新建对话',
+        newConversation: '新对话',
+        prebuiltAssistants: '预设助手',
+        add: '添加',
+        conversationHistory: '对话记录',
+        noConversations: '暂无对话记录',
+        welcomeTitle: '欢迎使用 AI Agent',
+        welcomeDesc: '选择一个预设助手开始工作，或创建新对话自由提问。所有对话数据保存在本地。',
+        startResumeScreening: '简历筛选助手',
+        startFreeChat: '自由对话',
+        inputPlaceholder: '输入消息...',
+        resumeInputPlaceholder: '粘贴候选人简历内容...',
+        addAssistantTitle: '添加自定义助手',
+        assistantIcon: '图标 (Emoji)',
+        assistantName: '助手名称',
+        assistantNamePlaceholder: '例如：代码审查助手',
+        assistantDescription: '描述',
+        assistantDescPlaceholder: '简要描述助手功能',
+        systemPrompt: '系统提示词 (System Prompt)',
+        systemPromptPlaceholder: '输入系统提示词，定义助手的行为和能力...',
+        saveAssistant: '保存助手',
+        deleteAssistant: '删除助手',
+        assistantAdded: '助手已添加',
+        assistantDeleted: '助手已删除',
+        nameAndPromptRequired: '请输入名称和系统提示词',
+        navLabel: 'AI Agent',
     }
 };
