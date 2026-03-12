@@ -767,11 +767,7 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
         setSelectedTemplate(code);
         // 示例参数预填：可按真实模板自定义
         if (code === 'reset_worker_sign') {
-            setTemplateParams([
-                { name: 'name', value: '张三' },
-                { name: 'deadline', value: '2025-12-31' },
-                { name: 'signUrl', value: '5a3' },
-            ]);
+            setTemplateParams([]);
         } else if (code === 'channel_open_notice') {
             setTemplateParams([
                 { name: 'channel_name', value: '默认渠道' },

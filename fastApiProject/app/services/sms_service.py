@@ -394,12 +394,8 @@ class SMSService:
 
             results = []
             for worker in workers:
-                # 构造参数
-                params = {
-                    "name": worker["name"],
-                    "deadline": worker["deadline"],
-                    "signUrl": f"{worker['worker_id']}a{worker['tax_id']}"
-                }
+                # 构造参数（现已改为纯文案，不需要传参）
+                params = {}
 
                 # 合并默认参数
                 final_params = {**self.default_params, **params}

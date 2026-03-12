@@ -105,6 +105,8 @@ function AppContent() {
     const [isLoginKeyVisible, setIsLoginKeyVisible] = useState(false);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const loginKeyInputRef = useRef<HTMLInputElement>(null);
+    const lockKeyInputRef = useRef<HTMLInputElement>(null);
+
 
     const [systems, setSystems] = useState<Record<string, SystemConfig>>(allScripts);
     const [isLoading, setIsLoading] = useState(true);
@@ -125,8 +127,8 @@ function AppContent() {
     // 锁屏相关状态
     const [isLocked, setIsLocked] = useState(false);
     const [lockKey, setLockKey] = useState('');
-    const [lockError, setLockError] = useState('');
     const lastActivityRef = useRef<number>(Date.now());
+
 
     // 搜索相关状态
     const [homeSearchQuery, setHomeSearchQuery] = useState('');
@@ -290,32 +292,52 @@ function AppContent() {
     const handleLock = () => {
         setIsLocked(true);
         setLockKey('');
-        setLockError('');
     };
+
+    const showLockValidationMessage = (message: string) => {
+        const inputEl = lockKeyInputRef.current;
+        if (!inputEl) return;
+
+        inputEl.setCustomValidity(message);
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                const activeInput = lockKeyInputRef.current;
+                if (!activeInput) return;
+                activeInput.focus();
+                activeInput.reportValidity();
+            });
+        });
+    };
+
 
     // 解锁
     const handleUnlock = () => {
+        const inputEl = lockKeyInputRef.current;
         const input = lockKey.trim();
+
+        if (inputEl) inputEl.setCustomValidity('');
+
         if (!input) {
-            setLockError(t.lock.emptyKey);
+            showLockValidationMessage(t.lock.emptyKey);
             return;
         }
 
         if (input !== userKey.trim()) {
             if (keyUserMap[input]) {
-                setLockError(t.lock.wrongAccount);
+                showLockValidationMessage(t.lock.wrongAccount);
             } else {
-                setLockError(t.lock.wrongKey);
+                showLockValidationMessage(t.lock.wrongKey);
             }
             return;
         }
 
         setIsLocked(false);
         setLockKey('');
-        setLockError('');
         lastActivityRef.current = Date.now();
         toast.success(t.lock.unlockSuccess);
     };
+
 
     // 天气刷新
     const refreshWeather = useCallback(async (options?: { background?: boolean }) => {
@@ -1003,35 +1025,54 @@ function AppContent() {
             <Toaster richColors position="top-right" />
 
             {/* 锁屏遮罩 */}
+            {/* 锁屏遮罩 */}
             {isLocked && (
-                <div className="lock-screen z-50">
+                <div className="lock-screen z-50 animate-sunlight-reveal">
                     <div className="lock-avatar">
                         {currentUser?.name?.charAt(0) || 'U'}
                     </div>
-                    <p className="text-lg font-medium text-slate-700">{currentUser?.name}</p>
-                    <p className="text-sm text-slate-500 -mt-2">{t.lock.description}</p>
-                    <div className="lock-input-wrapper">
-                        <Input
-                            type="password"
-                            placeholder={t.lock.unlockPlaceholder}
-                            value={lockKey}
-                            onChange={(e) => setLockKey(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
-                        />
-                        <button onClick={handleUnlock}>{t.lock.unlockButton}</button>
+
+                    <div className="lock-user-info">
+                        <h2>{currentUser?.name}</h2>
+                        <p>{t.lock.description}</p>
                     </div>
-                    {lockError && <p className="text-sm text-red-500">{lockError}</p>}
-                    <button
-                        className="mt-4 text-xs text-slate-400 hover:text-slate-600 transition-colors active:scale-95 transform"
-                        onClick={() => {
-                            setIsLocked(false);
-                            logout();
-                        }}
-                    >
-                        {t.lock.switchAccount}
-                    </button>
+
+                    <div className="lock-input-group">
+                        <div className="lock-input-wrapper">
+                            <input
+                                ref={lockKeyInputRef}
+                                type="password"
+                                placeholder={t.lock.unlockPlaceholder}
+                                value={lockKey}
+                                onChange={(e) => {
+                                    setLockKey(e.target.value);
+                                    if (lockKeyInputRef.current) {
+                                        lockKeyInputRef.current.setCustomValidity('');
+                                    }
+                                }}
+                                onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
+                                className="transition-all"
+                            />
+                            <button onClick={handleUnlock}>
+                                {t.lock.unlockButton}
+                                <ChevronRight className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <button
+                            className="mt-8 text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors active:scale-95 transform"
+
+                            onClick={() => {
+                                setIsLocked(false);
+                                logout();
+                            }}
+                        >
+                            {t.lock.switchAccount}
+                        </button>
+                    </div>
                 </div>
             )}
+
 
             <DashboardSidebar
                 currentView={currentView}
