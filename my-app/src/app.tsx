@@ -49,7 +49,6 @@ const TeamResourcesContainer = dynamic(() => import("./components/TeamResources/
 const ServerMonitoringScript = dynamic(() => import("./pages/ops/ServerMonitoring"), { loading: () => <LoadingComponent />, ssr: false });
 const AgentChat = dynamic(() => import("./components/AgentChat/AgentChat"), { loading: () => <LoadingComponent />, ssr: false });
 
-
 // Layout 组件导入
 import { HelpPage } from './components/Layout/HelpPage';
 // ... (start of file remains same until imports)
@@ -840,85 +839,87 @@ function AppContent() {
                 </div>
 
                 {/* 系统卡片和快捷操作 */}
-                <div className="flex gap-6 items-stretch">
+                <div className="flex gap-6 items-start">
                     {/* 左侧：系统卡片 */}
                     <div className="flex-[3] grid grid-cols-2 gap-6">
-                        {/* CM 核心业务系统 */}
-                        <div className="system-card p-6 cursor-pointer flex flex-col h-[280px]" onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}>
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="w-12 h-12 bg-background border border-[var(--border-subtle)] shadow-sm rounded-xl flex items-center justify-center group-hover:border-primary/50 transition-colors">
-                                    <Settings className="w-6 h-6 text-primary" />
-                                </div>
-                                <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800 text-[11px] px-2">
-                                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 inline-block"></span>
-                                    {t.home.cmSystem.running}
-                                </Badge>
-                            </div>
-                            <h3 className="text-xl font-bold text-foreground mb-2">{t.home.cmSystem.title}</h3>
-                            <p className="text-muted-foreground text-sm mb-4 leading-relaxed flex-1 overflow-hidden line-clamp-3">
-                                {t.home.cmSystem.description.replace('{count}', String(systems['chunmiao'].scripts.length))}
-                            </p>
-                            <button className="btn-teal-gradient w-full mt-auto">
-                                {t.home.cmSystem.enterButton}
-                                <ChevronRight className="w-4 h-4" />
-                            </button>
-                        </div>
-
-                        {/* 开发者工具箱 (权限控制) */}
-                        {currentUser?.permissions['dev-tools'] && (
-                            <div className="system-card p-6 cursor-pointer flex flex-col h-[280px]" onClick={() => setCurrentView('dev-tools')}>
+                            {/* CM 核心业务系统 */}
+                            <div className="system-card p-6 cursor-pointer flex flex-col h-[280px]" onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}>
                                 <div className="flex justify-between items-start mb-4">
-                                    <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center">
-                                        <Terminal className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                                    <div className="w-12 h-12 bg-background border border-[var(--border-subtle)] shadow-sm rounded-xl flex items-center justify-center group-hover:border-primary/50 transition-colors">
+                                        <Settings className="w-6 h-6 text-primary" />
                                     </div>
-                                    <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800 text-[11px] px-2">
-                                        <span className="w-1.5 h-1.5 bg-blue-500 rounded-full mr-1.5 inline-block"></span>
-                                        {t.home.devTools.toolset}
+                                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800 text-[11px] px-2">
+                                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 inline-block"></span>
+                                        {t.home.cmSystem.running}
                                     </Badge>
                                 </div>
-                                <h3 className="text-xl font-bold text-foreground mb-2">{t.home.devTools.title}</h3>
-                                <p className="text-muted-foreground text-sm mb-4 leading-relaxed flex-1 overflow-hidden">
-                                    {t.home.devTools.description}
+                                <h3 className="text-xl font-bold text-foreground mb-2">{t.home.cmSystem.title}</h3>
+                                <p className="text-muted-foreground text-sm mb-4 leading-relaxed flex-1 overflow-hidden line-clamp-3">
+                                    {t.home.cmSystem.description.replace('{count}', String(systems['chunmiao'].scripts.length))}
                                 </p>
-                                <button className="w-full mt-auto flex items-center text-primary hover:text-primary/80 font-medium text-sm transition-colors">
-                                    {t.home.devTools.enterButton}
-                                    <ChevronRight className="w-4 h-4 ml-1" />
+                                <button className="btn-teal-gradient w-full mt-auto">
+                                    {t.home.cmSystem.enterButton}
+                                    <ChevronRight className="w-4 h-4" />
                                 </button>
                             </div>
-                        )}
 
-                        {/* HS 辅助系统 */}
-                        <div className="system-card p-6 flex flex-col h-[280px]">
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center">
-                                    <Cloud className="w-6 h-6 text-muted-foreground" />
+                            {/* 开发者工具箱 (权限控制) */}
+                            {currentUser?.permissions['dev-tools'] && (
+                                <div className="system-card p-6 cursor-pointer flex flex-col h-[280px]" onClick={() => setCurrentView('dev-tools')}>
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center">
+                                            <Terminal className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                                        </div>
+                                        <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800 text-[11px] px-2">
+                                            <span className="w-1.5 h-1.5 bg-blue-500 rounded-full mr-1.5 inline-block"></span>
+                                            {t.home.devTools.toolset}
+                                        </Badge>
+                                    </div>
+                                    <h3 className="text-xl font-bold text-foreground mb-2">{t.home.devTools.title}</h3>
+                                    <p className="text-muted-foreground text-sm mb-4 leading-relaxed flex-1 overflow-hidden">
+                                        {t.home.devTools.description}
+                                    </p>
+                                    <button className="w-full mt-auto flex items-center text-primary hover:text-primary/80 font-medium text-sm transition-colors">
+                                        {t.home.devTools.enterButton}
+                                        <ChevronRight className="w-4 h-4 ml-1" />
+                                    </button>
                                 </div>
-                                <Badge variant="outline" className="text-muted-foreground border-border text-[11px] px-2">
-                                    {t.home.hsSystem.planning}
-                                </Badge>
-                            </div>
-                            <h3 className="text-xl font-bold text-foreground mb-2">{t.home.hsSystem.title}</h3>
-                            <p className="text-muted-foreground text-sm mb-4 leading-relaxed flex-1">
-                                {t.home.hsSystem.description}
-                            </p>
-                            <button className="btn-outline-gray w-full mt-auto" disabled>
-                                {t.home.hsSystem.enterButton}
-                                <ChevronRight className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </div>
+                            )}
 
-                    {/* 右侧：快捷操作面板 */}
-                    <QuickActions
-                        onNavigateToScript={navigateToScript}
-                        onNavigateToSystem={() => {
-                            setSelectedSystem('chunmiao');
-                            setScriptQuery('');
-                            setCurrentView('system');
-                        }}
-                        setCurrentView={setCurrentView}
-                        userKey={userKey}
-                    />
+                            {/* HS 辅助系统 */}
+                            <div className="system-card p-6 flex flex-col h-[280px]">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center">
+                                        <Cloud className="w-6 h-6 text-muted-foreground" />
+                                    </div>
+                                    <Badge variant="outline" className="text-muted-foreground border-border text-[11px] px-2">
+                                        {t.home.hsSystem.planning}
+                                    </Badge>
+                                </div>
+                                <h3 className="text-xl font-bold text-foreground mb-2">{t.home.hsSystem.title}</h3>
+                                <p className="text-muted-foreground text-sm mb-4 leading-relaxed flex-1">
+                                    {t.home.hsSystem.description}
+                                </p>
+                                <button className="btn-outline-gray w-full mt-auto" disabled>
+                                    {t.home.hsSystem.enterButton}
+                                    <ChevronRight className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+
+                    {/* 右侧：快捷操作 */}
+                    <div className="flex-shrink-0" style={{ width: '280px', minWidth: 0 }}>
+                        <QuickActions
+                            onNavigateToScript={navigateToScript}
+                            onNavigateToSystem={() => {
+                                setSelectedSystem('chunmiao');
+                                setScriptQuery('');
+                                setCurrentView('system');
+                            }}
+                            setCurrentView={setCurrentView}
+                            userKey={userKey}
+                        />
+                    </div>
                 </div>
 
                 {/* 底部版本号 */}
@@ -1107,44 +1108,44 @@ function AppContent() {
                 />
 
                 <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' ? 'p-0' : 'p-6'}`}>
-                    {currentView === 'home' && renderHomeContent()}
-                    {currentView === 'system' && renderSystemContent()}
-                    {currentView === 'dev-tools' && (
-                        <div className="h-full">
-                            <DevTools onBack={() => setCurrentView('home')} />
-                        </div>
-                    )}
-                    {currentView === 'help' && (
-                        <div className="h-full rounded-none overflow-hidden border-0">
-                            <HelpPage onBack={() => setCurrentView('home')} />
-                        </div>
-                    )}
-                    {(currentView === 'script' || currentView === 'ocr-tool') && (
-                        <div className="min-h-full">
-                            {renderScript()}
-                        </div>
-                    )}
-                    {currentView === 'team-resources' && (
-                        <div className="h-full p-0">
-                            <TeamResourcesContainer onBack={() => setCurrentView('home')} />
-                        </div>
-                    )}
-                    {currentView === 'ai-resources' && (
-                        <div className="h-full p-0">
-                            <AIResourcesContainer onBack={() => setCurrentView('home')} isAdmin={true} />
-                        </div>
-                    )}
-                    {currentView === 'ops-center' && (
-                        <div className="h-full p-0">
-                            <ServerMonitoringScript onBack={() => setCurrentView('home')} />
-                        </div>
-                    )}
-                    {currentView === 'agent-chat' && (
-                        <div className="h-full p-0">
-                            <AgentChat onBack={() => setCurrentView('home')} />
-                        </div>
-                    )}
-                </main>
+                        {currentView === 'home' && renderHomeContent()}
+                        {currentView === 'system' && renderSystemContent()}
+                        {currentView === 'dev-tools' && (
+                            <div className="h-full">
+                                <DevTools onBack={() => setCurrentView('home')} />
+                            </div>
+                        )}
+                        {currentView === 'help' && (
+                            <div className="h-full rounded-none overflow-hidden border-0">
+                                <HelpPage onBack={() => setCurrentView('home')} />
+                            </div>
+                        )}
+                        {(currentView === 'script' || currentView === 'ocr-tool') && (
+                            <div className="min-h-full">
+                                {renderScript()}
+                            </div>
+                        )}
+                        {currentView === 'team-resources' && (
+                            <div className="h-full p-0">
+                                <TeamResourcesContainer onBack={() => setCurrentView('home')} />
+                            </div>
+                        )}
+                        {currentView === 'ai-resources' && (
+                            <div className="h-full p-0">
+                                <AIResourcesContainer onBack={() => setCurrentView('home')} isAdmin={true} />
+                            </div>
+                        )}
+                        {currentView === 'ops-center' && (
+                            <div className="h-full p-0">
+                                <ServerMonitoringScript onBack={() => setCurrentView('home')} />
+                            </div>
+                        )}
+                        {currentView === 'agent-chat' && (
+                            <div className="h-full p-0">
+                                <AgentChat onBack={() => setCurrentView('home')} />
+                            </div>
+                        )}
+                    </main>
             </div>
 
             <ConfirmDialog

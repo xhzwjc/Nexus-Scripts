@@ -1,6 +1,7 @@
-import React from 'react';
-import { Search, CircleHelp, Lock, Settings, Cloud, Terminal, Play, Sparkles, Users, FileText, Server } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Search, CircleHelp, Lock, Settings, Cloud, Terminal, Play, Sparkles, Users, FileText, Server, Calendar } from 'lucide-react';
 import { TimeChip } from '../ui/TimeChip';
+import HomeCalendar from '../HomeCalendar';
 import { WeatherChip } from '../ui/WeatherChip';
 import { LanguageSwitcher } from '../ui/LanguageSwitcher';
 import { HeaderHealthIndicator } from '../TeamResources/HeaderHealthIndicator';
@@ -62,6 +63,23 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
     onHealthChange
 }) => {
     const { t } = useI18n();
+    const [showCalendar, setShowCalendar] = useState(false);
+    const calendarRef = useRef<HTMLDivElement>(null);
+
+    // Click outside handler
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
+                setShowCalendar(false);
+            }
+        }
+        if (showCalendar) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showCalendar]);
 
     return (
         <header className="h-16 px-8 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--glass-bg)] backdrop-blur-sm sticky top-0 z-30 shrink-0">
@@ -185,6 +203,22 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                 <ThemeSwitcher />
 
                 <div className="h-6 w-px bg-[var(--border-strong)] mx-1"></div>
+
+                {/* Calendar Popover */}
+                <div className="relative" ref={calendarRef}>
+                    <button
+                        className={`p-2 rounded-lg transition-colors flex items-center justify-center ${showCalendar ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'}`}
+                        onClick={() => setShowCalendar(!showCalendar)}
+                        title="日程日历"
+                    >
+                        <Calendar className="w-5 h-5" />
+                    </button>
+                    {showCalendar && (
+                        <div className="absolute right-0 top-[calc(100%+12px)] z-50 animate-in fade-in slide-in-from-top-2 duration-200" style={{ width: '320px' }}>
+                            <HomeCalendar />
+                        </div>
+                    )}
+                </div>
 
                 <button
                     className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
