@@ -1,8 +1,9 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdf = require('pdf-parse');
+import { NextRequest, NextResponse } from 'next/server';
 import mammoth from 'mammoth';
 import * as xlsx from 'xlsx';
+
+// 强制动态路由，阻止 Next.js 在构建时尝试执行此文件收集静态数据
+export const dynamic = 'force-dynamic';
 
 const MAX_EXTRACTED_TEXT_LENGTH = 100_000;
 
@@ -28,6 +29,9 @@ export async function POST(request: NextRequest) {
         let text = '';
 
         if (fileName.endsWith('.pdf')) {
+            // 运行时延迟加载，避免构建阶段触发 pdf-parse 的 DOMMatrix 依赖
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const pdf = require('pdf-parse');
             const data = await pdf(buffer);
             text = data.text;
         } else if (fileName.endsWith('.docx')) {

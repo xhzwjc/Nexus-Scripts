@@ -61,14 +61,10 @@
         "status": 0,
         "code": "reset_worker_sign",
         "name": " 补发共享协议签约短信通知",
-        "content": "尊敬的${name}，您的《共享经济协议》还未签署，请于${deadline}前点击签署链接完成签约：https://sign.seedlingintl.com/index/#/${signUrl} 签约事宜仅限本人操作。",
-        "params": [
-          "name",
-          "deadline",
-          "signUrl"
-        ],
+        "content": "您好！为保障您的合法权益与业务正常开展，请尽快登录灵零后微信小程序完成个人电子合同签署。操作流程：搜索灵零后小程序-授权登录（根据提示完成身份验证）-我的-我的协议-待签约状态协议，点击进入即可完成签署！此为必要流程，敬请配合。~",
+        "params": [],
         "remark": "",
-        "apiTemplateId": "SMS_487270163",
+        "apiTemplateId": "SMS_501766004",
         "channelId": 2,
         "channelCode": "ALIYUN",
         "createTime": 1748228392000
@@ -79,14 +75,10 @@
         "status": 0,
         "code": "worker_sign_notice",
         "name": "共享协议签约短信通知(dev)",
-        "content": "尊敬的${name}，现有一份《共享经济协议》待签署请于${deadline}前点击签署链接完成签约：https://sign.seedlingintl.com/index/#/${signUrl} 签约事宜仅限本人操作。",
-        "params": [
-          "name",
-          "deadline",
-          "signUrl"
-        ],
+        "content": "您好！为保障您的合法权益与业务正常开展，请尽快登录灵零后微信小程序完成个人电子合同签署。操作流程：搜索灵零后小程序-授权登录（根据提示完成身份验证）-我的-我的协议-待签约状态协议，点击进入即可完成签署！此为必要流程，敬请配合。~",
+        "params": [],
         "remark": "",
-        "apiTemplateId": "SMS_487340091",
+        "apiTemplateId": "SMS_501766004",
         "channelId": 2,
         "channelCode": "ALIYUN",
         "createTime": 1747293947000
