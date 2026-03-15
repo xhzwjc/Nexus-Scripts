@@ -6,11 +6,13 @@ from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from Crypto.Util.Padding import pad, unpad
 import base64
+import os
 
-# 密码加密密钥（32字节 = 256位）
-# 生产环境应该从环境变量读取
-PASSWORD_ENCRYPTION_KEY = b"TeamResourcesPasswordKey2024"  # 28字节，需要补齐到32字节
-PASSWORD_ENCRYPTION_KEY = PASSWORD_ENCRYPTION_KEY.ljust(32, b'\0')
+def _get_password_encryption_key() -> bytes:
+    raw = os.getenv("TEAM_RESOURCES_PASSWORD_ENCRYPTION_KEY", "").encode("utf-8")
+    if not raw:
+        raise RuntimeError("Missing TEAM_RESOURCES_PASSWORD_ENCRYPTION_KEY environment variable")
+    return raw.ljust(32, b'\0')
 
 
 def encrypt_password(plaintext: str) -> str:
@@ -30,7 +32,7 @@ def encrypt_password(plaintext: str) -> str:
     iv = get_random_bytes(16)
     
     # 创建加密器
-    cipher = AES.new(PASSWORD_ENCRYPTION_KEY, AES.MODE_CBC, iv)
+    cipher = AES.new(_get_password_encryption_key(), AES.MODE_CBC, iv)
     
     # 加密（需要 padding）
     ciphertext = cipher.encrypt(pad(plaintext.encode('utf-8'), AES.block_size))
@@ -61,7 +63,7 @@ def decrypt_password(encrypted: str) -> str:
         ciphertext = data[16:]
         
         # 创建解密器
-        cipher = AES.new(PASSWORD_ENCRYPTION_KEY, AES.MODE_CBC, iv)
+        cipher = AES.new(_get_password_encryption_key(), AES.MODE_CBC, iv)
         
         # 解密并去除 padding
         plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)

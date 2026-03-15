@@ -44,6 +44,7 @@ import axios, { AxiosError, AxiosInstance } from 'axios';
 import { toast } from 'sonner';
 import { getApiBaseUrl } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { getStoredScriptHubSession, requestScriptHubSession } from '@/lib/auth';
 
 // ===== Types =====
 interface Template {
@@ -454,10 +455,6 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
     // Handlers
     const handleAdminLogin = async () => {
         setLoginError('');
-        if (secretKey !== 'wjc') {
-            setLoginError(bs.login.toast.invalidKey);
-            return;
-        }
 
         const api = getSmsApi();
         if (!api) {
@@ -467,6 +464,16 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
 
         setIsLoggingIn(true);
         try {
+            const session = await requestScriptHubSession(secretKey.trim());
+            const currentSession = getStoredScriptHubSession();
+            if (
+                !session.user.permissions?.['sms-admin-login']
+                || (currentSession?.user.id && currentSession.user.id !== session.user.id)
+            ) {
+                setLoginError(bs.login.toast.invalidKey);
+                return;
+            }
+
             const res = await api.post<ApiResponse<LoginData>>('/system/auth/login', { environment });
             if (res.data.success || res.data.code === 0) {
                 const token = res.data.data?.accessToken;

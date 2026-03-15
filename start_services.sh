@@ -25,21 +25,31 @@ fi
 # 封装通用的Terminal启动函数（解决zsh环境加载问题）
 start_terminal_script() {
     local script="$1"
-    # 强制使用zsh，并先加载环境变量，再执行命令
-    osascript -e "tell application \"Terminal\" to do script \"zsh -l -c '$script'\""
+    # 使用 AppleScript 的 quoted form of 处理转义，避免命令里包含引号时语法炸掉
+    osascript - "$script" <<'APPLESCRIPT'
+on run argv
+    set shellCommand to item 1 of argv
+    tell application "Terminal"
+        do script ("zsh -l -c " & quoted form of shellCommand)
+        activate
+    end tell
+end run
+APPLESCRIPT
 }
+
+ENV_SOURCE_CMD="if [ -f '$ROOT/.env' ]; then set -a; source '$ROOT/.env'; set +a; fi"
 
 # 1. 启动前端服务（新Terminal窗口）
 echo "🔄 启动前端服务 (my-app)..."
-start_terminal_script "cd '$ROOT/my-app' && npm run dev"
+start_terminal_script "$ENV_SOURCE_CMD && cd '$ROOT/my-app' && npm run dev"
 
 # 2. 启动后端主服务（新Terminal窗口，激活venv虚拟环境）
 echo "🔄 启动后端主服务 (fastApiProject)..."
-start_terminal_script "cd '$ROOT/fastApiProject' && source '$VENV_DIR/bin/activate' && python3 run.py --reload"
+start_terminal_script "$ENV_SOURCE_CMD && cd '$ROOT/fastApiProject' && source '$VENV_DIR/bin/activate' && python3 run.py --reload"
 
 # 3. 启动Agent服务（新Terminal窗口，激活venv虚拟环境+设置环境变量）
 echo "🔄 启动Agent服务 (fastApiProject)..."
-start_terminal_script "cd '$ROOT/fastApiProject' && source '$VENV_DIR/bin/activate' && export AGENT_API_KEY='NjBkZGEwNjYtMmVmZS00ZjNlLTg1MTktOTM2Yzk4OGY5NTMx' && export AGENT_PORT='9200' && python3 server_agent.py"
+start_terminal_script "$ENV_SOURCE_CMD && cd '$ROOT/fastApiProject' && source '$VENV_DIR/bin/activate' && if [ -z \"\$AGENT_API_KEY\" ]; then echo '缺少 AGENT_API_KEY，请先在 $ROOT/.env 中配置'; exit 1; fi && export AGENT_PORT=\"\${AGENT_PORT:-9200}\" && python3 server_agent.py"
 
 echo ""
 echo "✅ 所有服务已启动！"

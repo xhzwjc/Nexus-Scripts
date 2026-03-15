@@ -14,10 +14,11 @@ interface ResourceViewerProps {
     onLock: () => void;
     onManage: () => void;
     isAdmin: boolean;
+    canHealthCheck: boolean;
     logoVersion?: number;
 }
 
-export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin, logoVersion }: ResourceViewerProps) {
+export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin, canHealthCheck, logoVersion }: ResourceViewerProps) {
     const { t } = useI18n();
     const tr = t.teamResources;
     const [activeGroup, setActiveGroup] = useState<string>(data[0]?.id || '');
@@ -65,9 +66,11 @@ export function ResourceViewer({ data, onBack, onLock, onManage, isAdmin, logoVe
                     </Button>
                     <span className="font-bold text-[var(--text-primary)]">{tr.viewerTitle}</span>
                     <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => setShowHealthCheck(true)} className="text-muted-foreground hover:text-green-600 dark:hover:text-green-400" title={tr.healthCheck}>
-                            <Shield className="w-4 h-4" />
-                        </Button>
+                        {canHealthCheck && (
+                            <Button variant="ghost" size="icon" onClick={() => setShowHealthCheck(true)} className="text-muted-foreground hover:text-green-600 dark:hover:text-green-400" title={tr.healthCheck}>
+                                <Shield className="w-4 h-4" />
+                            </Button>
+                        )}
                         {isAdmin && (
                             <Button variant="ghost" size="icon" onClick={onManage} className="text-muted-foreground hover:text-primary transition-colors" title={tr.manageResources}>
                                 <Settings className="w-4 h-4" />

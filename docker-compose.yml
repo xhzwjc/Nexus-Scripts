@@ -23,7 +23,10 @@ services:
     restart: always
     environment:
       - TZ=Asia/Shanghai
-      - NEXT_PUBLIC_API_BASE_URL=http://fastapi:8091
+      - NEXT_PUBLIC_API_BASE_URL=/api
+      - BACKEND_INTERNAL_BASE_URL=http://fastapi:8091
+      - SCRIPT_HUB_SESSION_SECRET=${SCRIPT_HUB_SESSION_SECRET}
+      - SCRIPT_HUB_ACCESS_KEYS_JSON=${SCRIPT_HUB_ACCESS_KEYS_JSON}
     networks:
       - app-network
 
@@ -33,6 +36,8 @@ services:
       context: ./fastapiProject
     image: project-root-fastapi:v1.0.0
     restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./fastapiProject:/app               # 映射代码目录，实现实时同步
       - paddlex_models:/root/.paddlex       # PaddleX 模型缓存
@@ -52,6 +57,7 @@ services:
       - DB_PROD_PASSWORD=${DB_PROD_PASSWORD}
       - DB_PROD_DATABASE=${DB_PROD_DATABASE}
       - DB_LOCAL_HOST=${DB_LOCAL_HOST}
+      - DB_LOCAL_HOST_DOCKER=${DB_LOCAL_HOST_DOCKER:-host.docker.internal}
       - DB_LOCAL_PORT=${DB_LOCAL_PORT}
       - DB_LOCAL_USER=${DB_LOCAL_USER}
       - DB_LOCAL_PASSWORD=${DB_LOCAL_PASSWORD}
@@ -86,6 +92,9 @@ services:
       - AI_API_KEY=${AI_API_KEY}
       - AI_MODEL_NAME=${AI_MODEL_NAME}
       - AGENT_API_KEY=${AGENT_API_KEY}
+      - SCRIPT_HUB_SESSION_SECRET=${SCRIPT_HUB_SESSION_SECRET}
+      - TEAM_RESOURCES_PASSWORD_ENCRYPTION_KEY=${TEAM_RESOURCES_PASSWORD_ENCRYPTION_KEY}
+      - TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY=${TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY}
       - CORS_ORIGINS=http://localhost,http://127.0.0.1,http://192.168.1.0/24,http://192.168.20.0/24,http://mac-mini.tail150593.ts.net
       - TZ=Asia/Shanghai
     networks:

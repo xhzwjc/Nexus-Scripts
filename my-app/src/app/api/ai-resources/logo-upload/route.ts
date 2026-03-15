@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
+import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+
 const LOGOS_DIR = path.join(process.cwd(), 'public', 'ai-logos');
+
+function isValidResourceId(id: string): boolean {
+    return /^[a-zA-Z0-9_-]+$/.test(id);
+}
 
 // 确保目录存在
 function ensureLogosDir() {
@@ -13,6 +19,11 @@ function ensureLogosDir() {
 
 // POST: 上传icon到本地目录
 export async function POST(request: NextRequest) {
+    const auth = requireScriptHubPermission(request, 'ai-resources-manage');
+    if ('response' in auth) {
+        return auth.response;
+    }
+
     try {
         const formData = await request.formData();
         const file = formData.get('file') as File;
@@ -20,6 +31,10 @@ export async function POST(request: NextRequest) {
 
         if (!file || !id) {
             return NextResponse.json({ error: 'Missing file or id' }, { status: 400 });
+        }
+
+        if (!isValidResourceId(id)) {
+            return NextResponse.json({ error: 'Invalid id format' }, { status: 400 });
         }
 
         ensureLogosDir();

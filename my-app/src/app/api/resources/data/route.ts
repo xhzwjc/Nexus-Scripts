@@ -1,12 +1,19 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+
+import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 export const dynamic = 'force-dynamic';
 
 const DATA_FILE = path.join(process.cwd(), 'data', 'team-resources.enc.json');
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+    const auth = requireScriptHubPermission(request, 'cert-health');
+    if ('response' in auth) {
+        return auth.response;
+    }
+
     try {
         // 确保目录存在
         const dir = path.dirname(DATA_FILE);

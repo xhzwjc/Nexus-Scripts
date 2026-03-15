@@ -260,7 +260,10 @@ class TeamResourceService:
         
         # 2. 准备加密
         # 密钥（需要与前端一致）
-        ENCRYPTION_KEY = "ScriptHub@TeamResources#2024!Secure"
+        import os
+        ENCRYPTION_KEY = os.getenv("TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY", "")
+        if not ENCRYPTION_KEY:
+            raise ValueError("Missing TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY environment variable")
         
         # 序列化为字符串
         json_str = json.dumps(data, ensure_ascii=False)

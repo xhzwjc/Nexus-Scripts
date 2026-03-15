@@ -10,6 +10,7 @@ import json
 import sys
 import hashlib
 import base64
+import os
 from pathlib import Path
 
 # Add the project root to sys.path to import app modules
@@ -22,8 +23,7 @@ from app.orm_models import (
     TeamResourceEnvironment, TeamResourceCredential
 )
 
-# 加密密钥（与前端一致）
-ENCRYPTION_KEY = "ScriptHub@TeamResources#2024!Secure"
+ENCRYPTION_KEY = os.getenv("TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY", "").strip()
 
 
 def decrypt_cryptojs_data(encrypted_data: str, password: str) -> str:
@@ -60,6 +60,10 @@ def migrate(force_recreate=True):
     print("=" * 60)
     print("团队资源迁移脚本")
     print("=" * 60)
+
+    if not ENCRYPTION_KEY:
+        print("      ✗ 缺少 TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY 环境变量")
+        return False
     
     # 1. 创建/重建表
     if force_recreate:

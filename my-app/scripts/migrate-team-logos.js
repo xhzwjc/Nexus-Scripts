@@ -16,7 +16,7 @@ const CryptoJS = require('crypto-js');
 
 const DATA_FILE = path.join(__dirname, '..', 'data', 'team-resources.enc.json');
 const LOGOS_DIR = path.join(__dirname, '..', 'public', 'team-logos');
-const ENCRYPTION_KEY = "ScriptHub@TeamResources#2024!Secure";
+const ENCRYPTION_KEY = (process.env.TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY || '').trim();
 
 // 确保目录存在
 if (!fs.existsSync(LOGOS_DIR)) {
@@ -25,6 +25,11 @@ if (!fs.existsSync(LOGOS_DIR)) {
 
 async function migrate() {
     console.log('=== Team Resources Logo Migration ===\n');
+
+    if (!ENCRYPTION_KEY) {
+        console.log('❌ Missing TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY environment variable');
+        return;
+    }
 
     // 1. 读取加密文件
     if (!fs.existsSync(DATA_FILE)) {

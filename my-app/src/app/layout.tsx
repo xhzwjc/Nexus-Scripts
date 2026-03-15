@@ -1,22 +1,5 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local"; // 引入 Next.js 本地字体工具
 import "./globals.css";
-
-// 配置无衬线字体（替代原 Geist）
-const geistSans = localFont({
-    src: "../../public/fonts/AlimamaAgileVF-Thin.woff2", // 字体文件路径
-    variable: "--font-geist-sans", // 保持原 CSS 变量名，避免影响其他样式
-    weight: "400", // 字体权重（根据实际字体特性填写）
-    style: "normal",
-});
-
-// 配置等宽字体（如果没有对应 Mono 版本，可复用同字体或替换为其他等宽字体）
-const geistMono = localFont({
-    src: "../../public/fonts/AlimamaAgileVF-Thin.woff2", // 若没有专门的 Mono 版本，可暂时复用
-    variable: "--font-geist-mono", // 保持原 CSS 变量名
-    weight: "400",
-    style: "normal",
-});
 
 export const metadata: Metadata = {
     title: "ScriptHub",
@@ -40,7 +23,7 @@ export default function RootLayout({
             <link rel="icon" href="/favicon.png" />
           </head>
           <body
-            className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+            className="antialiased"
           >
           {children}
           </body>

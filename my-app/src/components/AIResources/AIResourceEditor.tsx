@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { AIResource, AICategory, AIResourcesData } from '@/lib/ai-resources-data';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
+import { authenticatedFetch } from '@/lib/auth';
 
 interface AIResourceEditorProps {
     data: AIResourcesData;
@@ -51,7 +52,7 @@ export function AIResourceEditor({ data, isSaving, onCancel, onSave }: AIResourc
     useEffect(() => {
         const loadLogos = async () => {
             try {
-                const res = await fetch('/api/ai-resources/logo-list');
+                const res = await authenticatedFetch('/api/ai-resources/logo-list');
                 const data = await res.json();
                 setLogoCache(data.logos || {});
             } catch {
@@ -179,7 +180,7 @@ export function AIResourceEditor({ data, isSaving, onCancel, onSave }: AIResourc
             if (logosToDelete.size > 0) {
                 const deletePromises = Array.from(logosToDelete).map(async (id) => {
                     try {
-                        await fetch('/api/ai-resources/logo', {
+                        await authenticatedFetch('/api/ai-resources/logo', {
                             method: 'DELETE',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ id })
@@ -526,7 +527,7 @@ function ResourceEditModal({
     useEffect(() => {
         const loadIcon = async () => {
             try {
-                const res = await fetch('/api/ai-resources/logo-list');
+                const res = await authenticatedFetch('/api/ai-resources/logo-list');
                 const data = await res.json();
                 if (data.logos && data.logos[resource.id]) {
                     setIconPath(data.logos[resource.id]);
@@ -566,7 +567,7 @@ function ResourceEditModal({
             formData.append('file', file);
             formData.append('id', form.id);
 
-            const res = await fetch('/api/ai-resources/logo-upload', {
+            const res = await authenticatedFetch('/api/ai-resources/logo-upload', {
                 method: 'POST',
                 body: formData
             });

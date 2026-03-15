@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ResourceGroup, Environment, ENCRYPTION_KEY } from '@/lib/team-resources-data';
-import CryptoJS from 'crypto-js';
+import { ResourceGroup, Environment } from '@/lib/team-resources-data';
 import {
     ShieldAlert,
     ShieldX,
@@ -13,6 +12,7 @@ import {
     ChevronUp
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
+import { authenticatedFetch } from '@/lib/auth';
 
 // ==================== 可配置常量 ====================
 // 检测超时时间（毫秒），超过此时间视为异常中断
@@ -61,30 +61,51 @@ const DEFAULT_STATE: HealthCheckState = {
     healthPercent: 100,
 };
 
+const DEFAULT_ERROR_STATE: HealthCheckState = {
+    status: 'error',
+    totalEnvs: 0,
+    checkedEnvs: 0,
+    issues: [],
+    healthPercent: 100,
+};
+const SESSION_RESULT_KEY = 'health_check_result_v2';
+
+function parseUsableCachedResult(raw: string | null, userKey?: string): HealthCheckState | null {
+    if (!raw || !userKey) {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(raw);
+        const timestamp = Number(parsed.timestamp);
+        const cachedStatus = parsed?.result?.status;
+
+        if (
+            parsed.userKey !== userKey ||
+            !parsed.result ||
+            cachedStatus === 'idle' ||
+            cachedStatus === 'loading'
+        ) {
+            return null;
+        }
+
+        return {
+            ...parsed.result,
+            lastChecked: Number.isFinite(timestamp) ? new Date(timestamp) : undefined,
+        };
+    } catch {
+        return null;
+    }
+}
+
 export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, onHealthChange }: HeaderHealthIndicatorProps) {
     const { t } = useI18n();
     const tr = t.headerHealth;
 
-    // 使用 sessionStorage 记录当前会话是否已运行过检测
-    const SESSION_CHECK_KEY = 'health_check_ran';
-    const SESSION_RESULT_KEY = 'health_check_result';
-
     // 同步读取 sessionStorage 缓存，避免刷新时先闪一下"全部健康"再变成实际状态
     const [state, setState] = useState<HealthCheckState>(() => {
         if (!hasPermission || !userKey) return DEFAULT_STATE;
-        try {
-            const data = sessionStorage.getItem(SESSION_RESULT_KEY);
-            if (data) {
-                const parsed = JSON.parse(data);
-                if (parsed.userKey === userKey && parsed.result && parsed.result.status === 'success') {
-                    return {
-                        ...parsed.result,
-                        lastChecked: new Date(parsed.timestamp),
-                    };
-                }
-            }
-        } catch { /* ignore */ }
-        return DEFAULT_STATE;
+        return parseUsableCachedResult(sessionStorage.getItem(SESSION_RESULT_KEY), userKey) || DEFAULT_STATE;
     });
     const [groups, setGroups] = useState<ResourceGroup[]>([]);
     const [expanded, setExpanded] = useState(false);
@@ -92,22 +113,11 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
     const abortControllerRef = useRef<AbortController | null>(null);
     const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-
-    const hasRunInSession = useCallback(() => {
-        try {
-            const data = sessionStorage.getItem(SESSION_CHECK_KEY);
-            if (data) {
-                const parsed = JSON.parse(data);
-                return parsed.userKey === userKey;
-            }
-        } catch {
-            // ignore
-        }
-        return false;
-    }, [userKey]);
-
     // 保存检测结果到sessionStorage
     const saveResult = useCallback((result: HealthCheckState) => {
+        if (result.status === 'idle' || result.status === 'loading') {
+            return;
+        }
         try {
             sessionStorage.setItem(SESSION_RESULT_KEY, JSON.stringify({
                 userKey,
@@ -127,31 +137,22 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
 
     // 从sessionStorage恢复检测结果
     const restoreResult = useCallback((): HealthCheckState | null => {
-        try {
-            const data = sessionStorage.getItem(SESSION_RESULT_KEY);
-            if (data) {
-                const parsed = JSON.parse(data);
-                if (parsed.userKey === userKey && parsed.result) {
-                    return {
-                        ...parsed.result,
-                        lastChecked: new Date(parsed.timestamp)
-                    };
-                }
-            }
-        } catch {
-            // ignore
-        }
-        return null;
+        return parseUsableCachedResult(sessionStorage.getItem(SESSION_RESULT_KEY), userKey);
     }, [userKey]);
 
     const clearSessionCheck = useCallback(() => {
         try {
-            sessionStorage.removeItem(SESSION_CHECK_KEY);
             sessionStorage.removeItem(SESSION_RESULT_KEY);
         } catch {
             // ignore
         }
     }, []);
+
+    const setFetchErrorState = useCallback(() => {
+        setState(DEFAULT_ERROR_STATE);
+        saveResult(DEFAULT_ERROR_STATE);
+        onHealthChange?.(DEFAULT_ERROR_STATE);
+    }, [onHealthChange, saveResult]);
 
     // 组件挂载时将同步恢复的缓存结果通知父组件
     // （useState 的 lazy initializer 已经同步恢复了 state，这里只需通知 parent）
@@ -159,7 +160,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
     useEffect(() => {
         if (initialNotifiedRef.current) return;
         initialNotifiedRef.current = true;
-        if (hasPermission && userKey && state.status === 'success') {
+        if (hasPermission && userKey && (state.status === 'success' || state.status === 'error')) {
             onHealthChange?.(state);
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -179,42 +180,45 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
     }, [hasPermission, onHealthChange, clearSessionCheck]);
 
     // 加载团队资源数据
-    // 加载团队资源数据
-    const fetchGroups = useCallback(() => {
-        if (!hasPermission) return;
+    const fetchGroups = useCallback(async (): Promise<ResourceGroup[] | null> => {
+        if (!hasPermission) return null;
 
-        // 添加时间戳防止缓存
-        fetch(`/api/resources/data?t=${Date.now()}`, {
-            headers: {
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
+        try {
+            const res = await authenticatedFetch('/api/team-resources/data', {
+                cache: 'no-store',
+            });
+            if (!res.ok) {
+                throw new Error(await res.text() || 'Failed to load team resources');
             }
-        })
-            .then(res => res.json())
-            .then(json => {
-                if (json.encrypted) {
-                    const bytes = CryptoJS.AES.decrypt(json.encrypted, ENCRYPTION_KEY);
-                    const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-                    if (decrypted) {
-                        setGroups(JSON.parse(decrypted));
-                    }
-                }
-            })
-            .catch(() => { /* ignore */ });
-    }, [hasPermission]);
+            const json = await res.json();
+            if (json.success && Array.isArray(json.data)) {
+                setGroups(json.data);
+                return json.data as ResourceGroup[];
+            }
+            throw new Error('Invalid team resources response');
+        } catch {
+            clearSessionCheck();
+            setGroups([]);
+            setFetchErrorState();
+            return null;
+        }
+    }, [clearSessionCheck, hasPermission, setFetchErrorState]);
 
     useEffect(() => {
-        fetchGroups();
+        const restored = !isFreshLogin ? restoreResult() : null;
+        if (!restored) {
+            void fetchGroups();
+        }
 
         const handleUpdate = () => {
-            fetchGroups();
+            void fetchGroups();
         };
 
         window.addEventListener('team-resources-updated', handleUpdate);
         return () => {
             window.removeEventListener('team-resources-updated', handleUpdate);
         };
-    }, [fetchGroups]);
+    }, [fetchGroups, isFreshLogin, restoreResult]);
 
     // 检测单个URL
     const checkSingleUrl = async (url: string, signal?: AbortSignal): Promise<{
@@ -223,7 +227,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
         error?: string;
     }> => {
         try {
-            const response = await fetch('/api/health-check', {
+            const response = await authenticatedFetch('/api/health-check', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url }),
@@ -247,8 +251,8 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
     };
 
     // 执行健康检测
-    const runHealthCheck = useCallback(async () => {
-        if (groups.length === 0 || isCheckingRef.current) return;
+    const runHealthCheck = useCallback(async (resourceGroups: ResourceGroup[] = groups) => {
+        if (resourceGroups.length === 0 || isCheckingRef.current) return;
 
         // 取消之前的检测
         if (abortControllerRef.current) {
@@ -294,7 +298,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
             skipCertCheck?: boolean;
         }[] = [];
 
-        for (const group of groups) {
+        for (const group of resourceGroups) {
             for (const system of group.systems) {
                 const envOrder: Environment[] = ['prod', 'test', 'dev'];
                 for (const envKey of envOrder) {
@@ -389,6 +393,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                     healthPercent: 100,
                 };
                 setState(errorState);
+                saveResult(errorState);
                 onHealthChange?.(errorState);
             } else if (result === 'success') {
                 // 成功完成
@@ -417,6 +422,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                     healthPercent: 100,
                 };
                 setState(errorState);
+                saveResult(errorState);
                 onHealthChange?.(errorState);
             }
         } catch {
@@ -429,6 +435,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                 healthPercent: 100,
             };
             setState(errorState);
+            saveResult(errorState);
             onHealthChange?.(errorState);
         } finally {
             isCheckingRef.current = false;
@@ -496,18 +503,31 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
 
     if (!hasPermission) return null;
 
+    const isIdle = state.status === 'idle';
     const isLoading = state.status === 'loading';
     const isError = state.status === 'error';
     const hasIssues = state.status === 'success' && state.issues.length > 0;
     const expiredCount = state.issues.filter(i => i.daysRemaining !== undefined && i.daysRemaining <= 0).length;
+    const handleRetry = () => {
+        void (async () => {
+            if (groups.length === 0) {
+                const loadedGroups = await fetchGroups();
+                if (loadedGroups && loadedGroups.length > 0) {
+                    await runHealthCheck(loadedGroups);
+                }
+                return;
+            }
+            await runHealthCheck();
+        })();
+    };
 
-    // 如果正在加载，显示进度
-    if (isLoading) {
+    // 初始化或正在检测时，统一显示检测中，避免把 idle 误显示为“全部健康”
+    if (isIdle || isLoading) {
         return (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-full border border-blue-200 dark:border-blue-800">
                 <RefreshCw className="w-3.5 h-3.5 text-blue-500 animate-spin" />
                 <span className="text-xs text-blue-700 dark:text-blue-300">
-                    {tr.checking} {state.checkedEnvs}/{state.totalEnvs}
+                    {isLoading ? `${tr.checking} ${state.checkedEnvs}/${state.totalEnvs}` : tr.checking}
                 </span>
             </div>
         );
@@ -518,7 +538,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
         return (
             <button
                 className="flex items-center gap-2 px-3 py-1.5 bg-yellow-50 dark:bg-yellow-900/20 rounded-full border border-yellow-200 dark:border-yellow-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
-                onClick={runHealthCheck}
+                onClick={handleRetry}
                 title={tr.retryTooltip}
             >
                 <ShieldAlert className="w-3.5 h-3.5 text-yellow-600 dark:text-yellow-400" />

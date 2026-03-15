@@ -17,6 +17,7 @@ import {
     ExternalLink
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
+import { authenticatedFetch } from '@/lib/auth';
 
 // 单个环境的检测结果
 interface EnvCheckResult {
@@ -182,7 +183,7 @@ export function HealthCheckPanel({ groups, onClose }: HealthCheckPanelProps) {
         error?: string;
     }> => {
         try {
-            const response = await fetch('/api/health-check', {
+            const response = await authenticatedFetch('/api/health-check', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url }),

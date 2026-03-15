@@ -48,6 +48,7 @@ const DevTools = dynamic(() => import("./components/DevTools"), { loading: () =>
 const TeamResourcesContainer = dynamic(() => import("./components/TeamResources/TeamResourcesContainer").then(mod => ({ default: mod.TeamResourcesContainer })), { loading: () => <LoadingComponent />, ssr: false });
 const ServerMonitoringScript = dynamic(() => import("./pages/ops/ServerMonitoring"), { loading: () => <LoadingComponent />, ssr: false });
 const AgentChat = dynamic(() => import("./components/AgentChat/AgentChat"), { loading: () => <LoadingComponent />, ssr: false });
+const AccessControlCenter = dynamic(() => import("./components/AccessControl/AccessControlCenter").then(mod => ({ default: mod.AccessControlCenter })), { loading: () => <LoadingComponent />, ssr: false });
 
 // Layout 组件导入
 import { HelpPage } from './components/Layout/HelpPage';
@@ -58,8 +59,6 @@ import { HelpPage } from './components/Layout/HelpPage';
 import { DashboardSidebar } from './components/Layout/DashboardSidebar';
 import { DashboardHeader as DashHeader } from './components/Layout/DashboardHeader';
 import { AIResourcesContainer } from './components/AIResources';
-import { ClothBackground } from './components/Layout/ClothBackground';
-import { BubuMascot } from './components/Layout/BubuMascot';
 import { QuickActions, saveRecentScript } from './components/Layout/QuickActions';
 import { DashboardLoadingScreen } from './components/Layout/DashboardLoadingScreen';
 import { AnimatedLoginCharacters } from './components/Layout/AnimatedLoginCharacters';
@@ -69,15 +68,19 @@ import { ConfirmDialog } from './components/ui/ConfirmDialog';
 
 // i18n
 import { I18nProvider, useI18n } from './lib/i18n';
+import {
+    clearScriptHubSession,
+    persistScriptHubSession,
+    requestScriptHubSession,
+    validateStoredScriptHubSession,
+} from './lib/auth';
 
 // 类型和配置导入
 import type { User, ViewType, WeatherState, SystemConfig } from './lib/types';
 import {
-    keyUserMap,
     allScripts,
     WEATHER_CACHE_KEY,
     WEATHER_TTL,
-    getEndOfDayTimestamp
 } from './lib/config';
 
 import { ThemeProvider } from '@/lib/theme';
@@ -132,14 +135,16 @@ function AppContent() {
     // 搜索相关状态
     const [homeSearchQuery, setHomeSearchQuery] = useState('');
     const [showSearchResults, setShowSearchResults] = useState(false);
+    const HEALTH_CHECK_CACHE_KEY = 'health_check_result_v2';
 
     // 证书健康检测状态 — 同步从 sessionStorage 恢复缓存，避免刷新时闪烁
     const [healthCheckState, setHealthCheckState] = useState<{ status: 'idle' | 'loading' | 'success' | 'error'; healthPercent: number; issues: unknown[]; totalEnvs: number; checkedEnvs: number } | undefined>(() => {
         try {
-            const data = sessionStorage.getItem('health_check_result');
+            const data = sessionStorage.getItem(HEALTH_CHECK_CACHE_KEY);
             if (data) {
                 const parsed = JSON.parse(data);
-                if (parsed.result && parsed.result.status === 'success') {
+                const status = parsed?.result?.status;
+                if (parsed.result && status !== 'idle' && status !== 'loading') {
                     return parsed.result;
                 }
             }
@@ -236,12 +241,17 @@ function AppContent() {
             { id: 'teamResources', name: t.teamResources?.viewerTitle || 'Team Resources', desc: isZh ? '系统账号与环境配置管理' : 'System account & environment management', keywords: ['团队', '资源', 'team', '账号', '环境', 'resources', 'account'] },
             { id: 'aiResources', name: t.aiResources?.title || 'AI Tools', desc: isZh ? '常用AI工具与资源导航' : 'AI tool resources navigation', keywords: ['ai', '人工智能', '工具库', 'chatgpt', 'artificial', 'intelligence'] },
             { id: 'agent-chat', name: t.agentChat?.title || 'AI Agent', desc: isZh ? 'AI智能对话助手，简历筛选等预设工作流' : 'AI chat assistant with preset workflows', keywords: ['agent', '助手', 'ai', '对话', '简历', 'chat', 'resume', 'assistant'] },
+            { id: 'accessControl', name: t.nav.accessControl, desc: t.home.search.accessControl.desc, keywords: ['权限', '角色', '用户', 'rbac', 'iam', 'access', 'role', 'permission'] },
             { id: 'help', name: t.helpPage?.title || 'Help Center', desc: isZh ? '使用指南与文档' : 'User guide & documentation', keywords: ['帮助', 'help', '文档', '指南', 'guide', 'documentation'] },
         ];
 
         toolItems.forEach(item => {
             // 权限控制 checks
             if (item.id === 'devtools' && !currentUser?.permissions['dev-tools']) return;
+            if (item.id === 'teamResources' && !currentUser?.permissions['team-resources']) return;
+            if (item.id === 'aiResources' && !currentUser?.permissions['ai-resources']) return;
+            if (item.id === 'agent-chat' && !currentUser?.permissions['agent-chat']) return;
+            if (item.id === 'accessControl' && !currentUser?.permissions['rbac-manage']) return;
 
             if (item.name.toLowerCase().includes(query) || item.desc.toLowerCase().includes(query) || item.keywords.some(k => k.includes(query))) {
                 if (!results.find(r => r.id === item.id)) {
@@ -322,19 +332,24 @@ function AppContent() {
             return;
         }
 
-        if (input !== userKey.trim()) {
-            if (keyUserMap[input]) {
-                showLockValidationMessage(t.lock.wrongAccount);
-            } else {
+        void (async () => {
+            try {
+                const session = await requestScriptHubSession(input);
+                if (session.user.id !== currentUser?.id) {
+                    showLockValidationMessage(t.lock.wrongAccount);
+                    return;
+                }
+
+                persistScriptHubSession(session);
+                setIsLocked(false);
+                setLockKey('');
+                setUserKey(session.user.id || '');
+                lastActivityRef.current = Date.now();
+                toast.success(t.lock.unlockSuccess);
+            } catch {
                 showLockValidationMessage(t.lock.wrongKey);
             }
-            return;
-        }
-
-        setIsLocked(false);
-        setLockKey('');
-        lastActivityRef.current = Date.now();
-        toast.success(t.lock.unlockSuccess);
+        })();
     };
 
 
@@ -408,22 +423,26 @@ function AppContent() {
 
     // 认证初始化
     useEffect(() => {
-        setTimeout(() => {
-            const saved = localStorage.getItem('scriptHubAuth');
-            if (saved) {
-                try {
-                    const a = JSON.parse(saved);
-                    if (Date.now() <= a.expiresAt && keyUserMap[a.key]) {
-                        setCurrentUser(keyUserMap[a.key]);
-                        setUserKey(a.key);
-                        filterScripts(keyUserMap[a.key]);
-                        setIsLoading(false);
-                        return;
-                    }
-                } catch { /* ignore */ }
+        let mounted = true;
+
+        void (async () => {
+            const session = await validateStoredScriptHubSession();
+            if (!mounted) {
+                return;
             }
+
+            if (session) {
+                setCurrentUser(session.user);
+                setUserKey(session.user.id || '');
+                filterScripts(session.user);
+            }
+
             setIsLoading(false);
-        }, 100);
+        })();
+
+        return () => {
+            mounted = false;
+        };
     }, []);
 
     const showKeyValidationMessage = (message: string) => {
@@ -454,28 +473,24 @@ function AppContent() {
         if (inputEl) inputEl.setCustomValidity('');
 
         setIsVerifying(true);
-        setTimeout(() => {
-            const u = keyUserMap[trimmedKey];
-            if (u) {
-                localStorage.setItem('scriptHubAuth', JSON.stringify({
-                    key: trimmedKey,
-                    user: u,
-                    expiresAt: getEndOfDayTimestamp()
-                }));
-                setCurrentUser(u);
-                filterScripts(u);
+        void (async () => {
+            try {
+                const session = await requestScriptHubSession(trimmedKey);
+                persistScriptHubSession(session);
+                setCurrentUser(session.user);
+                setUserKey(session.user.id || '');
+                filterScripts(session.user);
                 setIsLocked(false);
-                setIsFreshLogin(true); // 标记为新登录，触发健康检测
+                setIsFreshLogin(true);
                 lastActivityRef.current = Date.now();
                 localStorage.setItem('app_last_activity', lastActivityRef.current.toString());
                 toast.success(t.auth.verifySuccess);
+            } catch {
+                showKeyValidationMessage(t.auth.invalidKey);
+            } finally {
                 setIsVerifying(false);
-                return;
             }
-
-            setIsVerifying(false);
-            showKeyValidationMessage(t.auth.invalidKey);
-        }, 500);
+        })();
     };
 
     const filterScripts = (user: User) => {
@@ -494,7 +509,13 @@ function AppContent() {
         setSelectedScript('');
         setCurrentView('home');
         setSystems(allScripts);
-        localStorage.removeItem('scriptHubAuth');
+        clearScriptHubSession();
+        sessionStorage.removeItem('team_resources_unlocked');
+        sessionStorage.removeItem('team_resources_admin');
+        sessionStorage.removeItem('team_resources_last_activity');
+        sessionStorage.removeItem('team_resources_user_id');
+        sessionStorage.removeItem('health_check_result');
+        sessionStorage.removeItem(HEALTH_CHECK_CACHE_KEY);
     };
 
     // 快捷导航到脚本
@@ -792,7 +813,7 @@ function AppContent() {
                                         <Server className="w-4 h-4" />
                                     </div>
                                     <span className="text-muted-foreground">{t.home.systemHealth}</span>
-                                    <span className="font-semibold text-foreground">100%</span>
+                                    <span className="font-semibold text-foreground">--</span>
                                     <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border-0 text-[10px] px-1.5 py-0">{t.home.detectFailed}</Badge>
                                 </div>
                             );
@@ -1143,6 +1164,11 @@ function AppContent() {
                         {currentView === 'agent-chat' && (
                             <div className="h-full p-0">
                                 <AgentChat onBack={() => setCurrentView('home')} />
+                            </div>
+                        )}
+                        {currentView === 'access-control' && (
+                            <div className="h-full p-0">
+                                <AccessControlCenter onBack={() => setCurrentView('home')} />
                             </div>
                         )}
                     </main>

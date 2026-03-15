@@ -90,9 +90,6 @@ export default function DevTools({ onBack }: DevToolsProps) {
     // State - JSON Tree (collapsible)
     const [jsonCollapsed, setJsonCollapsed] = useState<Set<string>>(new Set());
 
-    // Default encryption key
-    const DEFAULT_ENCRYPTION_KEY = 'ScriptHub@TeamResources#2024!Secure';
-
     // ================== Handlers ==================
 
     const copyToClipboard = (text: string, msg?: string) => {
@@ -316,8 +313,13 @@ export default function DevTools({ onBack }: DevToolsProps) {
             return;
         }
 
+        if (!decryptKey.trim()) {
+            setDecryptError(t.decrypt.emptyKey);
+            return;
+        }
+
         try {
-            const key = decryptKey.trim() || DEFAULT_ENCRYPTION_KEY;
+            const key = decryptKey.trim();
             const bytes = CryptoJS.AES.decrypt(decryptInput.trim(), key);
             const decrypted = bytes.toString(CryptoJS.enc.Utf8);
 

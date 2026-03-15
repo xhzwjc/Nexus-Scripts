@@ -19,9 +19,12 @@ app = Flask(__name__)
 # CORS(app)
 
 # ========== 配置 ==========
-API_KEY = os.getenv("AGENT_API_KEY", "your-secret-api-key-here")  # 生产环境请设置环境变量
+API_KEY = os.getenv("AGENT_API_KEY", "").strip()
 METRICS_CACHE_INTERVAL = 5  # 缓存刷新间隔（秒）
 PORT = int(os.getenv("AGENT_PORT", 9200))
+
+if not API_KEY:
+    raise RuntimeError("Missing AGENT_API_KEY environment variable")
 
 # ========== 认证中间件 ==========
 @app.before_request

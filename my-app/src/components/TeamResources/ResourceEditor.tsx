@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Plus, Save, Trash2, ArrowLeft, Building2, Database, Globe, Key, Upload, X, GripVertical, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
+import { authenticatedFetch } from '@/lib/auth';
 import {
     DndContext,
     closestCenter,
@@ -454,7 +455,7 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
 
             for (const [groupId, base64] of Object.entries(pendingLogos)) {
                 try {
-                    const res = await fetch('/api/team-resources/logo', {
+                    const res = await authenticatedFetch('/api/team-resources/logo', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ groupId, base64 })
@@ -476,7 +477,7 @@ export function ResourceEditor({ groups, onCancel, onSave, logoVersion }: Resour
             // 2. 删除标记为待删除的服务器端 Logo
             for (const groupId of logosToDelete) {
                 try {
-                    await fetch(`/api/team-resources/logo?groupId=${groupId}`, {
+                    await authenticatedFetch(`/api/team-resources/logo?groupId=${groupId}`, {
                         method: 'DELETE'
                     });
                 } catch (error) {

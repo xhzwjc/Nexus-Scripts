@@ -7,6 +7,7 @@ import type { AIResource, AIResourcesData } from '@/lib/ai-resources-data';
 import { AIResourceEditor } from '@/components/AIResources/AIResourceEditor';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
+import { authenticatedFetch, getStoredScriptHubSession } from '@/lib/auth';
 
 interface AIResourcesContainerProps {
     onBack: () => void;
@@ -55,23 +56,16 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
     const deferredSearchQuery = useDeferredValue(searchQuery);
 
     // 用户权限状态
-    const [currentUserKey, setCurrentUserKey] = useState<string | null>(null);
+    const [canManage, setCanManage] = useState(false);
 
     useEffect(() => {
         try {
-            const authStr = localStorage.getItem('scriptHubAuth');
-            if (authStr) {
-                const authData = JSON.parse(authStr);
-                if (authData && authData.key) {
-                    setCurrentUserKey(authData.key);
-                }
-            }
+            const session = getStoredScriptHubSession();
+            setCanManage(!!session?.user.permissions?.['ai-resources-manage']);
         } catch (e) {
             console.error('Failed to parse user info', e);
         }
     }, []);
-
-    const isSuperAdmin = currentUserKey === 'wjc';
 
     // 加载数据
     useEffect(() => {
@@ -88,7 +82,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
             setLoadError(null);
 
             // 1. 并行发起请求
-            const dataPromise = fetch('/api/ai-resources/data', { signal: controller.signal })
+            const dataPromise = authenticatedFetch('/api/ai-resources/data', { signal: controller.signal })
                 .then(async res => {
                     if (!res.ok) throw new Error('Data fetch failed');
                     const jsonData = await res.json();
@@ -102,7 +96,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
                 });
 
             // Logo 在后台加载，不阻塞主数据显示
-            fetch('/api/ai-resources/logo-list', { signal: controller.signal })
+            authenticatedFetch('/api/ai-resources/logo-list', { signal: controller.signal })
                 .then(async res => {
                     if (res.ok) {
                         const logoListData = await res.json();
@@ -161,7 +155,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
 
     const refreshLogos = async () => {
         try {
-            const logoListRes = await fetch('/api/ai-resources/logo-list');
+            const logoListRes = await authenticatedFetch('/api/ai-resources/logo-list');
             const logoListData = await logoListRes.json();
             setLogoCache(logoListData.logos || {});
         } catch {
@@ -186,7 +180,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
 
         const downloadOne = async (resource: AIResource) => {
             try {
-                const res = await fetch('/api/ai-resources/logo', {
+                const res = await authenticatedFetch('/api/ai-resources/logo', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: resource.id, logoUrl: resource.logoUrl, siteUrl: resource.url })
@@ -222,7 +216,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
     const handleSave = async (updatedData: AIResourcesData) => {
         setIsSaving(true);
         try {
-            const res = await fetch('/api/ai-resources/save', {
+            const res = await authenticatedFetch('/api/ai-resources/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatedData)
@@ -311,7 +305,7 @@ export function AIResourcesContainer({ onBack }: AIResourcesContainerProps) {
                             )}
                         </div>
 
-                        {isSuperAdmin && (
+                        {canManage && (
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={downloadMissingLogos}

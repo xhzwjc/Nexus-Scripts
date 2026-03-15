@@ -1,7 +1,9 @@
 import React from 'react';
-import { Wrench, ScanLine, CircleHelp, ScrollText, LogOut, ChevronRight, Server, CheckCircle, Users, Sparkles, Bot } from 'lucide-react';
+import { Wrench, ScanLine, CircleHelp, ScrollText, LogOut, ChevronRight, Server, CheckCircle, Users, Sparkles, Bot, Shield } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import type { ViewType, User } from '@/lib/types';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 
 interface SidebarProps {
     currentView: string;
@@ -23,9 +25,9 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     const { t } = useI18n();
 
     return (
-        <aside className="dashboard-sidebar w-[260px] h-screen flex flex-col py-6 px-4 z-40 bg-[var(--glass-bg)] backdrop-blur-xl border-r border-[var(--sidebar-border)] shadow-sm shrink-0">
+        <aside className="dashboard-sidebar w-[260px] h-screen flex flex-col overflow-hidden py-6 px-4 z-40 bg-[var(--glass-bg)] backdrop-blur-xl border-r border-[var(--sidebar-border)] shadow-sm shrink-0">
             {/* Logo */}
-            <div className="flex items-center gap-2.5 px-3 mb-8">
+            <div className="flex shrink-0 items-center gap-2.5 px-3 mb-6">
                 <div className="w-8 h-8 bg-gradient-to-br from-teal-500 to-teal-600 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-lg">
                     S
                 </div>
@@ -34,126 +36,140 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                 </span>
             </div>
 
-            {/* MAIN 导航区 - 工作区域 */}
-            <div className="mb-6">
-                <p className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider px-3 mb-3">{t.nav.workspace}</p>
-                <nav className="space-y-1">
-                    <div
-                        className={`sidebar-nav-item ${currentView === 'home' ? 'active' : ''}`}
-                        onClick={() => setCurrentView('home')}
-                    >
-                        <div className={`w-5 h-5 flex items-center justify-center ${currentView === 'home' ? 'text-teal-600' : 'text-current'}`}>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" /></svg>
+            <div className="flex min-h-0 flex-1 flex-col">
+                <ScrollArea className="min-h-0 flex-1 pr-1">
+                    <div className="space-y-6 pb-4">
+                        {/* MAIN 导航区 - 工作区域 */}
+                        <div>
+                            <p className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider px-3 mb-3">{t.nav.workspace}</p>
+                            <nav className="space-y-1">
+                                <div
+                                    className={`sidebar-nav-item ${currentView === 'home' ? 'active' : ''}`}
+                                    onClick={() => setCurrentView('home')}
+                                >
+                                    <div className={`w-5 h-5 flex items-center justify-center ${currentView === 'home' ? 'text-teal-600' : 'text-current'}`}>
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" /></svg>
+                                    </div>
+                                    <span>{t.nav.home}</span>
+                                </div>
+                                <div
+                                    className={`sidebar-nav-item ${currentView === 'system' ? 'active' : ''}`}
+                                    onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}
+                                >
+                                    <Wrench className="w-[18px] h-[18px]" />
+                                    <span>{t.nav.cmTools}</span>
+                                </div>
+                                <div
+                                    className={`sidebar-nav-item ${currentView === 'ocr-tool' ? 'active' : ''}`}
+                                    onClick={() => setCurrentView('ocr-tool')}
+                                >
+                                    <ScanLine className="w-[18px] h-[18px]" />
+                                    <span>{t.nav.ocrTool}</span>
+                                </div>
+                                {/* Operations Center (Restricted) */}
+                                {currentUser?.permissions['server-monitoring'] && (
+                                    <div
+                                        className={`sidebar-nav-item ${currentView === 'ops-center' ? 'active' : ''}`}
+                                        onClick={() => setCurrentView('ops-center')}
+                                    >
+                                        <Server className="w-[18px] h-[18px]" />
+                                        <span>{t.nav.opsCenter}</span>
+                                    </div>
+                                )}
+                                {currentUser?.permissions['team-resources'] && (
+                                    <div
+                                        className={`sidebar-nav-item ${currentView === 'team-resources' ? 'active' : ''}`}
+                                        onClick={() => setCurrentView('team-resources')}
+                                    >
+                                        <Users className="w-[18px] h-[18px]" />
+                                        <span>{t.nav.teamResources}</span>
+                                    </div>
+                                )}
+                                {currentUser?.permissions['ai-resources'] && (
+                                    <div
+                                        className={`sidebar-nav-item ${currentView === 'ai-resources' ? 'active' : ''}`}
+                                        onClick={() => setCurrentView('ai-resources')}
+                                    >
+                                        <Sparkles className="w-[18px] h-[18px]" />
+                                        <span>{t.nav.aiResources}</span>
+                                    </div>
+                                )}
+                                {currentUser?.permissions['agent-chat'] && (
+                                    <div
+                                        className={`sidebar-nav-item ${currentView === 'agent-chat' ? 'active' : ''}`}
+                                        onClick={() => setCurrentView('agent-chat')}
+                                    >
+                                        <Bot className="w-[18px] h-[18px]" />
+                                        <span>{t.agentChat.navLabel}</span>
+                                    </div>
+                                )}
+                                {currentUser?.permissions['rbac-manage'] && (
+                                    <div
+                                        className={`sidebar-nav-item ${currentView === 'access-control' ? 'active' : ''}`}
+                                        onClick={() => setCurrentView('access-control')}
+                                    >
+                                        <Shield className="w-[18px] h-[18px]" />
+                                        <span>{t.nav.accessControl}</span>
+                                    </div>
+                                )}
+                            </nav>
                         </div>
-                        <span>{t.nav.home}</span>
-                    </div>
-                    <div
-                        className={`sidebar-nav-item ${currentView === 'system' ? 'active' : ''}`}
-                        onClick={() => { setSelectedSystem('chunmiao'); setScriptQuery(''); setCurrentView('system'); }}
-                    >
-                        <Wrench className="w-[18px] h-[18px]" />
-                        <span>{t.nav.cmTools}</span>
-                    </div>
-                    <div
-                        className={`sidebar-nav-item ${currentView === 'ocr-tool' ? 'active' : ''}`}
-                        onClick={() => setCurrentView('ocr-tool')}
-                    >
-                        <ScanLine className="w-[18px] h-[18px]" />
-                        <span>{t.nav.ocrTool}</span>
-                    </div>
-                    {/* Operations Center (Restricted) */}
-                    {currentUser?.permissions['server-monitoring'] && (
+
+                        {/* 系统支持 */}
                         <div
-                            className={`sidebar-nav-item ${currentView === 'ops-center' ? 'active' : ''}`}
-                            onClick={() => setCurrentView('ops-center')}
+                            className="space-y-3"
                         >
-                            <Server className="w-[18px] h-[18px]" />
-                            <span>{t.nav.opsCenter}</span>
+                            <p className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider px-3">{t.nav.support}</p>
+                            <nav className="space-y-1">
+                                <div
+                                    className={`sidebar-nav-item ${currentView === 'help' ? 'active' : ''}`}
+                                    onClick={() => setCurrentView('help')}
+                                >
+                                    <CircleHelp className="w-[18px] h-[18px]" />
+                                    <span>{t.nav.helpCenter}</span>
+                                </div>
+                                <div className="sidebar-nav-item disabled" title={t.nav.systemLogs}>
+                                    <ScrollText className="w-[18px] h-[18px]" />
+                                    <span>{t.nav.systemLogs}</span>
+                                </div>
+                            </nav>
                         </div>
-                    )}
-                    <div
-                        className={`sidebar-nav-item ${currentView === 'team-resources' ? 'active' : ''}`}
-                        onClick={() => setCurrentView('team-resources')}
-                    >
-                        <Users className="w-[18px] h-[18px]" />
-                        <span>{t.nav.teamResources}</span>
-                    </div>
-                    <div
-                        className={`sidebar-nav-item ${currentView === 'ai-resources' ? 'active' : ''}`}
-                        onClick={() => setCurrentView('ai-resources')}
-                    >
-                        <Sparkles className="w-[18px] h-[18px]" />
-                        <span>{t.nav.aiResources}</span>
-                    </div>
-                    <div
-                        className={`sidebar-nav-item ${currentView === 'agent-chat' ? 'active' : ''}`}
-                        onClick={() => setCurrentView('agent-chat')}
-                    >
-                        <Bot className="w-[18px] h-[18px]" />
-                        <span>{t.agentChat.navLabel}</span>
-                    </div>
-                </nav>
-            </div>
 
-            {/* 系统支持 */}
-            <div className="mb-6">
-                <p className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider px-3 mb-3">{t.nav.support}</p>
-                <nav className="space-y-1">
-                    <div
-                        className={`sidebar-nav-item ${currentView === 'help' ? 'active' : ''}`}
-                        onClick={() => setCurrentView('help')}
-                    >
-                        <CircleHelp className="w-[18px] h-[18px]" />
-                        <span>{t.nav.helpCenter}</span>
+                        {/* 账号管理 */}
+                        <div className="space-y-3">
+                            <p className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider px-3">{t.nav.account}</p>
+                            <nav className="space-y-1">
+                                <div className="sidebar-nav-item" onClick={() => setShowLogoutConfirm(true)}>
+                                    <LogOut className="w-[18px] h-[18px]" />
+                                    <span>{t.nav.logout}</span>
+                                </div>
+                            </nav>
+                        </div>
                     </div>
-                    <div className="sidebar-nav-item disabled" title={t.nav.systemLogs}>
-                        <ScrollText className="w-[18px] h-[18px]" />
-                        <span>{t.nav.systemLogs}</span>
-                    </div>
-                </nav>
-            </div>
+                </ScrollArea>
 
-            {/* 账号管理 */}
-            <div className="mb-6">
-                <p className="text-[11px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider px-3 mb-3">{t.nav.account}</p>
-                <nav className="space-y-1">
-                    <div className="sidebar-nav-item" onClick={() => setShowLogoutConfirm(true)}>
-                        <LogOut className="w-[18px] h-[18px]" />
-                        <span>{t.nav.logout}</span>
-                    </div>
-                </nav>
-            </div>
+                <Separator className="my-4 shrink-0 bg-[var(--border-subtle)]" />
 
-            {/* 运行状态 */}
-            <div className="mb-6">
-                <div className="sidebar-nav-item justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></div>
-                        <span className="text-[13px]">{t.nav.systemRunning}</span>
+                <div className="shrink-0 rounded-2xl border border-[var(--border-subtle)] bg-[var(--glass-bg-solid)] px-4 py-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                            <div className="h-2.5 w-2.5 rounded-full bg-teal-500 animate-pulse"></div>
+                            <div>
+                                <p className="text-[13px] font-medium text-[var(--text-primary)]">{t.nav.systemRunning}</p>
+                                <p className="text-[12px] text-[var(--text-secondary)]">ScriptHub v2.0-stable</p>
+                            </div>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-[var(--text-tertiary)]" />
                     </div>
-                    <ChevronRight className="w-4 h-4 text-[var(--text-tertiary)]" />
-                </div>
-                <div className="pl-8 mt-2">
-                    <div className="flex items-center gap-2 py-2 text-[13px] text-[var(--text-secondary)]">
-                        <Server className="w-4 h-4 text-[var(--text-tertiary)]" />
-                        <span>ScriptHub v2.0-stable</span>
-                    </div>
-                </div>
-            </div>
-
-            {/* 底部状态 */}
-            <div className="mt-auto">
-                <div className="sidebar-nav-item justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                        <span className="text-[13px]">{t.nav.serviceNormal}</span>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-[var(--text-tertiary)]" />
-                </div>
-                <div className="pl-8 mt-2">
-                    <div className="flex items-center gap-2 py-2 text-[13px] text-[var(--text-secondary)]">
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span>{t.nav.allNodesOnline}</span>
+                    <div className="mt-4 grid gap-2 text-[12px] text-[var(--text-secondary)]">
+                        <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                            <span>{t.nav.allNodesOnline}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Server className="h-4 w-4 text-[var(--text-tertiary)]" />
+                            <span>{t.nav.serviceNormal}</span>
+                        </div>
                     </div>
                 </div>
             </div>

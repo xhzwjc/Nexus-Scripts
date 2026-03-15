@@ -22,6 +22,7 @@ last_alert_time: Dict[str, datetime] = {}
 # ========== 配置 ==========
 AGENT_API_KEY = os.getenv("AGENT_API_KEY")
 SERVERS_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "data", "servers.json")
+LOCAL_AGENT_HOST_ALIASES = ["127.0.0.1", "localhost", "host.docker.internal"]
 
 
 # ========== 数据模型 ==========
@@ -34,6 +35,7 @@ class ServerConfig(BaseModel):
     enabled: bool = True
     description: Optional[str] = None
     tags: List[str] = []
+    host_candidates: List[str] = []
 
 
 class DiskInfo(BaseModel):
@@ -92,7 +94,11 @@ def load_servers() -> List[ServerConfig]:
         if os.path.exists(SERVERS_CONFIG_FILE):
             with open(SERVERS_CONFIG_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                return [ServerConfig(**s) for s in data]
+                servers = [ServerConfig(**s) for s in data]
+                normalized_servers = _normalize_legacy_local_servers(servers)
+                if _servers_changed(servers, normalized_servers):
+                    save_servers(normalized_servers)
+                return normalized_servers
     except Exception as e:
         print(f"Error loading servers config: {e}")
     return []
@@ -107,6 +113,94 @@ def save_servers(servers: List[ServerConfig]):
     except Exception as e:
         print(f"Error saving servers config: {e}")
         raise
+
+
+def _running_in_docker() -> bool:
+    return os.path.exists("/.dockerenv")
+
+
+def _servers_changed(before: List[ServerConfig], after: List[ServerConfig]) -> bool:
+    return [s.model_dump() for s in before] != [s.model_dump() for s in after]
+
+
+def _normalize_legacy_local_servers(servers: List[ServerConfig]) -> List[ServerConfig]:
+    legacy_ids = {"local-windows-docker", "local-windows-dev"}
+    legacy_servers = [server for server in servers if server.id in legacy_ids]
+    other_servers = [server for server in servers if server.id not in legacy_ids]
+
+    if not legacy_servers:
+        return servers
+
+    candidates: List[str] = []
+    for host in LOCAL_AGENT_HOST_ALIASES:
+        if host not in candidates:
+            candidates.append(host)
+    for server in legacy_servers:
+        for host in [server.host, *server.host_candidates]:
+            normalized = (host or "").strip()
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+
+    merged_server = ServerConfig(
+        id="local-agent",
+        name="本机监控 Agent",
+        host="127.0.0.1",
+        host_candidates=candidates,
+        port=legacy_servers[0].port if legacy_servers else 9200,
+        enabled=any(server.enabled for server in legacy_servers),
+        description="自动在本地开发和 Docker 容器环境之间切换可达的本机监控 Agent 地址",
+        tags=["local", "agent", "auto-discovery"],
+    )
+    return [merged_server, *other_servers]
+
+
+def _resolve_host_candidates(server: ServerConfig) -> List[str]:
+    configured_hosts = [server.host, *server.host_candidates]
+    unique_hosts: List[str] = []
+    for host in configured_hosts:
+        normalized = (host or "").strip()
+        if normalized and normalized not in unique_hosts:
+            unique_hosts.append(normalized)
+
+    if any(host in LOCAL_AGENT_HOST_ALIASES for host in unique_hosts):
+        preferred = (
+            ["host.docker.internal", "127.0.0.1", "localhost"]
+            if _running_in_docker()
+            else ["127.0.0.1", "localhost", "host.docker.internal"]
+        )
+        for host in reversed(preferred):
+            if host in unique_hosts:
+                unique_hosts.remove(host)
+        unique_hosts = preferred + unique_hosts
+
+    return unique_hosts or ["127.0.0.1"]
+
+
+async def _request_agent(
+    server: ServerConfig,
+    path: str,
+    *,
+    auth_required: bool,
+    timeout: float,
+) -> tuple[Optional[httpx.Response], Optional[str], Optional[str]]:
+    last_error: Optional[str] = None
+
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+        for host in _resolve_host_candidates(server):
+            try:
+                response = await client.get(
+                    f"http://{host}:{server.port}{path}",
+                    headers={"X-API-Key": AGENT_API_KEY} if auth_required else None,
+                )
+                return response, host, None
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                last_error = f"{host}: {exc}"
+                continue
+            except Exception as exc:
+                last_error = f"{host}: {exc}"
+                continue
+
+    return None, None, last_error
 
 
 def get_server_by_id(server_id: str) -> Optional[ServerConfig]:
@@ -151,79 +245,75 @@ def delete_server(server_id: str) -> bool:
 async def fetch_server_metrics(server: ServerConfig) -> ServerMetrics:
     """获取单台服务器指标（带鉴权）"""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"http://{server.host}:{server.port}/metrics",
-                headers={"X-API-Key": AGENT_API_KEY}
-            )
-            
-            if resp.status_code == 401:
-                return ServerMetrics(
-                    server_id=server.id,
-                    server_name=server.name,
-                    online=False,
-                    error="Authentication failed: Invalid API Key"
-                )
-            
-            if resp.status_code != 200:
-                return ServerMetrics(
-                    server_id=server.id,
-                    server_name=server.name,
-                    online=False,
-                    error=f"HTTP {resp.status_code}: {resp.text[:100]}"
-                )
-            
-            data = resp.json()
-            
-            # 解析多磁盘
-            disks = []
-            for d in data.get("disks", []):
-                try:
-                    disks.append(DiskInfo(**d))
-                except Exception:
-                    continue
-            
+        # 监控地址通常是内网或本机地址，不能被系统 HTTP 代理接管，
+        # 否则在 macOS/代理软件环境下会出现本地 127.0.0.1 也被转发后返回 502。
+        resp, resolved_host, last_error = await _request_agent(
+            server,
+            "/metrics",
+            auth_required=True,
+            timeout=10.0,
+        )
+        if resp is None:
             return ServerMetrics(
                 server_id=server.id,
                 server_name=server.name,
-                online=True,
-                timestamp=data.get("timestamp"),
-                hostname=data.get("hostname"),
-                os=data.get("os"),
-                platform=data.get("platform"),
-                boot_time=data.get("boot_time"),
-                process_count=data.get("process_count"),
-                
-                cpu_percent=data.get("cpu", {}).get("percent", 0),
-                cpu_count=data.get("cpu", {}).get("count_logical"),
-                cpu_per_core=data.get("cpu", {}).get("per_core", []),
-                
-                memory_percent=data.get("memory", {}).get("percent", 0),
-                memory_total_gb=data.get("memory", {}).get("total_gb"),
-                memory_used_gb=data.get("memory", {}).get("used_gb"),
-                
-                disks=disks,
-                
-                net_sent_mbps=data.get("network", {}).get("sent_mbps", 0),
-                net_recv_mbps=data.get("network", {}).get("recv_mbps", 0),
-                
-                load_1min=data.get("load_average", {}).get("1min", 0),
-                load_5min=data.get("load_average", {}).get("5min", 0),
-                load_15min=data.get("load_average", {}).get("15min", 0)
+                online=False,
+                error=last_error or "Connection refused: Agent not running or host unreachable"
             )
-    except httpx.ConnectError:
+
+        if resp.status_code == 401:
+            return ServerMetrics(
+                server_id=server.id,
+                server_name=server.name,
+                online=False,
+                error="Authentication failed: Invalid API Key"
+            )
+
+        if resp.status_code != 200:
+            return ServerMetrics(
+                server_id=server.id,
+                server_name=server.name,
+                online=False,
+                error=f"HTTP {resp.status_code} @ {resolved_host}: {resp.text[:100]}"
+            )
+
+        data = resp.json()
+            
+        # 解析多磁盘
+        disks = []
+        for d in data.get("disks", []):
+            try:
+                disks.append(DiskInfo(**d))
+            except Exception:
+                continue
+
         return ServerMetrics(
             server_id=server.id,
             server_name=server.name,
-            online=False,
-            error="Connection refused: Agent not running or host unreachable"
-        )
-    except httpx.TimeoutException:
-        return ServerMetrics(
-            server_id=server.id,
-            server_name=server.name,
-            online=False,
-            error="Connection timeout"
+            online=True,
+            timestamp=data.get("timestamp"),
+            hostname=data.get("hostname"),
+            os=data.get("os"),
+            platform=data.get("platform"),
+            boot_time=data.get("boot_time"),
+            process_count=data.get("process_count"),
+            
+            cpu_percent=data.get("cpu", {}).get("percent", 0),
+            cpu_count=data.get("cpu", {}).get("count_logical"),
+            cpu_per_core=data.get("cpu", {}).get("per_core", []),
+            
+            memory_percent=data.get("memory", {}).get("percent", 0),
+            memory_total_gb=data.get("memory", {}).get("total_gb"),
+            memory_used_gb=data.get("memory", {}).get("used_gb"),
+            
+            disks=disks,
+            
+            net_sent_mbps=data.get("network", {}).get("sent_mbps", 0),
+            net_recv_mbps=data.get("network", {}).get("recv_mbps", 0),
+            
+            load_1min=data.get("load_average", {}).get("1min", 0),
+            load_5min=data.get("load_average", {}).get("5min", 0),
+            load_15min=data.get("load_average", {}).get("15min", 0)
         )
     except Exception as e:
         return ServerMetrics(
@@ -249,11 +339,17 @@ async def get_all_metrics() -> List[ServerMetrics]:
 async def check_server_health(server: ServerConfig) -> dict:
     """检查服务器健康状态（不需要鉴权）"""
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"http://{server.host}:{server.port}/health")
-            if resp.status_code == 200:
-                return {"online": True, "data": resp.json()}
-            return {"online": False, "error": f"HTTP {resp.status_code}"}
+        resp, resolved_host, last_error = await _request_agent(
+            server,
+            "/health",
+            auth_required=False,
+            timeout=5.0,
+        )
+        if resp is None:
+            return {"online": False, "error": last_error or "Agent unavailable"}
+        if resp.status_code == 200:
+            return {"online": True, "resolved_host": resolved_host, "data": resp.json()}
+        return {"online": False, "error": f"HTTP {resp.status_code} @ {resolved_host}"}
     except Exception as e:
         return {"online": False, "error": str(e)}
 
@@ -316,4 +412,3 @@ async def check_and_alert():
 
     except Exception as e:
         logger.error(f"Error in check_and_alert: {e}")
-

@@ -31,13 +31,82 @@ from .services import EnterpriseSettlementService, AccountBalanceService, Commis
     MobileTaskService, SMSService, PaymentStatsService
 from .services.monitoring_service import check_and_alert, load_servers, fetch_server_metrics, get_server_by_id, add_server as add_server_config, update_server, delete_server, check_server_health, ServerConfig
 from .services.ai_resource_service import AiResourceService
+from .services.script_hub_auth_service import authenticate_access_key, get_session_user_by_code
+from .services.script_hub_admin_service import create_rbac_role, create_rbac_user, delete_rbac_role, delete_rbac_user, list_rbac_overview, rotate_user_access_key, update_rbac_role, update_rbac_user
+from .services.script_hub_audit_service import sanitize_audit_payload, write_audit_log
 from .config import settings
 from .database import get_db
+from .schema_maintenance import ensure_script_hub_schema
 from sqlalchemy.orm import Session
+from .script_hub_session import create_script_hub_session, get_script_hub_token_from_request, require_script_hub_permission, verify_script_hub_session
+from .rbac_schemas import (
+    ScriptHubRbacOverviewResponse,
+    ScriptHubDeleteResponse,
+    ScriptHubRotateAccessKeyRequest,
+    ScriptHubRoleCreateRequest,
+    ScriptHubRoleMutationResponse,
+    ScriptHubRoleUpdateRequest,
+    ScriptHubUserCreateRequest,
+    ScriptHubUserMutationResponse,
+    ScriptHubUserUpdateRequest,
+)
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def _audit_details_from_payload(payload: Any) -> Dict[str, Any]:
+    if payload is None:
+        return {}
+    if hasattr(payload, "model_dump"):
+        return sanitize_audit_payload(payload.model_dump(exclude_none=True))
+    if isinstance(payload, dict):
+        return sanitize_audit_payload(payload)
+    return {}
+
+
+def _write_failed_audit_log(
+    *,
+    db: Session,
+    actor: Optional[Dict[str, Any]],
+    request: Optional[Request],
+    action: str,
+    target_type: str,
+    target_code: str,
+    details: Optional[Dict[str, Any]] = None,
+    error: str,
+) -> None:
+    payload = sanitize_audit_payload(details or {})
+    payload["error"] = error
+
+    try:
+        write_audit_log(
+            db,
+            actor=actor,
+            request=request,
+            action=action,
+            target_type=target_type,
+            target_code=target_code,
+            result="failed",
+            details=payload,
+        )
+    except Exception:
+        logger.warning(
+            "[ScriptHubAudit] %s",
+            json.dumps(
+                {
+                    "actor_user_code": (actor or {}).get("id"),
+                    "action": action,
+                    "target_type": target_type,
+                    "target_code": target_code,
+                    "result": "failed",
+                    "details": payload,
+                },
+                ensure_ascii=False,
+            ),
+            exc_info=True,
+        )
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -52,6 +121,10 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     """启动时初始化"""
+    try:
+        ensure_script_hub_schema()
+    except Exception as exc:
+        logger.error("Failed to ensure Script Hub schema on startup: %s", exc, exc_info=True)
     logger.info("Starting background tasks...")
     asyncio.create_task(background_monitoring_loop())
 
@@ -110,6 +183,360 @@ async def custom_redoc_ui():
 # 其他路由（保持不变）
 def get_settlement_service():
     return EnterpriseSettlementService()
+
+
+@app.post("/auth/session", tags=["认证"])
+async def create_auth_session(request: Request, db: Session = Depends(get_db)):
+    """使用数据库中的访问密钥创建 Script Hub 会话"""
+    ensure_script_hub_schema()
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid request body")
+
+    key = str(body.get("key") or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="Missing access key")
+
+    user = authenticate_access_key(db, key)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid access key")
+
+    return create_script_hub_session(user)
+
+
+@app.get("/auth/session", tags=["认证"])
+async def verify_auth_session(request: Request, db: Session = Depends(get_db)):
+    """校验当前会话并按数据库中的最新角色权限刷新返回"""
+    ensure_script_hub_schema()
+    token = get_script_hub_token_from_request(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    session = verify_script_hub_session(token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+    user_code = str(session.get("id") or "").strip()
+    if not user_code:
+        raise HTTPException(status_code=401, detail="Invalid session payload")
+
+    user = get_session_user_by_code(db, user_code)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+
+    return create_script_hub_session(user)
+
+
+@app.get("/admin/rbac/overview", response_model=ScriptHubRbacOverviewResponse, tags=["权限管理"])
+async def get_rbac_overview(
+    db: Session = Depends(get_db),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    ensure_script_hub_schema()
+    return list_rbac_overview(db)
+
+
+@app.post("/admin/rbac/users", response_model=ScriptHubUserMutationResponse, tags=["权限管理"])
+async def create_rbac_user_endpoint(
+    request: Request,
+    payload: ScriptHubUserCreateRequest,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        ensure_script_hub_schema()
+        user, generated_access_key = create_rbac_user(
+            db,
+            user_code=payload.user_code,
+            display_name=payload.display_name,
+            access_key=payload.access_key,
+            role_codes=payload.role_codes,
+            granted_permissions=payload.granted_permissions,
+            revoked_permissions=payload.revoked_permissions,
+            team_resources_login_key_enabled=payload.team_resources_login_key_enabled,
+            is_active=payload.is_active,
+            is_super_admin=payload.is_super_admin,
+            notes=payload.notes,
+        )
+        write_audit_log(
+            db,
+            actor=session,
+            request=request,
+            action="user.create",
+            target_type="user",
+            target_code=user["user_code"],
+            details=_audit_details_from_payload(payload),
+        )
+        return {
+            "user": user,
+            "generated_access_key": generated_access_key,
+        }
+    except ValueError as exc:
+        _write_failed_audit_log(
+            db=db,
+            actor=session,
+            request=request,
+            action="user.create",
+            target_type="user",
+            target_code=payload.user_code,
+            details=_audit_details_from_payload(payload),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/admin/rbac/roles", response_model=ScriptHubRoleMutationResponse, tags=["权限管理"])
+async def create_rbac_role_endpoint(
+    request: Request,
+    payload: ScriptHubRoleCreateRequest,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        ensure_script_hub_schema()
+        role = create_rbac_role(
+            db,
+            code=payload.code,
+            name=payload.name,
+            description=payload.description,
+            permission_keys=payload.permission_keys,
+        )
+        write_audit_log(
+            db,
+            actor=session,
+            request=request,
+            action="role.create",
+            target_type="role",
+            target_code=role["code"],
+            details=_audit_details_from_payload(payload),
+        )
+        return {
+            "role": role,
+        }
+    except ValueError as exc:
+        _write_failed_audit_log(
+            db=db,
+            actor=session,
+            request=request,
+            action="role.create",
+            target_type="role",
+            target_code=payload.code,
+            details=_audit_details_from_payload(payload),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.patch("/admin/rbac/users/{user_code}", response_model=ScriptHubUserMutationResponse, tags=["权限管理"])
+async def update_rbac_user_endpoint(
+    request: Request,
+    user_code: str,
+    payload: ScriptHubUserUpdateRequest,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        ensure_script_hub_schema()
+        user = update_rbac_user(
+            db,
+            user_code,
+            display_name=payload.display_name,
+            role_codes=payload.role_codes,
+            granted_permissions=payload.granted_permissions,
+            revoked_permissions=payload.revoked_permissions,
+            team_resources_login_key_enabled=payload.team_resources_login_key_enabled,
+            is_active=payload.is_active,
+            is_super_admin=payload.is_super_admin,
+            notes=payload.notes,
+        )
+        write_audit_log(
+            db,
+            actor=session,
+            request=request,
+            action="user.update",
+            target_type="user",
+            target_code=user["user_code"],
+            details=_audit_details_from_payload(payload),
+        )
+        return {
+            "user": user,
+            "generated_access_key": None,
+        }
+    except ValueError as exc:
+        _write_failed_audit_log(
+            db=db,
+            actor=session,
+            request=request,
+            action="user.update",
+            target_type="user",
+            target_code=user_code,
+            details=_audit_details_from_payload(payload),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.patch("/admin/rbac/roles/{role_code}", response_model=ScriptHubRoleMutationResponse, tags=["权限管理"])
+async def update_rbac_role_endpoint(
+    request: Request,
+    role_code: str,
+    payload: ScriptHubRoleUpdateRequest,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        ensure_script_hub_schema()
+        role = update_rbac_role(
+            db,
+            role_code,
+            name=payload.name,
+            description=payload.description,
+            permission_keys=payload.permission_keys,
+            is_active=payload.is_active,
+        )
+        write_audit_log(
+            db,
+            actor=session,
+            request=request,
+            action="role.update",
+            target_type="role",
+            target_code=role["code"],
+            details=_audit_details_from_payload(payload),
+        )
+        return {
+            "role": role,
+        }
+    except ValueError as exc:
+        _write_failed_audit_log(
+            db=db,
+            actor=session,
+            request=request,
+            action="role.update",
+            target_type="role",
+            target_code=role_code,
+            details=_audit_details_from_payload(payload),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/admin/rbac/users/{user_code}/rotate-key", response_model=ScriptHubUserMutationResponse, tags=["权限管理"])
+async def rotate_rbac_user_key_endpoint(
+    request: Request,
+    user_code: str,
+    payload: ScriptHubRotateAccessKeyRequest,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        ensure_script_hub_schema()
+        user, generated_access_key = rotate_user_access_key(
+            db,
+            user_code,
+            access_key=payload.access_key,
+        )
+        write_audit_log(
+            db,
+            actor=session,
+            request=request,
+            action="user.rotate_key",
+            target_type="user",
+            target_code=user["user_code"],
+            details={
+                "custom_key_provided": bool(payload.access_key),
+            },
+        )
+        return {
+            "user": user,
+            "generated_access_key": generated_access_key,
+        }
+    except ValueError as exc:
+        _write_failed_audit_log(
+            db=db,
+            actor=session,
+            request=request,
+            action="user.rotate_key",
+            target_type="user",
+            target_code=user_code,
+            details={
+                "custom_key_provided": bool(payload.access_key),
+            },
+            error=str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/admin/rbac/users/{user_code}", response_model=ScriptHubDeleteResponse, tags=["权限管理"])
+async def delete_rbac_user_endpoint(
+    request: Request,
+    user_code: str,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        ensure_script_hub_schema()
+        deleted = delete_rbac_user(db, user_code)
+        write_audit_log(
+            db,
+            actor=session,
+            request=request,
+            action="user.delete",
+            target_type="user",
+            target_code=deleted["user_code"],
+            details=deleted,
+        )
+        return {
+            "message": "User deleted",
+            "target_code": deleted["user_code"],
+        }
+    except ValueError as exc:
+        _write_failed_audit_log(
+            db=db,
+            actor=session,
+            request=request,
+            action="user.delete",
+            target_type="user",
+            target_code=user_code,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/admin/rbac/roles/{role_code}", response_model=ScriptHubDeleteResponse, tags=["权限管理"])
+async def delete_rbac_role_endpoint(
+    request: Request,
+    role_code: str,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        ensure_script_hub_schema()
+        deleted = delete_rbac_role(db, role_code)
+        write_audit_log(
+            db,
+            actor=session,
+            request=request,
+            action="role.delete",
+            target_type="role",
+            target_code=deleted["code"],
+            details=deleted,
+        )
+        return {
+            "message": "Role deleted",
+            "target_code": deleted["code"],
+        }
+    except ValueError as exc:
+        _write_failed_audit_log(
+            db=db,
+            actor=session,
+            request=request,
+            action="role.delete",
+            target_type="role",
+            target_code=role_code,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
 
 # 关键修改：账户核对服务依赖，接收接口传入的environment
 def get_balance_service(request: BalanceVerificationRequest):
@@ -1198,7 +1625,10 @@ _ai_resources_cache_time: float = 0
 _AI_RESOURCES_CACHE_TTL = 60  # 60秒缓存
 
 @app.get("/ai-resources/data", response_model=AIResourcesDataResponse, tags=["AI资源"])
-async def get_ai_resources(db: Session = Depends(get_db)):
+async def get_ai_resources(
+    db: Session = Depends(get_db),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-resources"))
+):
     """获取所有 AI 资源数据（含缓存）"""
     global _ai_resources_cache, _ai_resources_cache_time
     
@@ -1213,7 +1643,11 @@ async def get_ai_resources(db: Session = Depends(get_db)):
     return data
 
 @app.post("/ai-resources/save", tags=["AI资源"])
-async def save_ai_resources(request: AIResourcesSaveRequest, db: Session = Depends(get_db)):
+async def save_ai_resources(
+    request: AIResourcesSaveRequest,
+    db: Session = Depends(get_db),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-resources-manage"))
+):
     """保存 AI 资源数据（同步模式）"""
     global _ai_resources_cache, _ai_resources_cache_time
     
@@ -1229,7 +1663,11 @@ async def save_ai_resources(request: AIResourcesSaveRequest, db: Session = Depen
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/ai-resources/{resource_id}", tags=["AI资源"])
-async def delete_ai_resource(resource_id: str, db: Session = Depends(get_db)):
+async def delete_ai_resource(
+    resource_id: str,
+    db: Session = Depends(get_db),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-resources-manage"))
+):
     """删除 AI 资源"""
     global _ai_resources_cache, _ai_resources_cache_time
     
@@ -1247,7 +1685,10 @@ async def delete_ai_resource(resource_id: str, db: Session = Depends(get_db)):
 from .services.team_resource_service import TeamResourceService
 
 @app.get("/team-resources/data", tags=["团队资源"])
-async def get_team_resources(db: Session = Depends(get_db)):
+async def get_team_resources(
+    db: Session = Depends(get_db),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("team-resources"))
+):
     """获取所有团队资源数据"""
     request_id = str(uuid.uuid4())
     logger.info(f"[团队资源] 获取数据 | 请求ID: {request_id}")
@@ -1258,7 +1699,11 @@ async def get_team_resources(db: Session = Depends(get_db)):
 
 
 @app.post("/team-resources/save", tags=["团队资源"])
-async def save_team_resources(request: Request, db: Session = Depends(get_db)):
+async def save_team_resources(
+    request: Request,
+    db: Session = Depends(get_db),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("team-resources-manage"))
+):
     """保存团队资源数据"""
     request_id = str(uuid.uuid4())
     logger.info(f"[团队资源] 保存数据 | 请求ID: {request_id}")
@@ -1275,7 +1720,11 @@ async def save_team_resources(request: Request, db: Session = Depends(get_db)):
 
 
 @app.post("/team-resources/import", tags=["团队资源"])
-async def import_team_resources(request: Request, db: Session = Depends(get_db)):
+async def import_team_resources(
+    request: Request,
+    db: Session = Depends(get_db),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("team-resources-manage"))
+):
     """从 JSON 导入团队资源到数据库（用于迁移）"""
     request_id = str(uuid.uuid4())
     logger.info(f"[团队资源] 导入数据 | 请求ID: {request_id}")
@@ -1292,7 +1741,11 @@ async def import_team_resources(request: Request, db: Session = Depends(get_db))
 
 
 @app.post("/team-resources/migrate-from-encrypted", tags=["团队资源"])
-async def migrate_from_encrypted(request: Request, db: Session = Depends(get_db)):
+async def migrate_from_encrypted(
+    request: Request,
+    db: Session = Depends(get_db),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("team-resources-manage"))
+):
     """从加密 JSON 迁移团队资源到数据库"""
     from Crypto.Cipher import AES
     from Crypto.Protocol.KDF import PBKDF2
@@ -1305,10 +1758,12 @@ async def migrate_from_encrypted(request: Request, db: Session = Depends(get_db)
     try:
         body = await request.json()
         encrypted_data = body.get("encrypted", "")
-        encryption_key = body.get("key", "ScriptHub@TeamResources#2024!Secure")
+        encryption_key = body.get("key") or os.getenv("TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY", "")
         
         if not encrypted_data:
             raise HTTPException(status_code=400, detail="No encrypted data provided")
+        if not encryption_key:
+            raise HTTPException(status_code=400, detail="Missing TEAM_RESOURCES_EXPORT_ENCRYPTION_KEY")
         
         # CryptoJS AES 解密（兼容前端 CryptoJS 格式）
         # CryptoJS 使用 OpenSSL 格式：Salted__<8 bytes salt><ciphertext>

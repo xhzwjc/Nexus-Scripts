@@ -2,13 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import https from 'https';
 import http from 'http';
 import tls from 'tls';
-import { URL } from 'url';
+
+import { validateExternalHttpUrl } from '@/lib/server/networkGuards';
+import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 export const dynamic = 'force-dynamic';
 
 export interface HealthCheckResult {
     url: string;
     accessible: boolean;
+    statusCode?: number;
     responseTime: number;
     ssl: {
         valid: boolean;
@@ -20,6 +23,30 @@ export interface HealthCheckResult {
     } | null;
     error?: string;
     checkedAt: string;
+}
+
+function detectSoftHttpError(body: string): string | null {
+    const normalized = body.toLowerCase().replace(/\s+/g, ' ').trim();
+    const softErrorPatterns: Array<{ regex: RegExp; label: string }> = [
+        { regex: /<title>\s*404[^<]*<\/title>/i, label: '404' },
+        { regex: /<h1>\s*404[^<]*<\/h1>/i, label: '404' },
+        { regex: /<title>\s*403[^<]*<\/title>/i, label: '403' },
+        { regex: /<h1>\s*403[^<]*<\/h1>/i, label: '403' },
+        { regex: /<title>\s*500[^<]*<\/title>/i, label: '500' },
+        { regex: /<h1>\s*500[^<]*<\/h1>/i, label: '500' },
+        { regex: /<title>\s*502[^<]*<\/title>/i, label: '502' },
+        { regex: /<h1>\s*502[^<]*<\/h1>/i, label: '502' },
+        { regex: /<title>\s*503[^<]*<\/title>/i, label: '503' },
+        { regex: /<h1>\s*503[^<]*<\/h1>/i, label: '503' },
+    ];
+
+    for (const pattern of softErrorPatterns) {
+        if (pattern.regex.test(normalized)) {
+            return pattern.label;
+        }
+    }
+
+    return null;
 }
 
 // 使用TLS直接获取SSL证书信息 - 更可靠
@@ -88,7 +115,7 @@ function checkSSL(urlString: string): Promise<HealthCheckResult['ssl']> {
 }
 
 // 检查网站可访问性
-function checkAccessibility(urlString: string): Promise<{ accessible: boolean; responseTime: number; error?: string }> {
+function checkAccessibility(urlString: string): Promise<{ accessible: boolean; statusCode?: number; responseTime: number; error?: string }> {
     return new Promise((resolve) => {
         const startTime = Date.now();
 
@@ -111,16 +138,34 @@ function checkAccessibility(urlString: string): Promise<{ accessible: boolean; r
                 agent: isHttps ? new https.Agent({ keepAlive: false }) : new http.Agent({ keepAlive: false })
             };
 
-            const req = lib.request(options, (res: { statusCode?: number }) => {
+            const req = lib.request(options, (res: NodeJS.ReadableStream & { statusCode?: number }) => {
                 const responseTime = Date.now() - startTime;
                 const statusCode = res.statusCode || 0;
-                // 2xx, 3xx, 4xx 都算可访问（服务器有响应）
-                const accessible = statusCode >= 200 && statusCode < 500;
+                const chunks: Buffer[] = [];
+                let receivedLength = 0;
+                const maxInspectLength = 4096;
 
-                // 消费响应数据
-                (res as NodeJS.ReadableStream).resume?.();
+                res.on('data', (chunk: Buffer | string) => {
+                    const bufferChunk = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                    if (receivedLength < maxInspectLength) {
+                        const remaining = maxInspectLength - receivedLength;
+                        chunks.push(bufferChunk.subarray(0, remaining));
+                    }
+                    receivedLength += bufferChunk.length;
+                });
 
-                resolve({ accessible, responseTime });
+                res.on('end', () => {
+                    const body = Buffer.concat(chunks).toString('utf8');
+                    const softHttpError = statusCode >= 200 && statusCode < 400 ? detectSoftHttpError(body) : null;
+                    const accessible = statusCode >= 200 && statusCode < 400 && !softHttpError;
+
+                    resolve({
+                        accessible,
+                        statusCode,
+                        responseTime,
+                        error: softHttpError ? `Soft HTTP error page: ${softHttpError}` : undefined,
+                    });
+                });
             });
 
             req.on('error', (err: Error) => {
@@ -145,6 +190,11 @@ function checkAccessibility(urlString: string): Promise<{ accessible: boolean; r
 }
 
 export async function POST(request: NextRequest) {
+    const auth = requireScriptHubPermission(request, 'cert-health');
+    if ('response' in auth) {
+        return auth.response;
+    }
+
     try {
         const { url } = await request.json();
 
@@ -152,21 +202,18 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'URL is required' }, { status: 400 });
         }
 
-        // 确保URL有协议
-        let fullUrl = url.trim();
-        if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
-            fullUrl = 'https://' + fullUrl;
-        }
+        const parsedUrl = await validateExternalHttpUrl(url, { prependHttps: true });
 
         // 并行检查SSL和可访问性
         const [sslResult, accessResult] = await Promise.all([
-            checkSSL(fullUrl),
-            checkAccessibility(fullUrl),
+            checkSSL(parsedUrl.toString()),
+            checkAccessibility(parsedUrl.toString()),
         ]);
 
         const result: HealthCheckResult = {
-            url: fullUrl,
+            url: parsedUrl.toString(),
             accessible: accessResult.accessible,
+            statusCode: accessResult.statusCode,
             responseTime: accessResult.responseTime,
             ssl: sslResult,
             error: accessResult.error,
@@ -175,6 +222,9 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json(result);
     } catch (error) {
+        if (error instanceof Error && ['Unsupported URL', 'Blocked host', 'Unable to resolve host'].includes(error.message)) {
+            return NextResponse.json({ error: error.message }, { status: 400 });
+        }
         return NextResponse.json(
             { error: 'Health check failed: ' + (error as Error).message },
             { status: 500 }

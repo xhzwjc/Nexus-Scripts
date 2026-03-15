@@ -257,7 +257,8 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    min-width: 320px;
+    min-width: 0;
+    width: 100%;
     transition: all 0.25s ease;
     position: relative;
 }

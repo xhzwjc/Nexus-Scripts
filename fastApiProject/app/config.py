@@ -8,6 +8,27 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _running_in_docker() -> bool:
+    return os.path.exists("/.dockerenv")
+
+
+def _normalize_local_host(host: Optional[str]) -> Optional[str]:
+    if not host:
+        return host
+
+    normalized = host.strip()
+    docker_host = (os.getenv("DB_LOCAL_HOST_DOCKER") or "host.docker.internal").strip()
+    local_aliases = {"localhost", "127.0.0.1", "::1"}
+
+    if normalized == docker_host and not _running_in_docker():
+        return "127.0.0.1"
+
+    if normalized in local_aliases and _running_in_docker():
+        return docker_host
+
+    return normalized
+
+
 class Settings:
     # API基础配置
     API_TITLE = "春苗系统结算API"
@@ -42,6 +63,7 @@ class Settings:
 
     # 本地环境数据库（可选，复用测试环境配置或单独配置）
     DB_LOCAL_HOST = os.getenv("DB_LOCAL_HOST", DB_TEST_HOST)
+    DB_LOCAL_HOST_DOCKER = os.getenv("DB_LOCAL_HOST_DOCKER", "host.docker.internal")
     DB_LOCAL_PORT = int(os.getenv("DB_LOCAL_PORT", DB_TEST_PORT))
     DB_LOCAL_USER = os.getenv("DB_LOCAL_USER", DB_TEST_USER)
     DB_LOCAL_PASSWORD = os.getenv("DB_LOCAL_PASSWORD", DB_TEST_PASSWORD)
@@ -95,8 +117,9 @@ class Settings:
                 "database": self.DB_PROD_DATABASE
             }
         if env == "local":
+            local_host = _normalize_local_host(self.DB_LOCAL_HOST) or "127.0.0.1"
             return {
-                "host": self.DB_LOCAL_HOST,
+                "host": local_host,
                 "port": self.DB_LOCAL_PORT,
                 "user": self.DB_LOCAL_USER,
                 "password": self.DB_LOCAL_PASSWORD,

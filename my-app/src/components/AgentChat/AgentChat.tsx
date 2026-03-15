@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Plus, Send, Loader2, Bot, MessageSquare, Trash2, X, FileText, Sparkles, ArrowLeft, Paperclip, BookOpen, Square } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useI18n } from '@/lib/i18n';
+import { authenticatedFetch } from '@/lib/auth';
 import { toast } from 'sonner';
 
 // ============== Types ==============
@@ -788,7 +789,7 @@ async function extractDocumentText(file: File): Promise<string> {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch('/api/extract-file', {
+    const response = await authenticatedFetch('/api/extract-file', {
         method: 'POST',
         body: formData,
     });
@@ -1439,7 +1440,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ onBack }) => {
                 }
             });
 
-            const response = await fetch('/api/agent-chat', {
+            const response = await authenticatedFetch('/api/agent-chat', {
                 method: 'POST',
                 body: formData,
                 signal: abortControllerRef.current?.signal,
@@ -2142,7 +2143,6 @@ const AgentChat: React.FC<AgentChatProps> = ({ onBack }) => {
 };
 
 export default AgentChat;
-
 
 
 

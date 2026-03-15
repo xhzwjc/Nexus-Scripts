@@ -1,6 +1,8 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 import { NextRequest, NextResponse } from 'next/server';
 
+import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+
 export const runtime = 'nodejs';
 
 type UploadedFileRef = {
@@ -741,6 +743,11 @@ function createGeminiTextResponse(stream: NodeJS.ReadableStream, effectiveModel:
 }
 
 export async function POST(request: NextRequest) {
+    const auth = requireScriptHubPermission(request, 'agent-chat');
+    if ('response' in auth) {
+        return auth.response;
+    }
+
     try {
         const apiKey = getApiKey();
         if (!apiKey) {
@@ -848,7 +855,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }
-
 
 
 

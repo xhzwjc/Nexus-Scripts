@@ -8,24 +8,61 @@ import { ResourceGroup, INITIAL_RESOURCE_DATA } from '@/lib/team-resources-data'
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n';
 import { TeamResourceSkeleton } from './TeamResourceSkeleton';
+import { authenticatedFetch, getStoredScriptHubSession } from '@/lib/auth';
 
 
 // 30分钟超时（毫秒）
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+const TEAM_RESOURCES_UNLOCKED_KEY = 'team_resources_unlocked';
+const TEAM_RESOURCES_ADMIN_KEY = 'team_resources_admin';
+const TEAM_RESOURCES_LAST_ACTIVITY_KEY = 'team_resources_last_activity';
+const TEAM_RESOURCES_USER_ID_KEY = 'team_resources_user_id';
 
 interface TeamResourcesContainerProps {
     onBack: () => void;
 }
 
+function getCurrentTeamResourceSessionContext() {
+    if (typeof window === 'undefined') {
+        return {
+            userId: null as string | null,
+            canView: false,
+            canManage: false,
+            canHealthCheck: false,
+        };
+    }
+
+    const session = getStoredScriptHubSession();
+    return {
+        userId: session?.user.id ?? null,
+        canView: !!session?.user.permissions?.['team-resources'],
+        canManage: !!session?.user.permissions?.['team-resources-manage'],
+        canHealthCheck: !!session?.user.permissions?.['cert-health'],
+    };
+}
+
+function clearTeamResourceSessionStorage() {
+    if (typeof window === 'undefined') return;
+
+    sessionStorage.removeItem(TEAM_RESOURCES_UNLOCKED_KEY);
+    sessionStorage.removeItem(TEAM_RESOURCES_ADMIN_KEY);
+    sessionStorage.removeItem(TEAM_RESOURCES_LAST_ACTIVITY_KEY);
+    sessionStorage.removeItem(TEAM_RESOURCES_USER_ID_KEY);
+}
+
 export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) {
     const { t } = useI18n();
     const tr = t.teamResources;
+
     // 检查会话是否有效
     const isSessionValid = useCallback(() => {
         if (typeof window === 'undefined') return false;
-        const lastActivity = sessionStorage.getItem('team_resources_last_activity');
-        const sessionUnlocked = sessionStorage.getItem('team_resources_unlocked');
+        const { userId, canView } = getCurrentTeamResourceSessionContext();
+        const storedUserId = sessionStorage.getItem(TEAM_RESOURCES_USER_ID_KEY);
+        const lastActivity = sessionStorage.getItem(TEAM_RESOURCES_LAST_ACTIVITY_KEY);
+        const sessionUnlocked = sessionStorage.getItem(TEAM_RESOURCES_UNLOCKED_KEY);
 
+        if (!canView || !userId || storedUserId !== userId) return false;
         if (sessionUnlocked !== 'true') return false;
         if (!lastActivity) return false;
 
@@ -38,7 +75,13 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
     const [isLocked, setIsLocked] = useState(() => !isSessionValid());
     const [isAdmin, setIsAdmin] = useState(() => {
         if (typeof window === 'undefined') return false;
-        return sessionStorage.getItem('team_resources_admin') === 'true';
+        const { userId, canManage } = getCurrentTeamResourceSessionContext();
+        return (
+            canManage &&
+            !!userId &&
+            sessionStorage.getItem(TEAM_RESOURCES_USER_ID_KEY) === userId &&
+            sessionStorage.getItem(TEAM_RESOURCES_ADMIN_KEY) === 'true'
+        );
     });
 
     const [data, setData] = useState<ResourceGroup[]>([]);
@@ -52,8 +95,27 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
     const updateActivity = useCallback(() => {
         const now = Date.now();
         lastActivityRef.current = now;
-        sessionStorage.setItem('team_resources_last_activity', now.toString());
+        sessionStorage.setItem(TEAM_RESOURCES_LAST_ACTIVITY_KEY, now.toString());
     }, []);
+
+    useEffect(() => {
+        const { userId, canView, canManage } = getCurrentTeamResourceSessionContext();
+        const valid = isSessionValid();
+
+        if (!canView || !userId || !valid) {
+            clearTeamResourceSessionStorage();
+            setIsLocked(true);
+            setIsAdmin(false);
+            return;
+        }
+
+        setIsLocked(false);
+        setIsAdmin(
+            canManage &&
+            sessionStorage.getItem(TEAM_RESOURCES_ADMIN_KEY) === 'true' &&
+            sessionStorage.getItem(TEAM_RESOURCES_USER_ID_KEY) === userId
+        );
+    }, [isSessionValid]);
 
     // 加载数据
     useEffect(() => {
@@ -72,16 +134,19 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
             try {
                 setLoadError(null);
                 // 通过 Next.js API 路由获取数据
-                const res = await fetch('/api/team-resources/data', { signal: controller.signal });
+                const res = await authenticatedFetch('/api/team-resources/data', { signal: controller.signal });
                 const json = await res.json();
 
                 if (!isMounted) return;
 
-                if (json.success && json.data) {
+                if (!res.ok) {
+                    throw new Error(typeof json?.error === 'string' ? json.error : 'Failed to load team resources');
+                }
+
+                if (json.success && Array.isArray(json.data)) {
                     setData(json.data);
                 } else {
-                    // 无数据，使用初始数据
-                    setData(INITIAL_RESOURCE_DATA);
+                    throw new Error('Invalid team resources response');
                 }
             } catch (error) {
                 if (!isMounted) return;
@@ -91,6 +156,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
                     setLoadError(tr.networkTimeout);
                 } else if (!(error instanceof Error && error.name === 'AbortError')) {
                     setData(INITIAL_RESOURCE_DATA);
+                    setLoadError(error instanceof Error ? error.message : tr.loadError);
                 }
             } finally {
                 clearTimeout(timeoutId);
@@ -139,25 +205,27 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
     }, [isLocked, updateActivity, tr.sessionTimeout, isSessionValid]);
 
     const handleUnlock = (admin: boolean) => {
+        const { userId, canManage } = getCurrentTeamResourceSessionContext();
         setIsLocked(false);
-        setIsAdmin(admin);
-        sessionStorage.setItem('team_resources_unlocked', 'true');
-        sessionStorage.setItem('team_resources_admin', admin ? 'true' : 'false');
+        setIsAdmin(admin && canManage);
+        sessionStorage.setItem(TEAM_RESOURCES_UNLOCKED_KEY, 'true');
+        sessionStorage.setItem(TEAM_RESOURCES_ADMIN_KEY, admin && canManage ? 'true' : 'false');
+        if (userId) {
+            sessionStorage.setItem(TEAM_RESOURCES_USER_ID_KEY, userId);
+        }
         updateActivity();
     };
 
     const handleLock = () => {
         setIsLocked(true);
         setIsAdmin(false);
-        sessionStorage.removeItem('team_resources_unlocked');
-        sessionStorage.removeItem('team_resources_admin');
-        sessionStorage.removeItem('team_resources_last_activity');
+        clearTeamResourceSessionStorage();
     };
 
     const handleSave = async (updatedGroups: ResourceGroup[]) => {
         try {
             // 通过 Next.js API 路由保存数据
-            const res = await fetch('/api/team-resources/save', {
+            const res = await authenticatedFetch('/api/team-resources/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ groups: updatedGroups })
@@ -227,6 +295,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
                 onLock={handleLock}
                 onManage={() => setIsEditing(true)}
                 isAdmin={isAdmin}
+                canHealthCheck={getCurrentTeamResourceSessionContext().canHealthCheck}
                 logoVersion={logoVersion}
             />
         </div>

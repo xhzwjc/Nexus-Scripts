@@ -94,7 +94,7 @@ export const WeatherChip: React.FC<WeatherChipProps> = ({
                 <>
                     <span className="dark:text-gray-50">{getWeatherIcon(state.data.code)}</span>
                     <span className="whitespace-nowrap tabular-nums font-mono dark:text-gray-100">{state.data.temp}°C</span>
-                    <span className="hidden sm:inline dark:text-gray-100">{state.data.desc}</span>
+                    <span className="hidden xl:inline dark:text-gray-100">{state.data.desc}</span>
                     <span className="text-gray-400 dark:text-gray-500 hidden md:inline">·</span>
                     <span className="text-gray-500 dark:text-gray-100 hidden 2xl:inline">
                         <Wind className="inline w-3 h-3 mr-1" />
@@ -113,7 +113,7 @@ export const WeatherChip: React.FC<WeatherChipProps> = ({
                 <button
                     type="button"
                     onClick={onRefresh}
-                    className="ml-1 text-xs text-primary hover:underline hidden md:inline"
+                    className="ml-1 text-xs text-primary hover:underline hidden xl:inline"
                     aria-label={tr.refreshWeather}>
                     {t.common.refresh}
                 </button>
