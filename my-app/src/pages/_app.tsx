@@ -1,7 +1,9 @@
 import type { AppProps } from 'next/app';
 import { I18nProvider } from '../lib/i18n';
 import { ThemeProvider } from '@/lib/theme';
+import '../app/globals.css';
 import '../App.css';
+import '../components/AgentChat/AgentChat.css';
 
 export default function MyApp({ Component, pageProps }: AppProps) {
     return (

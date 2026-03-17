@@ -40,11 +40,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { Checkbox } from './ui/checkbox';
-import axios, { AxiosError, AxiosInstance } from 'axios';
+import axios, { AxiosError, AxiosHeaders, AxiosInstance } from 'axios';
 import { toast } from 'sonner';
 import { getApiBaseUrl } from '../lib/api';
 import { useI18n } from '../lib/i18n';
-import { getStoredScriptHubSession, requestScriptHubSession } from '@/lib/auth';
+import { getScriptHubAuthHeaderRecord, getStoredScriptHubSession, requestScriptHubSession } from '@/lib/auth';
 
 // ===== Types =====
 interface Template {
@@ -114,6 +114,15 @@ const getSmsApi = (): AxiosInstance | null => {
         smsApiInstance = axios.create({
             baseURL: base,
             timeout: 20000,
+        });
+        smsApiInstance.interceptors.request.use((config) => {
+            const headers = AxiosHeaders.from(config.headers || {});
+            const authHeaders = getScriptHubAuthHeaderRecord(config.headers as HeadersInit | undefined);
+            Object.entries(authHeaders).forEach(([key, value]) => {
+                headers.set(key, value);
+            });
+            config.headers = headers;
+            return config;
         });
     }
     return smsApiInstance;
@@ -508,8 +517,6 @@ export default function SmsManagementScript({ onBack }: { onBack: () => void }) 
         }
 
         const isChangingPageSize = pageSize !== undefined && pageSize !== logPageSize;
-        const isChangingPage = page !== logPage;
-
         // 分页大小改变时不显示全屏 loading，只设置分页 loading
         if (isChangingPageSize) {
             setIsPaginationChanging(true);

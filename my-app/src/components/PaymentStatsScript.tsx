@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import { getApiBaseUrl } from '../lib/api';
+import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { cn } from '../lib/utils';
 
 interface Enterprise {
@@ -98,7 +99,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
             const res = await axios.post(`${base}/stats/payment/enterprises`, {
                 environment,
                 timeout: 30
-            });
+            }, { headers: getScriptHubAuthHeaderRecord() });
             if (res.data.success) {
                 const list: Enterprise[] = res.data.data.enterprises;
                 setEnterprises(list);
@@ -141,7 +142,7 @@ export default function PaymentStatsScript({ onBack }: { onBack: () => void }) {
                 environment,
                 enterprise_ids: selectedEnterpriseIds,
                 timeout: 30
-            });
+            }, { headers: getScriptHubAuthHeaderRecord() });
 
             if (res.data.success) {
                 setStatsData(res.data.data);

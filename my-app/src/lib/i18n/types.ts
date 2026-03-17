@@ -283,6 +283,8 @@ export interface Translations {
     username: string;
     password: string;
     notSet: string;
+    passwordProtected: string;
+    passwordLoadFailed: string;
     // HealthCheckPanel
     healthCheckTitle: string;
     healthCheckDesc: string;

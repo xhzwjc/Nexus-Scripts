@@ -29,6 +29,26 @@ def _normalize_local_host(host: Optional[str]) -> Optional[str]:
     return normalized
 
 
+def _parse_env_list(value: Optional[str]) -> list[str]:
+    if not value:
+        return []
+
+    raw = value.strip()
+    if not raw:
+        return []
+
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = []
+        if isinstance(parsed, list):
+            return [str(item).strip() for item in parsed if str(item).strip()]
+        return []
+
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 class Settings:
     # API基础配置
     API_TITLE = "春苗系统结算API"
@@ -133,6 +153,21 @@ class Settings:
             "password": self.DB_TEST_PASSWORD,
             "database": self.DB_TEST_DATABASE
         }
+
+    def get_cors_allow_origins(self) -> list[str]:
+        configured = _parse_env_list(os.getenv("CORS_ALLOW_ORIGINS"))
+        if configured:
+            return configured
+        return ["*"] if self.resolve_environment() == "local" else []
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        return self.get_cors_allow_origins()
+
+    @property
+    def cors_allow_origin_regex(self) -> Optional[str]:
+        value = (os.getenv("CORS_ALLOW_ORIGIN_REGEX") or "").strip()
+        return value or None
 
     # 短信服务配置
     SMS_API_BASE_TEST = os.getenv("SMS_API_BASE_TEST")

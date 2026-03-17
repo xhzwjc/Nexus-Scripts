@@ -218,9 +218,13 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                                             {/* Password */}
                                             <div className="flex items-center gap-1 bg-[var(--card-bg)] px-2 py-1 rounded border border-[var(--border-subtle)] flex-1 min-w-0">
                                                 <span className="text-sm font-mono text-foreground truncate">
-                                                    {cred.password ? (revealedCreds[cred.id] ? cred.password : '••••••••') : tr.notSet}
+                                                    {cred.hasPassword || cred.password
+                                                        ? (revealedCreds[cred.id]
+                                                            ? (cred.password ?? tr.notSet)
+                                                            : tr.passwordProtected)
+                                                        : tr.notSet}
                                                 </span>
-                                                {cred.password && (
+                                                {(cred.hasPassword || cred.password) && (
                                                     <>
                                                         <Button
                                                             size="icon"
@@ -228,7 +232,7 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                                                             className="h-5 w-5 ml-auto text-muted-foreground hover:text-foreground"
                                                             onClick={() => toggleReveal(cred.id)}
                                                         >
-                                                            {revealedCreds[cred.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                                            {revealedCreds[cred.id] ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                                                         </Button>
                                                         <Button
                                                             size="icon"

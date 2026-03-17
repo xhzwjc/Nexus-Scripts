@@ -441,6 +441,8 @@ export const enUS: Translations = {
         username: 'Username',
         password: 'Password',
         notSet: '(Not set)',
+        passwordProtected: 'Click to reveal',
+        passwordLoadFailed: 'Failed to load password. Please try again later.',
         // HealthCheckPanel
         healthCheckTitle: 'System Health Check',
         healthCheckDesc: 'Check SSL certificate status and site availability',

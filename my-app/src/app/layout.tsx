@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "../App.css";
+import "../components/AgentChat/AgentChat.css";
 
 export const metadata: Metadata = {
     title: "ScriptHub",
@@ -18,10 +20,6 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en">
-          <head>
-            {/* 也可以在这里显式加 link 标签 */}
-            <link rel="icon" href="/favicon.png" />
-          </head>
           <body
             className="antialiased"
           >

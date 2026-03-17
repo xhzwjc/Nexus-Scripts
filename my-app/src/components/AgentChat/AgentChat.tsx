@@ -1,4 +1,5 @@
 'use client';
+/* eslint-disable @next/next/no-img-element */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Send, Loader2, Bot, MessageSquare, Trash2, X, FileText, Sparkles, ArrowLeft, Paperclip, BookOpen, Square } from 'lucide-react';
@@ -882,7 +883,12 @@ function saveConversations(conversations: Conversation[]) {
                     ...conversation,
                     messages: conversation.messages.map((message) => ({
                         ...message,
-                        files: message.files?.map(({ url: _url, ...file }) => file),
+                        files: message.files?.map((file) => ({
+                            name: file.name,
+                            isImage: file.isImage,
+                            mimeType: file.mimeType,
+                            fileUri: file.fileUri,
+                        })),
                     })),
                 }));
                 localStorage.setItem(STORAGE_KEY_CONVERSATIONS, JSON.stringify(stripped));
@@ -1000,7 +1006,10 @@ const AgentChat: React.FC<AgentChatProps> = ({ onBack }) => {
     }, [conversations, activeConversationId]);
 
     // All assistants
-    const allAssistants = [...BUILT_IN_ASSISTANTS, ...customAssistants];
+    const allAssistants = useMemo(
+        () => [...BUILT_IN_ASSISTANTS, ...customAssistants],
+        [customAssistants]
+    );
 
     // Active conversation
     const activeConversation = conversations.find(c => c.id === activeConversationId) || null;
@@ -1619,7 +1628,6 @@ const AgentChat: React.FC<AgentChatProps> = ({ onBack }) => {
         isLoading,
         hasBlockingAttachments,
         hasPendingRequiredAttachments,
-        hasErroredAttachments,
         activeConversation,
         conversations,
         selectedModel,
@@ -2143,8 +2151,6 @@ const AgentChat: React.FC<AgentChatProps> = ({ onBack }) => {
 };
 
 export default AgentChat;
-
-
 
 
 

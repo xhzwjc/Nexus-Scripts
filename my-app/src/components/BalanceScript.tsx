@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
 import { getApiBaseUrl } from '../lib/api';
+import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 
 // ===== 接口定义 =====
@@ -254,7 +255,7 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
         try {
             const response = await axios.get<ApiResponse<Enterprise[]>>(
                 `${base}/enterprises/list`,
-                { params: { environment }, signal }
+                { params: { environment }, signal, headers: getScriptHubAuthHeaderRecord() }
             );
             if (response.data.success) {
                 setEnterprises(response.data.data as Enterprise[]);
@@ -308,7 +309,8 @@ export default function BalanceScript({ onBack }: BalanceScriptProps) {
                     tenant_id: activeTab === 'single' ? Number(tenantId) : undefined,
                     environment,
                     timeout: activeTab === 'batch' ? 120 : 15,
-                }
+                },
+                { headers: getScriptHubAuthHeaderRecord() }
             );
 
             if (response.data.success) {

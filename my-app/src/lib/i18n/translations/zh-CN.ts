@@ -440,6 +440,8 @@ export const zhCN: Translations = {
         username: '用户名',
         password: '密码',
         notSet: '(未设置)',
+        passwordProtected: '点击查看',
+        passwordLoadFailed: '读取密码失败，请稍后重试',
         // HealthCheckPanel
         healthCheckTitle: '系统健康检测',
         healthCheckDesc: '检测SSL证书状态和网站可用性',

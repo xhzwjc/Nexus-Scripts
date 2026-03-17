@@ -15,8 +15,6 @@ export interface SessionPayload extends SessionUser {
     exp: number;
 }
 
-type AccessConfig = Record<string, SessionUser>;
-
 function getSessionSecret() {
     const configured = process.env.SCRIPT_HUB_SESSION_SECRET?.trim();
     if (configured) {
@@ -53,49 +51,6 @@ function signSegment(segment: string) {
     return base64UrlEncode(
         crypto.createHmac('sha256', getSessionSecret()).update(segment).digest(),
     );
-}
-
-function parseAccessConfigFromEnv(raw?: string): AccessConfig | null {
-    if (!raw) {
-        return null;
-    }
-
-    try {
-        const parsed = JSON.parse(raw) as Record<string, SessionUser>;
-        return Object.entries(parsed).reduce<AccessConfig>((acc, [key, value]) => {
-            if (!value || typeof value !== 'object' || !value.id || !value.role || !value.permissions) {
-                return acc;
-            }
-
-            acc[key] = {
-                id: String(value.id),
-                role: value.role,
-                name: value.name,
-                permissions: value.permissions,
-                teamResourcesLoginKeyEnabled: value.teamResourcesLoginKeyEnabled,
-            };
-            return acc;
-        }, {});
-    } catch {
-        return null;
-    }
-}
-
-function getAccessConfig(): AccessConfig {
-    const config = parseAccessConfigFromEnv(process.env.SCRIPT_HUB_ACCESS_KEYS_JSON);
-    if (!config || Object.keys(config).length === 0) {
-        throw new Error('Missing SCRIPT_HUB_ACCESS_KEYS_JSON configuration');
-    }
-    return config;
-}
-
-export function authenticateAccessKey(key: string): SessionUser | null {
-    if (!key) {
-        return null;
-    }
-
-    const config = getAccessConfig();
-    return config[key] || null;
 }
 
 export function createScriptHubSession(user: SessionUser) {

@@ -63,6 +63,10 @@ export function getScriptHubAuthHeaders(init?: HeadersInit): Headers {
     return headers;
 }
 
+export function getScriptHubAuthHeaderRecord(init?: HeadersInit): Record<string, string> {
+    return Object.fromEntries(getScriptHubAuthHeaders(init).entries());
+}
+
 export async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}) {
     const headers = getScriptHubAuthHeaders(init.headers);
     return fetch(input, {

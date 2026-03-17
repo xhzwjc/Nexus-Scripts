@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { AlertCircle, ArrowLeft, ChevronDown, ChevronRight, Download, Play, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { getApiBaseUrl } from '../lib/api';
+import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 
 // ---------- 类型定义 ----------
@@ -301,7 +302,7 @@ export default function TaskAutomationScript({ onBack }: TaskAutomationScriptPro
 
             const resp = await fetch(`${base}/mobile/parse`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getScriptHubAuthHeaderRecord({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ file_content: base64Content, range: `${start}-${end}` })
             });
 
@@ -409,7 +410,7 @@ export default function TaskAutomationScript({ onBack }: TaskAutomationScriptPro
 
             const resp = await fetch(`${base}/mobile/task/process`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getScriptHubAuthHeaderRecord({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(body)
             });
 

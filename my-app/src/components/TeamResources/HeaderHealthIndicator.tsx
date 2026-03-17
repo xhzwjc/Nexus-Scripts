@@ -501,14 +501,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
         };
     }, []);
 
-    if (!hasPermission) return null;
-
-    const isIdle = state.status === 'idle';
-    const isLoading = state.status === 'loading';
-    const isError = state.status === 'error';
-    const hasIssues = state.status === 'success' && state.issues.length > 0;
-    const expiredCount = state.issues.filter(i => i.daysRemaining !== undefined && i.daysRemaining <= 0).length;
-    const handleRetry = () => {
+    const handleRetry = useCallback(() => {
         void (async () => {
             if (groups.length === 0) {
                 const loadedGroups = await fetchGroups();
@@ -517,9 +510,17 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                 }
                 return;
             }
-            await runHealthCheck();
+            await runHealthCheck(groups);
         })();
-    };
+    }, [fetchGroups, groups, runHealthCheck]);
+
+    if (!hasPermission) return null;
+
+    const isIdle = state.status === 'idle';
+    const isLoading = state.status === 'loading';
+    const isError = state.status === 'error';
+    const hasIssues = state.status === 'success' && state.issues.length > 0;
+    const expiredCount = state.issues.filter(i => i.daysRemaining !== undefined && i.daysRemaining <= 0).length;
 
     // 初始化或正在检测时，统一显示检测中，避免把 idle 误显示为“全部健康”
     if (isIdle || isLoading) {
@@ -581,7 +582,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     setExpanded(false);
-                                    runHealthCheck();
+                                    handleRetry();
                                 }}
                             >
                                 <RefreshCw className="w-3 h-3" />
@@ -662,7 +663,7 @@ export function HeaderHealthIndicator({ hasPermission, userKey, isFreshLogin, on
                         onClick={(e) => {
                             e.stopPropagation();
                             setExpanded(false);
-                            runHealthCheck();
+                            handleRetry();
                         }}
                     >
                         <RefreshCw className="w-3.5 h-3.5" />

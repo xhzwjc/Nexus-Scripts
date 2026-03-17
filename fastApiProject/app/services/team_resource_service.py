@@ -13,10 +13,24 @@ class TeamResourceService:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_all_data(self, decrypt_pass: bool = True) -> List[Dict[str, Any]]:
+    def _serialize_credential(self, cred: TeamResourceCredential, decrypt_pass: bool = False) -> Dict[str, Any]:
+        payload = {
+            "id": cred.cred_id,
+            "label": cred.label or "",
+            "username": cred.username or "",
+            "note": cred.note or "",
+            "hasPassword": bool(cred.password),
+        }
+        if decrypt_pass:
+            from ..password_crypto import decrypt_password
+
+            payload["password"] = decrypt_password(cred.password or "") if cred.password else ""
+        return payload
+
+    def get_all_data(self, decrypt_pass: bool = False) -> List[Dict[str, Any]]:
         """
         获取所有团队资源数据，组装成嵌套结构
-        :param decrypt_pass: 是否解密密码，默认为 True。备份到 JSON 时设为 False。
+        :param decrypt_pass: 是否解密密码，默认为 False。仅管理或导出场景才返回明文密码。
         """
         groups = self.db.query(TeamResourceGroup).filter(
             TeamResourceGroup.deleted == 0
@@ -38,19 +52,12 @@ class TeamResourceService:
         env_by_id = {env.id: env for env in environments}
         creds_by_env_id: Dict[int, List] = {}
         
-        # 导入密码解密工具
-        from ..password_crypto import decrypt_password
-        
         for cred in credentials:
             if cred.environment_id not in creds_by_env_id:
                 creds_by_env_id[cred.environment_id] = []
-            creds_by_env_id[cred.environment_id].append({
-                "id": cred.cred_id,
-                "label": cred.label or "",
-                "username": cred.username or "",
-                "password": decrypt_password(cred.password or "") if decrypt_pass else (cred.password or ""),
-                "note": cred.note or ""
-            })
+            creds_by_env_id[cred.environment_id].append(
+                self._serialize_credential(cred, decrypt_pass=decrypt_pass)
+            )
 
         envs_by_system_id: Dict[str, Dict[str, Any]] = {}
         for env in environments:
@@ -201,11 +208,13 @@ class TeamResourceService:
                             existing_cred = self.db.query(TeamResourceCredential).filter(
                                 TeamResourceCredential.cred_id == cred_data["id"]
                             ).first()
+                            next_password = cred_data.get("password")
                             if existing_cred:
                                 existing_cred.environment_id = env_id
                                 existing_cred.label = cred_data.get("label", "")
                                 existing_cred.username = cred_data.get("username", "")
-                                existing_cred.password = encrypt_password(cred_data.get("password", ""))  # 加密密码
+                                if next_password is not None:
+                                    existing_cred.password = encrypt_password(next_password)
                                 existing_cred.note = cred_data.get("note", "")
                                 existing_cred.sort_order = cred_idx
                                 existing_cred.deleted = 0
@@ -215,7 +224,7 @@ class TeamResourceService:
                                     environment_id=env_id,
                                     label=cred_data.get("label", ""),
                                     username=cred_data.get("username", ""),
-                                    password=encrypt_password(cred_data.get("password", "")),  # 加密密码
+                                    password=encrypt_password(next_password or ""),  # 加密密码
                                     note=cred_data.get("note", ""),
                                     sort_order=cred_idx
                                 )

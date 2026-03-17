@@ -26,6 +26,7 @@ import { Separator } from './ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { Skeleton } from './ui/skeleton';
 import { getApiBaseUrl } from '../lib/api';
+import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 
 // 定义接口响应类型
@@ -214,7 +215,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
         try {
             const response = await axios.get<ApiResponse<Enterprise[]>>(
                 `${base}/enterprises/list`,
-                { params: { environment }, signal }
+                { params: { environment }, signal, headers: getScriptHubAuthHeaderRecord() }
             );
             if (response.data.success) {
                 setEnterprises(response.data.data || []);
@@ -251,7 +252,8 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                     enterprise_ids: selectedEnterpriseIds.length > 0 ? selectedEnterpriseIds : undefined,
                     amount_type: amountType,
                     environment
-                }
+                },
+                { headers: getScriptHubAuthHeaderRecord() }
             );
 
             if (response.data.success) {
@@ -310,7 +312,11 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             const response = await axios.post(
                 `${base}/tax/report/generate`,
                 params,
-                { responseType: 'blob', timeout: (params.timeout ?? 300) * 1000 }
+                {
+                    responseType: 'blob',
+                    timeout: (params.timeout ?? 300) * 1000,
+                    headers: getScriptHubAuthHeaderRecord(),
+                }
             );
 
             const cd = response.headers['content-disposition'] as string | undefined;

@@ -9,6 +9,7 @@ export interface Credential {
     label: string;      // "管理员"、"普通用户"
     username: string;
     password?: string;  // 可为空
+    hasPassword?: boolean;
     note?: string;
 }
 

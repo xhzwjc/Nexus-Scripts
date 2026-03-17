@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ArrowLeft,
     Copy,
@@ -327,6 +327,8 @@ function mapDeleteUserError(message: string, labels: AccessControlLabels): strin
 
 export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
     const { t } = useI18n();
+    const userDialogFocusRef = useRef<HTMLDivElement | null>(null);
+    const userCodeInputRef = useRef<HTMLInputElement | null>(null);
     const [overview, setOverview] = useState<ScriptHubRbacOverview | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -384,6 +386,18 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
             );
         });
     }, [overview, roleMap, searchQuery]);
+
+    const handleUserDialogOpenAutoFocus = useCallback((event: Event) => {
+        event.preventDefault();
+
+        requestAnimationFrame(() => {
+            if (createOpen) {
+                userCodeInputRef.current?.focus();
+                return;
+            }
+            userDialogFocusRef.current?.focus();
+        });
+    }, [createOpen]);
 
     const selectedRolePermissionKeys = useMemo(() => {
         const keys = new Set<string>();
@@ -1166,7 +1180,8 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
             </div>
 
             <Dialog open={createOpen || !!editUser} onOpenChange={(open) => { if (!open) closeDialogs(); }}>
-                <DialogContent className="sm:max-w-5xl">
+                <DialogContent className="sm:max-w-5xl" onOpenAutoFocus={handleUserDialogOpenAutoFocus}>
+                    <div ref={userDialogFocusRef} tabIndex={-1} className="sr-only" aria-hidden="true" />
                     <DialogHeader>
                         <DialogTitle>{createOpen ? t.accessControl.createTitle : t.accessControl.editTitle}</DialogTitle>
                         <DialogDescription>{t.accessControl.subtitle}</DialogDescription>
@@ -1184,6 +1199,7 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
                                     <Label htmlFor="rbac-user-code">{t.accessControl.userCode}</Label>
                                     <Input
                                         id="rbac-user-code"
+                                        ref={userCodeInputRef}
                                         value={form.userCode}
                                         onChange={(event) => {
                                             clearUserFieldError('userCode');

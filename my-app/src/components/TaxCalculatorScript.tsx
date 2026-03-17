@@ -25,6 +25,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Checkbox } from './ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
 import { getApiBaseUrl } from '../lib/api';
+import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 
 // Types
@@ -518,7 +519,7 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
             const response = await axios.post<TaxCalculationResponse>(
                 `${baseUrl}/tax/calculate`,
                 params,
-                { signal: controller.signal }
+                { signal: controller.signal, headers: getScriptHubAuthHeaderRecord() }
             );
 
             if (response.data.success) {
@@ -928,7 +929,7 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {paginatedResults.map((item, idx) => (
+                                        {paginatedResults.map((item) => (
                                             <TableRow key={item._rowId} className="odd:bg-muted/30">
                                                 <TableCell>{item.year_month}</TableCell>
                                                 {activeMode !== 'mock' && (

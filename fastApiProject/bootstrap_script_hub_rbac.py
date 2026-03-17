@@ -5,7 +5,7 @@
 功能：
 1. 创建 users / roles / permissions 等权限表
 2. 写入系统权限目录和默认角色
-3. 将旧版 SCRIPT_HUB_ACCESS_KEYS_JSON 迁移为数据库用户
+3. 可选：从 bootstrap seed 导入初始用户
 """
 
 import os
@@ -17,6 +17,11 @@ sys.path.append(str(Path(__file__).parent))
 
 from app.database import Base, SessionLocal, engine
 from app.schema_maintenance import ensure_script_hub_schema
+from app.legacy_access_keys import (
+    generate_bootstrap_admin_key,
+    get_bootstrap_admin_key,
+    load_bootstrap_access_keys,
+)
 from app.rbac_catalog import ALL_PERMISSION_KEYS, PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
 from app.rbac_models import (
     ScriptHubPermission,
@@ -26,7 +31,7 @@ from app.rbac_models import (
     ScriptHubUserPermission,
     ScriptHubUserRole,
 )
-from app.services.script_hub_auth_service import create_access_key_material, parse_legacy_access_keys_from_env
+from app.services.script_hub_auth_service import create_access_key_material
 
 
 def ensure_tables():
@@ -148,11 +153,50 @@ def _reset_user_permission_overrides(db, user_id: int, permission_rows: Dict[str
         )
 
 
-def sync_legacy_users(db):
-    legacy_users = parse_legacy_access_keys_from_env()
-    if not legacy_users:
-        print("No SCRIPT_HUB_ACCESS_KEYS_JSON found, skip legacy user migration.")
+def _seed_initial_admin_user(db):
+    if db.query(ScriptHubUser).count() > 0:
         return
+
+    role_rows = {
+        role.role_code: role
+        for role in db.query(ScriptHubRole).all()
+    }
+    permission_rows = {
+        permission.permission_key: permission
+        for permission in db.query(ScriptHubPermission).all()
+    }
+
+    access_key = get_bootstrap_admin_key() or generate_bootstrap_admin_key()
+    material = create_access_key_material(access_key)
+    user = ScriptHubUser(
+        user_code="admin",
+        display_name="System Administrator",
+        access_key_lookup_hash=material["lookup_hash"],
+        access_key_salt=material["salt"],
+        access_key_hash=material["hash"],
+        team_resources_access_enabled=True,
+        is_super_admin=True,
+        is_active=True,
+    )
+    db.add(user)
+    db.flush()
+    _reset_user_roles(db, user.id, role_rows["admin"].id)
+    _reset_user_permission_overrides(db, user.id, permission_rows, [], [])
+    print("No bootstrap user seed found; created initial admin user.")
+    if get_bootstrap_admin_key():
+        print("Initial admin access key source: SCRIPT_HUB_BOOTSTRAP_ADMIN_KEY")
+    else:
+        print(f"Generated initial admin access key: {access_key}")
+
+
+def sync_bootstrap_users(db):
+    bootstrap_users, source = load_bootstrap_access_keys()
+    if not bootstrap_users:
+        _seed_initial_admin_user(db)
+        return
+
+    if source == "deprecated_env":
+        print("Warning: SCRIPT_HUB_ACCESS_KEYS_JSON is deprecated. Use SCRIPT_HUB_BOOTSTRAP_USERS_FILE instead.")
 
     permission_rows = {
         permission.permission_key: permission
@@ -167,15 +211,15 @@ def sync_legacy_users(db):
         for user in db.query(ScriptHubUser).all()
     }
 
-    print(f"Migrating {len(legacy_users)} legacy access-key users...")
-    for access_key, legacy_user in legacy_users.items():
-        user_code = legacy_user["id"]
-        role_code = legacy_user["role"]
+    print(f"Bootstrapping {len(bootstrap_users)} access-key users from {source}...")
+    for access_key, bootstrap_user in bootstrap_users.items():
+        user_code = bootstrap_user["id"]
+        role_code = bootstrap_user["role"]
         material = create_access_key_material(access_key)
         user = users_by_code.get(user_code)
 
         if user:
-            user.display_name = legacy_user["name"]
+            user.display_name = bootstrap_user["name"]
             user.access_key_lookup_hash = material["lookup_hash"]
             user.access_key_salt = material["salt"]
             user.access_key_hash = material["hash"]
@@ -184,7 +228,7 @@ def sync_legacy_users(db):
         else:
             user = ScriptHubUser(
                 user_code=user_code,
-                display_name=legacy_user["name"],
+                display_name=bootstrap_user["name"],
                 access_key_lookup_hash=material["lookup_hash"],
                 access_key_salt=material["salt"],
                 access_key_hash=material["hash"],
@@ -199,7 +243,7 @@ def sync_legacy_users(db):
         _reset_user_roles(db, user.id, role.id)
 
         effective_role_permissions = set(ALL_PERMISSION_KEYS) if role_code == "admin" else _get_role_permissions(role_code)
-        legacy_permissions = {key for key, granted in legacy_user["permissions"].items() if granted}
+        legacy_permissions = {key for key, granted in bootstrap_user["permissions"].items() if granted}
 
         granted_overrides = legacy_permissions - effective_role_permissions
         revoked_overrides = effective_role_permissions - legacy_permissions
@@ -217,7 +261,7 @@ def main():
         sync_permissions(db)
         sync_roles(db)
         sync_role_permissions(db)
-        sync_legacy_users(db)
+        sync_bootstrap_users(db)
         db.commit()
 
         print("Permissions:", db.query(ScriptHubPermission).count())

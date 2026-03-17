@@ -6,6 +6,7 @@ import { Label } from './ui/label';
 import { ArrowLeft, Play, FileText, Folder, Loader2, Download, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { getApiBaseUrl } from '../lib/api';
+import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '@/lib/i18n';
 import {
     Dialog,
@@ -134,6 +135,7 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
 
             const response = await fetch(`${base}/ocr/process-upload`, {
                 method: 'POST',
+                headers: getScriptHubAuthHeaderRecord(),
                 body: formData,
                 signal: controller.signal,
             });
@@ -227,7 +229,10 @@ export default function OCRScript({ onBack }: OCRScriptProps) {
         try {
             const base = getApiBaseUrl();
             if (base && requestId) {
-                await fetch(`${base}/ocr/abort/${requestId}`, { method: 'POST' });
+                await fetch(`${base}/ocr/abort/${requestId}`, {
+                    method: 'POST',
+                    headers: getScriptHubAuthHeaderRecord(),
+                });
             }
             // 同时中止 fetch 流
             if (abortControllerRef.current) {

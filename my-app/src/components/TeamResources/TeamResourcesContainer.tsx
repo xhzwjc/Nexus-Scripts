@@ -85,6 +85,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
     });
 
     const [data, setData] = useState<ResourceGroup[]>([]);
+    const [editorData, setEditorData] = useState<ResourceGroup[] | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null); // 新增：加载错误状态
@@ -145,6 +146,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
 
                 if (json.success && Array.isArray(json.data)) {
                     setData(json.data);
+                    setEditorData(null);
                 } else {
                     throw new Error('Invalid team resources response');
                 }
@@ -233,6 +235,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
 
             if (res.ok) {
                 setData(updatedGroups);
+                setEditorData(null);
                 setLogoVersion(Date.now()); // 更新 Logo 版本，强制刷新图片
                 setIsEditing(false);
                 toast.success(tr.saveSuccess);
@@ -242,6 +245,31 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
         } catch (error) {
             console.error('Failed to save:', error);
             toast.error(tr.saveFail);
+        }
+    };
+
+    const handleManage = async () => {
+        try {
+            setIsLoading(true);
+            const res = await authenticatedFetch('/api/team-resources/edit-data');
+            const json = await res.json();
+
+            if (!res.ok) {
+                throw new Error(typeof json?.error === 'string' ? json.error : tr.loadError);
+            }
+
+            if (json.success && Array.isArray(json.data)) {
+                setEditorData(json.data);
+                setIsEditing(true);
+                return;
+            }
+
+            throw new Error(tr.loadError);
+        } catch (error) {
+            console.error('Failed to load editable team resources:', error);
+            toast.error(error instanceof Error ? error.message : tr.loadError);
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -279,8 +307,11 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
     if (isEditing) {
         return (
             <ResourceEditor
-                groups={data}
-                onCancel={() => setIsEditing(false)}
+                groups={editorData || data}
+                onCancel={() => {
+                    setEditorData(null);
+                    setIsEditing(false);
+                }}
                 onSave={handleSave}
                 logoVersion={logoVersion}
             />
@@ -293,7 +324,7 @@ export function TeamResourcesContainer({ onBack }: TeamResourcesContainerProps) 
                 data={data}
                 onBack={onBack}
                 onLock={handleLock}
-                onManage={() => setIsEditing(true)}
+                onManage={() => void handleManage()}
                 isAdmin={isAdmin}
                 canHealthCheck={getCurrentTeamResourceSessionContext().canHealthCheck}
                 logoVersion={logoVersion}

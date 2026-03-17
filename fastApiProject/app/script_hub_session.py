@@ -4,7 +4,7 @@ import hmac
 import json
 import os
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Sequence
 
 from fastapi import HTTPException, Request, status
 
@@ -116,6 +116,28 @@ def require_script_hub_permission(permission: Optional[str] = None) -> Callable[
 
         permissions = session.get("permissions") or {}
         if permission and not permissions.get(permission):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+        request.state.script_hub_session = session
+        return session
+
+    return dependency
+
+
+def require_script_hub_any_permission(permissions: Sequence[str]) -> Callable[[Request], Dict[str, Any]]:
+    required = tuple(permission for permission in permissions if permission)
+
+    async def dependency(request: Request) -> Dict[str, Any]:
+        token = get_script_hub_token_from_request(request)
+        if not token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+        session = verify_script_hub_session(token)
+        if not session:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session")
+
+        session_permissions = session.get("permissions") or {}
+        if required and not any(session_permissions.get(permission) for permission in required):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
         request.state.script_hub_session = session

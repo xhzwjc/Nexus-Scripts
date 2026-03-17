@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+/* eslint-disable @next/next/no-img-element */
 import { ResourceGroup, SystemResource, Credential, Environment, SystemEnvironment } from '@/lib/team-resources-data';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

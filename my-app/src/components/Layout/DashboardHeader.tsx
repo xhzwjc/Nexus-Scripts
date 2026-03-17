@@ -5,24 +5,18 @@ import HomeCalendar from '../HomeCalendar';
 import { WeatherChip } from '../ui/WeatherChip';
 import { LanguageSwitcher } from '../ui/LanguageSwitcher';
 import { HeaderHealthIndicator } from '../TeamResources/HeaderHealthIndicator';
+import type { DashboardSearchResult } from '../AppShell/hooks/useDashboardSearch';
 import { useI18n } from '@/lib/i18n';
 import type { WeatherState, ViewType, User } from '@/lib/types';
 import type { HealthCheckState } from '../TeamResources/HeaderHealthIndicator';
 import { ThemeSwitcher } from '../ui/ThemeSwitcher';
-
-interface SearchResult {
-    id: string;
-    name: string;
-    desc: string;
-    type: 'cm' | 'hs' | 'script' | 'tool';
-}
 
 interface HeaderProps {
     homeSearchQuery: string;
     setHomeSearchQuery: (q: string) => void;
     showSearchResults: boolean;
     setShowSearchResults: (show: boolean) => void;
-    searchResults: SearchResult[];
+    searchResults: DashboardSearchResult[];
     setCurrentView: (view: ViewType) => void;
     setSelectedSystem: (sys: string) => void;
     setSelectedScript: (script: string) => void;

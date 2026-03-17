@@ -1,7 +1,6 @@
 import base64
 import hashlib
 import hmac
-import json
 import os
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -187,38 +186,3 @@ def get_session_user_by_code(db: Session, user_code: str) -> Optional[Dict[str, 
     if not user:
         return None
     return serialize_user_session(db, user)
-
-
-def parse_legacy_access_keys_from_env() -> Dict[str, Dict[str, Any]]:
-    raw = (os.getenv("SCRIPT_HUB_ACCESS_KEYS_JSON") or "").strip()
-    if not raw:
-        return {}
-
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Invalid SCRIPT_HUB_ACCESS_KEYS_JSON: {exc}") from exc
-
-    if not isinstance(parsed, dict):
-        raise RuntimeError("SCRIPT_HUB_ACCESS_KEYS_JSON must be an object")
-
-    result: Dict[str, Dict[str, Any]] = {}
-    for access_key, value in parsed.items():
-        if not isinstance(value, dict):
-            continue
-        user_code = str(value.get("id") or "").strip()
-        if not user_code:
-            continue
-        permissions = value.get("permissions") or {}
-        result[access_key] = {
-            "id": user_code,
-            "name": str(value.get("name") or user_code),
-            "role": normalize_role_code(str(value.get("role") or "")),
-            "permissions": {
-                permission_key: bool(is_granted)
-                for permission_key, is_granted in permissions.items()
-                if permission_key in ALL_PERMISSION_KEYS
-            },
-        }
-
-    return result
