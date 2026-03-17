@@ -634,9 +634,11 @@ export default function TaskAutomationScript({ onBack }: TaskAutomationScriptPro
                             <Card>
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
-                                        <CardTitle>Phone Numbers</CardTitle>
+                                        <CardTitle>{ta.upload.listTitle}</CardTitle>
                                         <div className="flex gap-2">
-                                            <Badge variant="outline">{phoneNumbers.length} items</Badge>
+                                            <Badge variant="outline">
+                                                {ta.upload.listCount.replace('{count}', String(phoneNumbers.length))}
+                                            </Badge>
                                             <Button variant="outline" size="sm" onClick={clearPhoneNumbers}
                                                 disabled={isLoading}>
                                                 <Trash2 className="w-4 h-4 mr-2" />
@@ -650,7 +652,7 @@ export default function TaskAutomationScript({ onBack }: TaskAutomationScriptPro
                                         <div className="grid grid-cols-4 gap-2">
                                             {phoneNumbers.map((phone, index) => (
                                                 <div key={`${phone.phone}-${index}`}
-                                                    className="text-sm p-2 bg-gray-100 rounded">
+                                                    className="rounded border border-border bg-muted p-2 text-sm text-foreground">
                                                     {phone.phone}
                                                 </div>
                                             ))}

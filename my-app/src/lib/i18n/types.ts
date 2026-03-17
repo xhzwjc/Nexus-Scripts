@@ -1052,6 +1052,8 @@ export interface Translations {
         fetching: string;
         clear: string;
         fileSelected: string;
+        listTitle: string;
+        listCount: string;
       };
       mode: {
         title: string;

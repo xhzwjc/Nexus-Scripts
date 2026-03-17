@@ -38,6 +38,17 @@ import { useI18n } from '@/lib/i18n';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Separator } from './ui/separator';
 
+const IMAGE_FILE_EXTENSIONS = new Set([
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.gif',
+    '.bmp',
+    '.webp',
+    '.heic',
+    '.heif'
+]);
+
 interface DeliveryScriptProps {
     onBack: () => void;
 }
@@ -70,6 +81,52 @@ const CONSTANTS = {
     REQUEST_TIMEOUT: 10000,  // 10秒
     UPLOAD_TIMEOUT: 30000     // 30秒
 } as const;
+
+const normalizeFileType = (fileType: string | undefined, fileName = '') => {
+    const rawType = (fileType || '').trim().toLowerCase();
+    if (rawType) {
+        return rawType.startsWith('.') ? rawType : `.${rawType}`;
+    }
+
+    const match = fileName.toLowerCase().match(/(\.[^.]+)$/);
+    return match?.[1] || '';
+};
+
+const isImageFileType = (fileType: string | undefined) => IMAGE_FILE_EXTENSIONS.has((fileType || '').toLowerCase());
+
+const formatUploadDateSegment = (uploadTime: number) => {
+    const date = new Date(uploadTime);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+const getFilenameFromPath = (path: string) => {
+    const normalizedPath = path.split('?')[0].split('#')[0].replace(/\\/g, '/');
+    const segments = normalizedPath.split('/').filter(Boolean);
+    return segments[segments.length - 1] || '';
+};
+
+const normalizeRelativeFilePath = (rawPath: string, uploadTime: number, fallbackFileName: string) => {
+    const trimmedPath = (rawPath || '').trim();
+    if (!trimmedPath) return '';
+
+    const match = trimmedPath.match(/(?:^|\/)(app\/\d{4}-\d{2}-\d{2}\/[^/?#]+)/i);
+    if (match?.[1]) {
+        return match[1];
+    }
+
+    const filename = getFilenameFromPath(trimmedPath) || fallbackFileName;
+    if (!filename) return '';
+
+    return `app/${formatUploadDateSegment(uploadTime)}/${filename}`;
+};
+
+const toWxTempPath = (filePath: string, fallbackFileName: string) => {
+    const filename = getFilenameFromPath(filePath) || fallbackFileName;
+    return filename ? `wxfile://${filename}` : '';
+};
 
 // Data Interfaces
 interface Task {
@@ -471,12 +528,12 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
             newAttachments.push({
                 id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, // 唯一 ID
                 fileName: file.name,
-                tempPath: '',
-                fileType: '.' + file.name.split('.').pop()?.toLowerCase(),
+                tempPath: `wxfile://${file.name}`,
+                fileType: normalizeFileType(undefined, file.name),
                 uploadTime: Date.now(),
                 fileLength: file.size,
                 isPic: isPic ? 1 : 0,
-                isWx: 0,
+                isWx: isPic ? 0 : 1,
                 filePath: '',
                 uploading: true,
                 uploadProgress: 0,
@@ -529,17 +586,27 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 if (typeof res.data.data === 'string') {
                     finalPath = res.data.data;
                 } else if (typeof res.data.data === 'object') {
-                    finalPath = res.data.data.fileName || res.data.data.url || '';
+                    finalPath = res.data.data.filePath || res.data.data.fileName || res.data.data.url || '';
                 }
 
                 // 使用 ID 匹配更新状态
+                const normalizedPath = normalizeRelativeFilePath(finalPath, item.uploadTime, item.fileName);
+                const normalizedTempPath = toWxTempPath(normalizedPath, item.fileName);
+
                 setDrafts(prev => {
                     const draft = prev[dKey];
                     if (!draft) return prev;
 
                     const newAtts = draft.attachments.map(a => {
                         if (a.id === item.id) {
-                            return { ...a, uploading: false, filePath: finalPath, tempPath: finalPath, uploadProgress: 100 };
+                            return {
+                                ...a,
+                                uploading: false,
+                                filePath: normalizedPath,
+                                tempPath: normalizedTempPath,
+                                isWx: a.isPic === 1 ? 0 : 1,
+                                uploadProgress: 100
+                            };
                         }
                         return a;
                     });
@@ -636,13 +703,13 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
             supplement: currentDraft.supplement || '',
             attachments: currentDraft.attachments.map(a => ({
                 fileName: a.fileName,
-                tempPath: a.tempPath || `wxfile://${a.fileName}`,
-                fileType: a.fileType,
+                tempPath: a.tempPath || toWxTempPath(a.filePath, a.fileName),
+                fileType: normalizeFileType(a.fileType, a.fileName),
                 uploadTime: a.uploadTime,
                 fileLength: a.fileLength,
-                isPic: a.isPic,
-                isWx: 0,
-                filePath: a.filePath
+                isPic: isImageFileType(normalizeFileType(a.fileType, a.fileName)) || a.isPic === 1 ? 1 : 0,
+                isWx: isImageFileType(normalizeFileType(a.fileType, a.fileName)) || a.isPic === 1 ? 0 : 1,
+                filePath: normalizeRelativeFilePath(a.filePath, a.uploadTime, a.fileName)
             }))
         };
 

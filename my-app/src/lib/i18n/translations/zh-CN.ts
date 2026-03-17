@@ -1077,6 +1077,8 @@ export const zhCN: Translations = {
                 fetching: '获取中...',
                 clear: '清空列表',
                 fileSelected: '已选择文件: {name}',
+                listTitle: '手机号列表',
+                listCount: '{count} 条',
             },
             mode: {
                 title: '执行模式配置',

@@ -1078,6 +1078,8 @@ export const enUS: Translations = {
                 fetching: 'Fetching...',
                 clear: 'Clear List',
                 fileSelected: 'Selected File: {name}',
+                listTitle: 'Phone Numbers',
+                listCount: '{count} items',
             },
             mode: {
                 title: 'Execution Mode Config',
