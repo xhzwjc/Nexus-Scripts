@@ -57,6 +57,7 @@ function getApiKey(): string | null {
     return process.env.GEMINI_API_KEY
         || process.env.GOOGLE_API_KEY
         || process.env.GOOGLE_AI_STUDIO_API_KEY
+        || process.env.AI_API_KEY
         || null;
 }
 
@@ -752,7 +753,7 @@ export async function POST(request: NextRequest) {
         const apiKey = getApiKey();
         if (!apiKey) {
             return NextResponse.json(
-                { error: 'Missing GEMINI_API_KEY / GOOGLE_API_KEY server env.' },
+                { error: 'Missing GEMINI_API_KEY / GOOGLE_API_KEY / GOOGLE_AI_STUDIO_API_KEY / AI_API_KEY server env.' },
                 { status: 500 }
             );
         }

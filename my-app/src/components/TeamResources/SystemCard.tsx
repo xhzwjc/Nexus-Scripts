@@ -97,6 +97,13 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
         }));
     };
 
+    const handlePasswordToggle = (id: string, password?: string) => {
+        if (!password) {
+            toast.error(tr.passwordLoadFailed);
+        }
+        toggleReveal(id);
+    };
+
     const copyToClipboard = (text: string, label: string) => {
         if (!text) {
             toast.error(tr.contentEmpty);
@@ -192,62 +199,69 @@ export function SystemCard({ system, groupLogo }: SystemCardProps) {
                         {/* Credentials */}
                         <div className="space-y-2">
                             {currentEnv.creds.length > 0 ? (
-                                currentEnv.creds.map(cred => (
-                                    <div key={cred.id} className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-muted)] border border-[var(--border-subtle)] group">
-                                        <div className="w-16 shrink-0 text-xs font-medium text-[var(--text-secondary)]">{cred.label}</div>
+                                currentEnv.creds.map(cred => {
+                                    const hasStoredPassword = !!(cred.hasPassword || cred.password);
+                                    const hasRevealablePassword = !!cred.password;
+                                    const revealedPassword = hasRevealablePassword ? cred.password : tr.passwordLoadFailed;
 
-                                        <div className="flex-1 flex items-center gap-2 min-w-0">
-                                            {/* Username */}
-                                            <div className="flex items-center gap-1 bg-[var(--card-bg)] px-2 py-1 rounded border border-[var(--border-subtle)]">
-                                                <User className="w-3 h-3 text-muted-foreground" />
-                                                <span className="text-sm font-mono text-foreground truncate max-w-[100px]">
-                                                    {cred.username}
-                                                </span>
-                                                <Button
-                                                    size="icon"
-                                                    variant="ghost"
-                                                    className="h-5 w-5 ml-1 text-muted-foreground hover:text-foreground"
-                                                    onClick={() => copyToClipboard(cred.username, tr.username)}
-                                                >
-                                                    <Copy className="w-3 h-3" />
-                                                </Button>
-                                            </div>
+                                    return (
+                                        <div key={cred.id} className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-muted)] border border-[var(--border-subtle)] group">
+                                            <div className="w-16 shrink-0 text-xs font-medium text-[var(--text-secondary)]">{cred.label}</div>
 
-                                            <span className="text-muted-foreground/30">/</span>
+                                            <div className="flex-1 flex items-center gap-2 min-w-0">
+                                                {/* Username */}
+                                                <div className="flex items-center gap-1 bg-[var(--card-bg)] px-2 py-1 rounded border border-[var(--border-subtle)]">
+                                                    <User className="w-3 h-3 text-muted-foreground" />
+                                                    <span className="text-sm font-mono text-foreground truncate max-w-[100px]">
+                                                        {cred.username}
+                                                    </span>
+                                                    <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        className="h-5 w-5 ml-1 text-muted-foreground hover:text-foreground"
+                                                        onClick={() => copyToClipboard(cred.username, tr.username)}
+                                                    >
+                                                        <Copy className="w-3 h-3" />
+                                                    </Button>
+                                                </div>
 
-                                            {/* Password */}
-                                            <div className="flex items-center gap-1 bg-[var(--card-bg)] px-2 py-1 rounded border border-[var(--border-subtle)] flex-1 min-w-0">
-                                                <span className="text-sm font-mono text-foreground truncate">
-                                                    {cred.hasPassword || cred.password
-                                                        ? (revealedCreds[cred.id]
-                                                            ? (cred.password ?? tr.notSet)
-                                                            : tr.passwordProtected)
-                                                        : tr.notSet}
-                                                </span>
-                                                {(cred.hasPassword || cred.password) && (
-                                                    <>
-                                                        <Button
-                                                            size="icon"
-                                                            variant="ghost"
-                                                            className="h-5 w-5 ml-auto text-muted-foreground hover:text-foreground"
-                                                            onClick={() => toggleReveal(cred.id)}
-                                                        >
-                                                            {revealedCreds[cred.id] ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                                                        </Button>
-                                                        <Button
-                                                            size="icon"
-                                                            variant="ghost"
-                                                            className="h-5 w-5 text-muted-foreground hover:text-foreground"
-                                                            onClick={() => copyToClipboard(cred.password || '', tr.password)}
-                                                        >
-                                                            <Copy className="w-3 h-3" />
-                                                        </Button>
-                                                    </>
-                                                )}
+                                                <span className="text-muted-foreground/30">/</span>
+
+                                                {/* Password */}
+                                                <div className="flex items-center gap-1 bg-[var(--card-bg)] px-2 py-1 rounded border border-[var(--border-subtle)] flex-1 min-w-0">
+                                                    <span className="text-sm font-mono text-foreground truncate">
+                                                        {hasStoredPassword
+                                                            ? (revealedCreds[cred.id]
+                                                                ? revealedPassword
+                                                                : tr.passwordProtected)
+                                                            : tr.notSet}
+                                                    </span>
+                                                    {hasStoredPassword && (
+                                                        <>
+                                                            <Button
+                                                                size="icon"
+                                                                variant="ghost"
+                                                                className="h-5 w-5 ml-auto text-muted-foreground hover:text-foreground"
+                                                                onClick={() => handlePasswordToggle(cred.id, cred.password)}
+                                                            >
+                                                                {revealedCreds[cred.id] ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                                            </Button>
+                                                            <Button
+                                                                size="icon"
+                                                                variant="ghost"
+                                                                className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                                                                disabled={!hasRevealablePassword}
+                                                                onClick={() => copyToClipboard(cred.password || '', tr.password)}
+                                                            >
+                                                                <Copy className="w-3 h-3" />
+                                                            </Button>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             ) : (
                                 <div className="text-center py-4 text-sm text-muted-foreground italic">
                                     {tr.noCredentials}

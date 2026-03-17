@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Toaster, toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
@@ -91,6 +91,72 @@ function AppContent() {
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [scriptQuery, setScriptQuery] = useState('');
     const HEALTH_CHECK_CACHE_KEY = 'health_check_result_v2';
+    const SERVICE_WORKER_CLEANUP_KEY = 'script_hub_sw_cleanup_v1';
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+            return;
+        }
+
+        if (sessionStorage.getItem(SERVICE_WORKER_CLEANUP_KEY) === 'done') {
+            return;
+        }
+
+        let cancelled = false;
+
+        const cleanupServiceWorkers = async () => {
+            try {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                const sameOriginRegistrations = registrations.filter((registration) => {
+                    const scriptUrl = registration.active?.scriptURL
+                        || registration.waiting?.scriptURL
+                        || registration.installing?.scriptURL;
+
+                    if (!scriptUrl) {
+                        return false;
+                    }
+
+                    try {
+                        return new URL(scriptUrl).origin === window.location.origin;
+                    } catch {
+                        return false;
+                    }
+                });
+
+                if (sameOriginRegistrations.length === 0) {
+                    sessionStorage.setItem(SERVICE_WORKER_CLEANUP_KEY, 'done');
+                    return;
+                }
+
+                const results = await Promise.allSettled(
+                    sameOriginRegistrations.map((registration) => registration.unregister()),
+                );
+
+                sessionStorage.setItem(SERVICE_WORKER_CLEANUP_KEY, 'done');
+
+                if (cancelled) {
+                    return;
+                }
+
+                const removed = results.some(
+                    (result) => result.status === 'fulfilled' && result.value,
+                );
+
+                if (removed && navigator.serviceWorker.controller) {
+                    window.location.reload();
+                }
+            } catch (error) {
+                console.warn('Failed to clean up stale service workers:', error);
+                sessionStorage.setItem(SERVICE_WORKER_CLEANUP_KEY, 'done');
+            }
+        };
+
+        void cleanupServiceWorkers();
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     // 证书健康检测状态 — 同步从 sessionStorage 恢复缓存，避免刷新时闪烁
     const [healthCheckState, setHealthCheckState] = useState<{ status: 'idle' | 'loading' | 'success' | 'error'; healthPercent: number; issues: unknown[]; totalEnvs: number; checkedEnvs: number } | undefined>(() => {
