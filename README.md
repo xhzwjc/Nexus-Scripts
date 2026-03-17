@@ -18,19 +18,53 @@
 
 ## 初始化本地 MySQL 基线数据
 
-推荐统一使用虚拟环境里的 Python 入口，这样 Win / Mac / Linux 都是同一套逻辑：
+推荐直接运行仓库根目录的包装脚本，它会自动探测项目里的 Python 环境（`.venv` / `venv` / `ven`），并在 Win / Mac / Linux 上走同一套初始化逻辑：
 
 ```bash
-./fastApiProject/venv/bin/python bootstrap_local_mysql_data.py
+./bootstrap_local_mysql_data.sh
 ```
 
 Windows:
 
 ```bat
-.\fastApiProject\venv\Scripts\python.exe .\bootstrap_local_mysql_data.py
+bootstrap_local_mysql_data.bat
 ```
 
-也保留了平台包装脚本：
+如果你更习惯直接调用 Python，也可以执行：
+
+- Mac / Linux: `python3 bootstrap_local_mysql_data.py`
+- Windows: `python bootstrap_local_mysql_data.py`
+
+脚本会优先自动切换到仓库内可用的项目解释器。
+
+常用模式：
+
+- 默认模式：`fill-empty`
+  - 只初始化空表数据集
+  - 已有数据的表组会跳过，不会覆盖
+  - 适合你现在这种“AI/团队资源已有数据，只补 Script Hub 权限表”的场景
+- 全量覆盖：`--mode overwrite`
+  - 重新导入 AI 资源、团队资源，并重新执行 RBAC 初始化
+- 干跑预览：`--dry-run`
+  - 只显示将要执行的动作，不改数据库
+
+示例：
+
+```bash
+./bootstrap_local_mysql_data.sh --dry-run
+./bootstrap_local_mysql_data.sh
+./bootstrap_local_mysql_data.sh --mode overwrite
+```
+
+Windows 示例：
+
+```bat
+bootstrap_local_mysql_data.bat --dry-run
+bootstrap_local_mysql_data.bat
+bootstrap_local_mysql_data.bat --mode overwrite
+```
+
+也保留了直接使用脚本文件的方式：
 
 - Mac / Linux: `./bootstrap_local_mysql_data.sh`
 - Windows: `bootstrap_local_mysql_data.bat`
@@ -42,6 +76,8 @@ Windows:
 - 导入团队资源数据
 - 初始化 Script Hub 权限中心表、默认角色与用户基线
 - 创建审计表并校验关键表行数
+
+`fill-empty` 模式下，如果脚本检测到某一组表“部分有数据、部分为空”，会为了避免误覆盖而跳过该组，并提示你改用 `--mode overwrite` 显式重建。
 
 ## Docker 启动
 
