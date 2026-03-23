@@ -87,6 +87,7 @@ KNOWN_SKILLS = [
     "python", "java", "go", "javascript", "typescript", "sql", "linux", "docker", "k8s",
     "selenium", "playwright", "pytest", "jmeter", "postman", "api", "iot", "测试", "自动化",
     "性能", "嵌入式", "网络", "web", "app", "git", "质量", "需求分析", "沟通",
+    "硬件", "硬件测试", "软硬件", "电子", "固件", "驱动", "设备", "可靠性", "稳定性",
 ]
 
 
@@ -456,6 +457,21 @@ def _extract_skill_focus_points(skills: Iterable[Any], limit: int = 6) -> Dict[s
     return {"names": names, "points": focus_points}
 
 
+def _join_resume_search_text(parsed: Dict[str, Any]) -> str:
+    chunks: List[str] = []
+    for item in parsed.get("skills") or []:
+        chunks.append(str(item or ""))
+    for section in ["summary", "raw_text"]:
+        chunks.append(str(parsed.get(section) or ""))
+    for collection_key in ["work_experiences", "projects", "education_experiences"]:
+        for item in parsed.get(collection_key) or []:
+            chunks.append(str(item or ""))
+    basic_info = parsed.get("basic_info") or {}
+    for value in basic_info.values():
+        chunks.append(str(value or ""))
+    return " ".join(chunk for chunk in chunks if chunk).lower()
+
+
 def build_interview_fallback(candidate_name: str, position_title: str, round_name: str, skills: Iterable[Any], custom_requirements: str) -> Dict[str, str]:
     skill_meta = _extract_skill_focus_points(skills)
     skill_text = "、".join(skill_meta["names"][:5]) or "当前启用 Skills"
@@ -495,13 +511,34 @@ def build_interview_fallback(candidate_name: str, position_title: str, round_nam
     return {"markdown": markdown, "html": markdown_to_html(markdown)}
 
 
-def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dict[str, float], status_rules: Dict[str, Any]) -> Dict[str, Any]:
+def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dict[str, float], status_rules: Dict[str, Any], skills: Optional[Iterable[Any]] = None) -> Dict[str, Any]:
     basic_info = parsed.get("basic_info") or {}
     raw_skills = parsed.get("skills") or []
     work_experiences = parsed.get("work_experiences") or []
+    searchable_resume_text = _join_resume_search_text(parsed)
     requirement_text = " ".join(filter(None, [position.title, getattr(position, "key_requirements", "") or "", getattr(position, "bonus_points", "") or ""]))
     requirement_keywords = extract_keywords(requirement_text)
-    matched_keywords = [keyword for keyword in requirement_keywords if keyword and keyword in (" ".join(raw_skills) + " " + parsed.get("summary", "")).lower()]
+    matched_keywords = [keyword for keyword in requirement_keywords if keyword and keyword in searchable_resume_text]
+    skill_meta = _extract_skill_focus_points(skills or [], limit=8)
+    skill_text = " ".join(
+        str(part or "")
+        for skill in skills or []
+        for part in (
+            skill.get("name") if isinstance(skill, dict) else skill,
+            skill.get("description") if isinstance(skill, dict) else "",
+            skill.get("content") if isinstance(skill, dict) else "",
+        )
+    ).lower()
+    skill_keywords = extract_keywords(skill_text)
+    known_skill_hits = [item for item in KNOWN_SKILLS if item.lower() in skill_text]
+    required_skill_keywords: List[str] = []
+    for keyword in [*skill_keywords, *known_skill_hits]:
+        normalized = keyword.strip().lower()
+        if len(normalized) < 2 or normalized in required_skill_keywords:
+            continue
+        required_skill_keywords.append(normalized)
+    matched_skill_keywords = [keyword for keyword in required_skill_keywords if keyword in searchable_resume_text]
+    missing_skill_keywords = [keyword for keyword in required_skill_keywords if keyword not in searchable_resume_text]
 
     years = 0
     years_match = re.search(r"(\d{1,2})", str(basic_info.get("years_of_experience") or ""))
@@ -510,6 +547,10 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
 
     experience_score = min(100.0, years * 20.0) if years else 55.0
     skills_score = min(100.0, 45.0 + len(matched_keywords) * 12.0 + len(raw_skills) * 2.0)
+    if required_skill_keywords:
+        coverage_ratio = len(matched_skill_keywords) / max(len(required_skill_keywords), 1)
+        skills_score = min(100.0, max(25.0, skills_score * (0.45 + coverage_ratio)))
+        skills_score = min(100.0, skills_score + len(matched_skill_keywords) * 6.0)
     education_score = {"博士": 98.0, "硕士": 88.0, "本科": 78.0, "大专": 65.0, "高中": 45.0}.get(str(basic_info.get("education") or ""), 60.0)
     stability_score = 80.0 if len(work_experiences) >= 3 else 68.0 if len(work_experiences) >= 1 else 55.0
     communication_score = 78.0 if parsed.get("summary") else 60.0
@@ -526,6 +567,8 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
     advantages = []
     if matched_keywords:
         advantages.append(f"命中岗位关键词：{', '.join(matched_keywords[:6])}")
+    if matched_skill_keywords:
+        advantages.append(f"命中 Skills 硬性要求：{', '.join(matched_skill_keywords[:6])}")
     if years >= 3:
         advantages.append(f"具备 {years} 年相关经验")
     if basic_info.get("education") in {"本科", "硕士", "博士"}:
@@ -535,6 +578,10 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
     concerns = []
     if not matched_keywords:
         concerns.append("与岗位要求的显式关键词匹配较少")
+    if required_skill_keywords and not matched_skill_keywords:
+        concerns.append("未体现当前 Skills 中强调的硬性要求")
+    elif missing_skill_keywords:
+        concerns.append(f"部分 Skills 关注点证据不足：{', '.join(missing_skill_keywords[:4])}")
     if years < 2:
         concerns.append("相关经验年限偏少")
     if not basic_info.get("phone"):
@@ -555,6 +602,9 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
     return {
         "dimensions": dimensions,
         "matched_keywords": matched_keywords,
+        "matched_skill_keywords": matched_skill_keywords,
+        "missing_skill_keywords": missing_skill_keywords,
+        "skill_focus_points": skill_meta["points"],
         "advantages": advantages,
         "concerns": concerns,
         "recommendation": recommendation,
@@ -563,4 +613,3 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
         "total_score": round(total_score, 1),
         "weights": weights,
     }
-

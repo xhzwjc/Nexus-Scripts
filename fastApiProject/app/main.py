@@ -19,6 +19,7 @@ from .routers import (
     mobile_sms_router,
     monitoring_router,
     rbac_router,
+    recruitment_router,
     tax_tools_router,
     team_resources_router,
     workbench_router,
@@ -84,6 +85,7 @@ app.include_router(team_resources_router)
 app.include_router(business_core_router)
 app.include_router(tax_tools_router)
 app.include_router(mobile_sms_router)
+app.include_router(recruitment_router)
 app.include_router(workbench_router)
 
 

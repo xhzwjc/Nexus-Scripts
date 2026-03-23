@@ -27,7 +27,7 @@ Rules:
 """
 
 RESUME_SCORE_SYSTEM_PROMPT = """You are an ATS screening engine for recruitment.
-Evaluate the candidate against the provided position, parsed resume, scoring weights, status rules, and screening skills.
+Evaluate the candidate against the provided position, parsed resume, scoring weights, status rules, screening skills, and any custom hard requirements.
 Return strict JSON only.
 Return this schema exactly:
 {
@@ -40,6 +40,8 @@ Return this schema exactly:
 }
 Rules:
 - Base every judgment on resume evidence, position requirements, and screening skills.
+- Treat screening skills and custom hard requirements as mandatory hard constraints with the highest priority.
+- If a hard constraint is not supported by resume evidence, it must appear clearly in concerns and reduce the score.
 - Keep advantages and concerns specific and concise.
 - suggested_status must be one of: screening_passed, talent_pool, screening_rejected.
 - recommendation must be a short HR-facing decision phrase.

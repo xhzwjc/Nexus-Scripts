@@ -78,6 +78,7 @@ class CandidateScreenRequest(BaseModel):
     skill_ids: List[int] = Field(default_factory=list)
     use_candidate_memory: bool = True
     use_position_skills: bool = True
+    custom_requirements: Optional[str] = None
 
 
 class SkillUpsertRequest(BaseModel):

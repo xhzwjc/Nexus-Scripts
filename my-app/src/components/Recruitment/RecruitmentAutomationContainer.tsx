@@ -479,16 +479,87 @@ function formatSkillNames(skillIds: number[] | undefined | null, skillMap: Map<n
       .join("、");
 }
 
+function normalizeSkillSnapshot(skill: Partial<RecruitmentSkill> | null | undefined, fallbackIndex = 0): RecruitmentSkill {
+  const fallbackId = typeof skill?.id === "number" ? skill.id : -(fallbackIndex + 1);
+  const normalizedTags = Array.isArray(skill?.tags)
+    ? skill.tags.filter((tag): tag is string => typeof tag === "string")
+    : [];
+  return {
+    id: fallbackId,
+    skill_code: skill?.skill_code || `snapshot-${Math.abs(fallbackId) || fallbackIndex + 1}`,
+    name: skill?.name || `Skill #${Math.abs(fallbackId) || fallbackIndex + 1}`,
+    description: skill?.description || null,
+    content: skill?.content || "",
+    tags: normalizedTags,
+    sort_order: Number.isFinite(Number(skill?.sort_order)) ? Number(skill?.sort_order) : 999,
+    is_enabled: skill?.is_enabled !== false,
+    created_by: skill?.created_by || null,
+    updated_by: skill?.updated_by || null,
+    created_at: skill?.created_at || null,
+    updated_at: skill?.updated_at || null,
+  };
+}
+
+function resolveLogSkillSnapshots(
+    log: Pick<AITaskLog, "related_skill_snapshots" | "related_skill_ids" | "related_skill_id">,
+    skillMap: Map<number, RecruitmentSkill>,
+) {
+  if (log.related_skill_snapshots?.length) {
+    return log.related_skill_snapshots.map((skill, index) => normalizeSkillSnapshot(skill, index));
+  }
+  const ids = log.related_skill_ids?.length
+    ? log.related_skill_ids
+    : (log.related_skill_id ? [log.related_skill_id] : []);
+  return ids.map((skillId, index) => normalizeSkillSnapshot(
+      skillMap.get(skillId) || {
+        id: skillId,
+        skill_code: `skill-${skillId}`,
+        name: `Skill #${skillId}`,
+        content: "",
+        tags: [],
+        sort_order: 999,
+        is_enabled: true,
+      },
+      index,
+  ));
+}
+
+function formatSkillSnapshotNames(skillSnapshots: RecruitmentSkill[]) {
+  if (!skillSnapshots.length) {
+    return "未关联 Skills";
+  }
+  return skillSnapshots.map((skill) => skill.name || `Skill #${skill.id}`).join("、");
+}
+
+function formatStructuredValue(value: unknown, fallback: string) {
+  if (typeof value === "string") {
+    return value.trim() ? value : fallback;
+  }
+  if (value == null) {
+    return fallback;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 function labelForMemorySource(source?: string | null) {
   switch (source) {
     case "manual_override":
-      return "手动指定";
+    case "manual":
+      return "手动指定 Skills";
     case "candidate_memory":
       return "候选人工作记忆";
+    case "position":
     case "position_default":
-      return "岗位默认规则";
+      return "岗位绑定 Skills";
+    case "global":
     case "enabled_global_fallback":
-      return "全局启用规则兜底";
+      return "全局启用 Skills";
+    case "guardrail":
+      return "非招聘拒答规则";
     default:
       return source || "未记录";
   }
@@ -771,7 +842,11 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   const [interviewGenerating, setInterviewGenerating] = useState(false);
   const [positionDeleting, setPositionDeleting] = useState(false);
   const [positionDeleteConfirmOpen, setPositionDeleteConfirmOpen] = useState(false);
+  const [skillDeleteTarget, setSkillDeleteTarget] = useState<RecruitmentSkill | null>(null);
   const [llmDeleteTarget, setLlmDeleteTarget] = useState<RecruitmentLLMConfig | null>(null);
+  const [mailSenderDeleteTarget, setMailSenderDeleteTarget] = useState<RecruitmentMailSenderConfig | null>(null);
+  const [mailRecipientDeleteTarget, setMailRecipientDeleteTarget] = useState<RecruitmentMailRecipient | null>(null);
+  const [deleteActionKey, setDeleteActionKey] = useState<string | null>(null);
   const [jdDraft, setJdDraft] = useState({
     title: "",
     jdMarkdown: "",
@@ -792,7 +867,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
     {
       id: "intro",
       role: "assistant",
-      content: "我是 AI 招聘助手。你可以直接让我生成 JD、查看岗位候选人、列出现有 Skills，或为某位候选人生成面试题。",
+      content: "我是 AI 招聘工作台助手。你可以直接让我生成 JD、查看岗位候选人、重新初筛某位候选人并追加硬性条件，或者说明这次对话实际使用了哪些 Skills。",
       createdAt: new Date().toISOString(),
     },
   ]);
@@ -1018,6 +1093,10 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
       setActivePage("workspace");
     }
   }, [activePage, canManageRecruitment]);
+
+  useEffect(() => {
+    setSettingsPopoverOpen(false);
+  }, [activePage]);
 
   useEffect(() => {
     setSelectedCandidateIds((current) => current.filter((candidateId) => visibleCandidates.some((candidate) => candidate.id === candidateId)));
@@ -1424,6 +1503,30 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
       toast.success("模型配置已刷新");
     } catch {
       // loadLLMConfigs already reports the error toast
+    }
+  }
+
+  async function refreshMailSettingsWithFeedback() {
+    if (mailSettingsLoading) {
+      return;
+    }
+    try {
+      await loadMailSettings();
+      toast.success("邮件配置已刷新");
+    } catch {
+      // loadMailSettings already reports the error toast
+    }
+  }
+
+  async function refreshLogsWithFeedback() {
+    if (logsLoading) {
+      return;
+    }
+    try {
+      await loadLogs();
+      toast.success("任务日志已刷新");
+    } catch {
+      // loadLogs already reports the error toast
     }
   }
 
@@ -1874,7 +1977,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
           content: response.reply,
           createdAt: new Date().toISOString(),
           actions: response.actions,
-          logId: response.log_id,
+          logId: response.log_id ?? undefined,
           memorySource: response.memory_source,
           modelProvider: response.model_provider,
           modelName: response.model_name,
@@ -2034,15 +2137,17 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   }
 
   async function deleteMailSender(senderId: number) {
-    if (!window.confirm("确认删除这个发件箱配置吗？")) {
-      return;
-    }
+    const actionKey = `mail-sender-${senderId}`;
+    setDeleteActionKey(actionKey);
     try {
       await recruitmentApi(`/mail-senders/${senderId}`, { method: "DELETE" });
+      setMailSenderDeleteTarget(null);
       toast.success("发件箱已删除");
       await loadMailSettings();
     } catch (error) {
       toast.error(`删除发件箱失败：${error instanceof Error ? error.message : "未知错误"}`);
+    } finally {
+      setDeleteActionKey((current) => (current === actionKey ? null : current));
     }
   }
 
@@ -2097,15 +2202,17 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   }
 
   async function deleteMailRecipient(recipientId: number) {
-    if (!window.confirm("确认删除这个收件人吗？")) {
-      return;
-    }
+    const actionKey = `mail-recipient-${recipientId}`;
+    setDeleteActionKey(actionKey);
     try {
       await recruitmentApi(`/mail-recipients/${recipientId}`, { method: "DELETE" });
+      setMailRecipientDeleteTarget(null);
       toast.success("收件人已删除");
       await loadMailSettings();
     } catch (error) {
       toast.error(`删除收件人失败：${error instanceof Error ? error.message : "未知错误"}`);
+    } finally {
+      setDeleteActionKey((current) => (current === actionKey ? null : current));
     }
   }
 
@@ -2273,12 +2380,17 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   }
 
   async function deleteSkill(skillId: number) {
+    const actionKey = `skill-${skillId}`;
+    setDeleteActionKey(actionKey);
     try {
       await recruitmentApi(`/skills/${skillId}`, { method: "DELETE" });
+      setSkillDeleteTarget(null);
       toast.success("Skill 已删除");
       await loadSkills();
     } catch (error) {
       toast.error(`删除 Skill 失败：${error instanceof Error ? error.message : "未知错误"}`);
+    } finally {
+      setDeleteActionKey((current) => (current === actionKey ? null : current));
     }
   }
 
@@ -2354,6 +2466,8 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   }
 
   async function deleteLLMConfig(configId: number) {
+    const actionKey = `llm-${configId}`;
+    setDeleteActionKey(actionKey);
     try {
       await recruitmentApi(`/llm-configs/${configId}`, { method: "DELETE" });
       setLlmDeleteTarget(null);
@@ -2365,6 +2479,8 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
       }
     } catch (error) {
       toast.error(`\u5220\u9664\u6a21\u578b\u914d\u7f6e\u5931\u8d25\uff1a${formatActionError(error)}`);
+    } finally {
+      setDeleteActionKey((current) => (current === actionKey ? null : current));
     }
   }
 
@@ -2409,9 +2525,9 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
     const suggestionPrompts = [
       "生成当前岗位 JD",
       "查看当前岗位候选人",
-      "筛选今日新简历",
+      "重新对当前候选人初筛，硬性要求加强硬件测试",
       "给当前候选人生成面试题",
-      "列出当前 Skills",
+      "说明这次对话用了哪些 Skills",
       "当前使用什么模型",
     ];
 
@@ -2543,7 +2659,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                   }
                 }}
                 rows={isFullscreen ? 10 : 7}
-                placeholder="例如：帮我生成 IoT 测试工程师 JD，或查看当前岗位候选人列表"
+                placeholder="例如：重新对当前候选人初筛，硬性要求加强硬件测试经验；或说明这次用了哪些 Skills"
               />
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                 <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -2603,9 +2719,9 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                   {[
                     "帮我生成 IoT 测试工程师 JD",
                     "查看当前岗位候选人列表",
-                    "筛一下今天新来的简历",
-                    "给当前候选人生成初试题",
-                    "列出当前 Skills",
+                    "重新对当前候选人初筛，硬性要求加强硬件测试经验",
+                    "给当前候选人生成初试题，重点考察硬件联调",
+                    "说明这次对话用了哪些 Skills 和模型",
                   ].map((prompt) => (
                     <button
                       key={prompt}
@@ -3586,7 +3702,9 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
 
                         <Field label="AI 执行日志">
                           <div className="space-y-3">
-                            {candidateProcessActivity.length ? candidateProcessActivity.map((log) => (
+                            {candidateProcessActivity.length ? candidateProcessActivity.map((log) => {
+                              const logSkillSnapshots = resolveLogSkillSnapshots(log, skillMap);
+                              return (
                               <div key={log.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                   <div className="min-w-0 flex-1">
@@ -3600,24 +3718,20 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                                 <div className="mt-3 grid gap-3">
                                   <InfoTile
                                     label="Skills"
-                                    value={formatSkillNames(
-                                      log.related_skill_ids?.length
-                                        ? log.related_skill_ids
-                                        : (log.related_skill_id ? [log.related_skill_id] : []),
-                                      skillMap,
-                                    )}
+                                    value={formatSkillSnapshotNames(logSkillSnapshots)}
                                   />
                                   <InfoTile label="记忆来源" value={labelForMemorySource(log.memory_source)} />
                                 </div>
                                 {log.error_message ? <p className="mt-3 break-all text-sm text-rose-600">{log.error_message}</p> : null}
                                 <div className="mt-3 rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                  <pre className="whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">{log.output_snapshot || log.output_summary || "执行中，等待模型返回..."}</pre>
+                                  <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">{formatStructuredValue(log.output_snapshot, log.output_summary || "执行中，等待模型返回...")}</pre>
                                 </div>
                                 <div className="mt-3 flex flex-wrap gap-2">
                                   <Button size="sm" variant="outline" onClick={() => openTaskLogDetail(log.id)}>查看完整日志</Button>
                                 </div>
                               </div>
-                            )) : (
+                              );
+                            }) : (
                               <EmptyState title="暂无 AI 执行日志" description="开始初筛、生成面试题后，这里会显示候选人的流程任务留痕与输出内容。" />
                             )}
                           </div>
@@ -3730,6 +3844,8 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   }
 
   function renderAuditPage() {
+    const selectedLogSkillSnapshots = selectedLogDetail ? resolveLogSkillSnapshots(selectedLogDetail, skillMap) : [];
+
     return (
         <div className="space-y-6">
           <Card className={panelClass}>
@@ -3749,9 +3865,9 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                 <option value="running">running</option>
                 <option value="failed">failed</option>
               </NativeSelect>
-              <Button variant="outline" onClick={() => void loadLogs()}>
-                <RefreshCw className="h-4 w-4" />
-                刷新任务
+              <Button variant="outline" onClick={() => void refreshLogsWithFeedback()} disabled={logsLoading}>
+                {logsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {logsLoading ? "刷新中..." : "刷新任务"}
               </Button>
             </CardContent>
           </Card>
@@ -3829,12 +3945,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                     <div className="grid gap-3 md:grid-cols-2">
                       <InfoTile
                         label="技能使用情况"
-                        value={formatSkillNames(
-                          selectedLogDetail.related_skill_ids?.length
-                            ? selectedLogDetail.related_skill_ids
-                            : (selectedLogDetail.related_skill_id ? [selectedLogDetail.related_skill_id] : []),
-                          skillMap,
-                        )}
+                        value={formatSkillSnapshotNames(selectedLogSkillSnapshots)}
                       />
                       <InfoTile label="记忆来源" value={labelForMemorySource(selectedLogDetail.memory_source)} />
                     </div>
@@ -3843,30 +3954,25 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                     <InfoTile label="错误信息" value={selectedLogDetail.error_message || "无"} />
                     <Field label="完整 Skills">
                       <div className="space-y-3">
-                        {(selectedLogDetail.related_skill_ids?.length
-                          ? selectedLogDetail.related_skill_ids
-                          : (selectedLogDetail.related_skill_id ? [selectedLogDetail.related_skill_id] : [])
-                        ).length ? (
-                          (selectedLogDetail.related_skill_ids?.length
-                            ? selectedLogDetail.related_skill_ids
-                            : (selectedLogDetail.related_skill_id ? [selectedLogDetail.related_skill_id] : [])
-                          ).map((skillId) => {
-                            const skill = skillMap.get(skillId);
-                            if (!skill) {
-                              return (
-                                <div key={skillId} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-                                  Skill #{skillId}
+                        {selectedLogSkillSnapshots.length ? (
+                          selectedLogSkillSnapshots.map((skill) => (
+                            <div key={`${skill.skill_code}-${skill.id}`} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{skill.name}</p>
+                                  {skill.description ? <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{skill.description}</p> : null}
                                 </div>
-                              );
-                            }
-                            return (
-                              <div key={skill.id} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{skill.name}</p>
-                                {skill.description ? <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{skill.description}</p> : null}
-                                <pre className="mt-3 whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">{skill.content || "暂无内容"}</pre>
+                                {skill.tags.length ? (
+                                  <div className="flex flex-wrap gap-2">
+                                    {skill.tags.map((tag) => (
+                                      <Badge key={`${skill.skill_code}-${tag}`} variant="outline" className="rounded-full">{tag}</Badge>
+                                    ))}
+                                  </div>
+                                ) : null}
                               </div>
-                            );
-                          })
+                              <pre className="mt-3 max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">{skill.content || "暂无内容"}</pre>
+                            </div>
+                          ))
                         ) : (
                           <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                             本次未记录关联 Skills。
@@ -3876,12 +3982,12 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                     </Field>
                     <Field label="Prompt Snapshot">
                       <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                        <pre className="whitespace-pre-wrap">{selectedLogDetail.prompt_snapshot || "暂无 Prompt 快照"}</pre>
+                        <pre className="max-h-[280px] overflow-auto whitespace-pre-wrap">{selectedLogDetail.prompt_snapshot || "暂无 Prompt 快照"}</pre>
                       </div>
                     </Field>
                     <Field label="完整输出">
                       <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                        <pre className="whitespace-pre-wrap">{selectedLogDetail.output_snapshot || selectedLogDetail.output_summary || "暂无完整输出"}</pre>
+                        <pre className="max-h-[360px] overflow-auto whitespace-pre-wrap">{formatStructuredValue(selectedLogDetail.output_snapshot, selectedLogDetail.output_summary || "暂无完整输出")}</pre>
                       </div>
                     </Field>
                   </div>
@@ -3944,7 +4050,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                       <Button size="sm" variant="outline" onClick={() => void toggleSkill(skill.id, !skill.is_enabled)}>
                         {skill.is_enabled ? "停用" : "启用"}
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => void deleteSkill(skill.id)}>删除</Button>
+                      <Button size="sm" variant="outline" onClick={() => setSkillDeleteTarget(skill)}>删除</Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -3973,8 +4079,8 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => void refreshLLMConfigsWithFeedback()} disabled={modelsLoading}>
-                <RefreshCw className="h-4 w-4" />
-                刷新模型
+                {modelsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {modelsLoading ? "刷新中..." : "刷新模型"}
               </Button>
               <Button onClick={() => openLLMEditor()}>
                 <Plus className="h-4 w-4" />
@@ -4058,9 +4164,9 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">统一维护发件箱、收件人和发送记录，并支持从当前候选人上下文直接发简历。</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => void loadMailSettings()} disabled={mailSettingsLoading}>
-                <RefreshCw className="h-4 w-4" />
-                刷新邮件配置
+              <Button variant="outline" onClick={() => void refreshMailSettingsWithFeedback()} disabled={mailSettingsLoading}>
+                {mailSettingsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {mailSettingsLoading ? "刷新中..." : "刷新邮件配置"}
               </Button>
               <Button
                 variant="outline"
@@ -4109,7 +4215,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" onClick={() => openMailSenderEditor(sender)}>编辑</Button>
-                    <Button size="sm" variant="outline" onClick={() => void deleteMailSender(sender.id)}>删除</Button>
+                    <Button size="sm" variant="outline" onClick={() => setMailSenderDeleteTarget(sender)}>删除</Button>
                   </div>
                 </div>
               )) : <EmptyState title="暂无发件箱" description="先配置至少一个发件箱，后续才能把简历发送给 HR、面试官或管理层。" />}
@@ -4144,7 +4250,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                   {recipient.notes ? <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{recipient.notes}</p> : null}
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" onClick={() => openMailRecipientEditor(recipient)}>编辑</Button>
-                    <Button size="sm" variant="outline" onClick={() => void deleteMailRecipient(recipient.id)}>删除</Button>
+                    <Button size="sm" variant="outline" onClick={() => setMailRecipientDeleteTarget(recipient)}>删除</Button>
                   </div>
                 </div>
               )) : <EmptyState title="暂无收件人" description="先维护公司内部收件人名单，发送简历时就能直接多选。" />}
@@ -4253,8 +4359,8 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
 
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={() => void refreshCoreDataWithFeedback()} disabled={coreRefreshing}>
-                <RefreshCw className="h-4 w-4" />
-                刷新
+                {coreRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {coreRefreshing ? "刷新中..." : "刷新"}
               </Button>
               <Button variant="outline" onClick={() => setResumeUploadOpen(true)}>
                 <Upload className="h-4 w-4" />
@@ -4360,78 +4466,80 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
         </Dialog>
 
         <Dialog open={positionDialogOpen} onOpenChange={setPositionDialogOpen}>
-          <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-hidden">
+          <DialogContent className="flex h-[min(88vh,900px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-4xl">
             <DialogHeader>
               <DialogTitle>{positionDialogMode === "create" ? "新建岗位" : "编辑岗位"}</DialogTitle>
               <DialogDescription>岗位基础信息放在弹窗中维护，详情操作回到岗位工作区完成。</DialogDescription>
             </DialogHeader>
             <ScrollArea className="min-h-0 flex-1">
-              <div className="grid gap-4 px-1 py-1 md:grid-cols-2">
-                <Field label="岗位名称"><Input value={positionForm.title} onChange={(event) => setPositionForm((current) => ({ ...current, title: event.target.value }))} /></Field>
-                <Field label="部门"><Input value={positionForm.department} onChange={(event) => setPositionForm((current) => ({ ...current, department: event.target.value }))} /></Field>
-                <Field label="地点"><Input value={positionForm.location} onChange={(event) => setPositionForm((current) => ({ ...current, location: event.target.value }))} /></Field>
-                <Field label="用工类型"><Input value={positionForm.employmentType} onChange={(event) => setPositionForm((current) => ({ ...current, employmentType: event.target.value }))} /></Field>
-                <Field label="薪资范围"><Input value={positionForm.salaryRange} onChange={(event) => setPositionForm((current) => ({ ...current, salaryRange: event.target.value }))} /></Field>
-                <Field label="招聘人数"><Input type="number" value={positionForm.headcount} onChange={(event) => setPositionForm((current) => ({ ...current, headcount: event.target.value }))} /></Field>
-                <Field label="岗位状态">
-                  <NativeSelect value={positionForm.status} onChange={(event) => setPositionForm((current) => ({ ...current, status: event.target.value }))}>
-                    {Object.entries(positionStatusLabels).map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
-                    ))}
-                  </NativeSelect>
-                </Field>
-                <Field label="标签"><Input value={positionForm.tagsText} onChange={(event) => setPositionForm((current) => ({ ...current, tagsText: event.target.value }))} placeholder="标签，使用英文逗号分隔" /></Field>
-                <Field label="关键要求"><Textarea value={positionForm.keyRequirements} onChange={(event) => setPositionForm((current) => ({ ...current, keyRequirements: event.target.value }))} rows={4} /></Field>
-                <Field label="加分项"><Textarea value={positionForm.bonusPoints} onChange={(event) => setPositionForm((current) => ({ ...current, bonusPoints: event.target.value }))} rows={4} /></Field>
-                <Field label="初筛配置" className="md:col-span-2">
-                  <div className="space-y-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                    <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                      <input
-                        type="checkbox"
-                        checked={positionForm.autoScreenOnUpload}
-                        onChange={(event) => setPositionForm((current) => ({ ...current, autoScreenOnUpload: event.target.checked }))}
-                      />
-                      上传简历后自动进入初筛
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                      <input
-                        type="checkbox"
-                        checked={positionForm.autoAdvanceOnScreening}
-                        onChange={(event) => setPositionForm((current) => ({ ...current, autoAdvanceOnScreening: event.target.checked }))}
-                      />
-                      初筛通过后自动推进候选人状态
-                    </label>
-                    <div className="space-y-3">
-                      <p className="text-sm text-slate-600 dark:text-slate-300">绑定 Skills，作为该岗位默认初筛规则和后续面试题上下文。</p>
-                      <div className="flex flex-wrap gap-2">
-                        {skills.length ? skills.map((skill) => (
-                          <button
-                            key={skill.id}
-                            type="button"
-                            className={cn(
-                              "rounded-full border px-3 py-2 text-xs transition",
-                              positionForm.screeningSkillIds.includes(skill.id)
-                                ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                            )}
-                            onClick={() => setPositionForm((current) => ({
-                              ...current,
-                              screeningSkillIds: toggleIdInList(current.screeningSkillIds, skill.id),
-                            }))}
-                          >
-                            {skill.name}
-                          </button>
-                        )) : (
-                          <p className="text-sm text-slate-500 dark:text-slate-400">暂无可绑定 Skill，请先到管理设置里创建。</p>
-                        )}
+              <div className="space-y-4 px-1 py-1">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="岗位名称"><Input value={positionForm.title} onChange={(event) => setPositionForm((current) => ({ ...current, title: event.target.value }))} /></Field>
+                  <Field label="部门"><Input value={positionForm.department} onChange={(event) => setPositionForm((current) => ({ ...current, department: event.target.value }))} /></Field>
+                  <Field label="地点"><Input value={positionForm.location} onChange={(event) => setPositionForm((current) => ({ ...current, location: event.target.value }))} /></Field>
+                  <Field label="用工类型"><Input value={positionForm.employmentType} onChange={(event) => setPositionForm((current) => ({ ...current, employmentType: event.target.value }))} /></Field>
+                  <Field label="薪资范围"><Input value={positionForm.salaryRange} onChange={(event) => setPositionForm((current) => ({ ...current, salaryRange: event.target.value }))} /></Field>
+                  <Field label="招聘人数"><Input type="number" value={positionForm.headcount} onChange={(event) => setPositionForm((current) => ({ ...current, headcount: event.target.value }))} /></Field>
+                  <Field label="岗位状态">
+                    <NativeSelect value={positionForm.status} onChange={(event) => setPositionForm((current) => ({ ...current, status: event.target.value }))}>
+                      {Object.entries(positionStatusLabels).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+                  <Field label="标签"><Input value={positionForm.tagsText} onChange={(event) => setPositionForm((current) => ({ ...current, tagsText: event.target.value }))} placeholder="标签，使用英文逗号分隔" /></Field>
+                  <Field label="关键要求"><Textarea value={positionForm.keyRequirements} onChange={(event) => setPositionForm((current) => ({ ...current, keyRequirements: event.target.value }))} rows={4} /></Field>
+                  <Field label="加分项"><Textarea value={positionForm.bonusPoints} onChange={(event) => setPositionForm((current) => ({ ...current, bonusPoints: event.target.value }))} rows={4} /></Field>
+                  <Field label="初筛配置" className="md:col-span-2">
+                    <div className="space-y-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={positionForm.autoScreenOnUpload}
+                          onChange={(event) => setPositionForm((current) => ({ ...current, autoScreenOnUpload: event.target.checked }))}
+                        />
+                        上传简历后自动进入初筛
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                        <input
+                          type="checkbox"
+                          checked={positionForm.autoAdvanceOnScreening}
+                          onChange={(event) => setPositionForm((current) => ({ ...current, autoAdvanceOnScreening: event.target.checked }))}
+                        />
+                        初筛通过后自动推进候选人状态
+                      </label>
+                      <div className="space-y-3">
+                        <p className="text-sm text-slate-600 dark:text-slate-300">绑定 Skills，作为该岗位默认初筛规则和后续面试题上下文。</p>
+                        <div className="flex flex-wrap gap-2">
+                          {skills.length ? skills.map((skill) => (
+                            <button
+                              key={skill.id}
+                              type="button"
+                              className={cn(
+                                "rounded-full border px-3 py-2 text-xs transition",
+                                positionForm.screeningSkillIds.includes(skill.id)
+                                  ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                  : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                              )}
+                              onClick={() => setPositionForm((current) => ({
+                                ...current,
+                                screeningSkillIds: toggleIdInList(current.screeningSkillIds, skill.id),
+                              }))}
+                            >
+                              {skill.name}
+                            </button>
+                          )) : (
+                            <p className="text-sm text-slate-500 dark:text-slate-400">暂无可绑定 Skill，请先到管理设置里创建。</p>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </Field>
+                </div>
+                <Field label="岗位摘要">
+                  <Textarea value={positionForm.summary} onChange={(event) => setPositionForm((current) => ({ ...current, summary: event.target.value }))} rows={5} />
                 </Field>
               </div>
-              <Field label="岗位摘要" className="mt-4">
-                <Textarea value={positionForm.summary} onChange={(event) => setPositionForm((current) => ({ ...current, summary: event.target.value }))} rows={5} />
-              </Field>
             </ScrollArea>
             <DialogFooter className="shrink-0">
               <Button variant="outline" onClick={() => setPositionDialogOpen(false)}>取消</Button>
@@ -4491,8 +4599,55 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
               <DialogDescription>删除后将不再参与任务路由。如果它是当前生效模型，系统会自动回落到其他可用配置。</DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setLlmDeleteTarget(null)}>取消</Button>
-              <Button variant="destructive" onClick={() => llmDeleteTarget && void deleteLLMConfig(llmDeleteTarget.id)}>确认删除</Button>
+              <Button variant="outline" onClick={() => setLlmDeleteTarget(null)} disabled={deleteActionKey === `llm-${llmDeleteTarget?.id}`}>取消</Button>
+              <Button variant="destructive" onClick={() => llmDeleteTarget && void deleteLLMConfig(llmDeleteTarget.id)} disabled={deleteActionKey === `llm-${llmDeleteTarget?.id}`}>
+                {deleteActionKey === `llm-${llmDeleteTarget?.id}` ? "删除中..." : "确认删除"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={Boolean(skillDeleteTarget)} onOpenChange={(open) => { if (!open) setSkillDeleteTarget(null); }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>确认删除 Skill</DialogTitle>
+              <DialogDescription>删除后该规则将不再参与新的招聘流程，但历史对话和任务日志仍会保留这次使用痕迹。</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSkillDeleteTarget(null)} disabled={deleteActionKey === `skill-${skillDeleteTarget?.id}`}>取消</Button>
+              <Button variant="destructive" onClick={() => skillDeleteTarget && void deleteSkill(skillDeleteTarget.id)} disabled={deleteActionKey === `skill-${skillDeleteTarget?.id}`}>
+                {deleteActionKey === `skill-${skillDeleteTarget?.id}` ? "删除中..." : "确认删除"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={Boolean(mailSenderDeleteTarget)} onOpenChange={(open) => { if (!open) setMailSenderDeleteTarget(null); }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>确认删除发件箱</DialogTitle>
+              <DialogDescription>删除后它将无法继续发送简历邮件；已有发送记录会继续保留。</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setMailSenderDeleteTarget(null)} disabled={deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}`}>取消</Button>
+              <Button variant="destructive" onClick={() => mailSenderDeleteTarget && void deleteMailSender(mailSenderDeleteTarget.id)} disabled={deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}`}>
+                {deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}` ? "删除中..." : "确认删除"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={Boolean(mailRecipientDeleteTarget)} onOpenChange={(open) => { if (!open) setMailRecipientDeleteTarget(null); }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>确认删除收件人</DialogTitle>
+              <DialogDescription>删除后发送简历时将不再出现在可选名单里，历史发送记录不会受影响。</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setMailRecipientDeleteTarget(null)} disabled={deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}`}>取消</Button>
+              <Button variant="destructive" onClick={() => mailRecipientDeleteTarget && void deleteMailRecipient(mailRecipientDeleteTarget.id)} disabled={deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}`}>
+                {deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}` ? "删除中..." : "确认删除"}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -4526,26 +4681,26 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
         </Dialog>
 
         <Dialog open={skillDialogOpen} onOpenChange={setSkillDialogOpen}>
-          <DialogContent className="flex h-[min(85vh,840px)] max-h-[85vh] flex-col overflow-hidden sm:max-w-3xl">
+          <DialogContent className="flex h-[min(88vh,840px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>{skillEditingId ? "编辑 Skill" : "新增 Skill"}</DialogTitle>
               <DialogDescription>Skills 是管理员配置项，因此入口收在管理设置里，不占用主工作台主路径。</DialogDescription>
             </DialogHeader>
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="space-y-4 px-1 py-1">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="名称"><Input value={skillForm.name} onChange={(event) => setSkillForm((current) => ({ ...current, name: event.target.value }))} /></Field>
-                  <Field label="排序"><Input type="number" value={skillForm.sortOrder} onChange={(event) => setSkillForm((current) => ({ ...current, sortOrder: event.target.value }))} /></Field>
-                </div>
-                <Field label="描述"><Input value={skillForm.description} onChange={(event) => setSkillForm((current) => ({ ...current, description: event.target.value }))} /></Field>
-                <Field label="标签"><Input value={skillForm.tagsText} onChange={(event) => setSkillForm((current) => ({ ...current, tagsText: event.target.value }))} placeholder="标签，使用英文逗号分隔" /></Field>
-                <Field label="内容"><Textarea className="min-h-[320px] max-h-[50vh] overflow-y-auto resize-y [field-sizing:fixed]" value={skillForm.content} onChange={(event) => setSkillForm((current) => ({ ...current, content: event.target.value }))} rows={16} /></Field>
-                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                  <input type="checkbox" checked={skillForm.isEnabled} onChange={(event) => setSkillForm((current) => ({ ...current, isEnabled: event.target.checked }))} />
-                  保存后立即启用
-                </label>
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-1 py-1">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="名称"><Input value={skillForm.name} onChange={(event) => setSkillForm((current) => ({ ...current, name: event.target.value }))} /></Field>
+                <Field label="排序"><Input type="number" value={skillForm.sortOrder} onChange={(event) => setSkillForm((current) => ({ ...current, sortOrder: event.target.value }))} /></Field>
               </div>
-            </ScrollArea>
+              <Field label="描述"><Input value={skillForm.description} onChange={(event) => setSkillForm((current) => ({ ...current, description: event.target.value }))} /></Field>
+              <Field label="标签"><Input value={skillForm.tagsText} onChange={(event) => setSkillForm((current) => ({ ...current, tagsText: event.target.value }))} placeholder="标签，使用英文逗号分隔" /></Field>
+              <Field label="内容" className="flex min-h-0 flex-1 flex-col">
+                <Textarea className="h-full min-h-[260px] flex-1 resize-none overflow-y-auto [field-sizing:fixed]" value={skillForm.content} onChange={(event) => setSkillForm((current) => ({ ...current, content: event.target.value }))} rows={16} />
+              </Field>
+              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <input type="checkbox" checked={skillForm.isEnabled} onChange={(event) => setSkillForm((current) => ({ ...current, isEnabled: event.target.checked }))} />
+                保存后立即启用
+              </label>
+            </div>
             <DialogFooter className="shrink-0">
               <Button variant="outline" onClick={() => setSkillDialogOpen(false)} disabled={skillSubmitting}>取消</Button>
               <Button onClick={() => void submitSkill()} disabled={skillSubmitting}>{skillSubmitting ? "保存中..." : "保存 Skill"}</Button>

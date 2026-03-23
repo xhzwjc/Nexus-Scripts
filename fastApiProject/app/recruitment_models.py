@@ -182,6 +182,7 @@ class RecruitmentAITaskLog(Base):
     related_candidate_id = Column(Integer, index=True)
     related_skill_id = Column(Integer, index=True)
     related_skill_ids_json = Column(Text)
+    related_skill_snapshots_json = Column(Text)
     related_resume_file_id = Column(Integer, index=True)
     related_publish_task_id = Column(Integer, index=True)
     memory_source = Column(String(80))

@@ -234,6 +234,7 @@ export interface AITaskLog {
   related_candidate_id?: number | null;
   related_skill_id?: number | null;
   related_skill_ids?: number[];
+  related_skill_snapshots?: RecruitmentSkill[];
   related_resume_file_id?: number | null;
   related_publish_task_id?: number | null;
   memory_source?: string | null;
@@ -243,7 +244,7 @@ export interface AITaskLog {
   prompt_snapshot?: string | null;
   input_summary?: string | null;
   output_summary?: string | null;
-  output_snapshot?: string | null;
+  output_snapshot?: unknown;
   status: string;
   error_message?: string | null;
   token_usage?: Record<string, unknown> | null;

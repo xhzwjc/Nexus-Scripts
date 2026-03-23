@@ -196,7 +196,7 @@ async def trigger_candidate_parse(candidate_id: int, _session: Dict[str, Any] = 
 @recruitment_router.post("/candidates/{candidate_id}/screen")
 async def screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
-        data = service.screen_candidate(candidate_id, _session.get("id") or "unknown", skill_ids=payload.skill_ids, use_position_skills=payload.use_position_skills, use_candidate_memory=payload.use_candidate_memory)
+        data = service.screen_candidate(candidate_id, _session.get("id") or "unknown", skill_ids=payload.skill_ids, use_position_skills=payload.use_position_skills, use_candidate_memory=payload.use_candidate_memory, custom_requirements=payload.custom_requirements or "")
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -446,4 +446,3 @@ async def update_chat_context(payload: RecruitmentChatContextUpdateRequest, _ses
 async def chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.chat(_session.get("id") or "unknown", _session.get("name") or "unknown", payload.message, payload.context)
     return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
-

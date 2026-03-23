@@ -219,6 +219,10 @@ def ensure_recruitment_schema() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN related_skill_ids_json TEXT NULL"))
             logger.info("Added recruitment_ai_task_logs.related_skill_ids_json column")
+        if "related_skill_snapshots_json" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN related_skill_snapshots_json TEXT NULL"))
+            logger.info("Added recruitment_ai_task_logs.related_skill_snapshots_json column")
 
         if "memory_source" not in ai_task_columns:
             with engine.begin() as connection:
