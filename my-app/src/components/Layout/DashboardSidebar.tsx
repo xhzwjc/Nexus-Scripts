@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wrench, ScanLine, CircleHelp, ScrollText, LogOut, ChevronRight, Server, CheckCircle, Users, Sparkles, Bot, Shield } from 'lucide-react';
+import { Wrench, ScanLine, CircleHelp, ScrollText, LogOut, ChevronRight, Server, CheckCircle, Users, Sparkles, Bot, Shield, BriefcaseBusiness } from 'lucide-react';
 import { useI18n } from '@/lib/i18n';
 import type { ViewType, User } from '@/lib/types';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -101,6 +101,15 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                     >
                                         <Bot className="w-[18px] h-[18px]" />
                                         <span>{t.agentChat.navLabel}</span>
+                                    </div>
+                                )}
+                                {currentUser?.permissions['ai-recruitment'] && (
+                                    <div
+                                        className={`sidebar-nav-item ${currentView === 'ai-recruitment' ? 'active' : ''}`}
+                                        onClick={() => setCurrentView('ai-recruitment')}
+                                    >
+                                        <BriefcaseBusiness className="w-[18px] h-[18px]" />
+                                        <span>AI 招聘</span>
                                     </div>
                                 )}
                                 {currentUser?.permissions['rbac-manage'] && (

@@ -6,6 +6,7 @@ from .ai_resources import ai_resources_router
 from .auth_rbac import auth_router, rbac_router
 from .monitoring import monitoring_router
 from .team_resources import team_resources_router
+from .recruitment import recruitment_router
 
 __all__ = [
     "ai_resources_router",
@@ -15,7 +16,9 @@ __all__ = [
     "monitoring_router",
     "OUTPUTS_DIR",
     "rbac_router",
+    "recruitment_router",
     "tax_tools_router",
     "team_resources_router",
     "workbench_router",
 ]
+

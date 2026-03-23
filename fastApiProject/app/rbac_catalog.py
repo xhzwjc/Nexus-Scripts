@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,8 @@ PERMISSION_DEFINITIONS: Tuple[PermissionDefinition, ...] = (
     PermissionDefinition("dev-tools", "开发工具", "platform", "可访问开发工具页面", 180),
     PermissionDefinition("rbac-manage", "权限管理中心", "platform", "可管理用户、角色与权限", 190),
     PermissionDefinition("agent-chat", "Agent 助手", "collaboration", "可使用 Agent Chat", 200),
+    PermissionDefinition("ai-recruitment", "AI 招聘自动化", "collaboration", "可访问 AI 招聘自动化管理工作台", 210),
+    PermissionDefinition("ai-recruitment-manage", "AI 招聘配置管理", "collaboration", "可管理 AI 招聘模块中的模型配置与 Skills", 220),
 )
 
 
@@ -49,157 +51,15 @@ PERMISSION_INDEX: Dict[str, PermissionDefinition] = {permission.key: permission 
 
 
 ROLE_DEFINITIONS: Tuple[RoleDefinition, ...] = (
-    RoleDefinition(
-        "admin",
-        "系统超管",
-        "拥有所有权限的系统管理员，可管理平台、资源和全部业务工具",
-        10,
-        ALL_PERMISSION_KEYS,
-    ),
-    RoleDefinition(
-        "operations-manager",
-        "业务管理员",
-        "负责核心业务流程执行与协同，不包含平台级危险操作",
-        20,
-        (
-            "settlement",
-            "commission",
-            "balance",
-            "task-automation",
-            "sms_operations_center",
-            "tax-reporting",
-            "tax-calculation",
-            "payment-stats",
-            "delivery-tool",
-            "ocr-tool",
-            "team-resources",
-            "ai-resources",
-            "agent-chat",
-        ),
-    ),
-    RoleDefinition(
-        "operator",
-        "运营专员",
-        "负责日常运营、交付和查询类工作，不能修改资源配置与平台设置",
-        30,
-        (
-            "tax-reporting",
-            "tax-calculation",
-            "payment-stats",
-            "delivery-tool",
-            "ocr-tool",
-            "team-resources",
-            "ai-resources",
-            "agent-chat",
-        ),
-    ),
-    RoleDefinition(
-        "finance-analyst",
-        "财务分析",
-        "负责财务校验、分析与报表工具，不直接执行高风险业务操作",
-        40,
-        (
-            "commission",
-            "balance",
-            "tax-reporting",
-            "tax-calculation",
-            "payment-stats",
-            "team-resources",
-            "ai-resources",
-        ),
-    ),
-    RoleDefinition(
-        "resource-manager",
-        "资源管理员",
-        "负责维护团队资源、AI 资源及相关健康检测配置",
-        50,
-        (
-            "team-resources",
-            "team-resources-manage",
-            "ai-resources",
-            "ai-resources-manage",
-            "cert-health",
-            "agent-chat",
-            "ocr-tool",
-        ),
-    ),
-    RoleDefinition(
-        "platform-engineer",
-        "平台运维",
-        "负责运维中心、系统健康、排障和平台工具",
-        60,
-        (
-            "server-monitoring",
-            "cert-health",
-            "dev-tools",
-            "team-resources",
-            "ai-resources",
-            "agent-chat",
-            "ocr-tool",
-        ),
-    ),
-    RoleDefinition(
-        "product-manager",
-        "产品经理",
-        "负责跨模块跟进与业务观察，可查看平台状态但不直接管理资源",
-        70,
-        (
-            "settlement",
-            "commission",
-            "balance",
-            "task-automation",
-            "tax-reporting",
-            "tax-calculation",
-            "payment-stats",
-            "delivery-tool",
-            "ocr-tool",
-            "cert-health",
-            "server-monitoring",
-            "team-resources",
-            "ai-resources",
-            "agent-chat",
-        ),
-    ),
-    RoleDefinition(
-        "qa-engineer",
-        "测试与质保",
-        "负责回归验证、平台排障与资源维护，接近管理员但不直接拥有超管身份",
-        80,
-        (
-            "settlement",
-            "commission",
-            "balance",
-            "task-automation",
-            "sms_operations_center",
-            "sms-admin-login",
-            "tax-reporting",
-            "tax-calculation",
-            "payment-stats",
-            "delivery-tool",
-            "ocr-tool",
-            "dev-tools",
-            "cert-health",
-            "server-monitoring",
-            "team-resources",
-            "team-resources-manage",
-            "ai-resources",
-            "ai-resources-manage",
-            "agent-chat",
-        ),
-    ),
-    RoleDefinition(
-        "auditor",
-        "审计/只读",
-        "用于只读检查与巡视，避免执行写操作",
-        90,
-        (
-            "payment-stats",
-            "team-resources",
-            "ai-resources",
-            "cert-health",
-            "server-monitoring",
-        ),
-    ),
+    RoleDefinition("admin", "系统超管", "拥有所有权限的系统管理员，可管理平台、资源和全部业务工具", 10, ALL_PERMISSION_KEYS),
+    RoleDefinition("operations-manager", "业务管理员", "负责核心业务流程执行与协同，不包含平台级危险操作", 20, ("settlement", "commission", "balance", "task-automation", "sms_operations_center", "tax-reporting", "tax-calculation", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "ai-recruitment")),
+    RoleDefinition("operator", "运营专员", "负责日常运营、交付和查询类工作，不修改资源配置与平台设置", 30, ("tax-reporting", "tax-calculation", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "ai-recruitment")),
+    RoleDefinition("finance-analyst", "财务分析", "负责财务核验、分析与报表工具，不直接执行高风险业务操作", 40, ("commission", "balance", "tax-reporting", "tax-calculation", "payment-stats", "team-resources", "ai-resources")),
+    RoleDefinition("resource-manager", "资源管理员", "负责维护团队资源、AI 资源及相关健康检测配置", 50, ("team-resources", "team-resources-manage", "ai-resources", "ai-resources-manage", "cert-health", "agent-chat", "ocr-tool")),
+    RoleDefinition("platform-engineer", "平台运维", "负责运维中心、系统健康、排障和平台工具", 60, ("server-monitoring", "cert-health", "dev-tools", "team-resources", "ai-resources", "agent-chat", "ocr-tool")),
+    RoleDefinition("product-manager", "产品经理", "负责跨模块跟进与业务观察，可查看平台状态但不直接管理资源", 70, ("settlement", "commission", "balance", "task-automation", "tax-reporting", "tax-calculation", "payment-stats", "delivery-tool", "ocr-tool", "cert-health", "server-monitoring", "team-resources", "ai-resources", "agent-chat", "ai-recruitment")),
+    RoleDefinition("qa-engineer", "测试与质保", "负责回归验证、平台排障与资源维护，接近管理员但不直接拥有超管身份", 80, ("settlement", "commission", "balance", "task-automation", "sms_operations_center", "sms-admin-login", "tax-reporting", "tax-calculation", "payment-stats", "delivery-tool", "ocr-tool", "dev-tools", "cert-health", "server-monitoring", "team-resources", "team-resources-manage", "ai-resources", "ai-resources-manage", "agent-chat", "ai-recruitment", "ai-recruitment-manage")),
+    RoleDefinition("auditor", "审计/只读", "用于只读检查与巡视，避免执行写操作", 90, ("payment-stats", "team-resources", "ai-resources", "cert-health", "server-monitoring")),
 )
 
 
@@ -214,8 +74,10 @@ LEGACY_ROLE_MAPPING: Dict[str, str] = {
 }
 
 
+
 def normalize_role_code(role_code: str) -> str:
     normalized = (role_code or "").strip()
     if normalized in ROLE_INDEX:
         return normalized
     return LEGACY_ROLE_MAPPING.get(normalized, "operator")
+

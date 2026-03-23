@@ -30,6 +30,7 @@ const TeamResourcesContainer = dynamic(() => import("./components/TeamResources/
 const ServerMonitoringScript = dynamic(() => import("./pages/ops/ServerMonitoring"), { loading: () => <LoadingComponent />, ssr: false });
 const AgentChat = dynamic(() => import("./components/AgentChat/AgentChat"), { loading: () => <LoadingComponent />, ssr: false });
 const AccessControlCenter = dynamic(() => import("./components/AccessControl/AccessControlCenter").then(mod => ({ default: mod.AccessControlCenter })), { loading: () => <LoadingComponent />, ssr: false });
+const RecruitmentAutomationContainer = dynamic(() => import("./components/Recruitment/RecruitmentAutomationContainer"), { loading: () => <LoadingComponent />, ssr: false });
 
 // Layout 组件导入
 import { HelpPage } from './components/Layout/HelpPage';
@@ -452,6 +453,11 @@ function AppContent() {
                         {currentView === 'agent-chat' && (
                             <div className="h-full p-0">
                                 <AgentChat onBack={() => setCurrentView('home')} />
+                            </div>
+                        )}
+                        {currentView === 'ai-recruitment' && (
+                            <div className="h-full p-0">
+                                <RecruitmentAutomationContainer onBack={() => setCurrentView('home')} />
                             </div>
                         )}
                         {currentView === 'access-control' && (
