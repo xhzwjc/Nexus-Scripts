@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from threading import Lock
 
 from sqlalchemy import inspect, text
@@ -26,6 +27,12 @@ logger = logging.getLogger(__name__)
 _schema_lock = Lock()
 _schema_ensured = False
 _recruitment_schema_ensured = False
+
+_SCHEMA_SKILL_TASK_KEYWORDS = {
+    "screening": {"screening", "score", "scoring", "resume_score", "resume-screening", "初筛", "评分", "筛选"},
+    "interview": {"interview", "question", "questions", "interview-question", "面试", "面试题", "出题"},
+    "jd": {"jd", "job_description", "job-description", "岗位jd", "职位jd", "jd生成", "生成jd", "岗位描述", "职位描述"},
+}
 
 
 def _build_default_recruitment_llm_seed() -> dict:
@@ -82,6 +89,63 @@ def _needs_legacy_default_skill_refresh(row: RecruitmentSkill) -> bool:
         "专用筛选、出题与面试分析 Skill",
     ]
     return any(marker in text for marker in legacy_markers)
+
+
+def _parse_skill_frontmatter(content: str) -> dict[str, str]:
+    match = re.match(r"^\s*---\s*\r?\n(.*?)\r?\n---\s*(?:\r?\n|$)", content or "", re.DOTALL)
+    if not match:
+        return {}
+    result: dict[str, str] = {}
+    for raw_line in match.group(1).splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip().lower()
+        value = value.strip().strip("'").strip('"')
+        if key and value:
+            result[key] = value
+    return result
+
+
+def _normalize_schema_skill_task_name(value: str) -> str | None:
+    text = (value or "").strip().lower()
+    if not text:
+        return None
+    for task_kind, keywords in _SCHEMA_SKILL_TASK_KEYWORDS.items():
+        if text == task_kind or text in keywords:
+            return task_kind
+    return None
+
+
+def _extract_schema_skill_tasks(row: RecruitmentSkill) -> list[str]:
+    tags = json.loads(row.tags_json or "[]") if row.tags_json else []
+    if not isinstance(tags, list):
+        tags = []
+    tag_texts = [str(item or "").strip() for item in tags if str(item or "").strip()]
+    frontmatter = _parse_skill_frontmatter(row.content or "")
+    task_candidates: list[str] = []
+    for field_name in ["applies_to", "task", "tasks", "task_type"]:
+        raw_value = frontmatter.get(field_name)
+        if raw_value:
+            task_candidates.extend(re.split(r"[,/|，、\s]+", raw_value))
+    for tag in tag_texts:
+        lower_tag = tag.lower()
+        if lower_tag.startswith("task:"):
+            task_candidates.append(tag.split(":", 1)[1].strip())
+        else:
+            task_candidates.append(tag)
+    haystacks = [str(row.skill_code or "").lower(), str(row.name or "").lower(), *[tag.lower() for tag in tag_texts]]
+    tasks: list[str] = []
+    for raw_value in task_candidates:
+        normalized = _normalize_schema_skill_task_name(raw_value)
+        if normalized and normalized not in tasks:
+            tasks.append(normalized)
+    if not tasks:
+        for task_kind, keywords in _SCHEMA_SKILL_TASK_KEYWORDS.items():
+            if any(any(keyword in haystack for keyword in keywords) for haystack in haystacks if haystack):
+                tasks.append(task_kind)
+    return tasks
 def _sync_script_hub_catalog() -> None:
     db = SessionLocal()
     try:
@@ -249,6 +313,18 @@ def ensure_recruitment_schema() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN auto_advance_on_screening BOOLEAN NOT NULL DEFAULT TRUE"))
             logger.info("Added recruitment_positions.auto_advance_on_screening column")
+        if "jd_skill_ids_json" not in position_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN jd_skill_ids_json TEXT NULL"))
+            logger.info("Added recruitment_positions.jd_skill_ids_json column")
+        if "screening_skill_ids_json" not in position_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN screening_skill_ids_json TEXT NULL"))
+            logger.info("Added recruitment_positions.screening_skill_ids_json column")
+        if "interview_skill_ids_json" not in position_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN interview_skill_ids_json TEXT NULL"))
+            logger.info("Added recruitment_positions.interview_skill_ids_json column")
 
         ai_task_columns = {column["name"] for column in inspector.get_columns("recruitment_ai_task_logs")}
         if "related_skill_ids_json" not in ai_task_columns:
@@ -406,6 +482,48 @@ def ensure_recruitment_schema() -> None:
                         RecruitmentPositionSkillLink.skill_id == legacy_skill.id,
                     ).delete(synchronize_session=False)
                 db.commit()
+
+            all_skill_rows = {
+                row.id: row
+                for row in db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).all()
+            }
+            positions = db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False)).all()
+            for position in positions:
+                if (
+                    position.jd_skill_ids_json is not None
+                    and position.screening_skill_ids_json is not None
+                    and position.interview_skill_ids_json is not None
+                ):
+                    continue
+                linked_ids = [
+                    row.skill_id
+                    for row in db.query(RecruitmentPositionSkillLink)
+                    .filter(RecruitmentPositionSkillLink.position_id == position.id)
+                    .order_by(RecruitmentPositionSkillLink.id.asc())
+                    .all()
+                ]
+                jd_ids: list[int] = []
+                screening_ids: list[int] = []
+                interview_ids: list[int] = []
+                for skill_id in linked_ids:
+                    skill = all_skill_rows.get(skill_id)
+                    if not skill:
+                        continue
+                    tasks = _extract_schema_skill_tasks(skill)
+                    if "jd" in tasks and skill_id not in jd_ids:
+                        jd_ids.append(skill_id)
+                    if "screening" in tasks and skill_id not in screening_ids:
+                        screening_ids.append(skill_id)
+                    if "interview" in tasks and skill_id not in interview_ids:
+                        interview_ids.append(skill_id)
+                if position.jd_skill_ids_json is None:
+                    position.jd_skill_ids_json = json.dumps(jd_ids, ensure_ascii=False)
+                if position.screening_skill_ids_json is None:
+                    position.screening_skill_ids_json = json.dumps(screening_ids, ensure_ascii=False)
+                if position.interview_skill_ids_json is None:
+                    position.interview_skill_ids_json = json.dumps(interview_ids, ensure_ascii=False)
+                db.add(position)
+            db.commit()
         except Exception:
             db.rollback()
             raise

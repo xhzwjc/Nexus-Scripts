@@ -49,6 +49,7 @@ SCREENING_STATUS_LABELS = {item["value"]: item["label"] for item in CANDIDATE_ST
 SKILL_TASK_KEYWORDS = {
     "screening": {"screening", "score", "scoring", "resume_score", "resume-screening", "初筛", "评分", "筛选"},
     "interview": {"interview", "question", "questions", "interview-question", "面试", "面试题", "出题"},
+    "jd": {"jd", "job_description", "job-description", "岗位jd", "职位jd", "jd生成", "生成jd", "岗位描述", "职位描述"},
 }
 logger = logging.getLogger(__name__)
 
@@ -841,6 +842,62 @@ class RecruitmentService:
         links = self.db.query(RecruitmentPositionSkillLink).filter(RecruitmentPositionSkillLink.position_id == position_id).order_by(RecruitmentPositionSkillLink.id.asc()).all()
         return self._load_skill_rows([link.skill_id for link in links], enabled_only=True)
 
+    def _get_position_task_skill_ids(self, position: Optional[RecruitmentPosition], task_kind: str) -> List[int]:
+        if not position:
+            return []
+        field_map = {
+            "jd": "jd_skill_ids_json",
+            "screening": "screening_skill_ids_json",
+            "interview": "interview_skill_ids_json",
+        }
+        field_name = field_map.get(task_kind)
+        raw_value = getattr(position, field_name, None) if field_name else None
+        if raw_value is not None:
+            return _dedupe_ints(json_loads_safe(raw_value, []))
+        legacy_rows = self._filter_skill_rows_for_task(self._get_position_skill_rows(position.id), task_kind)
+        return [row.id for row in legacy_rows]
+
+    def _get_position_task_skill_rows(self, position_id: Optional[int], task_kind: str) -> List[RecruitmentSkill]:
+        if not position_id:
+            return []
+        position = self._get_position(position_id)
+        return self._load_skill_rows(self._get_position_task_skill_ids(position, task_kind), enabled_only=True)
+
+    def _sync_position_task_skill_bindings(
+        self,
+        row: RecruitmentPosition,
+        *,
+        actor_id: str,
+        jd_skill_ids: Optional[Iterable[Any]] = None,
+        screening_skill_ids: Optional[Iterable[Any]] = None,
+        interview_skill_ids: Optional[Iterable[Any]] = None,
+    ) -> None:
+        current_jd_ids = _dedupe_ints(json_loads_safe(row.jd_skill_ids_json, []))
+        current_screening_ids = _dedupe_ints(json_loads_safe(row.screening_skill_ids_json, []))
+        current_interview_ids = _dedupe_ints(json_loads_safe(row.interview_skill_ids_json, []))
+        if jd_skill_ids is not None:
+            current_jd_ids = _dedupe_ints(jd_skill_ids)
+        if screening_skill_ids is not None:
+            current_screening_ids = _dedupe_ints(screening_skill_ids)
+        if interview_skill_ids is not None:
+            current_interview_ids = _dedupe_ints(interview_skill_ids)
+        row.jd_skill_ids_json = json_dumps_safe(current_jd_ids)
+        row.screening_skill_ids_json = json_dumps_safe(current_screening_ids)
+        row.interview_skill_ids_json = json_dumps_safe(current_interview_ids)
+        self._sync_position_skill_links(row.id, [*current_jd_ids, *current_screening_ids, *current_interview_ids], actor_id)
+
+    def _resolve_jd_skills(self, position: RecruitmentPosition, explicit_skill_ids: Optional[Iterable[Any]] = None, *, use_position_skills: bool = True, use_global_skills: bool = True) -> Tuple[List[RecruitmentSkill], str]:
+        manual_rows = [row for row in self._load_skill_rows(explicit_skill_ids or [], enabled_only=True) if "jd" in _extract_skill_task_types(row)]
+        if manual_rows:
+            return manual_rows, "manual"
+        position_rows = self._get_position_task_skill_rows(position.id, "jd") if use_position_skills else []
+        if position_rows:
+            return position_rows, "position"
+        global_rows = [row for row in self._load_enabled_skills() if "jd" in _extract_skill_task_types(row)] if use_global_skills else []
+        if global_rows:
+            return global_rows, "global"
+        return [], "none"
+
     def _sync_position_skill_links(self, position_id: int, skill_ids: Iterable[Any], actor_id: str) -> None:
         self.db.query(RecruitmentPositionSkillLink).filter(RecruitmentPositionSkillLink.position_id == position_id).delete(synchronize_session=False)
         for skill_id in _dedupe_ints(skill_ids):
@@ -998,8 +1055,17 @@ class RecruitmentService:
                 ids.append(skill_id)
         return ids
 
+    def _calculate_ai_task_duration_ms(self, row: RecruitmentAITaskLog) -> Optional[int]:
+        if not row.created_at or not row.updated_at:
+            return None
+        delta = row.updated_at - row.created_at
+        duration_ms = int(delta.total_seconds() * 1000)
+        if duration_ms < 0:
+            return None
+        return duration_ms
+
     def _serialize_ai_task_log(self, row: RecruitmentAITaskLog, *, include_full_request_snapshot: bool = False) -> Dict[str, Any]:
-        payload = {"id": row.id, "task_type": row.task_type, "related_position_id": row.related_position_id, "related_candidate_id": row.related_candidate_id, "related_skill_id": row.related_skill_id, "related_skill_ids": json_loads_safe(row.related_skill_ids_json, []), "related_skill_snapshots": json_loads_safe(row.related_skill_snapshots_json, []), "related_resume_file_id": row.related_resume_file_id, "related_publish_task_id": row.related_publish_task_id, "memory_source": row.memory_source, "request_hash": row.request_hash, "model_provider": row.model_provider, "model_name": row.model_name, "prompt_snapshot": row.prompt_snapshot, "input_summary": row.input_summary, "output_summary": row.output_summary, "output_snapshot": row.output_snapshot, "status": row.status, "error_message": row.error_message, "token_usage": json_loads_safe(row.token_usage_json, None), "created_by": row.created_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        payload = {"id": row.id, "task_type": row.task_type, "related_position_id": row.related_position_id, "related_candidate_id": row.related_candidate_id, "related_skill_id": row.related_skill_id, "related_skill_ids": json_loads_safe(row.related_skill_ids_json, []), "related_skill_snapshots": json_loads_safe(row.related_skill_snapshots_json, []), "related_resume_file_id": row.related_resume_file_id, "related_publish_task_id": row.related_publish_task_id, "memory_source": row.memory_source, "request_hash": row.request_hash, "model_provider": row.model_provider, "model_name": row.model_name, "prompt_snapshot": row.prompt_snapshot, "input_summary": row.input_summary, "output_summary": row.output_summary, "output_snapshot": row.output_snapshot, "duration_ms": self._calculate_ai_task_duration_ms(row), "status": row.status, "error_message": row.error_message, "token_usage": json_loads_safe(row.token_usage_json, None), "created_by": row.created_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
         if include_full_request_snapshot:
             payload["full_request_snapshot"] = row.full_request_snapshot
         return payload
@@ -1011,13 +1077,15 @@ class RecruitmentService:
         return {"id": row.id, "position_id": row.position_id, "target_platform": row.target_platform, "mode": row.mode, "adapter_code": row.adapter_code, "status": row.status, "request_payload": json_loads_safe(row.request_payload, None), "response_payload": json_loads_safe(row.response_payload, None), "published_url": row.published_url, "screenshot_path": row.screenshot_path, "retry_count": row.retry_count, "error_message": row.error_message, "created_by": row.created_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _serialize_position(self, row: RecruitmentPosition) -> Dict[str, Any]:
-        skill_rows = self._get_position_skill_rows(row.id)
+        jd_skill_rows = self._get_position_task_skill_rows(row.id, "jd")
+        screening_skill_rows = self._get_position_task_skill_rows(row.id, "screening")
+        interview_skill_rows = self._get_position_task_skill_rows(row.id, "interview")
         current_jd = self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.id == row.current_jd_version_id).first() if row.current_jd_version_id else None
         if not current_jd:
             current_jd = self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.position_id == row.id, RecruitmentJDVersion.is_active.is_(True)).order_by(RecruitmentJDVersion.version_no.desc(), RecruitmentJDVersion.id.desc()).first()
         jd_version_count = self.db.query(func.count(RecruitmentJDVersion.id)).filter(RecruitmentJDVersion.position_id == row.id).scalar() or 0
         candidate_count = self.db.query(func.count(RecruitmentCandidate.id)).filter(RecruitmentCandidate.position_id == row.id, RecruitmentCandidate.deleted.is_(False)).scalar() or 0
-        return {"id": row.id, "position_code": row.position_code, "title": row.title, "department": row.department, "location": row.location, "employment_type": row.employment_type, "salary_range": row.salary_range, "headcount": row.headcount, "key_requirements": row.key_requirements, "bonus_points": row.bonus_points, "summary": row.summary, "status": row.status, "auto_screen_on_upload": bool(row.auto_screen_on_upload), "auto_advance_on_screening": bool(row.auto_advance_on_screening), "screening_skill_ids": [skill.id for skill in skill_rows], "screening_skills": [self._serialize_skill(skill) for skill in skill_rows], "tags": json_loads_safe(row.tags_json, []), "current_jd_version_id": row.current_jd_version_id, "current_jd_title": current_jd.title if current_jd else None, "jd_version_count": int(jd_version_count), "candidate_count": int(candidate_count), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "position_code": row.position_code, "title": row.title, "department": row.department, "location": row.location, "employment_type": row.employment_type, "salary_range": row.salary_range, "headcount": row.headcount, "key_requirements": row.key_requirements, "bonus_points": row.bonus_points, "summary": row.summary, "status": row.status, "auto_screen_on_upload": bool(row.auto_screen_on_upload), "auto_advance_on_screening": bool(row.auto_advance_on_screening), "jd_skill_ids": [skill.id for skill in jd_skill_rows], "jd_skills": [self._serialize_skill(skill) for skill in jd_skill_rows], "screening_skill_ids": [skill.id for skill in screening_skill_rows], "screening_skills": [self._serialize_skill(skill) for skill in screening_skill_rows], "interview_skill_ids": [skill.id for skill in interview_skill_rows], "interview_skills": [self._serialize_skill(skill) for skill in interview_skill_rows], "tags": json_loads_safe(row.tags_json, []), "current_jd_version_id": row.current_jd_version_id, "current_jd_title": current_jd.title if current_jd else None, "jd_version_count": int(jd_version_count), "candidate_count": int(candidate_count), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _serialize_resume_file(self, row: RecruitmentResumeFile) -> Dict[str, Any]:
         return {"id": row.id, "candidate_id": row.candidate_id, "original_name": row.original_name, "stored_name": row.stored_name, "file_ext": row.file_ext, "mime_type": row.mime_type, "file_size": row.file_size, "parse_status": row.parse_status, "parse_error": row.parse_error, "created_at": isoformat_or_none(row.created_at)}
@@ -1059,11 +1127,17 @@ class RecruitmentService:
         return [self._serialize_position(row) for row in builder.order_by(RecruitmentPosition.updated_at.desc(), RecruitmentPosition.id.desc()).all()]
 
     def create_position(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
-        row = RecruitmentPosition(position_code=f"TMP-{uuid.uuid4().hex[:8]}", title=str(payload.get("title") or "").strip(), department=payload.get("department"), location=payload.get("location"), employment_type=payload.get("employment_type"), salary_range=payload.get("salary_range"), headcount=int(payload.get("headcount") or 1), key_requirements=payload.get("key_requirements"), bonus_points=payload.get("bonus_points"), summary=payload.get("summary"), status=payload.get("status") or "draft", auto_screen_on_upload=bool(payload.get("auto_screen_on_upload")), auto_advance_on_screening=payload.get("auto_advance_on_screening") is not False, tags_json=json_dumps_safe(payload.get("tags") or []), created_by=actor_id, updated_by=actor_id, deleted=False)
+        row = RecruitmentPosition(position_code=f"TMP-{uuid.uuid4().hex[:8]}", title=str(payload.get("title") or "").strip(), department=payload.get("department"), location=payload.get("location"), employment_type=payload.get("employment_type"), salary_range=payload.get("salary_range"), headcount=int(payload.get("headcount") or 1), key_requirements=payload.get("key_requirements"), bonus_points=payload.get("bonus_points"), summary=payload.get("summary"), status=payload.get("status") or "draft", auto_screen_on_upload=bool(payload.get("auto_screen_on_upload")), auto_advance_on_screening=payload.get("auto_advance_on_screening") is not False, jd_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("jd_skill_ids") or [])), screening_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("screening_skill_ids") or [])), interview_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("interview_skill_ids") or [])), tags_json=json_dumps_safe(payload.get("tags") or []), created_by=actor_id, updated_by=actor_id, deleted=False)
         self.db.add(row)
         self.db.flush()
         row.position_code = f"POS-{row.id:05d}"
-        self._sync_position_skill_links(row.id, payload.get("screening_skill_ids") or [], actor_id)
+        self._sync_position_task_skill_bindings(
+            row,
+            actor_id=actor_id,
+            jd_skill_ids=payload.get("jd_skill_ids") or [],
+            screening_skill_ids=payload.get("screening_skill_ids") or [],
+            interview_skill_ids=payload.get("interview_skill_ids") or [],
+        )
         self.db.commit()
         self.db.refresh(row)
         return self._serialize_position(row)
@@ -1075,8 +1149,14 @@ class RecruitmentService:
                 setattr(row, field, payload.get(field))
         if "tags" in payload:
             row.tags_json = json_dumps_safe(payload.get("tags") or [])
-        if "screening_skill_ids" in payload:
-            self._sync_position_skill_links(position_id, payload.get("screening_skill_ids") or [], actor_id)
+        if any(field in payload for field in ["jd_skill_ids", "screening_skill_ids", "interview_skill_ids"]):
+            self._sync_position_task_skill_bindings(
+                row,
+                actor_id=actor_id,
+                jd_skill_ids=payload.get("jd_skill_ids") if "jd_skill_ids" in payload else None,
+                screening_skill_ids=payload.get("screening_skill_ids") if "screening_skill_ids" in payload else None,
+                interview_skill_ids=payload.get("interview_skill_ids") if "interview_skill_ids" in payload else None,
+            )
         row.updated_by = actor_id
         self.db.add(row)
         self.db.commit()
@@ -1187,6 +1267,25 @@ class RecruitmentService:
             "current_jd_version_id": row.current_jd_version_id,
         }
 
+    def _serialize_position_for_jd_prompt(self, row: RecruitmentPosition) -> Dict[str, Any]:
+        return {
+            "id": row.id,
+            "position_code": row.position_code,
+            "title": row.title,
+            "department": row.department,
+            "location": row.location,
+            "employment_type": row.employment_type,
+            "salary_range": row.salary_range,
+            "headcount": row.headcount,
+            "key_requirements": row.key_requirements,
+            "bonus_points": row.bonus_points,
+            "summary": row.summary,
+            "status": row.status,
+            "auto_screen_on_upload": bool(row.auto_screen_on_upload),
+            "auto_advance_on_screening": bool(row.auto_advance_on_screening),
+            "current_jd_version_id": row.current_jd_version_id,
+        }
+
     def _serialize_parse_result_for_interview_prompt(self, row: RecruitmentResumeParseResult) -> Dict[str, Any]:
         payload = self._serialize_parse_result(row)
         payload.pop("raw_text", None)
@@ -1211,16 +1310,11 @@ class RecruitmentService:
         }
 
     def _serialize_workflow_for_interview_prompt(self, row: RecruitmentCandidateWorkflowMemory) -> Dict[str, Any]:
-        screening_skill_ids = json_loads_safe(row.screening_skill_ids_json, [])
-        interview_skill_ids = json_loads_safe(row.interview_skill_ids_json, [])
         return {
             "id": row.id,
             "candidate_id": row.candidate_id,
             "position_id": row.position_id,
-            "screening_skill_ids": screening_skill_ids,
-            "interview_skill_ids": interview_skill_ids,
             "screening_memory_source": row.screening_memory_source,
-            "screening_rule_snapshot": json_loads_safe(row.screening_rule_snapshot_json, None),
             "latest_parse_result_id": row.latest_parse_result_id,
             "latest_score_id": row.latest_score_id,
             "last_screened_at": isoformat_or_none(row.last_screened_at),
@@ -1243,8 +1337,10 @@ class RecruitmentService:
     def _serialize_candidate_summary(self, row: RecruitmentCandidate) -> Dict[str, Any]:
         position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == row.position_id, RecruitmentPosition.deleted.is_(False)).first() if row.position_id else None
         score_row = self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == row.latest_score_id).first() if row.latest_score_id else None
-        position_skill_rows = self._get_position_skill_rows(position.id) if position else []
-        return {"id": row.id, "candidate_code": row.candidate_code, "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_screening_skill_ids": [skill.id for skill in position_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "source": row.source, "source_detail": row.source_detail, "status": row.status, "ai_recommended_status": row.ai_recommended_status, "match_percent": row.match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": score_row.total_score if score_row else None, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        position_screening_skill_rows = self._get_position_task_skill_rows(position.id, "screening") if position else []
+        position_interview_skill_rows = self._get_position_task_skill_rows(position.id, "interview") if position else []
+        position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position else []
+        return {"id": row.id, "candidate_code": row.candidate_code, "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "source": row.source, "source_detail": row.source_detail, "status": row.status, "ai_recommended_status": row.ai_recommended_status, "match_percent": row.match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": score_row.total_score if score_row else None, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None) -> List[Dict[str, Any]]:
         builder = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False))
@@ -1339,7 +1435,7 @@ class RecruitmentService:
         manual_rows = self._filter_skill_rows_for_task(self._load_skill_rows(explicit_skill_ids or [], enabled_only=True), "screening")
         if manual_rows:
             return manual_rows, "manual"
-        position_rows = self._filter_skill_rows_for_task(self._get_position_skill_rows(candidate.position_id) if use_position_skills else [], "screening")
+        position_rows = self._get_position_task_skill_rows(candidate.position_id, "screening") if use_position_skills else []
         if position_rows:
             return position_rows, "position"
         workflow = self._get_workflow_memory(candidate.id)
@@ -1348,8 +1444,7 @@ class RecruitmentService:
             memory_rows = self._filter_skill_rows_for_task(self._load_skill_rows(screening_skill_ids, enabled_only=True), "screening")
             if memory_rows:
                 return memory_rows, workflow.screening_memory_source or "candidate_memory"
-        enabled_rows = self._filter_skill_rows_for_task(self._load_enabled_skills(), "screening")
-        return enabled_rows, "global"
+        return [], "none"
 
     def _get_position_screening_payload(self, candidate: RecruitmentCandidate) -> Optional[Dict[str, Any]]:
         position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == candidate.position_id, RecruitmentPosition.deleted.is_(False)).first() if candidate.position_id else None
@@ -1655,21 +1750,16 @@ class RecruitmentService:
         manual_rows = self._filter_skill_rows_for_task(self._load_skill_rows(explicit_skill_ids or [], enabled_only=True), "interview")
         if manual_rows:
             return manual_rows, "manual"
-        position_rows = self._filter_skill_rows_for_task(self._get_position_skill_rows(candidate.position_id) if use_position_skills else [], "interview")
+        position_rows = self._get_position_task_skill_rows(candidate.position_id, "interview") if use_position_skills else []
         if position_rows:
             return position_rows, "position"
-        sibling_rows = self._find_related_task_skill_rows(self._get_position_skill_rows(candidate.position_id) if use_position_skills else [], "interview")
-        if sibling_rows:
-            return sibling_rows, "position_group"
         workflow = self._get_workflow_memory(candidate.id)
         if use_candidate_memory and workflow:
-            interview_skill_ids = json_loads_safe(workflow.interview_skill_ids_json, []) or json_loads_safe(workflow.screening_skill_ids_json, [])
+            interview_skill_ids = json_loads_safe(workflow.interview_skill_ids_json, [])
             memory_rows = self._filter_skill_rows_for_task(self._load_skill_rows(interview_skill_ids, enabled_only=True), "interview")
-            if not memory_rows:
-                memory_rows = self._find_related_task_skill_rows(self._load_skill_rows(interview_skill_ids, enabled_only=True), "interview")
             if memory_rows:
                 return memory_rows, workflow.screening_memory_source or "candidate_memory"
-        return self._filter_skill_rows_for_task(self._load_enabled_skills(), "interview"), "global"
+        return [], "none"
 
     def _build_interview_skill_prompt_block(self, skill_snapshots: Sequence[Dict[str, Any]]) -> str:
         if not skill_snapshots:
@@ -1768,12 +1858,24 @@ class RecruitmentService:
         return {"file_name": resume_file.original_name, "content": path.read_bytes(), "media_type": media_type}
     def generate_jd(self, position_id: int, extra_prompt: str, actor_id: str, auto_activate: bool = True) -> Dict[str, Any]:
         position = self._get_position(position_id)
-        skill_rows = self._get_position_skill_rows(position.id)
+        skill_rows, memory_source = self._resolve_jd_skills(position, [], use_position_skills=True, use_global_skills=False)
         skill_snapshots = self._build_skill_snapshots(skill_rows)
         related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
         request_hash = self._build_request_hash("jd_generation", position.id, extra_prompt, related_skill_ids)
-        log_row = self._create_ai_task_log("jd_generation", created_by=actor_id, related_position_id=position.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, request_hash=request_hash)
-        prompt = json_dumps_safe({"position": self._serialize_position(position), "skills": [{"id": skill.id, "name": skill.name, "description": skill.description, "content": truncate_text(skill.content, 800)} for skill in skill_rows], "extra_prompt": extra_prompt or None})
+        log_row = self._create_ai_task_log("jd_generation", created_by=actor_id, related_position_id=position.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, memory_source=memory_source, request_hash=request_hash)
+        prompt = json_dumps_safe({
+            "position": self._serialize_position_for_jd_prompt(position),
+            "skills": [
+                {
+                    "id": skill.get("id"),
+                    "name": skill.get("name"),
+                    "description": skill.get("description"),
+                    "content": str(skill.get("content") or ""),
+                }
+                for skill in skill_snapshots
+            ],
+            "extra_prompt": extra_prompt or None,
+        })
         task = self.ai_gateway.generate_json(
             task_type="jd_generation",
             system_prompt=JD_GENERATION_SYSTEM_PROMPT,
@@ -1796,7 +1898,7 @@ class RecruitmentService:
             self.db.add(position)
         self.db.commit()
         self.db.refresh(row)
-        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
         return self._serialize_jd_version(row)
 
     def save_jd_version(self, position_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:

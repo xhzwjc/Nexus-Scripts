@@ -32,8 +32,12 @@ export interface PositionSummary {
   status: string;
   auto_screen_on_upload?: boolean;
   auto_advance_on_screening?: boolean;
+  jd_skill_ids?: number[];
+  jd_skills?: RecruitmentSkill[];
   screening_skill_ids?: number[];
   screening_skills?: RecruitmentSkill[];
+  interview_skill_ids?: number[];
+  interview_skills?: RecruitmentSkill[];
   tags: string[];
   current_jd_version_id?: number | null;
   current_jd_title?: string | null;
@@ -94,8 +98,12 @@ export interface CandidateSummary {
   position_id?: number | null;
   position_title?: string | null;
   position_auto_screen_on_upload?: boolean;
+  position_jd_skill_ids?: number[];
+  position_jd_skills?: RecruitmentSkill[];
   position_screening_skill_ids?: number[];
   position_screening_skills?: RecruitmentSkill[];
+  position_interview_skill_ids?: number[];
+  position_interview_skills?: RecruitmentSkill[];
   name: string;
   phone?: string | null;
   email?: string | null;

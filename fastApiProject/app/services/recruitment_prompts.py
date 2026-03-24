@@ -21,7 +21,8 @@ Rules:
 - requirements should usually contain 5-8 concrete items.
 - bonus_points should contain 0-5 optional preference items.
 - Keep every list item concise, specific, and role-relevant.
-- Use the provided position fields and skills as context, but do not mechanically copy the sample wording.
+- If JD-authoring skills are provided, use them as drafting constraints; otherwise rely only on the provided position fields and extra prompt.
+- Never treat screening rules, interview rules, or workflow instructions as JD content.
 - If some field is unknown, keep it short instead of inventing company-specific claims.
 """
 

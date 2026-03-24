@@ -17,7 +17,9 @@ class PositionCreateRequest(BaseModel):
     tags: List[str] = Field(default_factory=list)
     auto_screen_on_upload: bool = False
     auto_advance_on_screening: bool = True
+    jd_skill_ids: List[int] = Field(default_factory=list)
     screening_skill_ids: List[int] = Field(default_factory=list)
+    interview_skill_ids: List[int] = Field(default_factory=list)
 
 
 class PositionUpdateRequest(BaseModel):
@@ -34,7 +36,9 @@ class PositionUpdateRequest(BaseModel):
     tags: Optional[List[str]] = None
     auto_screen_on_upload: Optional[bool] = None
     auto_advance_on_screening: Optional[bool] = None
+    jd_skill_ids: Optional[List[int]] = None
     screening_skill_ids: Optional[List[int]] = None
+    interview_skill_ids: Optional[List[int]] = None
 
 
 class JDGenerateRequest(BaseModel):
