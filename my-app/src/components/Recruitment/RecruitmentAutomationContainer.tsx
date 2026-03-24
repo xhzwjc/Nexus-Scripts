@@ -13,6 +13,8 @@ import {
     FolderKanban,
     History,
     LayoutGrid,
+    PanelLeftClose,
+    PanelLeftOpen,
     List,
     Loader2,
     Mail,
@@ -5691,71 +5693,155 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             </div>
 
             <div
-                className={cn("grid min-h-0 flex-1 transition-all duration-300", navCollapsed ? "lg:grid-cols-[76px_minmax(0,1fr)]" : "lg:grid-cols-[232px_minmax(0,1fr)]")}>
+                className={cn(
+                    "grid min-h-0 flex-1 transition-all duration-300",
+                    navCollapsed ? "lg:grid-cols-[92px_minmax(0,1fr)]" : "lg:grid-cols-[260px_minmax(0,1fr)]",
+                )}
+            >
                 <aside
-                    className={cn("border-r border-slate-200/80 bg-white/70 px-2 py-4 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50", navCollapsed ? "lg:px-1.5" : "lg:px-3")}>
+                    className={cn(
+                        "border-r border-slate-200/80 bg-white/70 px-3 py-5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50",
+                        navCollapsed ? "lg:px-2" : "lg:px-4",
+                    )}
+                >
                     <div
-                        className={cn("mb-3 flex items-center", navCollapsed ? "justify-center" : "justify-end")}>
+                        className={cn(
+                            "mb-4 flex items-center gap-2",
+                            navCollapsed ? "justify-center" : "justify-between",
+                        )}
+                    >
+                        {!navCollapsed ? (
+                            <div>
+                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">工作分区</p>
+                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">支持手动收起，默认展开。</p>
+                            </div>
+                        ) : null}
+
                         <Button
                             type="button"
                             variant="outline"
-                            size="icon"
-                            className={cn("shrink-0", navCollapsed ? "h-8 w-8" : "h-8 w-8")}
+                            size={navCollapsed ? "icon" : "sm"}
+                            className="shrink-0 rounded-xl border-slate-200 bg-white/90 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950/90 dark:text-slate-200 dark:hover:bg-slate-900"
                             onClick={() => setNavCollapsed((current) => !current)}
                             title={navCollapsed ? "展开左侧菜单" : "收起左侧菜单"}
                         >
-                            <LayoutGrid className="h-4 w-4"/>
+                            {navCollapsed ? (
+                                <PanelLeftOpen className="h-4 w-4" />
+                            ) : (
+                                <>
+                                    <PanelLeftClose className="h-4 w-4" />
+                                    <span className="ml-1">收起菜单</span>
+                                </>
+                            )}
                         </Button>
                     </div>
 
                     <div className="space-y-2">
-                        <SectionNavButton active={activePage === "workspace"} icon={FolderKanban} title="招聘工作台"
-                                          description="首页指标、待办、快捷操作与近期活动"
-                                          count={dashboard?.cards.positions_recruiting ?? 0} collapsed={navCollapsed}
-                                          onClick={() => navigatePrimaryPage("workspace")}/>
-                        <SectionNavButton active={activePage === "positions"} icon={BriefcaseBusiness} title="岗位管理"
-                                          description="岗位列表 + 详情工作区 + JD 版本" count={positions.length}
-                                          collapsed={navCollapsed} onClick={() => navigatePrimaryPage("positions")}/>
-                        <SectionNavButton active={activePage === "candidates"} icon={Users} title="候选人中心"
-                                          description="ATS 列表、筛选、状态推进与档案查看"
-                                          count={visibleCandidates.length} collapsed={navCollapsed}
-                                          onClick={() => navigatePrimaryPage("candidates")}/>
-                        <SectionNavButton active={activePage === "audit"} icon={History} title="AI 审计中心"
-                                          description="看 AI 处理记录、模型、错误与留痕" count={aiLogs.length}
-                                          collapsed={navCollapsed} onClick={() => navigatePrimaryPage("audit")}/>
-                        <SectionNavButton active={activePage === "assistant"} icon={Bot} title="AI 招聘助手"
-                                          description="自然语言驱动岗位、候选人和 Skill 上下文" collapsed={navCollapsed}
-                                          onClick={() => navigatePrimaryPage("assistant")}/>
+                        <SectionNavButton
+                            active={activePage === "workspace"}
+                            icon={FolderKanban}
+                            title="招聘工作台"
+                            description="首页指标、待办、快捷操作与近期活动"
+                            count={dashboard?.cards.positions_recruiting ?? 0}
+                            collapsed={navCollapsed}
+                            onClick={() => navigatePrimaryPage("workspace")}
+                        />
+                        <SectionNavButton
+                            active={activePage === "positions"}
+                            icon={BriefcaseBusiness}
+                            title="岗位管理"
+                            description="岗位列表 + 详情工作区 + JD 版本"
+                            count={positions.length}
+                            collapsed={navCollapsed}
+                            onClick={() => navigatePrimaryPage("positions")}
+                        />
+                        <SectionNavButton
+                            active={activePage === "candidates"}
+                            icon={Users}
+                            title="候选人中心"
+                            description="ATS 列表、筛选、状态推进与档案查看"
+                            count={visibleCandidates.length}
+                            collapsed={navCollapsed}
+                            onClick={() => navigatePrimaryPage("candidates")}
+                        />
+                        <SectionNavButton
+                            active={activePage === "audit"}
+                            icon={History}
+                            title="AI 审计中心"
+                            description="看 AI 处理记录、模型、错误与留痕"
+                            count={aiLogs.length}
+                            collapsed={navCollapsed}
+                            onClick={() => navigatePrimaryPage("audit")}
+                        />
+                        <SectionNavButton
+                            active={activePage === "assistant"}
+                            icon={Bot}
+                            title="AI 招聘助手"
+                            description="自然语言驱动岗位、候选人和 Skill 上下文"
+                            collapsed={navCollapsed}
+                            onClick={() => navigatePrimaryPage("assistant")}
+                        />
                     </div>
 
-                    <Separator className="my-4"/>
+                    <Separator className="my-5" />
 
                     <div
-                        className={cn("rounded-[24px] border border-slate-200/80 bg-white/85 shadow-sm dark:border-slate-800 dark:bg-slate-950/80", navCollapsed ? "px-2 py-3" : "px-4 py-4")}>
+                        className={cn(
+                            "rounded-[24px] border border-slate-200/80 bg-white/85 shadow-sm dark:border-slate-800 dark:bg-slate-950/80",
+                            navCollapsed ? "px-2 py-3" : "px-4 py-4",
+                        )}
+                    >
                         {navCollapsed ? (
                             <div className="space-y-2">
                                 <div className="rounded-2xl bg-slate-100/80 px-2 py-2 text-center dark:bg-slate-900/80">
                                     <p className="text-[11px] text-slate-500 dark:text-slate-400">待筛</p>
-                                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{todoSummary.pendingScreening}</p>
+                                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                        {todoSummary.pendingScreening}
+                                    </p>
                                 </div>
                                 <div className="rounded-2xl bg-slate-100/80 px-2 py-2 text-center dark:bg-slate-900/80">
                                     <p className="text-[11px] text-slate-500 dark:text-slate-400">待面</p>
-                                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{todoSummary.pendingInterview}</p>
-                                </div>
-                                <div className="rounded-2xl bg-slate-100/80 px-2 py-2 text-center dark:bg-slate-900/80">
-                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">今日简历</p>
-                                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{todayNewResumes}</p>
+                                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                        {todoSummary.pendingInterview}
+                                    </p>
                                 </div>
                             </div>
                         ) : (
-                            <>
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">今日关注</p>
-                                <div className="mt-4 space-y-3 text-sm">
-                                    <MiniStat label="待筛选简历" value={todoSummary.pendingScreening}/>
-                                    <MiniStat label="待安排面试" value={todoSummary.pendingInterview}/>
-                                    <MiniStat label="今日新增简历" value={todayNewResumes}/>
+                            <div className="space-y-3">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">今日待办</p>
+                                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                        把高频待处理项收在导航下方，切页时也能快速感知当前压力。
+                                    </p>
                                 </div>
-                            </>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">待发布</p>
+                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                            {todoSummary.pendingPublish}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">待初筛</p>
+                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                            {todoSummary.pendingScreening}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">待面试</p>
+                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                            {todoSummary.pendingInterview}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">待决策</p>
+                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                            {todoSummary.pendingDecision}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
                         )}
                     </div>
                 </aside>
