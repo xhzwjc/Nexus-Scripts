@@ -247,6 +247,7 @@ export interface AITaskLog {
   input_summary?: string | null;
   output_summary?: string | null;
   output_snapshot?: unknown;
+  duration_ms?: number | null;
   status: string;
   error_message?: string | null;
   token_usage?: Record<string, unknown> | null;
