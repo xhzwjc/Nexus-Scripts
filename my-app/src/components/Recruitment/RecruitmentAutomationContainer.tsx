@@ -5,6 +5,8 @@ import {
     ArrowLeft,
     Bot,
     BriefcaseBusiness,
+    ChevronDown,
+    ChevronUp,
     ClipboardCheck,
     Download,
     ExternalLink,
@@ -27,6 +29,7 @@ import {
     Send,
     Settings2,
     Sparkles,
+    Square,
     Trash2,
     Upload,
     Users,
@@ -56,6 +59,7 @@ import {
     type RecruitmentMetadata,
     type RecruitmentSkill,
     type ResumeFile,
+    type RecruitmentTaskStartResponse,
 } from "@/lib/recruitment-api";
 import {cn} from "@/lib/utils";
 import {Badge} from "@/components/ui/badge";
@@ -119,7 +123,9 @@ type PositionFormState = {
     tagsText: string;
     autoScreenOnUpload: boolean;
     autoAdvanceOnScreening: boolean;
+    jdSkillIds: number[];
     screeningSkillIds: number[];
+    interviewSkillIds: number[];
 };
 
 type SkillFormState = {
@@ -195,6 +201,8 @@ type ChatMessage = {
     role: "assistant" | "user";
     content: string;
     createdAt: string;
+    pending?: boolean;
+    taskId?: number | null;
     actions?: string[];
     logId?: number;
     memorySource?: string | null;
@@ -405,7 +413,9 @@ function emptyPositionForm(): PositionFormState {
         tagsText: "",
         autoScreenOnUpload: false,
         autoAdvanceOnScreening: true,
+        jdSkillIds: [],
         screeningSkillIds: [],
+        interviewSkillIds: [],
     };
 }
 
@@ -578,6 +588,9 @@ function normalizeSkillTaskName(value?: string | null) {
     if (!text) {
         return null;
     }
+    if (["jd", "job_description", "job-description", "岗位jd", "职位jd", "jd生成", "生成jd", "岗位描述", "职位描述"].includes(text)) {
+        return "jd";
+    }
     if (["screening", "score", "scoring", "resume_score", "resume-screening", "初筛", "评分", "筛选"].includes(text)) {
         return "screening";
     }
@@ -611,13 +624,13 @@ function extractSkillRuntimeMeta(skill: Partial<RecruitmentSkill> | null | undef
             rawTaskValues.push(tag);
         }
     });
-    const tasks = Array.from(new Set(rawTaskValues.map((item) => normalizeSkillTaskName(item)).filter((item): item is "screening" | "interview" => Boolean(item))));
+    const tasks = Array.from(new Set(rawTaskValues.map((item) => normalizeSkillTaskName(item)).filter((item): item is "jd" | "screening" | "interview" => Boolean(item))));
     return {group, tasks};
 }
 
 function resolveTaskSkillIds(
     skillIds: number[] | undefined | null,
-    taskKind: "screening" | "interview",
+    taskKind: "jd" | "screening" | "interview",
     skillMap: Map<number, RecruitmentSkill>,
 ) {
     const ids = (skillIds || []).filter((item): item is number => typeof item === "number");
@@ -648,6 +661,31 @@ function resolveTaskSkillIds(
             .map((skill) => skill.id),
     ));
     return relatedIds.length ? relatedIds : ids;
+}
+
+function toggleSingleSkillId(current: number[], targetId: number) {
+    return current.includes(targetId) ? [] : [targetId];
+}
+
+function sortSkillsForTaskPreference(
+    source: RecruitmentSkill[],
+    taskKind: "jd" | "screening" | "interview",
+) {
+    return [...source].sort((left, right) => {
+        const leftMeta = extractSkillRuntimeMeta(left);
+        const rightMeta = extractSkillRuntimeMeta(right);
+        const leftMatch = leftMeta.tasks.includes(taskKind) ? 1 : 0;
+        const rightMatch = rightMeta.tasks.includes(taskKind) ? 1 : 0;
+        if (leftMatch !== rightMatch) {
+            return rightMatch - leftMatch;
+        }
+        const leftOrder = Number.isFinite(Number(left.sort_order)) ? Number(left.sort_order) : 999;
+        const rightOrder = Number.isFinite(Number(right.sort_order)) ? Number(right.sort_order) : 999;
+        if (leftOrder !== rightOrder) {
+            return leftOrder - rightOrder;
+        }
+        return String(left.name || "").localeCompare(String(right.name || ""), "zh-Hans-CN");
+    });
 }
 
 function normalizeSkillSnapshot(skill: Partial<RecruitmentSkill> | null | undefined, fallbackIndex = 0): RecruitmentSkill {
@@ -714,6 +752,35 @@ function formatStructuredValue(value: unknown, fallback: string) {
     } catch {
         return String(value);
     }
+}
+
+function parseStructuredLogOutput(value: unknown) {
+    if (typeof value !== "string") {
+        return value;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return null;
+    }
+    if (
+        (trimmed.startsWith("{") && trimmed.endsWith("}"))
+        || (trimmed.startsWith("[") && trimmed.endsWith("]"))
+    ) {
+        try {
+            return JSON.parse(trimmed);
+        } catch {
+            return trimmed;
+        }
+    }
+    return trimmed;
+}
+
+function isLiveTaskStatus(status?: string | null) {
+    return ["queued", "pending", "running", "cancelling"].includes(status || "");
+}
+
+function isTerminalTaskStatus(status?: string | null) {
+    return ["success", "fallback", "failed", "cancelled"].includes(status || "");
 }
 
 function labelForMemorySource(source?: string | null) {
@@ -844,8 +911,15 @@ function extractPublishText(markdown?: string | null, publishText?: string | nul
 
 function labelForJDGenerationStatus(status?: string | null) {
     switch (status) {
+        case "pending":
+            return "排队中";
         case "running":
+        case "generating":
             return "生成中";
+        case "cancelling":
+            return "停止中";
+        case "cancelled":
+            return "已停止";
         case "syncing":
             return "同步中";
         case "success":
@@ -869,6 +943,10 @@ function labelForTaskExecutionStatus(status?: string | null) {
             return "兜底完成";
         case "running":
             return "执行中";
+        case "cancelling":
+            return "停止中";
+        case "cancelled":
+            return "已停止";
         case "queued":
             return "排队中";
         case "pending":
@@ -911,7 +989,10 @@ function statusBadgeClass(kind: "position" | "candidate" | "task", value?: strin
     if (kind === "task") {
         if (value === "success") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200";
         if (value === "fallback") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
+        if (value === "pending" || value === "queued") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200";
         if (value === "running") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200";
+        if (value === "cancelling") return "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200";
+        if (value === "cancelled") return "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300";
         if (value === "failed") return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
     }
     if (kind === "position") {
@@ -963,6 +1044,12 @@ interface RecruitmentAutomationContainerProps {
 export default function RecruitmentAutomationContainer({onBack}: RecruitmentAutomationContainerProps) {
     const sessionUser = useMemo(() => getStoredScriptHubSession()?.user ?? null, []);
     const jdGenerationInFlightRef = useRef(false);
+    const screeningLaunchInFlightRef = useRef(false);
+    const taskMonitorTimersRef = useRef<Map<number, number>>(new Map());
+    const selectedLogIdRef = useRef<number | null>(null);
+    const selectedPositionIdRef = useRef<number | null>(null);
+    const selectedCandidateIdRef = useRef<number | null>(null);
+    const mountedRef = useRef(true);
     const [candidateListScrollEl, setCandidateListScrollEl] = useState<HTMLDivElement | null>(null);
     const candidateListScrollRef = useCallback((node: HTMLDivElement | null) => {
         setCandidateListScrollEl(node);
@@ -1002,6 +1089,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [activePage, setActivePage] = useState<RecruitmentPage>("workspace");
     const [assistantOpen, setAssistantOpen] = useState(false);
     const [navCollapsed, setNavCollapsed] = useState(false);
+    const [positionListCollapsed, setPositionListCollapsed] = useState(false);
+    const [positionWorkspaceHeaderCollapsed, setPositionWorkspaceHeaderCollapsed] = useState(true);
+    const [candidateFiltersCollapsed, setCandidateFiltersCollapsed] = useState(true);
+    const [auditFiltersCollapsed, setAuditFiltersCollapsed] = useState(true);
     const [bootstrapping, setBootstrapping] = useState(true);
 
     const [metadata, setMetadata] = useState<RecruitmentMetadata | null>(null);
@@ -1064,6 +1155,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [resumeMailSubmitting, setResumeMailSubmitting] = useState(false);
     const [mailDispatchActionKey, setMailDispatchActionKey] = useState<string | null>(null);
     const [chatSending, setChatSending] = useState(false);
+    const [interviewPreviewHeight, setInterviewPreviewHeight] = useState(760);
+    const [cancellingTaskIds, setCancellingTaskIds] = useState<number[]>([]);
+    const [activeJDTaskId, setActiveJDTaskId] = useState<number | null>(null);
+    const [activeJDPositionId, setActiveJDPositionId] = useState<number | null>(null);
+    const [activeScreeningTaskMap, setActiveScreeningTaskMap] = useState<Record<number, number>>({});
+    const [activeBatchScreeningTaskIds, setActiveBatchScreeningTaskIds] = useState<number[]>([]);
+    const [activeInterviewTaskId, setActiveInterviewTaskId] = useState<number | null>(null);
+    const [activeInterviewCandidateId, setActiveInterviewCandidateId] = useState<number | null>(null);
+    const [activeChatTaskId, setActiveChatTaskId] = useState<number | null>(null);
+    const [activeChatMessageId, setActiveChatMessageId] = useState<string | null>(null);
 
     const [positionDialogOpen, setPositionDialogOpen] = useState(false);
     const [positionDialogMode, setPositionDialogMode] = useState<"create" | "edit">("create");
@@ -1079,7 +1180,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     const [jdExtraPrompt, setJdExtraPrompt] = useState("");
     const [jdViewMode, setJdViewMode] = useState<JDViewMode>("publish");
-    const [jdGenerationStatus, setJdGenerationStatus] = useState<"idle" | "generating" | "syncing" | "failed">("idle");
+    const [jdGenerationStatus, setJdGenerationStatus] = useState<string>("idle");
     const [jdGenerationError, setJdGenerationError] = useState("");
     const [screeningSubmitting, setScreeningSubmitting] = useState(false);
     const [interviewGenerating, setInterviewGenerating] = useState(false);
@@ -1120,6 +1221,32 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const assistantScrollAreaRef = useRef<HTMLDivElement | null>(null);
     const assistantInputRef = useRef<HTMLTextAreaElement | null>(null);
 
+    const syncInterviewPreviewHeight = useCallback((iframe: HTMLIFrameElement | null) => {
+        if (!iframe) {
+            return;
+        }
+        const applyHeight = () => {
+            try {
+                const doc = iframe.contentDocument;
+                const body = doc?.body;
+                const root = doc?.documentElement;
+                const nextHeight = Math.max(
+                    body?.scrollHeight || 0,
+                    body?.offsetHeight || 0,
+                    root?.scrollHeight || 0,
+                    root?.offsetHeight || 0,
+                    640,
+                );
+                setInterviewPreviewHeight(nextHeight);
+            } catch {
+                setInterviewPreviewHeight(760);
+            }
+        };
+        applyHeight();
+        window.setTimeout(applyHeight, 120);
+        window.setTimeout(applyHeight, 420);
+    }, []);
+
     const [skillDialogOpen, setSkillDialogOpen] = useState(false);
     const [skillEditingId, setSkillEditingId] = useState<number | null>(null);
     const [skillForm, setSkillForm] = useState<SkillFormState>(emptySkillForm);
@@ -1143,6 +1270,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const positionMap = useMemo(() => new Map(positions.map((item) => [item.id, item])), [positions]);
     const candidateMap = useMemo(() => new Map(candidates.map((item) => [item.id, item])), [candidates]);
     const skillMap = useMemo(() => new Map(skills.map((item) => [item.id, item])), [skills]);
+    const enabledSkills = useMemo(() => skills.filter((skill) => skill.is_enabled !== false), [skills]);
+    const jdAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "jd"), [enabledSkills]);
+    const screeningAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "screening"), [enabledSkills]);
+    const interviewAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "interview"), [enabledSkills]);
     const mailSenderMap = useMemo(() => new Map(mailSenderConfigs.map((item) => [item.id, item])), [mailSenderConfigs]);
     const mailRecipientMap = useMemo(() => new Map(mailRecipients.map((item) => [item.id, item])), [mailRecipients]);
     const currentJDVersion = positionDetail?.current_jd_version || null;
@@ -1159,8 +1290,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const currentJDGenerationStatus = jdGenerationStatus !== "idle"
         ? jdGenerationStatus
         : positionDetail?.jd_generation?.status || "idle";
-    const isJDGenerating = jdGenerationStatus === "generating" || jdGenerationStatus === "syncing";
+    const isJDGenerating = isLiveTaskStatus(currentJDGenerationStatus) || currentJDGenerationStatus === "syncing";
     const latestJDGenerationError = jdGenerationError || positionDetail?.jd_generation?.error_message || "";
+    const currentPositionJDTaskId = activeJDPositionId === selectedPositionId ? activeJDTaskId : null;
     const defaultMailSenderId = useMemo(() => {
         const defaultSender = mailSenderConfigs.find((item) => item.is_default && item.is_enabled);
         return String(defaultSender?.id || mailSenderConfigs.find((item) => item.is_enabled)?.id || "");
@@ -1196,6 +1328,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         ? `${labelForProvider(assistantActiveLLMConfig.resolved_provider || assistantActiveLLMConfig.provider)} / ${assistantActiveLLMConfig.resolved_model_name || assistantActiveLLMConfig.model_name}`
         : "暂未识别";
     const positionScreeningSkillIds = candidateDetail?.candidate.position_screening_skill_ids || [];
+    const positionInterviewSkillIds = candidateDetail?.candidate.position_interview_skill_ids || [];
     const workflowScreeningSkillIds = candidateDetail?.workflow_memory?.screening_skill_ids || [];
     const workflowInterviewSkillIds = candidateDetail?.workflow_memory?.interview_skill_ids || [];
     const candidateAssistantActivity = useMemo(() => {
@@ -1208,22 +1341,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         if (workflowInterviewSkillIds.length) {
             return resolveTaskSkillIds(workflowInterviewSkillIds, "interview", skillMap);
         }
-        if (workflowScreeningSkillIds.length) {
-            return resolveTaskSkillIds(workflowScreeningSkillIds, "interview", skillMap);
+        if (positionInterviewSkillIds.length) {
+            return resolveTaskSkillIds(positionInterviewSkillIds, "interview", skillMap);
         }
-        const positionSkillIds = candidateDetail?.candidate.position_screening_skill_ids || [];
-        if (positionSkillIds.length) {
-            return resolveTaskSkillIds(positionSkillIds, "interview", skillMap);
-        }
-        return resolveTaskSkillIds(chatContext.skill_ids || [], "interview", skillMap);
-    }, [candidateDetail, chatContext.skill_ids, skillMap, workflowInterviewSkillIds, workflowScreeningSkillIds]);
+        return [];
+    }, [positionInterviewSkillIds, skillMap, workflowInterviewSkillIds]);
     const preferredInterviewSkillSourceLabel = workflowInterviewSkillIds.length
         ? "工作记忆中的面试题 Skills"
-        : workflowScreeningSkillIds.length
-            ? "工作记忆中的初筛 Skills"
-            : (candidateDetail?.candidate.position_screening_skill_ids?.length
+        : (candidateDetail?.candidate.position_interview_skill_ids?.length
                 ? "岗位绑定 Skills"
-                : (chatContext.skill_ids?.length ? "助手当前激活 Skills" : "系统默认 Skills"));
+                : "未配置 Skills");
     const effectiveScreeningSkillIds = useMemo(() => {
         if (positionScreeningSkillIds.length) {
             return resolveTaskSkillIds(positionScreeningSkillIds, "screening", skillMap);
@@ -1235,31 +1362,44 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }, [positionScreeningSkillIds, skillMap, workflowScreeningSkillIds]);
     const effectiveScreeningSkillSourceLabel = positionScreeningSkillIds.length
         ? "岗位绑定 Skills"
-        : (workflowScreeningSkillIds.length ? "初筛工作记忆 Skills" : "全局默认 Skills");
+        : (workflowScreeningSkillIds.length ? "初筛工作记忆 Skills" : "未配置 Skills");
     const autoInterviewSkillIds = useMemo(() => {
-        if (positionScreeningSkillIds.length) {
-            return resolveTaskSkillIds(positionScreeningSkillIds, "interview", skillMap);
+        if (positionInterviewSkillIds.length) {
+            return resolveTaskSkillIds(positionInterviewSkillIds, "interview", skillMap);
         }
         if (workflowInterviewSkillIds.length) {
             return resolveTaskSkillIds(workflowInterviewSkillIds, "interview", skillMap);
         }
-        if (workflowScreeningSkillIds.length) {
-            return resolveTaskSkillIds(workflowScreeningSkillIds, "interview", skillMap);
-        }
         return [];
-    }, [positionScreeningSkillIds, skillMap, workflowInterviewSkillIds, workflowScreeningSkillIds]);
-    const autoInterviewSkillSourceLabel = positionScreeningSkillIds.length
+    }, [positionInterviewSkillIds, skillMap, workflowInterviewSkillIds]);
+    const autoInterviewSkillSourceLabel = positionInterviewSkillIds.length
         ? "岗位绑定 Skills"
         : workflowInterviewSkillIds.length
             ? "面试题工作记忆 Skills"
-            : (workflowScreeningSkillIds.length ? "初筛工作记忆 Skills" : "全局默认 Skills");
+            : "未配置 Skills";
     const effectiveInterviewSkillIds = interviewSkillSelectionDirty ? selectedInterviewSkillIds : autoInterviewSkillIds;
     const effectiveInterviewSkillSourceLabel = interviewSkillSelectionDirty ? "手动选择 Skills" : autoInterviewSkillSourceLabel;
+    const activeScreeningTaskIds = useMemo(() => Object.values(activeScreeningTaskMap), [activeScreeningTaskMap]);
+    const selectedCandidateScreeningTaskId = selectedCandidateId ? (activeScreeningTaskMap[selectedCandidateId] || null) : null;
+    const isBatchScreeningRunning = activeBatchScreeningTaskIds.length > 0;
+    const currentCandidateInterviewTaskId = activeInterviewCandidateId === selectedCandidateId ? activeInterviewTaskId : null;
+    const isTaskCancelling = useCallback((taskId?: number | null) => {
+        if (!taskId) {
+            return false;
+        }
+        return cancellingTaskIds.includes(taskId);
+    }, [cancellingTaskIds]);
+    const isCurrentJDTaskCancelling = isTaskCancelling(currentPositionJDTaskId);
+    const isSelectedCandidateScreeningCancelling = isTaskCancelling(selectedCandidateScreeningTaskId);
+    const isCurrentInterviewTaskCancelling = isTaskCancelling(currentCandidateInterviewTaskId);
+    const isCurrentChatTaskCancelling = isTaskCancelling(activeChatTaskId);
+    const isBatchScreeningCancelling = activeBatchScreeningTaskIds.length > 0
+        && activeBatchScreeningTaskIds.every((taskId) => cancellingTaskIds.includes(taskId));
     const hasLiveLogActivity = useMemo(() => {
-        return aiLogs.some((item) => ["queued", "pending", "running"].includes(item.status));
+        return aiLogs.some((item) => isLiveTaskStatus(item.status));
     }, [aiLogs]);
     const hasLiveCandidateActivity = useMemo(() => {
-        return (candidateDetail?.activity || []).some((item) => ["queued", "pending", "running"].includes(item.status));
+        return (candidateDetail?.activity || []).some((item) => isLiveTaskStatus(item.status));
     }, [candidateDetail?.activity]);
     const resumeMailTargetCandidates = useMemo(() => {
         return resumeMailForm.candidateIds
@@ -1374,8 +1514,62 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         };
     }, [candidates, positions]);
 
+    const positionSidebarSummary = useMemo(() => {
+        return {
+            recruiting: positions.filter((position) => position.status === "recruiting").length,
+            todayNew: positions.filter((position) => isToday(position.created_at)).length,
+        };
+    }, [positions]);
+
     const recentCandidates = dashboard?.recent_candidates || [];
     const recentLogs = aiLogs.slice(0, 6);
+    const candidateFilterSummary = useMemo(() => {
+        const positionLabel = candidatePositionFilter === "all"
+            ? "全部岗位"
+            : (positions.find((position) => String(position.id) === candidatePositionFilter)?.title || "指定岗位");
+        const statusLabel = candidateStatusFilter === "all"
+            ? "全部状态"
+            : (candidateStatusLabels[candidateStatusFilter] || candidateStatusFilter);
+        const matchLabel = ({
+            all: "全部匹配度",
+            "80+": "80% 以上",
+            "60+": "60% 以上",
+            "40+": "40% 以上",
+        } as Record<string, string>)[candidateMatchFilter] || candidateMatchFilter;
+        const timeLabel = ({
+            all: "全部时间",
+            today: "今天",
+            "7d": "近 7 天",
+            "30d": "近 30 天",
+        } as Record<string, string>)[candidateTimeFilter] || candidateTimeFilter;
+        const sourceLabel = candidateSourceFilter === "all" ? "全部来源" : candidateSourceFilter;
+        const keywordLabel = candidateQuery.trim() ? `关键词：${candidateQuery.trim()}` : "无关键词";
+        return [
+            candidateViewMode === "board" ? "看板视图" : "列表视图",
+            positionLabel,
+            statusLabel,
+            matchLabel,
+            sourceLabel,
+            timeLabel,
+            keywordLabel,
+        ].join(" · ");
+    }, [
+        candidateMatchFilter,
+        candidatePositionFilter,
+        candidateQuery,
+        candidateSourceFilter,
+        candidateStatusFilter,
+        candidateTimeFilter,
+        candidateViewMode,
+        positions,
+    ]);
+    const auditFilterSummary = useMemo(() => {
+        const taskTypeLabel = logTaskTypeFilter === "all"
+            ? "全部任务类型"
+            : (aiTaskLabels[logTaskTypeFilter] || logTaskTypeFilter);
+        const statusLabel = logStatusFilter === "all" ? "全部状态" : logStatusFilter;
+        return `${taskTypeLabel} · ${statusLabel}`;
+    }, [logStatusFilter, logTaskTypeFilter]);
 
     useEffect(() => {
         if (!canManageRecruitment && (
@@ -1394,6 +1588,39 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     useEffect(() => {
         setSelectedCandidateIds((current) => current.filter((candidateId) => visibleCandidates.some((candidate) => candidate.id === candidateId)));
     }, [visibleCandidates]);
+
+    useEffect(() => {
+        selectedLogIdRef.current = selectedLogId;
+    }, [selectedLogId]);
+
+    useEffect(() => {
+        selectedPositionIdRef.current = selectedPositionId;
+    }, [selectedPositionId]);
+
+    useEffect(() => {
+        selectedCandidateIdRef.current = selectedCandidateId;
+    }, [selectedCandidateId]);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            taskMonitorTimersRef.current.forEach((timerId) => window.clearInterval(timerId));
+            taskMonitorTimersRef.current.clear();
+        };
+    }, []);
+
+    useEffect(() => {
+        setScreeningSubmitting(activeScreeningTaskIds.length > 0);
+    }, [activeScreeningTaskIds.length]);
+
+    useEffect(() => {
+        setInterviewGenerating(Boolean(activeInterviewTaskId));
+    }, [activeInterviewTaskId]);
+
+    useEffect(() => {
+        setChatSending(Boolean(activeChatTaskId));
+    }, [activeChatTaskId]);
 
     useEffect(() => {
         const viewport = assistantScrollAreaRef.current?.querySelector("[data-slot='scroll-area-viewport']") as HTMLDivElement | null;
@@ -1474,6 +1701,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             return;
         }
         void loadPositionDetail(selectedPositionId);
+    }, [selectedPositionId]);
+
+    useEffect(() => {
+        setPositionWorkspaceHeaderCollapsed(true);
     }, [selectedPositionId]);
 
     useEffect(() => {
@@ -1566,6 +1797,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setInterviewSkillSelectionDirty(false);
         setCandidateProcessLogsExpanded(false);
     }, [selectedCandidateId]);
+
+    useEffect(() => {
+        setInterviewPreviewHeight(760);
+    }, [selectedCandidateId, candidateDetail?.interview_questions?.[0]?.id, candidateDetail?.interview_questions?.[0]?.html_content]);
 
     useEffect(() => {
         if (candidateViewMode !== "list") return;
@@ -1702,49 +1937,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return () => {
             tableScroller.removeEventListener("wheel", handleTableWheel, true);
             horizontalRail.removeEventListener("wheel", handleRailWheel, true);
-            tableScroller.removeEventListener("scroll", syncFromTable);
-            horizontalRail.removeEventListener("scroll", syncFromRail);
-        };
-    }, [auditListHorizontalRailEl, auditListScrollEl]);
-
-    useEffect(() => {
-        const tableScroller = auditListScrollEl;
-        const horizontalRail = auditListHorizontalRailEl;
-        if (!tableScroller || !horizontalRail) {
-            return;
-        }
-
-        const releaseLock = (owner: "table" | "rail") => {
-            requestAnimationFrame(() => {
-                if (auditListScrollSyncLockRef.current === owner) {
-                    auditListScrollSyncLockRef.current = null;
-                }
-            });
-        };
-
-        const syncFromTable = () => {
-            if (auditListScrollSyncLockRef.current === "rail") {
-                return;
-            }
-            auditListScrollSyncLockRef.current = "table";
-            horizontalRail.scrollLeft = tableScroller.scrollLeft;
-            releaseLock("table");
-        };
-
-        const syncFromRail = () => {
-            if (auditListScrollSyncLockRef.current === "table") {
-                return;
-            }
-            auditListScrollSyncLockRef.current = "rail";
-            tableScroller.scrollLeft = horizontalRail.scrollLeft;
-            releaseLock("rail");
-        };
-
-        tableScroller.addEventListener("scroll", syncFromTable, {passive: true});
-        horizontalRail.addEventListener("scroll", syncFromRail, {passive: true});
-        horizontalRail.scrollLeft = tableScroller.scrollLeft;
-
-        return () => {
             tableScroller.removeEventListener("scroll", syncFromTable);
             horizontalRail.removeEventListener("scroll", syncFromRail);
         };
@@ -2105,6 +2297,126 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setSelectedLogId(logId);
     }
 
+    function mergeAiTaskLog(log: AITaskLog) {
+        setCancellingTaskIds((current) => {
+            if (log.status === "cancelling") {
+                return current.includes(log.id) ? current : [...current, log.id];
+            }
+            return current.includes(log.id) ? current.filter((item) => item !== log.id) : current;
+        });
+        setAiLogs((current) => {
+            const index = current.findIndex((item) => item.id === log.id);
+            if (index === -1) {
+                return [log, ...current];
+            }
+            const next = [...current];
+            next[index] = log;
+            return next;
+        });
+    }
+
+    function stopTaskMonitor(taskId: number) {
+        const timerId = taskMonitorTimersRef.current.get(taskId);
+        if (timerId) {
+            window.clearInterval(timerId);
+            taskMonitorTimersRef.current.delete(taskId);
+        }
+    }
+
+    function updateChatMessage(messageId: string, updater: (message: ChatMessage) => ChatMessage) {
+        setChatMessages((current) => current.map((message) => (
+            message.id === messageId ? updater(message) : message
+        )));
+    }
+
+    function extractChatReplyFromLog(log: AITaskLog) {
+        const parsed = parseStructuredLogOutput(log.output_snapshot);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            const reply = (parsed as Record<string, unknown>).reply;
+            if (typeof reply === "string" && reply.trim()) {
+                return reply.trim();
+            }
+        }
+        if (typeof parsed === "string" && parsed.trim()) {
+            return parsed.trim();
+        }
+        if (log.status === "cancelled") {
+            return "已停止生成。";
+        }
+        if (log.status === "failed") {
+            return `发送失败：${log.error_message || "未知错误"}`;
+        }
+        return log.output_summary || "已完成";
+    }
+
+    async function cancelTaskGeneration(taskId: number, taskLabel: string, options?: { silent?: boolean }) {
+        if (cancellingTaskIds.includes(taskId)) {
+            return null;
+        }
+        setCancellingTaskIds((current) => (current.includes(taskId) ? current : [...current, taskId]));
+        try {
+            const log = await recruitmentApi<AITaskLog>(`/ai-task-logs/${taskId}/cancel`, {
+                method: "POST",
+            });
+            mergeAiTaskLog(log);
+            if (selectedLogIdRef.current === taskId) {
+                setSelectedLogDetail(log);
+            }
+            if (!options?.silent) {
+                toast.success(log.status === "cancelled" ? `${taskLabel}已停止` : `${taskLabel}停止请求已发送`);
+            }
+            return log;
+        } catch (error) {
+            setCancellingTaskIds((current) => current.filter((item) => item !== taskId));
+            throw error;
+        }
+    }
+
+    function startTaskMonitor(
+        taskId: number,
+        {
+            onUpdate,
+            onFinish,
+        }: {
+            onUpdate?: (log: AITaskLog) => void;
+            onFinish?: (log: AITaskLog) => Promise<void> | void;
+        },
+    ) {
+        stopTaskMonitor(taskId);
+        let polling = false;
+        const poll = async () => {
+            if (polling || !mountedRef.current) {
+                return;
+            }
+            polling = true;
+            try {
+                const log = await recruitmentApi<AITaskLog>(`/ai-task-logs/${taskId}`);
+                if (!mountedRef.current) {
+                    return;
+                }
+                mergeAiTaskLog(log);
+                if (selectedLogIdRef.current === taskId) {
+                    setSelectedLogDetail(log);
+                }
+                onUpdate?.(log);
+                if (isTerminalTaskStatus(log.status)) {
+                    stopTaskMonitor(taskId);
+                    await onFinish?.(log);
+                }
+            } catch {
+                // Ignore transient polling errors and retry on the next tick.
+            } finally {
+                polling = false;
+            }
+        };
+
+        void poll();
+        const timerId = window.setInterval(() => {
+            void poll();
+        }, 1200);
+        taskMonitorTimersRef.current.set(taskId, timerId);
+    }
+
     async function waitForJDVersionSync(positionId: number, expectedVersionId?: number | null) {
         for (let attempt = 0; attempt < 10; attempt += 1) {
             const detail = await loadPositionDetail(positionId);
@@ -2199,7 +2511,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             tagsText: joinTags(positionDetail.position.tags),
             autoScreenOnUpload: Boolean(positionDetail.position.auto_screen_on_upload),
             autoAdvanceOnScreening: positionDetail.position.auto_advance_on_screening ?? true,
+            jdSkillIds: positionDetail.position.jd_skill_ids || [],
             screeningSkillIds: positionDetail.position.screening_skill_ids || [],
+            interviewSkillIds: positionDetail.position.interview_skill_ids || [],
         });
         setPositionDialogOpen(true);
     }
@@ -2219,7 +2533,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             tags: splitTags(positionForm.tagsText),
             auto_screen_on_upload: positionForm.autoScreenOnUpload,
             auto_advance_on_screening: positionForm.autoAdvanceOnScreening,
+            jd_skill_ids: positionForm.jdSkillIds,
             screening_skill_ids: positionForm.screeningSkillIds,
+            interview_skill_ids: positionForm.interviewSkillIds,
         };
 
         try {
@@ -2274,28 +2590,92 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     async function generateJD() {
-        if (!selectedPositionId || isJDGenerating || jdGenerationInFlightRef.current) {
+        if (!selectedPositionId) {
+            return;
+        }
+        const positionId = selectedPositionId;
+        if (currentPositionJDTaskId) {
+            if (isCurrentJDTaskCancelling) {
+                return;
+            }
+            setJdGenerationStatus("cancelling");
+            try {
+                const log = await cancelTaskGeneration(currentPositionJDTaskId, "JD 生成");
+                if (log?.status === "cancelled") {
+                    stopTaskMonitor(currentPositionJDTaskId);
+                    setActiveJDTaskId((current) => (current === currentPositionJDTaskId ? null : current));
+                    setActiveJDPositionId((current) => (current === positionId ? null : current));
+                    setJdGenerationStatus("cancelled");
+                    setJdGenerationError(log.error_message || "已停止生成");
+                }
+            } catch (error) {
+                toast.error(`停止 JD 生成失败：${formatActionError(error)}`);
+            }
+            return;
+        }
+        if (isJDGenerating || jdGenerationInFlightRef.current) {
             return;
         }
         jdGenerationInFlightRef.current = true;
-        setJdGenerationStatus("generating");
+        setJdGenerationStatus("pending");
         setJdGenerationError("");
         try {
-            const version = await recruitmentApi<JDVersion>(`/positions/${selectedPositionId}/generate-jd`, {
+            const task = await recruitmentApi<RecruitmentTaskStartResponse>(`/positions/${positionId}/generate-jd/start`, {
                 method: "POST",
                 body: JSON.stringify({
                     extra_prompt: jdExtraPrompt.trim() || null,
                     auto_activate: jdDraft.autoActivate,
                 }),
             });
-
-            setJdGenerationStatus("syncing");
-            await waitForJDVersionSync(selectedPositionId, version.id);
-            await Promise.all([loadDashboard(), loadLogs(), loadPositions()]);
-            setJdExtraPrompt("");
-            setJdViewMode("publish");
-            setJdGenerationStatus("idle");
-            toast.success("岗位 JD 已生成并同步到当前页面");
+            setActiveJDTaskId(task.task_id);
+            setActiveJDPositionId(positionId);
+            setJdGenerationStatus(task.status || "pending");
+            await loadLogs({silent: true});
+            startTaskMonitor(task.task_id, {
+                onUpdate: (log) => {
+                    setJdGenerationStatus(log.status || "pending");
+                },
+                onFinish: async (log) => {
+                    if (!mountedRef.current) {
+                        return;
+                    }
+                    setActiveJDTaskId((current) => (current === task.task_id ? null : current));
+                    setActiveJDPositionId((current) => (current === positionId ? null : current));
+                    if (log.status === "success" || log.status === "fallback") {
+                        setJdGenerationStatus("syncing");
+                        await Promise.all([
+                            loadDashboard(),
+                            loadLogs({silent: true}),
+                            loadPositions(),
+                            selectedPositionIdRef.current === positionId
+                                ? loadPositionDetail(positionId)
+                                : Promise.resolve(null),
+                        ]);
+                        setJdExtraPrompt("");
+                        setJdViewMode("publish");
+                        setJdGenerationStatus("idle");
+                        toast.success(log.status === "fallback" ? "岗位 JD 已生成（兜底完成）" : "岗位 JD 已生成");
+                        return;
+                    }
+                    if (log.status === "cancelled") {
+                        await Promise.all([
+                            loadLogs({silent: true}),
+                            selectedPositionIdRef.current === positionId
+                                ? loadPositionDetail(positionId)
+                                : Promise.resolve(null),
+                        ]);
+                        setJdGenerationStatus("cancelled");
+                        setJdGenerationError(log.error_message || "已停止生成");
+                        toast.success("已停止 JD 生成");
+                        return;
+                    }
+                    setJdGenerationStatus("failed");
+                    setJdGenerationError(log.error_message || "未知错误");
+                    await loadLogs({silent: true});
+                    toast.error(`生成 JD 失败：${log.error_message || "未知错误"}`);
+                },
+            });
+            toast.success("已开始生成 JD，可随时停止");
         } catch (error) {
             setJdGenerationStatus("failed");
             setJdGenerationError(error instanceof Error ? error.message : "未知错误");
@@ -2441,6 +2821,61 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     async function triggerScreening(targetCandidateIds?: number[]) {
+        const isBatchRequest = Boolean(targetCandidateIds?.length);
+        if (isBatchRequest && activeBatchScreeningTaskIds.length) {
+            if (isBatchScreeningCancelling) {
+                return;
+            }
+            try {
+                const logs = await Promise.all(activeBatchScreeningTaskIds.map((taskId) => cancelTaskGeneration(taskId, "批量初筛", {silent: true})));
+                const cancelledTaskIds = logs
+                    .filter((log): log is AITaskLog => Boolean(log && log.status === "cancelled"))
+                    .map((log) => log.id);
+                if (cancelledTaskIds.length) {
+                    cancelledTaskIds.forEach((taskId) => stopTaskMonitor(taskId));
+                    setActiveBatchScreeningTaskIds((current) => current.filter((taskId) => !cancelledTaskIds.includes(taskId)));
+                    setActiveScreeningTaskMap((current) => {
+                        const next = {...current};
+                        Object.entries(next).forEach(([candidateId, taskId]) => {
+                            if (cancelledTaskIds.includes(taskId)) {
+                                delete next[Number(candidateId)];
+                            }
+                        });
+                        return next;
+                    });
+                    toast.success(`已停止 ${cancelledTaskIds.length} 个批量初筛任务`);
+                } else if (logs.some((log) => log?.status === "cancelling")) {
+                    toast.success("批量初筛停止请求已发送");
+                }
+            } catch (error) {
+                toast.error(`停止批量初筛失败：${formatActionError(error)}`);
+            }
+            return;
+        }
+        if (!isBatchRequest && selectedCandidateScreeningTaskId) {
+            if (isSelectedCandidateScreeningCancelling) {
+                return;
+            }
+            try {
+                const log = await cancelTaskGeneration(selectedCandidateScreeningTaskId, "初筛");
+                if (log?.status === "cancelled") {
+                    stopTaskMonitor(selectedCandidateScreeningTaskId);
+                    setActiveScreeningTaskMap((current) => {
+                        const next = {...current};
+                        if (selectedCandidateId && next[selectedCandidateId] === selectedCandidateScreeningTaskId) {
+                            delete next[selectedCandidateId];
+                        }
+                        return next;
+                    });
+                }
+            } catch (error) {
+                toast.error(`停止初筛失败：${formatActionError(error)}`);
+            }
+            return;
+        }
+        if (screeningLaunchInFlightRef.current) {
+            return;
+        }
         const candidateIds = Array.from(new Set(
             (targetCandidateIds?.length ? targetCandidateIds : (selectedCandidateId ? [selectedCandidateId] : []))
                 .filter(Boolean),
@@ -2449,12 +2884,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             toast.error("请先选择需要初筛的候选人");
             return;
         }
+        screeningLaunchInFlightRef.current = true;
         setScreeningSubmitting(true);
         const failures: string[] = [];
+        const startedTaskIds: number[] = [];
         try {
             for (const candidateId of candidateIds) {
                 try {
-                    await recruitmentApi(`/candidates/${candidateId}/screen`, {
+                    const task = await recruitmentApi<RecruitmentTaskStartResponse>(`/candidates/${candidateId}/screen/start`, {
                         method: "POST",
                         body: JSON.stringify({
                             skill_ids: [],
@@ -2462,32 +2899,90 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             use_position_skills: true,
                         }),
                     });
+                    startedTaskIds.push(task.task_id);
+                    setActiveScreeningTaskMap((current) => ({
+                        ...current,
+                        [candidateId]: task.task_id,
+                    }));
+                    if (isBatchRequest) {
+                        setActiveBatchScreeningTaskIds((current) => Array.from(new Set([...current, task.task_id])));
+                    }
+                    startTaskMonitor(task.task_id, {
+                        onFinish: async (log) => {
+                            if (!mountedRef.current) {
+                                return;
+                            }
+                            setActiveScreeningTaskMap((current) => {
+                                const next = {...current};
+                                if (next[candidateId] === task.task_id) {
+                                    delete next[candidateId];
+                                }
+                                return next;
+                            });
+                            setActiveBatchScreeningTaskIds((current) => current.filter((item) => item !== task.task_id));
+                            await Promise.all([loadCandidates(), loadDashboard(), loadLogs({silent: true})]);
+                            if (selectedCandidateIdRef.current === candidateId) {
+                                await loadCandidateDetail(candidateId, {silent: true});
+                            }
+                            if (!isBatchRequest) {
+                                if (log.status === "success" || log.status === "fallback") {
+                                    toast.success(log.status === "fallback" ? "初筛已完成（兜底完成）" : "初筛已完成");
+                                } else if (log.status === "cancelled") {
+                                    toast.success("已停止初筛");
+                                } else if (log.status === "failed") {
+                                    toast.error(`初筛失败：${log.error_message || "未知错误"}`);
+                                }
+                            }
+                        },
+                    });
                 } catch (error) {
                     failures.push(`候选人 #${candidateId}: ${error instanceof Error ? error.message : "未知错误"}`);
                 }
             }
-            if (selectedCandidateId) {
-                await loadCandidateDetail(selectedCandidateId);
-            }
-            await Promise.all([loadCandidates(), loadDashboard(), loadLogs()]);
             if (failures.length) {
                 toast.error(`初筛完成，但有 ${failures.length} 份失败：${failures[0]}`);
+            } else if (startedTaskIds.length) {
+                toast.success(candidateIds.length > 1 ? `已开始 ${candidateIds.length} 份初筛，可随时停止` : "已开始初筛，可随时停止");
             } else {
-                toast.success(candidateIds.length > 1 ? `已完成 ${candidateIds.length} 份简历初筛` : "初筛已完成");
+                toast.error("没有成功启动任何初筛任务");
             }
         } finally {
-            setScreeningSubmitting(false);
+            screeningLaunchInFlightRef.current = false;
+            if (!startedTaskIds.length) {
+                setScreeningSubmitting(false);
+            }
         }
     }
 
     async function generateInterviewQuestions() {
-        if (!selectedCandidateId || interviewGenerating) {
+        if (!selectedCandidateId) {
+            return;
+        }
+        const candidateId = selectedCandidateId;
+        if (currentCandidateInterviewTaskId) {
+            if (isCurrentInterviewTaskCancelling) {
+                return;
+            }
+            try {
+                const log = await cancelTaskGeneration(currentCandidateInterviewTaskId, "面试题生成");
+                if (log?.status === "cancelled") {
+                    stopTaskMonitor(currentCandidateInterviewTaskId);
+                    setActiveInterviewTaskId((current) => (current === currentCandidateInterviewTaskId ? null : current));
+                    setActiveInterviewCandidateId((current) => (current === candidateId ? null : current));
+                }
+            } catch (error) {
+                toast.error(`停止面试题生成失败：${formatActionError(error)}`);
+            }
+            return;
+        }
+        if (interviewGenerating) {
             return;
         }
         const manualSkillIds = interviewSkillSelectionDirty ? selectedInterviewSkillIds : [];
+        let started = false;
         setInterviewGenerating(true);
         try {
-            await recruitmentApi(`/candidates/${selectedCandidateId}/interview-questions`, {
+            const task = await recruitmentApi<RecruitmentTaskStartResponse>(`/candidates/${candidateId}/interview-questions/start`, {
                 method: "POST",
                 body: JSON.stringify({
                     round_name: interviewRoundName.trim() || "初试",
@@ -2497,16 +2992,76 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     use_position_skills: !interviewSkillSelectionDirty,
                 }),
             });
-            toast.success("面试题已生成");
-            await Promise.all([loadCandidateDetail(selectedCandidateId), loadLogs()]);
+            started = true;
+            setActiveInterviewTaskId(task.task_id);
+            setActiveInterviewCandidateId(candidateId);
+            await loadLogs({silent: true});
+            startTaskMonitor(task.task_id, {
+                onFinish: async (log) => {
+                    if (!mountedRef.current) {
+                        return;
+                    }
+                    setActiveInterviewTaskId((current) => (current === task.task_id ? null : current));
+                    setActiveInterviewCandidateId((current) => (current === candidateId ? null : current));
+                    await Promise.all([
+                        loadLogs({silent: true}),
+                        selectedCandidateIdRef.current === candidateId
+                            ? loadCandidateDetail(candidateId, {silent: true})
+                            : Promise.resolve(null),
+                    ]);
+                    if (log.status === "success" || log.status === "fallback") {
+                        toast.success(log.status === "fallback" ? "面试题已生成（兜底完成）" : "面试题已生成");
+                        return;
+                    }
+                    if (log.status === "cancelled") {
+                        toast.success("已停止面试题生成");
+                        return;
+                    }
+                    toast.error(`生成面试题失败：${log.error_message || "未知错误"}`);
+                },
+            });
+            toast.success("已开始生成面试题，可随时停止");
         } catch (error) {
             toast.error(`生成面试题失败：${error instanceof Error ? error.message : "未知错误"}`);
         } finally {
-            setInterviewGenerating(false);
+            if (!started) {
+                setInterviewGenerating(false);
+            }
         }
     }
 
     async function sendChatMessage() {
+        if (activeChatTaskId) {
+            if (isCurrentChatTaskCancelling) {
+                return;
+            }
+            try {
+                if (activeChatMessageId) {
+                    updateChatMessage(activeChatMessageId, (message) => ({
+                        ...message,
+                        content: "正在停止生成...",
+                    }));
+                }
+                const log = await cancelTaskGeneration(activeChatTaskId, "AI 助手");
+                if (log?.status === "cancelled") {
+                    stopTaskMonitor(activeChatTaskId);
+                    if (activeChatMessageId) {
+                        updateChatMessage(activeChatMessageId, (message) => ({
+                            ...message,
+                            content: "已停止生成。",
+                            pending: false,
+                            taskId: null,
+                            logId: log.id,
+                        }));
+                    }
+                    setActiveChatTaskId((current) => (current === activeChatTaskId ? null : current));
+                    setActiveChatMessageId((current) => (current === activeChatMessageId ? null : current));
+                }
+            } catch (error) {
+                toast.error(`停止助手生成失败：${formatActionError(error)}`);
+            }
+            return;
+        }
         if (chatSending) {
             return;
         }
@@ -2514,14 +3069,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         if (!message) {
             return;
         }
+        const userMessageId = `u-${Date.now()}`;
         setChatMessages((current) => [
             ...current,
-            {id: `u-${Date.now()}`, role: "user", content: message, createdAt: new Date().toISOString()},
+            {id: userMessageId, role: "user", content: message, createdAt: new Date().toISOString()},
         ]);
         setChatInput("");
         setChatSending(true);
+        let startedAsyncTask = false;
         try {
-            const response = await recruitmentApi<ChatResponse>("/chat", {
+            const response = await recruitmentApi<ChatResponse>("/chat/start", {
                 method: "POST",
                 body: JSON.stringify({
                     message,
@@ -2533,28 +3090,92 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }),
             });
             setChatContext(response.context);
+            if (!response.pending || !response.task_id) {
+                setChatMessages((current) => [
+                    ...current,
+                    {
+                        id: `a-${Date.now()}`,
+                        role: "assistant",
+                        content: response.reply,
+                        createdAt: new Date().toISOString(),
+                        actions: response.actions,
+                        logId: response.log_id ?? undefined,
+                        memorySource: response.memory_source,
+                        modelProvider: response.model_provider,
+                        modelName: response.model_name,
+                        usedSkillIds: response.used_skill_ids,
+                        usedSkills: response.used_skills,
+                        usedFallback: response.used_fallback,
+                        fallbackError: response.fallback_error,
+                    },
+                ]);
+                if (response.used_fallback) {
+                    toast.error(`本次 AI 调用已回退到兜底结果：${response.fallback_error || "未返回具体原因"}`);
+                }
+                await Promise.all([loadLogs({silent: true}), loadDashboard()]);
+                return;
+            }
+            const pendingMessageId = `a-${Date.now()}`;
+            startedAsyncTask = true;
+            setActiveChatTaskId(response.task_id);
+            setActiveChatMessageId(pendingMessageId);
             setChatMessages((current) => [
                 ...current,
                 {
-                    id: `a-${Date.now()}`,
+                    id: pendingMessageId,
                     role: "assistant",
-                    content: response.reply,
+                    content: "助手正在思考...",
                     createdAt: new Date().toISOString(),
-                    actions: response.actions,
+                    pending: true,
+                    taskId: response.task_id,
                     logId: response.log_id ?? undefined,
                     memorySource: response.memory_source,
                     modelProvider: response.model_provider,
                     modelName: response.model_name,
-                    usedSkillIds: response.used_skill_ids,
-                    usedSkills: response.used_skills,
-                    usedFallback: response.used_fallback,
-                    fallbackError: response.fallback_error,
                 },
             ]);
-            if (response.used_fallback) {
-                toast.error(`本次 AI 调用已回退到兜底结果：${response.fallback_error || "未返回具体原因"}`);
-            }
-            await Promise.all([loadLogs(), loadDashboard()]);
+            await loadLogs({silent: true});
+            startTaskMonitor(response.task_id, {
+                onUpdate: (log) => {
+                    if (log.status === "cancelling") {
+                        updateChatMessage(pendingMessageId, (chatMessage) => ({
+                            ...chatMessage,
+                            content: "正在停止生成...",
+                        }));
+                    }
+                },
+                onFinish: async (log) => {
+                    if (!mountedRef.current) {
+                        return;
+                    }
+                    const usedSkills = resolveLogSkillSnapshots(log, skillMap);
+                    const reply = extractChatReplyFromLog(log);
+                    updateChatMessage(pendingMessageId, (chatMessage) => ({
+                        ...chatMessage,
+                        content: reply,
+                        pending: false,
+                        taskId: null,
+                        logId: log.id,
+                        memorySource: log.memory_source,
+                        modelProvider: log.model_provider,
+                        modelName: log.model_name,
+                        usedSkillIds: log.related_skill_ids,
+                        usedSkills,
+                        usedFallback: log.status === "fallback",
+                        fallbackError: log.error_message,
+                    }));
+                    setActiveChatTaskId((current) => (current === response.task_id ? null : current));
+                    setActiveChatMessageId((current) => (current === pendingMessageId ? null : current));
+                    await Promise.all([loadLogs({silent: true}), loadDashboard()]);
+                    if (log.status === "fallback") {
+                        toast.error(`本次 AI 调用已回退到兜底结果：${log.error_message || "未返回具体原因"}`);
+                    } else if (log.status === "failed") {
+                        toast.error(`发送失败：${log.error_message || "未知错误"}`);
+                    } else if (log.status === "cancelled") {
+                        toast.success("已停止助手生成");
+                    }
+                },
+            });
         } catch (error) {
             setChatMessages((current) => [
                 ...current,
@@ -2566,7 +3187,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 },
             ]);
         } finally {
-            setChatSending(false);
+            if (!startedAsyncTask) {
+                setChatSending(false);
+            }
         }
     }
 
@@ -3362,9 +3985,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     助手会自动携带当前岗位与启用 Skill 上下文，适合连续执行筛选、生成和查询操作。按
                                     Ctrl/Cmd + Enter 可直接发送。
                                 </p>
-                                <Button onClick={() => void sendChatMessage()} disabled={chatSending}>
-                                    <Send className="h-4 w-4"/>
-                                    发送
+                                <Button
+                                    onClick={() => void sendChatMessage()}
+                                    disabled={isCurrentChatTaskCancelling || (!activeChatTaskId && !chatInput.trim())}
+                                >
+                                    {activeChatTaskId ? <Square className="h-4 w-4"/> : <Send className="h-4 w-4"/>}
+                                    {isCurrentChatTaskCancelling ? "停止中..." : activeChatTaskId ? "停止生成" : "发送"}
                                 </Button>
                             </div>
                         </div>
@@ -3467,206 +4093,194 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             <div className="space-y-6">
                 <Card
                     className={cn(panelClass, "overflow-hidden border-slate-200/80 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.18),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.98)_0%,rgba(241,245,249,0.95)_100%)] dark:border-slate-800 dark:bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.18),transparent_26%),linear-gradient(135deg,rgba(15,23,42,0.96)_0%,rgba(15,23,42,0.9)_100%)]")}>
-                    <CardContent className="px-6 py-5">
-                        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
-                            <div className="space-y-3">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <Badge
-                                        className="rounded-full border-slate-200 bg-white/90 text-slate-700 shadow-none dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
-                                        今日总览
-                                    </Badge>
-                                    <Badge variant="outline"
-                                           className="rounded-full border-slate-200/80 bg-white/70 dark:border-slate-700/80 dark:bg-slate-900/50">
-                                        岗位、候选人、AI 任务同屏推进
-                                    </Badge>
-                                </div>
-                                <div>
-                                    <h2 className="text-[1.4rem] font-semibold tracking-tight text-slate-950 dark:text-slate-50">招聘推进总览</h2>
-                                    <p className="mt-1.5 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-                                        集中展示当前待办、关键入口与近期进展，便于快速掌握岗位、候选人及 AI 任务的整体推进状态。
-                                    </p>
-                                </div>
-                                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                                    <InfoTile label="招聘中岗位"
-                                              value={`${dashboard?.cards.positions_recruiting ?? 0} 个`}/>
-                                    <InfoTile label="待初筛候选人"
-                                              value={`${dashboard?.cards.pending_screening ?? 0} 人`}/>
-                                    <InfoTile label="今日新增简历" value={`${todayNewResumes} 份`}/>
-                                </div>
+                    <CardContent className="px-4 py-3 sm:px-5">
+                        <div className="space-y-2.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Badge
+                                    className="rounded-full border-slate-200 bg-white/90 px-2.5 py-0.5 text-[11px] text-slate-700 shadow-none dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
+                                    今日总览
+                                </Badge>
+                                <h2 className="text-lg font-semibold tracking-tight text-slate-950 dark:text-slate-50 sm:text-[1.15rem]">
+                                    招聘推进总览
+                                </h2>
                             </div>
-                            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                                <button
-                                    type="button"
-                                    onClick={() => openAssistantMode("drawer")}
-                                    className="rounded-[24px] border border-slate-200/80 bg-white/90 px-5 py-4 text-left transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80"
-                                >
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div>
-                                            <p className="text-base font-semibold text-slate-900 dark:text-slate-100">打开
-                                                AI 招聘助手</p>
-                                            <p className="mt-1.5 text-sm leading-6 text-slate-500 dark:text-slate-400">直接用自然语言生成
-                                                JD、初筛、重筛和查看日志来源。</p>
-                                        </div>
-                                        <div
-                                            className="rounded-2xl bg-slate-900 p-3 text-white dark:bg-slate-100 dark:text-slate-900">
-                                            <Bot className="h-5 w-5"/>
-                                        </div>
+                            <div className="flex flex-wrap items-center justify-between gap-2.5">
+                                <p className="min-w-[220px] flex-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                                    集中查看岗位、候选人和 AI 任务的当前进度。
+                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
+                                        <span className="text-xs text-slate-500 dark:text-slate-400">招聘中岗位</span>
+                                        <span className="font-semibold text-slate-950 dark:text-slate-50">{dashboard?.cards.positions_recruiting ?? 0}</span>
                                     </div>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={openCreatePosition}
-                                    className="rounded-[24px] border border-slate-200/80 bg-white/90 px-5 py-4 text-left transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80"
-                                >
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div>
-                                            <p className="text-base font-semibold text-slate-900 dark:text-slate-100">新建岗位</p>
-                                            <p className="mt-1.5 text-sm leading-6 text-slate-500 dark:text-slate-400">录入岗位后，继续在
-                                                JD 工作区、候选人工作区里向下推进。</p>
-                                        </div>
-                                        <div
-                                            className="rounded-2xl bg-slate-100 p-3 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                                            <Plus className="h-5 w-5"/>
-                                        </div>
+                                    <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
+                                        <span className="text-xs text-slate-500 dark:text-slate-400">待初筛候选人</span>
+                                        <span className="font-semibold text-slate-950 dark:text-slate-50">{dashboard?.cards.pending_screening ?? 0}</span>
                                     </div>
-                                </button>
+                                    <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
+                                        <span className="text-xs text-slate-500 dark:text-slate-400">今日新增简历</span>
+                                        <span className="font-semibold text-slate-950 dark:text-slate-50">{todayNewResumes}</span>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button
+                                        type="button"
+                                        onClick={() => openAssistantMode("drawer")}
+                                        size="sm"
+                                        className="h-9 rounded-xl px-3.5 text-sm"
+                                    >
+                                        <Bot className="h-4 w-4"/>
+                                        打开 AI 招聘助手
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={openCreatePosition}
+                                        size="sm"
+                                        className="h-9 rounded-xl px-3.5 text-sm"
+                                    >
+                                        <Plus className="h-4 w-4"/>
+                                        新建岗位
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                     </CardContent>
                 </Card>
 
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     <MetricCard title="招聘中岗位" value={dashboard?.cards.positions_recruiting ?? 0}
                                 description="当前在推进的岗位" icon={BriefcaseBusiness}/>
                     <MetricCard title="今日新增简历" value={todayNewResumes} description="今天导入的候选人数量"
                                 icon={Upload}/>
-                    <MetricCard title="待初筛人数" value={dashboard?.cards.pending_screening ?? 0}
+                    <MetricCard title="待初筛候选人" value={dashboard?.cards.pending_screening ?? 0}
                                 description="优先需要处理的简历" icon={FileSearch}/>
                     <MetricCard title="初筛通过人数" value={dashboard?.cards.screening_passed ?? 0}
                                 description="已进入后续流程" icon={ClipboardCheck}/>
                     <MetricCard title="今日 AI 处理数" value={dashboard?.cards.recent_ai_tasks ?? 0}
                                 description="今天触发的 AI 任务" icon={Sparkles}/>
+                    <MetricCard title="待发布岗位" value={todoSummary.pendingPublish}
+                                description="草稿或尚未完成发布的岗位" icon={Rocket}/>
+                    <MetricCard title="待安排面试" value={todoSummary.pendingInterview}
+                                description="已通过初筛但未安排面试" icon={NotebookText}/>
+                    <MetricCard title="待确认结果" value={todoSummary.pendingDecision}
+                                description="需要确认 Offer 或后续结果" icon={ClipboardCheck}/>
                 </div>
 
-                <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)]">
-                    <div className="space-y-6">
-                        <Card className={panelClass}>
-                            <CardHeader className="pb-0">
-                                <CardTitle className="text-lg">今日待办</CardTitle>
-                                <CardDescription>根据岗位和候选人状态自动归纳今天最值得处理的工作。</CardDescription>
-                            </CardHeader>
-                            <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 xl:grid-cols-4">
-                                <TodoCard title="待发布岗位" value={todoSummary.pendingPublish}
-                                          description="草稿或尚未完成发布的岗位"/>
-                                <TodoCard title="待筛选简历" value={todoSummary.pendingScreening}
-                                          description="需要快速初筛的候选人"/>
-                                <TodoCard title="待安排面试" value={todoSummary.pendingInterview}
-                                          description="已通过初筛但未安排面试"/>
-                                <TodoCard title="待确认结果" value={todoSummary.pendingDecision}
-                                          description="需要确认 Offer 或后续结果"/>
-                            </CardContent>
-                        </Card>
-
-                        <Card className={panelClass}>
-                            <CardHeader className="pb-0">
+                <div className="space-y-6">
+                    <Card className={panelClass}>
+                        <CardHeader className="pb-0">
+                            <div className="space-y-1.5">
                                 <CardTitle className="text-lg">快捷操作</CardTitle>
-                                <CardDescription>把高频动作前置成工作按钮，不再埋在二级标签页里。</CardDescription>
+                                <CardDescription className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                    把
+                                    <span className="mx-1 font-medium text-slate-700 dark:text-slate-200">JD 生成</span>
+                                    、
+                                    <span className="mx-1 font-medium text-slate-700 dark:text-slate-200">上传简历</span>
+                                    、
+                                    <span className="mx-1 font-medium text-slate-700 dark:text-slate-200">批量初筛</span>
+                                    、
+                                    <span className="mx-1 font-medium text-slate-700 dark:text-slate-200">面试题</span>
+                                    和
+                                    <span className="mx-1 font-medium text-slate-700 dark:text-slate-200">AI 助手</span>
+                                    集中在这里，减少来回切页。
+                                </CardDescription>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="grid gap-3 pt-2 sm:grid-cols-2 2xl:grid-cols-3">
+                            <QuickActionCard title="新建岗位" description="录入岗位并进入详情工作区" icon={Plus}
+                                             onClick={openCreatePosition}/>
+                            <QuickActionCard title="生成 JD" description="直接跳到当前岗位的 JD 工作区" icon={Wand2}
+                                             onClick={() => setActivePage("positions")}/>
+                            <QuickActionCard title="上传简历" description="批量上传 PDF / DOC / DOCX 简历"
+                                             icon={Upload} onClick={() => setResumeUploadOpen(true)}/>
+                            <QuickActionCard title="批量初筛" description="进入候选人页集中触发 AI 初筛"
+                                             icon={ClipboardCheck} onClick={() => setActivePage("candidates")}/>
+                            <QuickActionCard title="生成面试题" description="在候选人详情区生成个性化题目"
+                                             icon={NotebookText} onClick={() => setActivePage("candidates")}/>
+                            <QuickActionCard title="打开 AI 助手" description="自然语言驱动整个招聘流程" icon={Bot}
+                                             onClick={() => openAssistantMode("drawer")}/>
+                        </CardContent>
+                    </Card>
+
+                    <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)]">
+                        <Card className={panelClass}>
+                            <CardHeader>
+                                <CardTitle className="text-lg">最新候选人</CardTitle>
+                                <CardDescription>快速查看最近进入系统的人选。</CardDescription>
                             </CardHeader>
-                            <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 2xl:grid-cols-3">
-                                <QuickActionCard title="新建岗位" description="录入岗位并进入详情工作区" icon={Plus}
-                                                 onClick={openCreatePosition}/>
-                                <QuickActionCard title="生成 JD" description="直接跳到当前岗位的 JD 工作区" icon={Wand2}
-                                                 onClick={() => setActivePage("positions")}/>
-                                <QuickActionCard title="上传简历" description="批量上传 PDF / DOC / DOCX 简历"
-                                                 icon={Upload} onClick={() => setResumeUploadOpen(true)}/>
-                                <QuickActionCard title="批量初筛" description="进入候选人页集中触发 AI 初筛"
-                                                 icon={ClipboardCheck} onClick={() => setActivePage("candidates")}/>
-                                <QuickActionCard title="生成面试题" description="在候选人详情区生成个性化题目"
-                                                 icon={NotebookText} onClick={() => setActivePage("candidates")}/>
-                                <QuickActionCard title="打开 AI 助手" description="自然语言驱动整个招聘流程" icon={Bot}
-                                                 onClick={() => openAssistantMode("drawer")}/>
+                            <CardContent className="space-y-3">
+                                {recentCandidates.length ? recentCandidates.map((candidate) => (
+                                    <button
+                                        key={candidate.id}
+                                        type="button"
+                                        className="flex w-full flex-col gap-3 rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 sm:flex-row sm:items-start sm:justify-between dark:border-slate-800"
+                                        onClick={() => {
+                                            setActivePage("candidates");
+                                            setSelectedCandidateId(candidate.id);
+                                        }}
+                                    >
+                                        <div className="min-w-0">
+                                            <p className="break-words font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
+                                            <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
+                                                {candidate.position_title || "未分配岗位"} ·
+                                                匹配度 {formatPercent(candidate.match_percent)}
+                                            </p>
+                                        </div>
+                                        <div className="shrink-0 text-left sm:text-right">
+                                            <Badge
+                                                className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
+                                                {labelForCandidateStatus(candidate.status)}
+                                            </Badge>
+                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.created_at)}</p>
+                                        </div>
+                                    </button>
+                                )) : (
+                                    <EmptyState title="暂无候选人"
+                                                description="上传简历后，这里会显示最新进入系统的候选人。"/>
+                                )}
                             </CardContent>
                         </Card>
 
-                        <div className="grid gap-6 lg:grid-cols-2">
-                            <Card className={panelClass}>
-                                <CardHeader>
-                                    <CardTitle className="text-lg">最新候选人</CardTitle>
-                                    <CardDescription>快速查看最近进入系统的人选。</CardDescription>
-                                </CardHeader>
-                                <CardContent className="space-y-3">
-                                    {recentCandidates.length ? recentCandidates.map((candidate) => (
-                                        <button
-                                            key={candidate.id}
-                                            type="button"
-                                            className="flex w-full flex-col gap-3 rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 sm:flex-row sm:items-start sm:justify-between dark:border-slate-800"
-                                            onClick={() => {
-                                                setActivePage("candidates");
-                                                setSelectedCandidateId(candidate.id);
-                                            }}
-                                        >
-                                            <div className="min-w-0">
-                                                <p className="break-words font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                                                <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
-                                                    {candidate.position_title || "未分配岗位"} ·
-                                                    匹配度 {formatPercent(candidate.match_percent)}
-                                                </p>
-                                            </div>
-                                            <div className="shrink-0 text-left sm:text-right">
-                                                <Badge
-                                                    className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
-                                                    {labelForCandidateStatus(candidate.status)}
-                                                </Badge>
-                                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.created_at)}</p>
-                                            </div>
-                                        </button>
-                                    )) : (
-                                        <EmptyState title="暂无候选人"
-                                                    description="上传简历后，这里会显示最新进入系统的候选人。"/>
-                                    )}
-                                </CardContent>
-                            </Card>
-
-                            <Card className={panelClass}>
-                                <CardHeader>
-                                    <CardTitle className="text-lg">最近 AI 任务</CardTitle>
-                                    <CardDescription>用于汇报与排障的近期处理记录。</CardDescription>
-                                </CardHeader>
-                                <CardContent className="space-y-3">
-                                    {recentLogs.length ? recentLogs.map((log) => (
-                                        <button
-                                            key={log.id}
-                                            type="button"
-                                            className="flex w-full flex-col gap-3 rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 sm:flex-row sm:items-start sm:justify-between dark:border-slate-800"
-                                            onClick={() => {
-                                                setActivePage("audit");
-                                                setSelectedLogId(log.id);
-                                            }}
-                                        >
-                                            <div className="min-w-0">
-                                                <p className="break-words font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
-                                                <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{shortText(log.input_summary, 72)}</p>
-                                            </div>
-                                            <div className="shrink-0 text-left sm:text-right">
-                                                <Badge
-                                                    className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
-                                                    {labelForTaskExecutionStatus(log.status)}
-                                                </Badge>
-                                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(log.created_at)}</p>
-                                            </div>
-                                        </button>
-                                    )) : (
-                                        <EmptyState title="暂无 AI 记录"
-                                                    description="触发 JD 生成、初筛评分和面试题生成后，这里会开始出现任务记录；历史数据里仍可能看到旧的简历解析记录。"/>
-                                    )}
-                                </CardContent>
-                            </Card>
-                        </div>
+                        <Card className={cn(panelClass, "min-h-[560px] overflow-hidden xl:min-h-[620px] 2xl:min-h-[720px]")}>
+                            {assistantOpen ? renderAssistantSuspendedState() : renderAssistantConsole("workspace")}
+                        </Card>
                     </div>
 
-                    <div className="space-y-6">
-                        <Card className={cn(panelClass, "min-h-[620px] overflow-hidden 2xl:min-h-[820px]")}>
-                            {assistantOpen ? renderAssistantSuspendedState() : renderAssistantConsole("workspace")}
+                    <div className="grid gap-6 lg:grid-cols-2">
+                        <Card className={panelClass}>
+                            <CardHeader>
+                                <CardTitle className="text-lg">最近 AI 任务</CardTitle>
+                                <CardDescription>用于汇报与排障的近期处理记录。</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                {recentLogs.length ? recentLogs.map((log) => (
+                                    <button
+                                        key={log.id}
+                                        type="button"
+                                        className="flex w-full flex-col gap-3 rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 sm:flex-row sm:items-start sm:justify-between dark:border-slate-800"
+                                        onClick={() => {
+                                            setActivePage("audit");
+                                            setSelectedLogId(log.id);
+                                        }}
+                                    >
+                                        <div className="min-w-0">
+                                            <p className="break-words font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
+                                            <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{shortText(log.input_summary, 72)}</p>
+                                        </div>
+                                        <div className="shrink-0 text-left sm:text-right">
+                                            <Badge
+                                                className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
+                                                {labelForTaskExecutionStatus(log.status)}
+                                            </Badge>
+                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(log.created_at)}</p>
+                                        </div>
+                                    </button>
+                                )) : (
+                                    <EmptyState title="暂无 AI 记录"
+                                                description="触发 JD 生成、初筛评分和面试题生成后，这里会开始出现任务记录；历史数据里仍可能看到旧的简历解析记录。"/>
+                                )}
+                            </CardContent>
                         </Card>
 
                         <Card className={panelClass}>
@@ -3697,34 +4311,92 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     function renderPositionsPage() {
         return (
-            <div className="grid h-full min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]">
+            <div
+                className={cn(
+                    "grid h-full min-h-0 items-stretch gap-6 overflow-hidden transition-all duration-300",
+                    positionListCollapsed
+                        ? "xl:grid-cols-[146px_minmax(0,1fr)] 2xl:grid-cols-[154px_minmax(0,1fr)]"
+                        : "xl:grid-cols-[216px_minmax(0,1fr)] 2xl:grid-cols-[226px_minmax(0,1fr)]",
+                )}
+            >
                 <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
-                    <CardHeader className="pb-0">
-                        <div className="flex items-center justify-between gap-3">
-                            <div>
-                                <CardTitle className="text-lg">岗位列表</CardTitle>
-                                <CardDescription>左侧列岗位，右侧进入详情工作区。</CardDescription>
+                    <CardHeader className="space-y-0 px-4 pb-0 pt-4">
+                        {positionListCollapsed ? (
+                            <div className="flex items-center justify-between gap-3">
+                                <CardTitle className="text-[16px] font-semibold tracking-tight whitespace-nowrap">岗位</CardTitle>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => setPositionListCollapsed(false)}
+                                    className="h-8 w-8 rounded-xl"
+                                    title="展开岗位列表"
+                                >
+                                    <PanelLeftOpen className="h-4 w-4"/>
+                                </Button>
                             </div>
-                            <Button size="sm" onClick={openCreatePosition}>
-                                <Plus className="h-4 w-4"/>
-                                新建
-                            </Button>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="flex min-h-0 flex-1 flex-col space-y-4 pt-6">
-                        <SearchField value={positionQuery} onChange={setPositionQuery}
-                                     placeholder="搜索岗位、部门或地点"/>
-                        <NativeSelect value={positionStatusFilter}
-                                      onChange={(event) => setPositionStatusFilter(event.target.value)}>
-                            <option value="all">全部状态</option>
-                            {Object.entries(positionStatusLabels).map(([value, label]) => (
-                                <option key={value} value={value}>
-                                    {label}
-                                </option>
-                            ))}
-                        </NativeSelect>
-                        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+                        ) : (
                             <div className="space-y-3">
+                                <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                        <CardTitle className="text-[18px] font-semibold tracking-tight whitespace-nowrap">
+                                            岗位列表 ({positions.length})
+                                        </CardTitle>
+                                        <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
+                                            招聘中 {positionSidebarSummary.recruiting} · 今日新增 {positionSidebarSummary.todayNew}
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="icon"
+                                            onClick={() => setPositionListCollapsed(true)}
+                                            className="h-9 w-9 rounded-xl"
+                                            title="收起岗位列表"
+                                        >
+                                            <PanelLeftClose className="h-4 w-4"/>
+                                        </Button>
+                                    </div>
+                                </div>
+                                <div className="flex justify-start">
+                                    <Button
+                                        size="sm"
+                                        className="h-9 rounded-xl whitespace-nowrap px-4 text-sm font-medium shadow-sm"
+                                        onClick={openCreatePosition}
+                                    >
+                                        <Plus className="h-4 w-4"/>
+                                        新增岗位
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                    </CardHeader>
+                    <CardContent className={cn("flex min-h-0 flex-1 flex-col", positionListCollapsed ? "space-y-2 pt-3" : "space-y-2 pt-3")}>
+                        {!positionListCollapsed ? (
+                            <>
+                                <SearchField value={positionQuery} onChange={setPositionQuery}
+                                             placeholder="搜索关键字"
+                                             inputClassName="h-9 rounded-xl border-slate-200/80 bg-slate-50/70 text-sm shadow-none dark:border-slate-800 dark:bg-slate-900/60"/>
+                                <NativeSelect value={positionStatusFilter}
+                                              className="h-9 rounded-xl border-slate-200/80 bg-slate-50/70 text-sm shadow-none dark:border-slate-800 dark:bg-slate-900/60"
+                                              onChange={(event) => setPositionStatusFilter(event.target.value)}>
+                                    <option value="all">全部状态</option>
+                                    {Object.entries(positionStatusLabels).map(([value, label]) => (
+                                        <option key={value} value={value}>
+                                            {label}
+                                        </option>
+                                    ))}
+                                </NativeSelect>
+                            </>
+                        ) : null}
+                        <div
+                            className={cn(
+                                "min-h-0 flex-1 overflow-y-auto",
+                                positionListCollapsed ? "" : "-mx-2 px-2",
+                            )}
+                        >
+                            <div className={cn(positionListCollapsed ? "space-y-2" : "space-y-2.5")}>
                                 {positionsLoading ? (
                                     <LoadingCard label="正在加载岗位列表"/>
                                 ) : positions.length ? positions.map((position) => (
@@ -3733,36 +4405,43 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         type="button"
                                         onClick={() => setSelectedPositionId(position.id)}
                                         className={cn(
-                                            "w-full rounded-[22px] border px-4 py-4 text-left transition",
+                                            "w-full border text-left transition",
                                             selectedPositionId === position.id
                                                 ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                                                 : "border-slate-200/80 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950",
+                                            positionListCollapsed ? "rounded-[18px] px-2.5 py-2.5" : "rounded-2xl px-3.5 py-3.5",
                                         )}
                                     >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                                <p className="font-semibold">{position.title}</p>
-                                                <p className="mt-1 text-xs opacity-80">{position.department || "未设置部门"} · {position.location || "未设置地点"}</p>
+                                        {positionListCollapsed ? (
+                                            <div className="space-y-1">
+                                                <p className="truncate text-[12px] font-semibold leading-5">{position.title}</p>
+                                                <div className="flex items-center gap-1.5 text-[10px] opacity-75">
+                                                    <span className="truncate">{position.location || position.department || "岗位"}</span>
+                                                    <span className="h-1 w-1 shrink-0 rounded-full bg-current/45"/>
+                                                    <span className="shrink-0">{labelForPositionStatus(position.status)}</span>
+                                                </div>
                                             </div>
-                                            <Badge
-                                                className={cn("rounded-full border", selectedPositionId === position.id ? "border-white/20 bg-white/10 text-white dark:border-slate-300 dark:bg-slate-200 dark:text-slate-900" : statusBadgeClass("position", position.status))}>
-                                                {labelForPositionStatus(position.status)}
-                                            </Badge>
-                                        </div>
-                                        <div className="mt-4 grid grid-cols-3 gap-2 text-xs opacity-85">
-                                            <div>
-                                                <p>JD 版本</p>
-                                                <p className="mt-1 font-medium">{position.jd_version_count}</p>
-                                            </div>
-                                            <div>
-                                                <p>候选人</p>
-                                                <p className="mt-1 font-medium">{position.candidate_count}</p>
-                                            </div>
-                                            <div>
-                                                <p>更新时间</p>
-                                                <p className="mt-1 font-medium">{formatDateTime(position.updated_at)}</p>
-                                            </div>
-                                        </div>
+                                        ) : (
+                                            <>
+                                                <div className="space-y-2">
+                                                    <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+                                                        <Badge
+                                                            className={cn("rounded-full border px-2 py-0 text-[10px]", selectedPositionId === position.id ? "border-white/20 bg-white/10 text-white dark:border-slate-300 dark:bg-slate-200 dark:text-slate-900" : statusBadgeClass("position", position.status))}>
+                                                            {labelForPositionStatus(position.status)}
+                                                        </Badge>
+                                                        <span className="truncate">{position.department || "未设置部门"} · {position.location || "未设置地点"}</span>
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="line-clamp-2 text-[13px] font-semibold leading-5">{position.title}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-3 flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
+                                                    <span>JD 版本 {position.jd_version_count}</span>
+                                                    <span>候选人 {position.candidate_count}</span>
+                                                    <span>{formatDateTime(position.updated_at)}</span>
+                                                </div>
+                                            </>
+                                        )}
                                     </button>
                                 )) : (
                                     <EmptyState title="暂无岗位"
@@ -3770,16 +4449,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 )}
                             </div>
                         </div>
+                        <div className="shrink-0 pt-2 text-center text-[11px] text-slate-500 dark:text-slate-400">
+                            招聘中 {positionSidebarSummary.recruiting} · 今日新增 {positionSidebarSummary.todayNew}
+                        </div>
                     </CardContent>
                 </Card>
 
-                <div className="min-h-0 space-y-6 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] pr-1">
+                <div className="min-h-0 overflow-y-auto [scrollbar-gutter:stable] pr-1 xl:overflow-hidden xl:pr-0">
                     {positionDetailLoading ? <LoadingPanel label="正在加载岗位详情"/> : positionDetail ? (
-                        <>
+                        <div className="space-y-6 xl:flex xl:h-full xl:flex-col xl:space-y-0 xl:gap-6">
                             <Card className={cn(panelClass, "overflow-hidden")}>
-                                <CardContent className="px-7 py-7">
-                                    <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                                        <div className="space-y-3">
+                                <CardContent className={cn("px-6 transition-all", positionWorkspaceHeaderCollapsed ? "py-4" : "py-5")}>
+                                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                                        <div className={cn("min-w-0", positionWorkspaceHeaderCollapsed ? "space-y-2" : "space-y-3")}>
                                             <div className="flex flex-wrap items-center gap-2">
                                                 <Badge
                                                     className={cn("rounded-full border", statusBadgeClass("position", positionDetail.position.status))}>
@@ -3790,33 +4472,49 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 <Badge variant="outline"
                                                        className="rounded-full">{positionDetail.position.department || "未设置部门"}</Badge>
                                             </div>
-                                            <div>
-                                                <h2 className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{positionDetail.position.title}</h2>
-                                                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                                                    {positionDetail.position.location || "未设置地点"} · {positionDetail.position.employment_type || "未设置用工类型"} · {positionDetail.position.salary_range || "未设置薪资"}
+                                            {positionWorkspaceHeaderCollapsed ? (
+                                                <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                                                    <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+                                                        {positionDetail.position.title}
+                                                    </h2>
+                                                    <p className="min-w-0 text-sm text-slate-500 dark:text-slate-400">
+                                                        {positionDetail.position.location || "未设置地点"} · {positionDetail.position.employment_type || "未设置用工类型"} · {positionDetail.position.salary_range || "未设置薪资"}
+                                                    </p>
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <h2 className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{positionDetail.position.title}</h2>
+                                                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                                                        {positionDetail.position.location || "未设置地点"} · {positionDetail.position.employment_type || "未设置用工类型"} · {positionDetail.position.salary_range || "未设置薪资"}
+                                                    </p>
+                                                </div>
+                                            )}
+                                            {!positionWorkspaceHeaderCollapsed ? (
+                                                <p className="max-w-4xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+                                                    {positionDetail.position.summary || "这个岗位还没有补充摘要，建议先由 HR 或 AI 完善岗位背景和关键目标。"}
                                                 </p>
-                                            </div>
-                                            <p className="max-w-4xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-                                                {positionDetail.position.summary || "这个岗位还没有补充摘要，建议先由 HR 或 AI 完善岗位背景和关键目标。"}
-                                            </p>
+                                            ) : null}
                                         </div>
-                                        <div className="flex flex-wrap gap-2 xl:max-w-[460px] xl:justify-end">
-                                            <Button onClick={() => void generateJD()} disabled={isJDGenerating}>
-                                                <Wand2 className="h-4 w-4"/>
-                                                {isJDGenerating ? "JD 生成中..." : "AI 生成 JD"}
+                                        <div
+                                            className={cn(
+                                                "flex flex-wrap gap-2 xl:justify-end",
+                                                positionWorkspaceHeaderCollapsed ? "xl:max-w-[760px]" : "xl:max-w-[520px]",
+                                            )}
+                                        >
+                                            <Button
+                                                onClick={() => void generateJD()}
+                                                disabled={isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"}
+                                            >
+                                                {currentPositionJDTaskId ? <Square className="h-4 w-4"/> : <Wand2 className="h-4 w-4"/>}
+                                                {isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"
+                                                    ? "停止中..."
+                                                    : currentPositionJDTaskId
+                                                        ? "停止生成"
+                                                        : "AI 生成 JD"}
                                             </Button>
                                             <Button variant="outline" onClick={openEditPosition}>
                                                 <FilePlus2 className="h-4 w-4"/>
                                                 编辑岗位
-                                            </Button>
-                                            <Button variant="outline" onClick={() => setPositionDeleteConfirmOpen(true)}
-                                                    disabled={positionDeleting}>
-                                                <Trash2 className="h-4 w-4"/>
-                                                {positionDeleting ? "删除中..." : "删除岗位"}
-                                            </Button>
-                                            <Button variant="outline" onClick={() => setPublishDialogOpen(true)}>
-                                                <Rocket className="h-4 w-4"/>
-                                                发布岗位
                                             </Button>
                                             <Button
                                                 variant="outline"
@@ -3842,13 +4540,35 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 <NotebookText className="h-4 w-4"/>
                                                 生成面试题模板
                                             </Button>
+                                            {!positionWorkspaceHeaderCollapsed ? (
+                                                <>
+                                                    <Button variant="outline" onClick={() => setPublishDialogOpen(true)}>
+                                                        <Rocket className="h-4 w-4"/>
+                                                        发布岗位
+                                                    </Button>
+                                                    <Button variant="outline" onClick={() => setPositionDeleteConfirmOpen(true)}
+                                                            disabled={positionDeleting}>
+                                                        <Trash2 className="h-4 w-4"/>
+                                                        {positionDeleting ? "删除中..." : "删除岗位"}
+                                                    </Button>
+                                                </>
+                                            ) : null}
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                onClick={() => setPositionWorkspaceHeaderCollapsed((current) => !current)}
+                                            >
+                                                {positionWorkspaceHeaderCollapsed ? <ChevronDown className="h-4 w-4"/> : <ChevronUp className="h-4 w-4"/>}
+                                                {positionWorkspaceHeaderCollapsed ? "展开" : "收起"}
+                                            </Button>
                                         </div>
                                     </div>
                                 </CardContent>
                             </Card>
 
-                            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_360px]">
-                                <Card className={panelClass}>
+                            <div className="grid gap-6 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1.2fr)_360px]">
+                                <div className="space-y-6 xl:min-h-0 xl:overflow-y-auto xl:pr-2 xl:[scrollbar-gutter:stable]">
+                                    <Card className={panelClass}>
                                     <CardHeader className="space-y-4">
                                         <div className="flex flex-wrap items-start justify-between gap-3">
                                             <div>
@@ -3886,10 +4606,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                           value={shortText(positionDetail.position.key_requirements, 100)}/>
                                                 <InfoTile label="加分项"
                                                           value={shortText(positionDetail.position.bonus_points, 100)}/>
+                                                <InfoTile label="JD 生成 Skill"
+                                                          value={formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap)}/>
                                                 <InfoTile label="上传自动初筛"
                                                           value={positionDetail.position.auto_screen_on_upload ? "已开启" : "未开启"}/>
                                                 <InfoTile label="初筛绑定 Skills"
                                                           value={formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap)}/>
+                                                <InfoTile label="面试题 Skill"
+                                                          value={formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap)}/>
                                                 <InfoTile label="通过后自动推进"
                                                           value={positionDetail.position.auto_advance_on_screening === false ? "关闭" : "开启"}/>
                                             </div>
@@ -3932,7 +4656,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 <div
                                                     className="flex items-center gap-2 text-sm font-medium text-sky-700 dark:text-sky-200">
                                                     <Loader2 className="h-4 w-4 animate-spin"/>
-                                                    {jdGenerationStatus === "syncing" ? "正在同步最新 JD 到页面..." : "正在生成 JD，请稍候..."}
+                                                    {jdGenerationStatus === "syncing"
+                                                        ? "正在同步最新 JD 到页面..."
+                                                        : currentJDGenerationStatus === "cancelling"
+                                                            ? "正在停止 JD 生成..."
+                                                            : "正在生成 JD，请稍候..."}
                                                 </div>
                                                 <div className="mt-4 grid gap-3">
                                                     <div className="h-4 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
@@ -3968,7 +4696,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                                         {jdViewMode === "publish" ? (
                                             <div
-                                                className="min-h-[420px] whitespace-pre-wrap rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                                                className="min-h-[240px] whitespace-pre-wrap rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
                                                 {currentPublishText || "当前还没有可直接发布的 JD 文案，点击“AI 生成 JD”后会在这里展示。"}
                                             </div>
                                         ) : null}
@@ -3986,7 +4714,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         {jdViewMode === "preview" ? (
                                             <Field label="预览版">
                                                 <div
-                                                    className="min-h-[420px] rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                                                    className="min-h-[240px] rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
                                                     dangerouslySetInnerHTML={{
                                                         __html: currentPreviewHtml,
                                                     }}
@@ -4005,10 +4733,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 保存后设为生效版本
                                             </label>
                                             <div className="flex flex-wrap gap-2">
-                                                <Button variant="outline" onClick={() => void generateJD()}
-                                                        disabled={isJDGenerating}>
-                                                    <Sparkles className="h-4 w-4"/>
-                                                    {isJDGenerating ? "生成中..." : "重新生成"}
+                                                <Button
+                                                    variant="outline"
+                                                    onClick={() => void generateJD()}
+                                                    disabled={isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"}
+                                                >
+                                                    {currentPositionJDTaskId ? <Square className="h-4 w-4"/> : <Sparkles className="h-4 w-4"/>}
+                                                    {isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"
+                                                        ? "停止中..."
+                                                        : currentPositionJDTaskId
+                                                            ? "停止生成"
+                                                            : "重新生成"}
                                                 </Button>
                                                 <Button onClick={() => void saveJDVersion()}>
                                                     <Save className="h-4 w-4"/>
@@ -4017,9 +4752,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             </div>
                                         </div>
                                     </CardContent>
-                                </Card>
+                                    </Card>
+                                </div>
 
-                                <div className="space-y-6">
+                                <div className="space-y-6 xl:min-h-0 xl:overflow-y-auto xl:pr-1 xl:[scrollbar-gutter:stable]">
                                     <Card className={panelClass}>
                                         <CardHeader>
                                             <CardTitle className="text-lg">JD 历史版本</CardTitle>
@@ -4130,7 +4866,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     </Card>
                                 </div>
                             </div>
-                        </>
+                        </div>
                     ) : (
                         <EmptyState title="请选择一个岗位"
                                     description="左侧选择岗位后，右侧会进入完整的岗位详情工作区。"/>
@@ -4144,73 +4880,89 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return (
             <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-6 overflow-hidden">
                 <Card className={panelClass}>
-                    <CardContent className="px-6 py-6">
+                    <CardContent className={cn("px-6", candidateFiltersCollapsed ? "py-4" : "py-6")}>
                         <div className="flex flex-col gap-4">
                             <div className="flex flex-wrap items-center justify-between gap-3">
-                                <div>
+                                <div className="min-w-0">
                                     <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">候选人筛选条</p>
-                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">围绕岗位、状态、匹配度和来源过滤，保持
-                                        ATS 使用效率。</p>
+                                    <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
+                                        {candidateFiltersCollapsed
+                                            ? candidateFilterSummary
+                                            : "围绕岗位、状态、匹配度和来源过滤，保持 ATS 使用效率。"}
+                                    </p>
                                 </div>
-                                <div
-                                    className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
-                                    <Button size="sm" variant={candidateViewMode === "list" ? "default" : "ghost"}
-                                            onClick={() => setCandidateViewMode("list")}>
-                                        <List className="h-4 w-4"/>
-                                        列表
-                                    </Button>
-                                    <Button size="sm" variant={candidateViewMode === "board" ? "default" : "ghost"}
-                                            onClick={() => setCandidateViewMode("board")}>
-                                        <LayoutGrid className="h-4 w-4"/>
-                                        看板
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <div
+                                        className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
+                                        <Button size="sm" variant={candidateViewMode === "list" ? "default" : "ghost"}
+                                                onClick={() => setCandidateViewMode("list")}>
+                                            <List className="h-4 w-4"/>
+                                            列表
+                                        </Button>
+                                        <Button size="sm" variant={candidateViewMode === "board" ? "default" : "ghost"}
+                                                onClick={() => setCandidateViewMode("board")}>
+                                            <LayoutGrid className="h-4 w-4"/>
+                                            看板
+                                        </Button>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setCandidateFiltersCollapsed((current) => !current)}
+                                    >
+                                        {candidateFiltersCollapsed ? <ChevronDown className="h-4 w-4"/> : <ChevronUp className="h-4 w-4"/>}
+                                        {candidateFiltersCollapsed ? "展开筛选" : "收起筛选"}
                                     </Button>
                                 </div>
                             </div>
-                            <div className="grid gap-3 xl:grid-cols-[1.4fr_repeat(5,minmax(0,1fr))]">
-                                <SearchField value={candidateQuery} onChange={setCandidateQuery}
-                                             placeholder="搜索候选人、手机号、邮箱、公司"/>
-                                <NativeSelect value={candidatePositionFilter}
-                                              onChange={(event) => setCandidatePositionFilter(event.target.value)}>
-                                    <option value="all">全部岗位</option>
-                                    {positions.map((position) => (
-                                        <option key={position.id} value={position.id}>
-                                            {position.title}
-                                        </option>
-                                    ))}
-                                </NativeSelect>
-                                <NativeSelect value={candidateStatusFilter}
-                                              onChange={(event) => setCandidateStatusFilter(event.target.value)}>
-                                    <option value="all">全部状态</option>
-                                    {Object.entries(candidateStatusLabels).map(([value, label]) => (
-                                        <option key={value} value={value}>
-                                            {label}
-                                        </option>
-                                    ))}
-                                </NativeSelect>
-                                <NativeSelect value={candidateMatchFilter}
-                                              onChange={(event) => setCandidateMatchFilter(event.target.value)}>
-                                    <option value="all">全部匹配度</option>
-                                    <option value="80+">80% 以上</option>
-                                    <option value="60+">60% 以上</option>
-                                    <option value="40+">40% 以上</option>
-                                </NativeSelect>
-                                <NativeSelect value={candidateSourceFilter}
-                                              onChange={(event) => setCandidateSourceFilter(event.target.value)}>
-                                    <option value="all">全部来源</option>
-                                    {sourceOptions.map((source) => (
-                                        <option key={source} value={source}>
-                                            {source}
-                                        </option>
-                                    ))}
-                                </NativeSelect>
-                                <NativeSelect value={candidateTimeFilter}
-                                              onChange={(event) => setCandidateTimeFilter(event.target.value)}>
-                                    <option value="all">全部时间</option>
-                                    <option value="today">今天</option>
-                                    <option value="7d">近 7 天</option>
-                                    <option value="30d">近 30 天</option>
-                                </NativeSelect>
-                            </div>
+                            {!candidateFiltersCollapsed ? (
+                                <div className="grid gap-3 xl:grid-cols-[1.4fr_repeat(5,minmax(0,1fr))]">
+                                    <SearchField value={candidateQuery} onChange={setCandidateQuery}
+                                                 placeholder="搜索候选人、手机号、邮箱、公司"/>
+                                    <NativeSelect value={candidatePositionFilter}
+                                                  onChange={(event) => setCandidatePositionFilter(event.target.value)}>
+                                        <option value="all">全部岗位</option>
+                                        {positions.map((position) => (
+                                            <option key={position.id} value={position.id}>
+                                                {position.title}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                    <NativeSelect value={candidateStatusFilter}
+                                                  onChange={(event) => setCandidateStatusFilter(event.target.value)}>
+                                        <option value="all">全部状态</option>
+                                        {Object.entries(candidateStatusLabels).map(([value, label]) => (
+                                            <option key={value} value={value}>
+                                                {label}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                    <NativeSelect value={candidateMatchFilter}
+                                                  onChange={(event) => setCandidateMatchFilter(event.target.value)}>
+                                        <option value="all">全部匹配度</option>
+                                        <option value="80+">80% 以上</option>
+                                        <option value="60+">60% 以上</option>
+                                        <option value="40+">40% 以上</option>
+                                    </NativeSelect>
+                                    <NativeSelect value={candidateSourceFilter}
+                                                  onChange={(event) => setCandidateSourceFilter(event.target.value)}>
+                                        <option value="all">全部来源</option>
+                                        {sourceOptions.map((source) => (
+                                            <option key={source} value={source}>
+                                                {source}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                    <NativeSelect value={candidateTimeFilter}
+                                                  onChange={(event) => setCandidateTimeFilter(event.target.value)}>
+                                        <option value="all">全部时间</option>
+                                        <option value="today">今天</option>
+                                        <option value="7d">近 7 天</option>
+                                        <option value="30d">近 30 天</option>
+                                    </NativeSelect>
+                                </div>
+                            ) : null}
                         </div>
                     </CardContent>
                 </Card>
@@ -4238,11 +4990,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             disabled={!selectedCandidateIds.length}>
                                         清空选择
                                     </Button>
-                                    <Button size="sm" variant="outline"
-                                            onClick={() => void triggerScreening(selectedCandidateIds)}
-                                            disabled={!selectedCandidateIds.length || screeningSubmitting}>
-                                        <Sparkles className="h-4 w-4"/>
-                                        {screeningSubmitting ? "初筛中..." : "批量开始初筛"}
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => void triggerScreening(selectedCandidateIds)}
+                                        disabled={isBatchScreeningCancelling || (screeningSubmitting && !isBatchScreeningRunning) || (!isBatchScreeningRunning && !selectedCandidateIds.length)}
+                                    >
+                                        {isBatchScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : isBatchScreeningRunning ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
+                                        {isBatchScreeningCancelling ? "停止中..." : isBatchScreeningRunning ? "停止批量初筛" : screeningSubmitting ? "启动中..." : "批量开始初筛"}
                                     </Button>
                                     <Button size="sm" variant="outline"
                                             onClick={() => openResumeMailDialog(selectedCandidateIds)}
@@ -4258,7 +5013,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
                                     <div
                                         ref={candidateListScrollRef}
-                                        className="min-h-0 flex-1 overflow-x-auto overflow-y-auto overscroll-contain [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
+                                        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
                                     >
                                         <table style={{minWidth: candidateListTableMinWidth}}
                                                className="caption-bottom table-fixed text-sm">
@@ -4410,7 +5165,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 </div>
                             ) : (
                                 <div
-                                    className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-gutter:stable]">
+                                    className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
                                     <div className="grid gap-4 xl:grid-cols-3">
                                         {groupedCandidates.map((group) => (
                                             <div key={group.status}
@@ -4505,10 +5260,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             </p>
                                         </div>
                                         <div className="flex w-full flex-wrap items-center gap-2">
-                                            <Button size="sm" variant="outline" onClick={() => void triggerScreening()}
-                                                    disabled={screeningSubmitting}>
-                                                <Sparkles className="h-4 w-4"/>
-                                                {screeningSubmitting ? "\u521d\u7b5b\u4e2d..." : "\u5f00\u59cb\u521d\u7b5b"}
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => void triggerScreening()}
+                                                disabled={isSelectedCandidateScreeningCancelling || (screeningSubmitting && !selectedCandidateScreeningTaskId)}
+                                            >
+                                                {isSelectedCandidateScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : selectedCandidateScreeningTaskId ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
+                                                {isSelectedCandidateScreeningCancelling ? "停止中..." : selectedCandidateScreeningTaskId ? "停止初筛" : screeningSubmitting ? "启动中..." : "开始初筛"}
                                             </Button>
                                             {candidateDetail.resume_files[0] ? (
                                                 <Button size="sm" variant="outline"
@@ -4522,18 +5281,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 <Mail className="h-4 w-4"/>
                                                 {"\u53d1\u9001\u7b80\u5386"}
                                             </Button>
-                                            <Button size="sm" variant="outline"
-                                                    onClick={() => void generateInterviewQuestions()}
-                                                    disabled={interviewGenerating}>
-                                                <NotebookText className="h-4 w-4"/>
-                                                {interviewGenerating ? "\u9762\u8bd5\u9898\u751f\u6210\u4e2d..." : "\u9762\u8bd5\u9898"}
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => void generateInterviewQuestions()}
+                                                disabled={isCurrentInterviewTaskCancelling}
+                                            >
+                                                {currentCandidateInterviewTaskId ? <Square className="h-4 w-4"/> : <NotebookText className="h-4 w-4"/>}
+                                                {isCurrentInterviewTaskCancelling ? "停止中..." : currentCandidateInterviewTaskId ? "停止生成" : "面试题"}
                                             </Button>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div
-                                    className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+                                    className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
                                     <div className="min-w-0 space-y-6 px-6 py-6">
                                         <Field label="基础信息">
                                             <div className="grid gap-3">
@@ -4630,7 +5392,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             description="完成一次初筛后，这里会显示本次初筛使用的 Skills、来源和时间，便于后续生成面试题时复用。"/>
                                             )}
                                             <p className="mt-3 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
-                                                {`点击“开始初筛”时，会按“岗位绑定 Skills > 初筛工作记忆 > 全局默认 Skills”继续执行；当前预计来源：${effectiveScreeningSkillSourceLabel}。`}
+                                                {`点击“开始初筛”时，会按“岗位绑定 Skills > 初筛工作记忆”继续执行；若均未配置，则本次不会传 Skills。当前预计来源：${effectiveScreeningSkillSourceLabel}。`}
                                             </p>
                                             <p className="mt-2 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
                                                 {`当前预计使用：${formatSkillNames(effectiveScreeningSkillIds, skillMap)}`}
@@ -4826,7 +5588,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                     <div
                                                                         className="mt-3 min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
                                                                         <pre
-                                                                            className="max-h-[260px] min-w-0 overflow-auto whitespace-pre-wrap break-all text-xs leading-6 text-slate-600 dark:text-slate-300">{formatStructuredValue(log.output_snapshot, log.output_summary || "执行中，等待模型返回...")}</pre>
+                                                                            className="min-w-0 whitespace-pre-wrap break-all text-xs leading-6 text-slate-600 dark:text-slate-300">{formatStructuredValue(log.output_snapshot, log.output_summary || "执行中，等待模型返回...")}</pre>
                                                                     </div>
                                                                     <div className="mt-3 flex flex-wrap gap-2">
                                                                         <Button size="sm" variant="outline"
@@ -4905,7 +5667,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     </div>
                                                     <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
                                                         {!interviewSkillSelectionDirty
-                                                            ? "未手动选择时，生成面试题会按“岗位绑定 Skills > 面试题工作记忆 > 初筛工作记忆 > 全局默认 Skills”执行。"
+                                                            ? "未手动选择时，生成面试题会按“岗位绑定 Skills > 面试题工作记忆”执行；若均未配置，则本次不会传 Skills。"
                                                             : "当前已手动选择 Skills，本次会以手动选择为准。"}
                                                     </p>
                                                     <div className="flex flex-wrap gap-2">
@@ -4949,7 +5711,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                         title={`${candidateDetail.interview_questions[0].round_name}-preview`}
                                                                         srcDoc={candidateDetail.interview_questions[0].html_content}
                                                                         sandbox="allow-scripts"
-                                                                        className="h-[760px] w-full border-0 bg-white"
+                                                                        onLoad={(event) => syncInterviewPreviewHeight(event.currentTarget)}
+                                                                        className="w-full border-0 bg-white"
+                                                                        style={{height: interviewPreviewHeight}}
                                                                     />
                                                                 </div>
                                                             ) : (
@@ -4986,29 +5750,55 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return (
             <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-6 overflow-hidden">
                 <Card className={panelClass}>
-                    <CardContent className="grid gap-3 px-6 py-6 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_auto]">
-                        <NativeSelect value={logTaskTypeFilter}
-                                      onChange={(event) => setLogTaskTypeFilter(event.target.value)}>
-                            <option value="all">全部任务类型</option>
-                            {Object.entries(aiTaskLabels).map(([value, label]) => (
-                                <option key={value} value={value}>
-                                    {label}
-                                </option>
-                            ))}
-                        </NativeSelect>
-                        <NativeSelect value={logStatusFilter}
-                                      onChange={(event) => setLogStatusFilter(event.target.value)}>
-                            <option value="all">全部状态</option>
-                            <option value="success">success</option>
-                            <option value="fallback">fallback</option>
-                            <option value="running">running</option>
-                            <option value="failed">failed</option>
-                        </NativeSelect>
-                        <Button variant="outline" onClick={() => void refreshLogsWithFeedback()} disabled={logsLoading}>
-                            {logsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> :
-                                <RefreshCw className="h-4 w-4"/>}
-                            {logsLoading ? "刷新中..." : "刷新任务"}
-                        </Button>
+                    <CardContent className={cn("px-6", auditFiltersCollapsed ? "py-4" : "py-6")}>
+                        <div className="flex flex-col gap-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">任务筛选条</p>
+                                    <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{auditFiltersCollapsed ? auditFilterSummary : "按任务类型和状态收拢 AI 任务，便于排查与复盘。"}</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    <Button variant="outline" onClick={() => void refreshLogsWithFeedback()} disabled={logsLoading}>
+                                        {logsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> :
+                                            <RefreshCw className="h-4 w-4"/>}
+                                        {logsLoading ? "刷新中..." : "刷新任务"}
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setAuditFiltersCollapsed((current) => !current)}
+                                    >
+                                        {auditFiltersCollapsed ? <ChevronDown className="h-4 w-4"/> : <ChevronUp className="h-4 w-4"/>}
+                                        {auditFiltersCollapsed ? "展开筛选" : "收起筛选"}
+                                    </Button>
+                                </div>
+                            </div>
+                            {!auditFiltersCollapsed ? (
+                                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr]">
+                                    <NativeSelect value={logTaskTypeFilter}
+                                                  onChange={(event) => setLogTaskTypeFilter(event.target.value)}>
+                                        <option value="all">全部任务类型</option>
+                                        {Object.entries(aiTaskLabels).map(([value, label]) => (
+                                            <option key={value} value={value}>
+                                                {label}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                    <NativeSelect value={logStatusFilter}
+                                                  onChange={(event) => setLogStatusFilter(event.target.value)}>
+                                        <option value="all">全部状态</option>
+                                        <option value="pending">pending</option>
+                                        <option value="success">success</option>
+                                        <option value="fallback">fallback</option>
+                                        <option value="running">running</option>
+                                        <option value="cancelling">cancelling</option>
+                                        <option value="cancelled">cancelled</option>
+                                        <option value="failed">failed</option>
+                                    </NativeSelect>
+                                </div>
+                            ) : null}
+                        </div>
                     </CardContent>
                 </Card>
 
@@ -5026,7 +5816,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
                                     <div
                                         ref={auditListScrollRef}
-                                        className="min-h-0 flex-1 overflow-x-auto overflow-y-auto overscroll-contain [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
+                                        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
                                     >
                                         <div style={{width: "max-content", minWidth: auditListTableMinWidth}}>
                                             <Table className="table-fixed w-auto min-w-full">
@@ -5129,7 +5919,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     </p>
                                 </div>
                                 <div
-                                    className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+                                    className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
                                     <div className="min-w-0 space-y-5 px-6 py-6">
                                         <div className="grid gap-3 md:grid-cols-2">
                                             <InfoTile
@@ -5166,7 +5956,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                 ) : null}
                                                             </div>
                                                             <pre
-                                                                className="mt-3 max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">{skill.content || "暂无内容"}</pre>
+                                                                className="mt-3 whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">{skill.content || "暂无内容"}</pre>
                                                         </div>
                                                     ))
                                                 ) : (
@@ -5181,21 +5971,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             <div
                                                 className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                                                 <pre
-                                                    className="max-h-[280px] overflow-auto whitespace-pre-wrap">{selectedLogDetail.prompt_snapshot || "暂无 Prompt 快照"}</pre>
+                                                    className="whitespace-pre-wrap break-words">{selectedLogDetail.prompt_snapshot || "暂无 Prompt 快照"}</pre>
                                             </div>
                                         </Field>
                                         <Field label="完整模型请求">
                                             <div
                                                 className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                                                 <pre
-                                                    className="max-h-[420px] overflow-auto whitespace-pre-wrap">{selectedLogDetail.full_request_snapshot || "暂无完整模型请求"}</pre>
+                                                    className="whitespace-pre-wrap break-words">{selectedLogDetail.full_request_snapshot || "暂无完整模型请求"}</pre>
                                             </div>
                                         </Field>
                                         <Field label="完整输出">
                                             <div
                                                 className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                                                 <pre
-                                                    className="max-h-[360px] overflow-auto whitespace-pre-wrap">{formatStructuredValue(selectedLogDetail.output_snapshot, selectedLogDetail.output_summary || "暂无完整输出")}</pre>
+                                                    className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.output_snapshot, selectedLogDetail.output_summary || "暂无完整输出")}</pre>
                                             </div>
                                         </Field>
                                     </div>
@@ -5618,42 +6408,41 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         <div
             className="relative flex h-full min-h-screen flex-col bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.10),_transparent_35%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)] text-slate-700 dark:bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_100%)] dark:text-slate-300">
             <div
-                className="border-b border-slate-200/80 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
-                <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-5">
-                    <div className="flex items-start gap-4">
-                        <Button variant="outline" size="icon" onClick={onBack}>
+                className="border-b border-slate-200/80 bg-white/85 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <Button variant="outline" size="sm" onClick={onBack} className="rounded-xl px-3">
                             <ArrowLeft className="h-4 w-4"/>
+                            返回
                         </Button>
-                        <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <Badge
-                                    className="rounded-full border-slate-200 bg-white text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
-                                    AI 招聘自动化管理
-                                </Badge>
-                                <Badge variant="outline" className="rounded-full">正式工作台模式</Badge>
-                            </div>
-                            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">{pageMeta[activePage].title}</h1>
-                            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-500 dark:text-slate-400">{pageMeta[activePage].description}</p>
+                        <div className="flex min-w-0 items-baseline gap-3">
+                            <h1 className="shrink-0 text-xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
+                                {pageMeta[activePage].title}
+                            </h1>
+                            <p className="hidden min-w-0 truncate text-sm text-slate-500 dark:text-slate-400 xl:block">
+                                {pageMeta[activePage].description}
+                            </p>
+                            <span className="sr-only">{pageMeta[activePage].title}：{pageMeta[activePage].description}</span>
                         </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
                         <Button variant="outline" onClick={() => void refreshCoreDataWithFeedback()}
-                                disabled={coreRefreshing}>
+                                disabled={coreRefreshing} className="rounded-xl">
                             {coreRefreshing ? <Loader2 className="h-4 w-4 animate-spin"/> :
                                 <RefreshCw className="h-4 w-4"/>}
                             {coreRefreshing ? "刷新中..." : "刷新"}
                         </Button>
-                        <Button variant="outline" onClick={() => setResumeUploadOpen(true)}>
+                        <Button variant="outline" onClick={() => setResumeUploadOpen(true)} className="rounded-xl">
                             <Upload className="h-4 w-4"/>
                             上传简历
                         </Button>
-                        <Button onClick={openCreatePosition}>
+                        <Button onClick={openCreatePosition} className="rounded-xl">
                             <Plus className="h-4 w-4"/>
                             新建岗位
                         </Button>
                         <Button
-                            className="bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+                            className="rounded-xl bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                             onClick={() => openAssistantMode("drawer")}>
                             <Bot className="h-4 w-4"/>
                             打开 AI 助手
@@ -5661,7 +6450,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         {canManageRecruitment ? (
                             <Popover open={settingsPopoverOpen} onOpenChange={setSettingsPopoverOpen}>
                                 <PopoverTrigger asChild>
-                                    <Button variant="outline">
+                                    <Button variant="outline" className="rounded-xl">
                                         <Settings2 className="h-4 w-4"/>
                                         管理设置
                                     </Button>
@@ -5695,13 +6484,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             <div
                 className={cn(
                     "grid min-h-0 flex-1 transition-all duration-300",
-                    navCollapsed ? "lg:grid-cols-[92px_minmax(0,1fr)]" : "lg:grid-cols-[260px_minmax(0,1fr)]",
+                    navCollapsed ? "lg:grid-cols-[72px_minmax(0,1fr)]" : "lg:grid-cols-[260px_minmax(0,1fr)]",
                 )}
             >
                 <aside
                     className={cn(
-                        "border-r border-slate-200/80 bg-white/70 px-3 py-5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50",
-                        navCollapsed ? "lg:px-2" : "lg:px-4",
+                        "flex h-full min-h-0 flex-col border-r border-slate-200/80 bg-white/70 px-3 py-5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50",
+                        navCollapsed ? "lg:px-1.5" : "lg:px-4",
                     )}
                 >
                     <div
@@ -5725,11 +6514,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             onClick={() => setNavCollapsed((current) => !current)}
                             title={navCollapsed ? "展开左侧菜单" : "收起左侧菜单"}
                         >
-                            {navCollapsed ? (
-                                <PanelLeftOpen className="h-4 w-4" />
-                            ) : (
-                                <>
-                                    <PanelLeftClose className="h-4 w-4" />
+                        {navCollapsed ? (
+                            <PanelLeftOpen className="h-4 w-4" />
+                        ) : (
+                            <>
+                                <PanelLeftClose className="h-4 w-4" />
                                     <span className="ml-1">收起菜单</span>
                                 </>
                             )}
@@ -5783,30 +6572,79 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         />
                     </div>
 
-                    <Separator className="my-5" />
+                    {navCollapsed ? (
+                        <div className="mt-auto space-y-2 pt-5">
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <button
+                                        type="button"
+                                        onClick={openCreatePosition}
+                                        className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
+                                        title="新增岗位"
+                                    >
+                                        <Plus className="h-4.5 w-4.5" />
+                                    </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                    新增岗位
+                                </TooltipContent>
+                            </Tooltip>
 
-                    <div
-                        className={cn(
-                            "rounded-[24px] border border-slate-200/80 bg-white/85 shadow-sm dark:border-slate-800 dark:bg-slate-950/80",
-                            navCollapsed ? "px-2 py-3" : "px-4 py-4",
-                        )}
-                    >
-                        {navCollapsed ? (
-                            <div className="space-y-2">
-                                <div className="rounded-2xl bg-slate-100/80 px-2 py-2 text-center dark:bg-slate-900/80">
-                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待筛</p>
-                                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                        {todoSummary.pendingScreening}
-                                    </p>
-                                </div>
-                                <div className="rounded-2xl bg-slate-100/80 px-2 py-2 text-center dark:bg-slate-900/80">
-                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待面</p>
-                                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                        {todoSummary.pendingInterview}
-                                    </p>
-                                </div>
-                            </div>
-                        ) : (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <button
+                                        type="button"
+                                        onClick={() => setResumeUploadOpen(true)}
+                                        className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
+                                        title="上传简历"
+                                    >
+                                        <Upload className="h-4.5 w-4.5" />
+                                    </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                    上传简历
+                                </TooltipContent>
+                            </Tooltip>
+
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div
+                                        className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
+                                        title="待筛候选人"
+                                    >
+                                        <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待筛</span>
+                                        <span className="text-sm font-semibold leading-4">{todoSummary.pendingScreening}</span>
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                    待筛候选人 {todoSummary.pendingScreening}
+                                </TooltipContent>
+                            </Tooltip>
+
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div
+                                        className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
+                                        title="待安排面试"
+                                    >
+                                        <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待面</span>
+                                        <span className="text-sm font-semibold leading-4">{todoSummary.pendingInterview}</span>
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                    待安排面试 {todoSummary.pendingInterview}
+                                </TooltipContent>
+                            </Tooltip>
+                        </div>
+                    ) : null}
+
+                    {!navCollapsed ? (
+                        <>
+                            <Separator className="my-5" />
+
+                            <div
+                                className="rounded-[24px] border border-slate-200/80 bg-white/85 px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/80"
+                            >
                             <div className="space-y-3">
                                 <div>
                                     <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">今日待办</p>
@@ -5842,8 +6680,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     </div>
                                 </div>
                             </div>
-                        )}
-                    </div>
+                            </div>
+                        </>
+                    ) : null}
                 </aside>
 
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -5982,30 +6821,77 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             初筛通过后自动推进候选人状态
                                         </label>
                                         <div className="space-y-3">
-                                            <p className="text-sm text-slate-600 dark:text-slate-300">绑定
-                                                Skills，作为该岗位默认初筛规则和后续面试题上下文。</p>
-                                            <div className="flex flex-wrap gap-2">
-                                                {skills.length ? skills.map((skill) => (
-                                                    <button
-                                                        key={skill.id}
-                                                        type="button"
-                                                        className={cn(
-                                                            "rounded-full border px-3 py-2 text-xs transition",
-                                                            positionForm.screeningSkillIds.includes(skill.id)
-                                                                ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                        )}
-                                                        onClick={() => setPositionForm((current) => ({
-                                                            ...current,
-                                                            screeningSkillIds: toggleIdInList(current.screeningSkillIds, skill.id),
-                                                        }))}
-                                                    >
-                                                        {skill.name}
-                                                    </button>
-                                                )) : (
-                                                    <p className="text-sm text-slate-500 dark:text-slate-400">暂无可绑定
-                                                        Skill，请先到管理设置里创建。</p>
-                                                )}
+                                            <p className="text-sm text-slate-600 dark:text-slate-300">岗位可分别绑定 JD 生成、初筛、面试题三类 Skill；这里会显示全部已启用 Skill，你可以手动选择。任务标签或 frontmatter 不是必填，只会影响排序提示。每类默认不选，不选时对应链路不会传 Skills。</p>
+                                            <div className="grid gap-4 xl:grid-cols-3">
+                                                <div className="space-y-2">
+                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">JD 生成 Skill</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {jdAuthoringSkills.length ? jdAuthoringSkills.map((skill) => (
+                                                            <button
+                                                                key={`jd-skill-${skill.id}`}
+                                                                type="button"
+                                                                className={cn(
+                                                                    "rounded-full border px-3 py-2 text-xs transition",
+                                                                    positionForm.jdSkillIds.includes(skill.id)
+                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                )}
+                                                                onClick={() => setPositionForm((current) => ({
+                                                                    ...current,
+                                                                    jdSkillIds: toggleSingleSkillId(current.jdSkillIds, skill.id),
+                                                                }))}
+                                                            >
+                                                                {skill.name}
+                                                            </button>
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用 Skill</p>}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">初筛 Skill</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {screeningAuthoringSkills.length ? screeningAuthoringSkills.map((skill) => (
+                                                            <button
+                                                                key={`screening-skill-${skill.id}`}
+                                                                type="button"
+                                                                className={cn(
+                                                                    "rounded-full border px-3 py-2 text-xs transition",
+                                                                    positionForm.screeningSkillIds.includes(skill.id)
+                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                )}
+                                                                onClick={() => setPositionForm((current) => ({
+                                                                    ...current,
+                                                                    screeningSkillIds: toggleSingleSkillId(current.screeningSkillIds, skill.id),
+                                                                }))}
+                                                            >
+                                                                {skill.name}
+                                                            </button>
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用 Skill</p>}
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">面试题 Skill</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {interviewAuthoringSkills.length ? interviewAuthoringSkills.map((skill) => (
+                                                            <button
+                                                                key={`interview-skill-${skill.id}`}
+                                                                type="button"
+                                                                className={cn(
+                                                                    "rounded-full border px-3 py-2 text-xs transition",
+                                                                    positionForm.interviewSkillIds.includes(skill.id)
+                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                )}
+                                                                onClick={() => setPositionForm((current) => ({
+                                                                    ...current,
+                                                                    interviewSkillIds: toggleSingleSkillId(current.interviewSkillIds, skill.id),
+                                                                }))}
+                                                            >
+                                                                {skill.name}
+                                                            </button>
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用 Skill</p>}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -6619,15 +7505,17 @@ function SearchField({
                          value,
                          onChange,
                          placeholder,
+                         inputClassName,
                      }: {
     value: string;
     onChange: (value: string) => void;
     placeholder: string;
+    inputClassName?: string;
 }) {
     return (
         <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
-            <Input className="pl-9" value={value} onChange={(event) => onChange(event.target.value)}
+            <Input className={cn("pl-9", inputClassName)} value={value} onChange={(event) => onChange(event.target.value)}
                    placeholder={placeholder}/>
         </div>
     );
@@ -6675,15 +7563,15 @@ function MetricCard({
 }) {
     return (
         <Card className={cn(panelClass, "gap-4 px-0 py-0")}>
-            <CardContent className="flex items-start justify-between gap-4 px-5 py-5">
+            <CardContent className="flex items-start justify-between gap-3 px-4 py-4">
                 <div className="min-w-0">
-                    <p className="break-words text-sm text-slate-500 dark:text-slate-400">{title}</p>
-                    <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">{value}</p>
-                    <p className="mt-2 break-words text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
+                    <p className="break-words text-[13px] text-slate-500 dark:text-slate-400">{title}</p>
+                    <p className="mt-2 text-[2rem] font-semibold tracking-tight text-slate-950 dark:text-slate-50">{value}</p>
+                    <p className="mt-1.5 break-words text-[11px] leading-5 text-slate-500 dark:text-slate-400">{description}</p>
                 </div>
                 <div
-                    className="shrink-0 rounded-2xl bg-slate-100 p-3 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                    <Icon className="h-5 w-5"/>
+                    className="shrink-0 rounded-2xl bg-slate-100 p-2.5 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    <Icon className="h-4.5 w-4.5"/>
                 </div>
             </CardContent>
         </Card>
@@ -6724,16 +7612,16 @@ function QuickActionCard({
         <button
             type="button"
             onClick={onClick}
-            className="rounded-[22px] border border-slate-200/80 bg-white px-5 py-5 text-left transition hover:-translate-y-0.5 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950"
+            className="rounded-[22px] border border-slate-200/80 bg-white px-4 py-4 text-left transition hover:-translate-y-0.5 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950"
         >
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                    <p className="break-words text-base font-semibold text-slate-900 dark:text-slate-100">{title}</p>
-                    <p className="mt-2 break-words text-sm leading-6 text-slate-500 dark:text-slate-400">{description}</p>
+                    <p className="break-words text-[15px] font-semibold text-slate-900 dark:text-slate-100">{title}</p>
+                    <p className="mt-1.5 break-words text-[13px] leading-5 text-slate-500 dark:text-slate-400">{description}</p>
                 </div>
                 <div
-                    className="shrink-0 rounded-2xl bg-slate-100 p-3 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                    <Icon className="h-5 w-5"/>
+                    className="shrink-0 rounded-2xl bg-slate-100 p-2.5 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    <Icon className="h-4.5 w-4.5"/>
                 </div>
             </div>
         </button>
@@ -6757,43 +7645,68 @@ function SectionNavButton({
     collapsed?: boolean;
     onClick: () => void;
 }) {
-    return (
+    const buttonNode = (
         <button
             type="button"
             onClick={onClick}
             title={title}
             className={cn(
                 "w-full rounded-[22px] border transition",
-                collapsed ? "px-1.5 py-2.5 text-center" : "px-3 py-3.5 text-left",
+                collapsed ? "relative mx-auto flex h-11 w-11 items-center justify-center rounded-2xl p-0" : "px-3 py-3.5 text-left",
                 active
-                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                    ? "border-slate-900 bg-slate-900 text-white shadow-[0_14px_28px_-18px_rgba(15,23,42,0.75)] dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900 dark:shadow-[0_14px_28px_-18px_rgba(255,255,255,0.25)]"
                     : "border-slate-200/80 bg-white/80 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/70",
             )}
         >
-            <div
-                className={cn("flex gap-3", collapsed ? "flex-col items-center justify-center" : "items-start justify-between")}>
-                <div className={cn("flex gap-3", collapsed ? "flex-col items-center" : "items-start")}>
-                    <div
-                        className={cn("rounded-2xl", collapsed ? "p-1.5" : "p-2", active ? "bg-white/10 dark:bg-slate-200" : "bg-slate-100 dark:bg-slate-900")}>
-                        <Icon className="h-4 w-4"/>
-                    </div>
-                    <div className={cn("min-w-0", collapsed ? "text-center" : "")}>
-                        <p className={cn("font-semibold", collapsed ? "text-[11px] leading-4" : "")}>{title}</p>
-                        {!collapsed ? (
+            {collapsed ? (
+                <>
+                    <Icon className="h-4.5 w-4.5" />
+                    {typeof count === "number" ? (
+                        <span
+                            className={cn(
+                                "absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-1 text-[10px] font-semibold leading-4 text-slate-700 shadow-[0_6px_14px_-8px_rgba(15,23,42,0.45)] ring-2 ring-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-950",
+                            )}
+                        >
+                            {count}
+                        </span>
+                    ) : null}
+                </>
+            ) : (
+                <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                        <div
+                            className={cn("rounded-2xl p-2", active ? "bg-white/10 dark:bg-slate-200" : "bg-slate-100 dark:bg-slate-900")}>
+                            <Icon className="h-4 w-4"/>
+                        </div>
+                        <div className="min-w-0">
+                            <p className="font-semibold">{title}</p>
                             <p className={cn("mt-1 text-xs leading-5", active ? "text-white/75 dark:text-slate-700" : "text-slate-500 dark:text-slate-400")}>
                                 {description}
                             </p>
-                        ) : null}
+                        </div>
                     </div>
+                    {typeof count === "number" ? (
+                        <Badge
+                            className={cn("rounded-full border", active ? "border-white/20 bg-white/10 text-white dark:border-slate-300 dark:bg-slate-200 dark:text-slate-900" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
+                            {count}
+                        </Badge>
+                    ) : null}
                 </div>
-                {typeof count === "number" ? (
-                    <Badge
-                        className={cn("rounded-full border", collapsed ? "px-2 py-0 text-[10px]" : "", active ? "border-white/20 bg-white/10 text-white dark:border-slate-300 dark:bg-slate-200 dark:text-slate-900" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                        {count}
-                    </Badge>
-                ) : null}
-            </div>
+            )}
         </button>
+    );
+
+    if (!collapsed) {
+        return buttonNode;
+    }
+
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>{buttonNode}</TooltipTrigger>
+            <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                {title}
+            </TooltipContent>
+        </Tooltip>
     );
 }
 
