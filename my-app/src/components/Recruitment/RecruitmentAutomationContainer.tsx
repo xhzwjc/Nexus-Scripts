@@ -3697,8 +3697,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     function renderPositionsPage() {
         return (
-            <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-                <Card className={cn(panelClass, "overflow-hidden")}>
+            <div className="grid h-full min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]">
+                <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
                     <CardHeader className="pb-0">
                         <div className="flex items-center justify-between gap-3">
                             <div>
@@ -3711,7 +3711,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             </Button>
                         </div>
                     </CardHeader>
-                    <CardContent className="space-y-4 pt-6">
+                    <CardContent className="flex min-h-0 flex-1 flex-col space-y-4 pt-6">
                         <SearchField value={positionQuery} onChange={setPositionQuery}
                                      placeholder="搜索岗位、部门或地点"/>
                         <NativeSelect value={positionStatusFilter}
@@ -3723,7 +3723,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 </option>
                             ))}
                         </NativeSelect>
-                        <ScrollArea className="h-[700px]">
+                        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
                             <div className="space-y-3">
                                 {positionsLoading ? (
                                     <LoadingCard label="正在加载岗位列表"/>
@@ -3769,11 +3769,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 description="先新建一个岗位，再由 AI 生成 JD 并进入招聘流程。"/>
                                 )}
                             </div>
-                        </ScrollArea>
+                        </div>
                     </CardContent>
                 </Card>
 
-                <div className="space-y-6">
+                <div className="min-h-0 space-y-6 overflow-y-auto overscroll-contain [scrollbar-gutter:stable] pr-1">
                     {positionDetailLoading ? <LoadingPanel label="正在加载岗位详情"/> : positionDetail ? (
                         <>
                             <Card className={cn(panelClass, "overflow-hidden")}>
@@ -5847,7 +5847,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </aside>
 
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    {activePage === "candidates" || activePage === "audit" ? (
+                    {activePage === "candidates" || activePage === "audit" || activePage === "positions" ? (
                         <div className="h-full p-6">
                             {renderPage()}
                         </div>
