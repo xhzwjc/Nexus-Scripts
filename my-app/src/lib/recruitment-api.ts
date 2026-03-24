@@ -448,6 +448,10 @@ async function parseError(response: Response, payload: ApiEnvelope<unknown> | nu
         // Keep the original raw text when the response is not JSON.
       }
     }
+    const html = rawText.trim();
+    if (/^<!doctype html/i.test(html) || /^<html[\s>]/i.test(html)) {
+      return `服务端返回了 HTML 错误页（${response.status}），请稍后重试；如果持续出现，请重启前端开发服务。`;
+    }
     return rawText;
   }
 
