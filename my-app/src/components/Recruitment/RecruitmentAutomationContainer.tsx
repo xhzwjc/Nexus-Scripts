@@ -99,7 +99,8 @@ type RecruitmentPage =
 
 type CandidateViewMode = "list" | "board";
 type JDViewMode = "publish" | "markdown" | "preview";
-type AssistantDisplayMode = "page" | "drawer" | "fullscreen";
+type AssistantDisplayMode = "page" | "drawer" | "fullscreen" | "workspace";
+type ResumeMailDialogMode = "send" | "resend";
 
 type PositionFormState = {
   title: string;
@@ -198,6 +199,8 @@ type ChatMessage = {
   modelName?: string | null;
   usedSkillIds?: number[];
   usedSkills?: RecruitmentSkill[];
+  usedFallback?: boolean;
+  fallbackError?: string | null;
 };
 
 const pageMeta: Record<RecruitmentPage, { title: string; description: string }> = {
@@ -215,7 +218,7 @@ const pageMeta: Record<RecruitmentPage, { title: string; description: string }> 
   },
   audit: {
     title: "AI 审计中心",
-    description: "追踪 JD 生成、简历解析、评分和面试题生成，支持失败排查与留痕复盘。",
+    description: "追踪 JD 生成、初筛评分和面试题生成，兼容展示历史简历解析记录，支持失败排查与留痕复盘。",
   },
   assistant: {
     title: "AI 招聘助手",
@@ -258,7 +261,7 @@ const candidateStatusLabels: Record<string, string> = {
 
 const aiTaskLabels: Record<string, string> = {
   jd_generation: "JD 生成",
-  resume_parse: "简历解析",
+  resume_parse: "简历解析（手动/历史）",
   resume_score: "简历评分",
   interview_question_generation: "面试题生成",
   chat_orchestrator: "对话助手",
@@ -750,6 +753,13 @@ function labelForProvider(provider?: string | null) {
   return providerLabels[provider || ""] || provider || "-";
 }
 
+function labelForResumeMailDispatchStatus(status?: string | null) {
+  if (status === "sent") return "已发送";
+  if (status === "failed") return "发送失败";
+  if (status === "pending") return "发送中";
+  return status || "未知状态";
+}
+
 interface RecruitmentAutomationContainerProps {
   onBack: () => void;
 }
@@ -764,6 +774,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
 
   const [activePage, setActivePage] = useState<RecruitmentPage>("workspace");
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [navCollapsed, setNavCollapsed] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
 
   const [metadata, setMetadata] = useState<RecruitmentMetadata | null>(null);
@@ -819,7 +830,9 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   const [coreRefreshing, setCoreRefreshing] = useState(false);
   const [skillSubmitting, setSkillSubmitting] = useState(false);
   const [llmSubmitting, setLlmSubmitting] = useState(false);
+  const [glmTemplateCreating, setGlmTemplateCreating] = useState(false);
   const [resumeMailSubmitting, setResumeMailSubmitting] = useState(false);
+  const [mailDispatchActionKey, setMailDispatchActionKey] = useState<string | null>(null);
   const [chatSending, setChatSending] = useState(false);
 
   const [positionDialogOpen, setPositionDialogOpen] = useState(false);
@@ -890,6 +903,8 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   const [mailRecipientEditingId, setMailRecipientEditingId] = useState<number | null>(null);
   const [mailRecipientForm, setMailRecipientForm] = useState<MailRecipientFormState>(emptyMailRecipientForm);
   const [resumeMailDialogOpen, setResumeMailDialogOpen] = useState(false);
+  const [resumeMailDialogMode, setResumeMailDialogMode] = useState<ResumeMailDialogMode>("send");
+  const [resumeMailSourceDispatchId, setResumeMailSourceDispatchId] = useState<number | null>(null);
   const [resumeMailForm, setResumeMailForm] = useState<ResumeMailFormState>(emptyResumeMailForm);
   const [interviewSkillSelectionDirty, setInterviewSkillSelectionDirty] = useState(false);
 
@@ -918,6 +933,9 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
     const defaultSender = mailSenderConfigs.find((item) => item.is_default && item.is_enabled);
     return String(defaultSender?.id || mailSenderConfigs.find((item) => item.is_enabled)?.id || "");
   }, [mailSenderConfigs]);
+  const existingGlmConfig = useMemo(() => {
+    return llmConfigs.find((item) => item.provider === "glm") || null;
+  }, [llmConfigs]);
   const effectiveLLMConfigs = useMemo(() => {
     const byTask = new Map<string, RecruitmentLLMConfig>();
     llmConfigs.filter((item) => item.is_active).forEach((item) => {
@@ -1019,6 +1037,43 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
         ))
         .filter((item): item is CandidateSummary => Boolean(item));
   }, [candidateDetail, candidateMap, resumeMailForm.candidateIds]);
+  const candidateResumeMailStats = useMemo(() => {
+    const stats = new Map<number, { sentCount: number; failedCount: number; latestSentAt: string | null }>();
+    resumeMailDispatches.forEach((dispatch) => {
+      dispatch.candidate_ids.forEach((candidateId) => {
+        const current = stats.get(candidateId) || { sentCount: 0, failedCount: 0, latestSentAt: null };
+        if (dispatch.status === "sent") {
+          current.sentCount += 1;
+          const candidateSentAt = dispatch.sent_at || dispatch.created_at || null;
+          if (!current.latestSentAt || (candidateSentAt && new Date(candidateSentAt).getTime() > new Date(current.latestSentAt).getTime())) {
+            current.latestSentAt = candidateSentAt;
+          }
+        }
+        if (dispatch.status === "failed") {
+          current.failedCount += 1;
+        }
+        stats.set(candidateId, current);
+      });
+    });
+    return stats;
+  }, [resumeMailDispatches]);
+  const resumeMailDialogTitle = resumeMailDialogMode === "resend" ? "再次发送简历邮件" : "发送简历邮件";
+  const resumeMailDialogDescription = resumeMailDialogMode === "resend"
+    ? `已基于发送记录 #${resumeMailSourceDispatchId || "-"} 预填内容。你可以修改收件人、标题和正文后再次发送。`
+    : "支持单个或批量发送给一个或多个收件人。邮件标题和正文都允许留空，留空时由系统按默认模板生成。";
+  const resumeMailSubmitLabel = resumeMailSubmitting
+    ? (resumeMailDialogMode === "resend" ? "发送中..." : "发送中...")
+    : (resumeMailDialogMode === "resend" ? "再次发送" : "发送简历");
+
+  function getCandidateResumeMailSummary(candidateId: number) {
+    const stat = candidateResumeMailStats.get(candidateId);
+    if (!stat || stat.sentCount <= 0) {
+      return null;
+    }
+    return stat.latestSentAt
+      ? `已发送 ${stat.sentCount} 次 · 最近 ${formatDateTime(stat.latestSentAt)}`
+      : `已发送 ${stat.sentCount} 次`;
+  }
 
   const sourceOptions = useMemo(() => {
     return Array.from(
@@ -1535,6 +1590,10 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
     setActivePage(page);
   }
 
+  function navigatePrimaryPage(page: RecruitmentPage) {
+    setActivePage(page);
+  }
+
   function openTaskLogDetail(logId?: number | null) {
     if (!logId) {
       return;
@@ -1931,6 +1990,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
           custom_requirements: interviewCustomRequirements.trim() || null,
           skill_ids: manualSkillIds,
           use_candidate_memory: !interviewSkillSelectionDirty,
+          use_position_skills: !interviewSkillSelectionDirty,
         }),
       });
       toast.success("面试题已生成");
@@ -1983,8 +2043,13 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
           modelName: response.model_name,
           usedSkillIds: response.used_skill_ids,
           usedSkills: response.used_skills,
+          usedFallback: response.used_fallback,
+          fallbackError: response.fallback_error,
         },
       ]);
+      if (response.used_fallback) {
+        toast.error(`本次 AI 调用已回退到兜底结果：${response.fallback_error || "未返回具体原因"}`);
+      }
       await Promise.all([loadLogs(), loadDashboard()]);
     } catch (error) {
       setChatMessages((current) => [
@@ -2216,7 +2281,10 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
     }
   }
 
-  function openResumeMailDialog(candidateIds?: number[]) {
+  function openResumeMailDialog(
+    candidateIds?: number[],
+    overrides?: Partial<ResumeMailFormState> & { mode?: ResumeMailDialogMode; sourceDispatchId?: number | null },
+  ) {
     const nextCandidateIds = Array.from(new Set(
         (candidateIds?.length
             ? candidateIds
@@ -2227,15 +2295,61 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
       toast.error("请先选择需要发送的简历");
       return;
     }
+    setResumeMailDialogMode(overrides?.mode || "send");
+    setResumeMailSourceDispatchId(overrides?.sourceDispatchId ?? null);
     setResumeMailForm({
       candidateIds: nextCandidateIds,
-      senderConfigId: defaultMailSenderId,
-      recipientIds: [],
-      extraRecipientEmails: "",
-      subject: "",
-      bodyText: "",
+      senderConfigId: overrides?.senderConfigId ?? defaultMailSenderId,
+      recipientIds: overrides?.recipientIds || [],
+      extraRecipientEmails: overrides?.extraRecipientEmails || "",
+      subject: overrides?.subject || "",
+      bodyText: overrides?.bodyText || "",
     });
     setResumeMailDialogOpen(true);
+  }
+
+  function openResumeMailReplayDialog(dispatch: RecruitmentResumeMailDispatch) {
+    openResumeMailDialog(dispatch.candidate_ids, {
+      mode: "resend",
+      sourceDispatchId: dispatch.id,
+      senderConfigId: dispatch.sender_config_id ? String(dispatch.sender_config_id) : defaultMailSenderId,
+      recipientIds: dispatch.recipient_ids,
+      extraRecipientEmails: dispatch.recipient_emails.join(", "),
+      subject: dispatch.subject || "",
+      bodyText: dispatch.body_text || "",
+    });
+  }
+
+  async function sendResumeMailRequest(
+    payload: {
+      sender_config_id: number | null;
+      candidate_ids: number[];
+      recipient_ids: number[];
+      recipient_emails: string[];
+      subject: string | null;
+      body_text: string | null;
+    },
+    options?: { successMessage?: string; closeDialog?: boolean },
+  ) {
+    try {
+      await recruitmentApi(`/resume-mail-dispatches/send`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      toast.success(options?.successMessage || "\u7b80\u5386\u90ae\u4ef6\u5df2\u53d1\u9001");
+      if (options?.closeDialog !== false) {
+        setResumeMailDialogOpen(false);
+      }
+      try {
+        await loadMailSettings();
+      } catch (refreshError) {
+        toast.error(`\u7b80\u5386\u90ae\u4ef6\u5df2\u53d1\u9001\uff0c\u4f46\u90ae\u4ef6\u4e2d\u5fc3\u5237\u65b0\u5931\u8d25\uff1a${formatActionError(refreshError)}`);
+      }
+      return true;
+    } catch (error) {
+      toast.error(`\u53d1\u9001\u7b80\u5386\u90ae\u4ef6\u5931\u8d25\uff1a${formatActionError(error)}`);
+      return false;
+    }
   }
 
   async function submitResumeMail() {
@@ -2250,28 +2364,39 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
     }
     setResumeMailSubmitting(true);
     try {
-      await recruitmentApi(`/resume-mail-dispatches/send`, {
-        method: "POST",
-        body: JSON.stringify({
+      await sendResumeMailRequest(
+        {
           sender_config_id: resumeMailForm.senderConfigId ? Number(resumeMailForm.senderConfigId) : null,
           candidate_ids: resumeMailForm.candidateIds,
           recipient_ids: resumeMailForm.recipientIds,
           recipient_emails: extraEmails,
           subject: resumeMailForm.subject.trim() || null,
           body_text: resumeMailForm.bodyText.trim() || null,
-        }),
-      });
-      toast.success("\u7b80\u5386\u90ae\u4ef6\u5df2\u53d1\u9001");
-      setResumeMailDialogOpen(false);
-      try {
-        await loadMailSettings();
-      } catch (refreshError) {
-        toast.error(`\u7b80\u5386\u90ae\u4ef6\u5df2\u53d1\u9001\uff0c\u4f46\u90ae\u4ef6\u4e2d\u5fc3\u5237\u65b0\u5931\u8d25\uff1a${formatActionError(refreshError)}`);
-      }
-    } catch (error) {
-      toast.error(`\u53d1\u9001\u7b80\u5386\u90ae\u4ef6\u5931\u8d25\uff1a${formatActionError(error)}`);
+        },
+        { successMessage: resumeMailDialogMode === "resend" ? "简历邮件已再次发送" : "简历邮件已发送" },
+      );
     } finally {
       setResumeMailSubmitting(false);
+    }
+  }
+
+  async function retryResumeMailDispatch(dispatch: RecruitmentResumeMailDispatch) {
+    const actionKey = `mail-dispatch-${dispatch.id}`;
+    setMailDispatchActionKey(actionKey);
+    try {
+      await sendResumeMailRequest(
+        {
+          sender_config_id: dispatch.sender_config_id ? Number(dispatch.sender_config_id) : null,
+          candidate_ids: dispatch.candidate_ids,
+          recipient_ids: dispatch.recipient_ids,
+          recipient_emails: dispatch.recipient_emails,
+          subject: dispatch.subject?.trim() || null,
+          body_text: dispatch.body_text?.trim() || null,
+        },
+        { successMessage: "失败记录已重试发送", closeDialog: false },
+      );
+    } finally {
+      setMailDispatchActionKey((current) => (current === actionKey ? null : current));
     }
   }
 
@@ -2426,6 +2551,45 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
     setLlmDialogOpen(true);
   }
 
+  async function ensureGlmTemplateConfig() {
+    if (glmTemplateCreating) {
+      return;
+    }
+    if (existingGlmConfig) {
+      openLLMEditor(existingGlmConfig);
+      toast.success("GLM 模型模板已存在，已为你打开编辑弹窗");
+      return;
+    }
+    setGlmTemplateCreating(true);
+    try {
+      await recruitmentApi(`/llm-configs`, {
+        method: "POST",
+        body: JSON.stringify({
+          config_key: "glm-flash-template",
+          task_type: "default",
+          provider: "glm",
+          model_name: "glm-4-flash",
+          base_url: "https://open.bigmodel.cn/api/paas/v4",
+          api_key_env: "GLM_API_KEY",
+          api_key_value: "1021021902920901",
+          priority: 99,
+          is_active: true,
+          extra_config: {},
+        }),
+      });
+      const configs = await loadLLMConfigs();
+      const createdConfig = configs.find((item) => item.provider === "glm") || null;
+      if (createdConfig) {
+        openLLMEditor(createdConfig);
+      }
+      toast.success("GLM 模型模板已添加，你可以直接修改 key 和模型名");
+    } catch (error) {
+      toast.error(`添加 GLM 模型失败：${formatActionError(error)}`);
+    } finally {
+      setGlmTemplateCreating(false);
+    }
+  }
+
   async function submitLLMConfig() {
     if (llmSubmitting) {
       return;
@@ -2522,6 +2686,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   function renderAssistantConsole(mode: AssistantDisplayMode = "page") {
     const isPage = mode === "page";
     const isFullscreen = mode === "fullscreen";
+    const isWorkspace = mode === "workspace";
     const suggestionPrompts = [
       "生成当前岗位 JD",
       "查看当前岗位候选人",
@@ -2559,7 +2724,9 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
         <div
           className={cn(
             "grid min-h-0 flex-1",
-            isFullscreen
+            isWorkspace
+              ? "grid-cols-1"
+              : isFullscreen
               ? "grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_360px]"
               : isPage
                 ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px]"
@@ -2604,7 +2771,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                         ))}
                       </div>
                     ) : null}
-                    {message.role === "assistant" && (message.usedSkills?.length || message.logId) ? (
+                    {message.role === "assistant" && (message.usedSkills?.length || message.logId || message.usedFallback) ? (
                       <details className="mt-3 rounded-2xl border border-slate-200/80 bg-white/70 px-3 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300">
                         <summary className="cursor-pointer select-none font-medium text-slate-700 dark:text-slate-200">查看本次上下文</summary>
                         <div className="mt-3 space-y-3">
@@ -2613,6 +2780,12 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                             <br />
                             规则来源：{labelForMemorySource(message.memorySource)}
                           </p>
+                          {message.usedFallback ? (
+                            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                              <p className="font-medium">本次结果来自 fallback 兜底</p>
+                              {message.fallbackError ? <p className="mt-1 whitespace-pre-wrap break-words leading-6">{message.fallbackError}</p> : null}
+                            </div>
+                          ) : null}
                           {message.usedSkills?.length ? (
                             <div className="space-y-2">
                               {message.usedSkills.map((skill) => (
@@ -2673,7 +2846,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
             </div>
           </div>
 
-          <div className="border-t border-slate-200/80 px-5 py-5 2xl:border-t-0 2xl:border-l dark:border-slate-800">
+          <div className={cn("border-slate-200/80 px-5 py-5 dark:border-slate-800", isWorkspace ? "border-t" : "border-t 2xl:border-t-0 2xl:border-l")}>
             <div className="space-y-5">
               <Field label="岗位上下文">
                 <NativeSelect
@@ -2766,33 +2939,67 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   function renderWorkspacePage() {
     return (
         <div className="space-y-6">
-          <Card className={cn(panelClass, "overflow-hidden border-0 bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_50%,#38bdf8_100%)] text-white")}>
-            <CardContent className="flex flex-col gap-5 px-7 py-7 lg:flex-row lg:items-end lg:justify-between">
-              <div className="space-y-3">
-                <Badge className="rounded-full border-white/20 bg-white/10 text-white shadow-none">
-                  Recruiting Workbench
-                </Badge>
-                <div>
-                  <h2 className="text-3xl font-semibold tracking-tight">招聘流程统一工作台</h2>
-                  <p className="mt-2 max-w-3xl text-sm text-slate-100/80">
-                    统一管理岗位、候选人、招聘流程与 AI 任务，快速掌握当前招聘推进状态。
-                  </p>
+          <Card className={cn(panelClass, "overflow-hidden border-slate-200/80 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.18),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.98)_0%,rgba(241,245,249,0.95)_100%)] dark:border-slate-800 dark:bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.18),transparent_26%),linear-gradient(135deg,rgba(15,23,42,0.96)_0%,rgba(15,23,42,0.9)_100%)]")}>
+            <CardContent className="px-6 py-6">
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="rounded-full border-slate-200 bg-white/90 text-slate-700 shadow-none dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
+                      今日总览
+                    </Badge>
+                    <Badge variant="outline" className="rounded-full border-slate-200/80 bg-white/70 dark:border-slate-700/80 dark:bg-slate-900/50">
+                      岗位、候选人、AI 任务同屏推进
+                    </Badge>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">招聘推进总览</h2>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+                      集中展示当前待办、关键入口与近期进展，便于快速掌握岗位、候选人及 AI 任务的整体推进状态。
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <InfoTile label="招聘中岗位" value={`${dashboard?.cards.positions_recruiting ?? 0} 个`} />
+                    <InfoTile label="待初筛候选人" value={`${dashboard?.cards.pending_screening ?? 0} 人`} />
+                    <InfoTile label="今日新增简历" value={`${todayNewResumes} 份`} />
+                  </div>
                 </div>
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <Button className="bg-white text-slate-900 hover:bg-slate-100" onClick={() => openAssistantMode("drawer")}>
-                  <Bot className="h-4 w-4" />
-                  打开 AI 招聘助手
-                </Button>
-                <Button variant="outline" className="border-white/25 bg-white/10 text-white hover:bg-white/15" onClick={openCreatePosition}>
-                  <Plus className="h-4 w-4" />
-                  新建岗位
-                </Button>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                  <button
+                    type="button"
+                    onClick={() => openAssistantMode("drawer")}
+                    className="rounded-[24px] border border-slate-200/80 bg-white/90 px-5 py-5 text-left transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-base font-semibold text-slate-900 dark:text-slate-100">打开 AI 招聘助手</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">直接用自然语言生成 JD、初筛、重筛和查看日志来源。</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-900 p-3 text-white dark:bg-slate-100 dark:text-slate-900">
+                        <Bot className="h-5 w-5" />
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openCreatePosition}
+                    className="rounded-[24px] border border-slate-200/80 bg-white/90 px-5 py-5 text-left transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-base font-semibold text-slate-900 dark:text-slate-100">新建岗位</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">录入岗位后，继续在 JD 工作区、候选人工作区里向下推进。</p>
+                      </div>
+                      <div className="rounded-2xl bg-slate-100 p-3 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                        <Plus className="h-5 w-5" />
+                      </div>
+                    </div>
+                  </button>
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
             <MetricCard title="招聘中岗位" value={dashboard?.cards.positions_recruiting ?? 0} description="当前在推进的岗位" icon={BriefcaseBusiness} />
             <MetricCard title="今日新增简历" value={todayNewResumes} description="今天导入的候选人数量" icon={Upload} />
             <MetricCard title="待初筛人数" value={dashboard?.cards.pending_screening ?? 0} description="优先需要处理的简历" icon={FileSearch} />
@@ -2800,14 +3007,14 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
             <MetricCard title="今日 AI 处理数" value={dashboard?.cards.recent_ai_tasks ?? 0} description="今天触发的 AI 任务" icon={Sparkles} />
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(480px,0.9fr)] 2xl:grid-cols-[minmax(0,1.25fr)_560px]">
+          <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)]">
             <div className="space-y-6">
               <Card className={panelClass}>
                 <CardHeader className="pb-0">
                   <CardTitle className="text-lg">今日待办</CardTitle>
                   <CardDescription>根据岗位和候选人状态自动归纳今天最值得处理的工作。</CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-4 pt-6 md:grid-cols-2 xl:grid-cols-4">
+                <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 xl:grid-cols-4">
                   <TodoCard title="待发布岗位" value={todoSummary.pendingPublish} description="草稿或尚未完成发布的岗位" />
                   <TodoCard title="待筛选简历" value={todoSummary.pendingScreening} description="需要快速初筛的候选人" />
                   <TodoCard title="待安排面试" value={todoSummary.pendingInterview} description="已通过初筛但未安排面试" />
@@ -2820,7 +3027,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                   <CardTitle className="text-lg">快捷操作</CardTitle>
                   <CardDescription>把高频动作前置成工作按钮，不再埋在二级标签页里。</CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-4 pt-6 md:grid-cols-2 xl:grid-cols-3">
+                <CardContent className="grid gap-4 pt-6 sm:grid-cols-2 2xl:grid-cols-3">
                   <QuickActionCard title="新建岗位" description="录入岗位并进入详情工作区" icon={Plus} onClick={openCreatePosition} />
                   <QuickActionCard title="生成 JD" description="直接跳到当前岗位的 JD 工作区" icon={Wand2} onClick={() => setActivePage("positions")} />
                   <QuickActionCard title="上传简历" description="批量上传 PDF / DOC / DOCX 简历" icon={Upload} onClick={() => setResumeUploadOpen(true)} />
@@ -2841,19 +3048,19 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                         <button
                             key={candidate.id}
                             type="button"
-                            className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
+                            className="flex w-full flex-col gap-3 rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 sm:flex-row sm:items-start sm:justify-between dark:border-slate-800"
                             onClick={() => {
                               setActivePage("candidates");
                               setSelectedCandidateId(candidate.id);
                             }}
                         >
-                          <div>
-                            <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                          <div className="min-w-0">
+                            <p className="break-words font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
+                            <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
                               {candidate.position_title || "未分配岗位"} · 匹配度 {formatPercent(candidate.match_percent)}
                             </p>
                           </div>
-                          <div className="text-right">
+                          <div className="shrink-0 text-left sm:text-right">
                             <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
                               {labelForCandidateStatus(candidate.status)}
                             </Badge>
@@ -2876,17 +3083,17 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                         <button
                             key={log.id}
                             type="button"
-                            className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
+                            className="flex w-full flex-col gap-3 rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 sm:flex-row sm:items-start sm:justify-between dark:border-slate-800"
                             onClick={() => {
                               setActivePage("audit");
                               setSelectedLogId(log.id);
                             }}
                         >
-                          <div>
-                            <p className="font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
-                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{shortText(log.input_summary, 48)}</p>
+                          <div className="min-w-0">
+                            <p className="break-words font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
+                            <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{shortText(log.input_summary, 72)}</p>
                           </div>
-                          <div className="text-right">
+                          <div className="shrink-0 text-left sm:text-right">
                             <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
                               {log.status}
                             </Badge>
@@ -2894,7 +3101,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                           </div>
                         </button>
                     )) : (
-                        <EmptyState title="暂无 AI 记录" description="触发 JD 生成、简历解析和评分后，这里会开始出现任务记录。" />
+                        <EmptyState title="暂无 AI 记录" description="触发 JD 生成、初筛评分和面试题生成后，这里会开始出现任务记录；历史数据里仍可能看到旧的简历解析记录。" />
                     )}
                   </CardContent>
                 </Card>
@@ -2902,8 +3109,8 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
             </div>
 
             <div className="space-y-6">
-              <Card className={cn(panelClass, "overflow-hidden")}>
-                {assistantOpen ? renderAssistantSuspendedState() : renderAssistantConsole("drawer")}
+              <Card className={cn(panelClass, "min-h-[620px] overflow-hidden 2xl:min-h-[820px]")}>
+                {assistantOpen ? renderAssistantSuspendedState() : renderAssistantConsole("workspace")}
               </Card>
 
               <Card className={panelClass}>
@@ -3376,7 +3583,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
             </CardContent>
           </Card>
 
-          <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,440px)]">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(400px,480px)] 2xl:grid-cols-[minmax(0,1.05fr)_minmax(430px,520px)]">
             <Card className={cn(panelClass, "overflow-hidden")}>
               <CardHeader className="pb-0">
                 <div className="flex items-center justify-between gap-3">
@@ -3400,7 +3607,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                       <Sparkles className="h-4 w-4" />
                       {screeningSubmitting ? "初筛中..." : "批量开始初筛"}
                     </Button>
-                    <Button size="sm" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
+                    <Button size="sm" variant="outline" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                       <Mail className="h-4 w-4" />
                       批量发送简历
                     </Button>
@@ -3446,8 +3653,18 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                                 </TableCell>
                                 <TableCell>
                                   <div>
-                                    <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
+                                      {getCandidateResumeMailSummary(candidate.id) ? (
+                                        <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                          已发简历
+                                        </Badge>
+                                      ) : null}
+                                    </div>
                                     <p className="text-xs text-slate-500 dark:text-slate-400">{candidate.phone || candidate.email || "未填写联系方式"}</p>
+                                    {getCandidateResumeMailSummary(candidate.id) ? (
+                                      <p className="mt-1 text-xs text-sky-600 dark:text-sky-300">{getCandidateResumeMailSummary(candidate.id)}</p>
+                                    ) : null}
                                   </div>
                                 </TableCell>
                                 <TableCell>{candidate.position_title || "未分配岗位"}</TableCell>
@@ -3496,8 +3713,18 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                                             onClick={() => setSelectedCandidateId(candidate.id)}
                                             className="min-w-0 flex-1 text-left"
                                         >
-                                          <p className="font-medium">{candidate.name}</p>
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <p className="font-medium">{candidate.name}</p>
+                                            {getCandidateResumeMailSummary(candidate.id) ? (
+                                              <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                已发简历
+                                              </Badge>
+                                            ) : null}
+                                          </div>
                                           <p className="mt-1 text-xs opacity-80">{candidate.position_title || "未分配岗位"}</p>
+                                          {getCandidateResumeMailSummary(candidate.id) ? (
+                                            <p className="mt-2 text-[11px] opacity-80">{getCandidateResumeMailSummary(candidate.id)}</p>
+                                          ) : null}
                                           <div className="mt-3 flex items-center justify-between text-xs opacity-80">
                                             <span>匹配度 {formatPercent(candidate.match_percent)}</span>
                                             <span>{formatDateTime(candidate.updated_at)}</span>
@@ -3538,6 +3765,11 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                             <Badge variant="outline" className="rounded-full">
                               匹配度 {formatPercent(candidateDetail.candidate.match_percent)}
                             </Badge>
+                            {getCandidateResumeMailSummary(candidateDetail.candidate.id) ? (
+                              <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                {getCandidateResumeMailSummary(candidateDetail.candidate.id)}
+                              </Badge>
+                            ) : null}
                           </div>
                           <h3 className="mt-3 break-words text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{candidateDetail.candidate.name}</h3>
                           <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
@@ -3559,7 +3791,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                             <Mail className="h-4 w-4" />
                             {"\u53d1\u9001\u7b80\u5386"}
                           </Button>
-                          <Button size="sm" onClick={() => void generateInterviewQuestions()} disabled={interviewGenerating}>
+                          <Button size="sm" variant="outline" onClick={() => void generateInterviewQuestions()} disabled={interviewGenerating}>
                             <NotebookText className="h-4 w-4" />
                             {interviewGenerating ? "\u9762\u8bd5\u9898\u751f\u6210\u4e2d..." : "\u9762\u8bd5\u9898"}
                           </Button>
@@ -3568,7 +3800,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                       </div>
 
                     <ScrollArea className="h-[min(780px,calc(100vh-280px))]">
-                      <div className="space-y-6 px-6 py-6">
+                      <div className="space-y-6 px-6 py-6 pr-10 sm:pr-12">
                         <Field label="基础信息">
                           <div className="grid gap-3">
                             <Input value={candidateEditor.name} onChange={(event) => setCandidateEditor((current) => ({ ...current, name: event.target.value }))} placeholder="姓名" />
@@ -3582,8 +3814,8 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
 
                         <Field label="AI 评分与建议">
                           <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
                                 <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
                                   {candidateDetail.score?.total_score ?? "-"}
                                 </p>
@@ -3591,18 +3823,18 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                                   AI 建议：{candidateDetail.score?.recommendation || "尚未生成"} · 推荐状态 {labelForCandidateStatus(candidateDetail.score?.suggested_status || "")}
                                 </p>
                               </div>
-                              <Badge variant="outline" className="rounded-full">
+                              <Badge variant="outline" className="shrink-0 rounded-full">
                                 匹配度 {formatPercent(candidateDetail.score?.match_percent ?? candidateDetail.candidate.match_percent)}
                               </Badge>
                             </div>
                             <div className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
-                              <p>
+                              <p className="break-words leading-7">
                                 <span className="font-medium text-slate-900 dark:text-slate-100">优势：</span>
                                 {candidateDetail.score?.advantages_text
                                     || joinTags(Array.isArray(candidateDetail.score?.advantages) ? candidateDetail.score.advantages as string[] : [])
                                     || "暂无"}
                               </p>
-                              <p>
+                              <p className="break-words leading-7">
                                 <span className="font-medium text-slate-900 dark:text-slate-100">风险点：</span>
                                 {candidateDetail.score?.concerns_text
                                     || joinTags(Array.isArray(candidateDetail.score?.concerns) ? candidateDetail.score.concerns as string[] : [])
@@ -3623,10 +3855,10 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                           ) : (
                             <EmptyState title="暂无初筛工作记忆" description="完成一次初筛后，这里会显示本次初筛使用的 Skills、来源和时间，便于后续生成面试题时复用。" />
                           )}
-                          <p className="mt-3 text-xs leading-6 text-slate-500 dark:text-slate-400">
+                          <p className="mt-3 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
                             {`点击“开始初筛”时，会按“岗位绑定 Skills > 初筛工作记忆 > 全局默认 Skills”继续执行；当前预计来源：${effectiveScreeningSkillSourceLabel}。`}
                           </p>
-                          <p className="mt-2 text-xs leading-6 text-slate-500 dark:text-slate-400">
+                          <p className="mt-2 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
                             {`当前预计使用：${formatSkillNames(effectiveScreeningSkillIds, skillMap)}`}
                           </p>
                         </Field>
@@ -3882,15 +4114,15 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                 {logsLoading ? (
                     <LoadingCard label="正在加载 AI 审计日志" />
                 ) : (
-                    <ScrollArea className="h-[760px]">
-                      <Table>
+                    <ScrollArea className="h-[760px] pr-4">
+                      <Table className="min-w-[960px]">
                         <TableHeader>
                           <TableRow>
                             <TableHead>任务类型</TableHead>
-                            <TableHead>关联对象</TableHead>
+                            <TableHead className="min-w-[280px]">关联对象</TableHead>
                             <TableHead>状态</TableHead>
-                            <TableHead>模型</TableHead>
-                            <TableHead>时间</TableHead>
+                            <TableHead className="min-w-[220px]">模型</TableHead>
+                            <TableHead className="min-w-[148px] whitespace-nowrap text-right">时间</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -3901,14 +4133,14 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                                   onClick={() => setSelectedLogId(log.id)}
                               >
                                 <TableCell>{labelForTaskType(log.task_type)}</TableCell>
-                                <TableCell>{buildLogObjectLabel(log, positionMap, candidateMap, skillMap)}</TableCell>
+                                <TableCell className="min-w-[280px]">{buildLogObjectLabel(log, positionMap, candidateMap, skillMap)}</TableCell>
                                 <TableCell>
                                   <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
                                     {log.status}
                                   </Badge>
                                 </TableCell>
-                                <TableCell>{labelForProvider(log.model_provider)} · {log.model_name || "-"}</TableCell>
-                                <TableCell>{formatDateTime(log.created_at)}</TableCell>
+                                <TableCell className="min-w-[220px]">{labelForProvider(log.model_provider)} · {log.model_name || "-"}</TableCell>
+                                <TableCell className="min-w-[148px] whitespace-nowrap pr-4 text-right tabular-nums">{formatDateTime(log.created_at)}</TableCell>
                               </TableRow>
                           )) : (
                               <TableRow>
@@ -4075,12 +4307,16 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
           <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-6">
             <div>
               <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">模型配置中心</p>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">同一任务类型会按优先级数字从小到大生效。要切到你新加的小米模型，直接把它设为当前使用即可。</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">同一任务类型会按优先级数字从小到大生效。新增 GLM、Gemini 或其他模型后，直接把它设为当前使用即可。</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => void refreshLLMConfigsWithFeedback()} disabled={modelsLoading}>
                 {modelsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 {modelsLoading ? "刷新中..." : "刷新模型"}
+              </Button>
+              <Button variant="outline" onClick={() => void ensureGlmTemplateConfig()} disabled={glmTemplateCreating}>
+                {glmTemplateCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {existingGlmConfig ? "编辑 GLM 模板" : "新增 GLM 模板"}
               </Button>
               <Button onClick={() => openLLMEditor()}>
                 <Plus className="h-4 w-4" />
@@ -4272,6 +4508,8 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
               const candidateSummary = dispatch.candidate_ids
                 .map((candidateId) => candidateMap.get(candidateId)?.name || `候选人 #${candidateId}`)
                 .join("、");
+              const dispatchActionKey = `mail-dispatch-${dispatch.id}`;
+              const isDispatchActing = mailDispatchActionKey === dispatchActionKey;
 
               return (
                 <div key={dispatch.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
@@ -4282,9 +4520,14 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                         {mailSenderMap.get(dispatch.sender_config_id || 0)?.name || dispatch.sender_name || "默认发件箱"} / {formatLongDateTime(dispatch.sent_at || dispatch.created_at)}
                       </p>
                     </div>
-                    <Badge className={cn("rounded-full border", statusBadgeClass("task", dispatch.status === "sent" ? "success" : dispatch.status))}>
-                      {dispatch.status}
-                    </Badge>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge className={cn("rounded-full border", statusBadgeClass("task", dispatch.status === "sent" ? "success" : dispatch.status))}>
+                        {labelForResumeMailDispatchStatus(dispatch.status)}
+                      </Badge>
+                      {dispatch.status === "sent" ? (
+                        <Badge variant="outline" className="rounded-full">可再次发送</Badge>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     <InfoTile label="候选人" value={shortText(candidateSummary || "未记录", 120)} />
@@ -4294,6 +4537,16 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                   {dispatch.error_message ? (
                     <p className="mt-3 text-sm text-rose-600 dark:text-rose-300">{dispatch.error_message}</p>
                   ) : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {dispatch.status === "failed" ? (
+                      <Button size="sm" variant="outline" onClick={() => void retryResumeMailDispatch(dispatch)} disabled={isDispatchActing}>
+                        {isDispatchActing ? "重试中..." : "失败重试"}
+                      </Button>
+                    ) : null}
+                    <Button size="sm" variant="outline" onClick={() => openResumeMailReplayDialog(dispatch)}>
+                      再次发送
+                    </Button>
+                  </div>
                 </div>
               );
             }) : <EmptyState title="暂无发送记录" description="从候选人中心发送简历后，这里会沉淀完整的发送审计记录。" />}
@@ -4407,25 +4660,64 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
           </div>
         </div>
 
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[240px_minmax(0,1fr)]">
-          <aside className="border-r border-slate-200/80 bg-white/70 px-4 py-5 backdrop-blur dark:border-slate-800 dark:bg-slate-950/50">
+        <div className={cn("grid min-h-0 flex-1 transition-all duration-300", navCollapsed ? "lg:grid-cols-[92px_minmax(0,1fr)]" : "lg:grid-cols-[260px_minmax(0,1fr)]")}>
+          <aside className={cn("border-r border-slate-200/80 bg-white/70 px-3 py-5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50", navCollapsed ? "lg:px-2" : "lg:px-4")}>
+            <div className={cn("mb-4 flex items-center gap-2", navCollapsed ? "justify-center" : "justify-between")}>
+              {!navCollapsed ? (
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">工作分区</p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">支持手动收起，点击菜单会自动展开。</p>
+                </div>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size={navCollapsed ? "icon" : "sm"}
+                className="shrink-0"
+                onClick={() => setNavCollapsed((current) => !current)}
+                title={navCollapsed ? "展开左侧菜单" : "收起左侧菜单"}
+              >
+                <LayoutGrid className="h-4 w-4" />
+                {!navCollapsed ? "收起菜单" : null}
+              </Button>
+            </div>
+
             <div className="space-y-2">
-              <SectionNavButton active={activePage === "workspace"} icon={FolderKanban} title="招聘工作台" description="首页指标、待办、快捷操作与近期活动" count={dashboard?.cards.positions_recruiting ?? 0} onClick={() => setActivePage("workspace")} />
-              <SectionNavButton active={activePage === "positions"} icon={BriefcaseBusiness} title="岗位管理" description="岗位列表 + 详情工作区 + JD 版本" count={positions.length} onClick={() => setActivePage("positions")} />
-              <SectionNavButton active={activePage === "candidates"} icon={Users} title="候选人中心" description="ATS 列表、筛选、状态推进与档案查看" count={visibleCandidates.length} onClick={() => setActivePage("candidates")} />
-              <SectionNavButton active={activePage === "audit"} icon={History} title="AI 审计中心" description="看 AI 处理记录、模型、错误与留痕" count={aiLogs.length} onClick={() => setActivePage("audit")} />
-              <SectionNavButton active={activePage === "assistant"} icon={Bot} title="AI 招聘助手" description="自然语言驱动岗位、候选人和 Skill 上下文" onClick={() => setActivePage("assistant")} />
+              <SectionNavButton active={activePage === "workspace"} icon={FolderKanban} title="招聘工作台" description="首页指标、待办、快捷操作与近期活动" count={dashboard?.cards.positions_recruiting ?? 0} collapsed={navCollapsed} onClick={() => navigatePrimaryPage("workspace")} />
+              <SectionNavButton active={activePage === "positions"} icon={BriefcaseBusiness} title="岗位管理" description="岗位列表 + 详情工作区 + JD 版本" count={positions.length} collapsed={navCollapsed} onClick={() => navigatePrimaryPage("positions")} />
+              <SectionNavButton active={activePage === "candidates"} icon={Users} title="候选人中心" description="ATS 列表、筛选、状态推进与档案查看" count={visibleCandidates.length} collapsed={navCollapsed} onClick={() => navigatePrimaryPage("candidates")} />
+              <SectionNavButton active={activePage === "audit"} icon={History} title="AI 审计中心" description="看 AI 处理记录、模型、错误与留痕" count={aiLogs.length} collapsed={navCollapsed} onClick={() => navigatePrimaryPage("audit")} />
+              <SectionNavButton active={activePage === "assistant"} icon={Bot} title="AI 招聘助手" description="自然语言驱动岗位、候选人和 Skill 上下文" collapsed={navCollapsed} onClick={() => navigatePrimaryPage("assistant")} />
             </div>
 
             <Separator className="my-5" />
 
-            <div className="rounded-[24px] border border-slate-200/80 bg-white/85 px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">今日关注</p>
-              <div className="mt-4 space-y-3 text-sm">
-                <MiniStat label="待筛选简历" value={todoSummary.pendingScreening} />
-                <MiniStat label="待安排面试" value={todoSummary.pendingInterview} />
-                <MiniStat label="今日新增简历" value={todayNewResumes} />
-              </div>
+            <div className={cn("rounded-[24px] border border-slate-200/80 bg-white/85 shadow-sm dark:border-slate-800 dark:bg-slate-950/80", navCollapsed ? "px-2 py-3" : "px-4 py-4")}>
+              {navCollapsed ? (
+                <div className="space-y-2">
+                  <div className="rounded-2xl bg-slate-100/80 px-2 py-2 text-center dark:bg-slate-900/80">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待筛</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{todoSummary.pendingScreening}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-100/80 px-2 py-2 text-center dark:bg-slate-900/80">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待面</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{todoSummary.pendingInterview}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-100/80 px-2 py-2 text-center dark:bg-slate-900/80">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">今日简历</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{todayNewResumes}</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">今日关注</p>
+                  <div className="mt-4 space-y-3 text-sm">
+                    <MiniStat label="待筛选简历" value={todoSummary.pendingScreening} />
+                    <MiniStat label="待安排面试" value={todoSummary.pendingInterview} />
+                    <MiniStat label="今日新增简历" value={todayNewResumes} />
+                  </div>
+                </>
+              )}
             </div>
           </aside>
 
@@ -4437,7 +4729,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
         </div>
 
         <Button
-            className="fixed bottom-6 right-6 z-30 h-14 rounded-full bg-slate-900 px-5 text-white shadow-[0_20px_40px_-18px_rgba(15,23,42,0.5)] hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+            className="fixed bottom-8 right-[-44px] z-30 h-14 rounded-l-2xl rounded-r-none bg-slate-900 pl-4 pr-3 text-white shadow-[0_20px_40px_-18px_rgba(15,23,42,0.5)] transition-[right,background-color] duration-200 hover:right-0 hover:bg-slate-800 focus-visible:right-0 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
             onClick={() => openAssistantMode("drawer")}
         >
           <Bot className="h-4 w-4" />
@@ -4831,20 +5123,48 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
           </DialogContent>
         </Dialog>
 
-        <Dialog open={resumeMailDialogOpen} onOpenChange={setResumeMailDialogOpen}>
+        <Dialog
+          open={resumeMailDialogOpen}
+          onOpenChange={(open) => {
+            setResumeMailDialogOpen(open);
+            if (!open) {
+              setResumeMailDialogMode("send");
+              setResumeMailSourceDispatchId(null);
+            }
+          }}
+        >
           <DialogContent className="sm:max-w-4xl">
             <DialogHeader>
-              <DialogTitle>发送简历邮件</DialogTitle>
-              <DialogDescription>支持单个或批量发送给一个或多个收件人。邮件标题和正文都允许留空，留空时由系统按默认模板生成。</DialogDescription>
+              <DialogTitle>{resumeMailDialogTitle}</DialogTitle>
+              <DialogDescription>{resumeMailDialogDescription}</DialogDescription>
             </DialogHeader>
             <ScrollArea className="max-h-[70vh]">
               <div className="space-y-5 px-1 py-1">
                 <Field label="本次发送的候选人">
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid gap-3">
                     {resumeMailTargetCandidates.length ? resumeMailTargetCandidates.map((candidate) => (
-                      <Badge key={candidate.id} variant="outline" className="rounded-full">
-                        {candidate.name} / {candidate.position_title || "未关联岗位"}
-                      </Badge>
+                      <div key={candidate.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{candidate.position_title || "未关联岗位"}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {getCandidateResumeMailSummary(candidate.id) ? (
+                              <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                已发送
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="rounded-full">首次发送</Badge>
+                            )}
+                          </div>
+                        </div>
+                        {getCandidateResumeMailSummary(candidate.id) ? (
+                          <p className="mt-2 text-xs text-sky-600 dark:text-sky-300">{getCandidateResumeMailSummary(candidate.id)}</p>
+                        ) : (
+                          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">当前候选人还没有成功发送记录。</p>
+                        )}
+                      </div>
                     )) : (
                       <p className="text-sm text-slate-500 dark:text-slate-400">未找到候选人详情，请返回候选人中心重新选择。</p>
                     )}
@@ -4907,7 +5227,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
               <Button variant="outline" onClick={() => setResumeMailDialogOpen(false)}>取消</Button>
               <Button onClick={() => void submitResumeMail()} disabled={resumeMailSubmitting}>
                 <Send className="h-4 w-4" />
-                {resumeMailSubmitting ? "发送中..." : "发送简历"}
+                {resumeMailSubmitLabel}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -4975,13 +5295,13 @@ function MetricCard({
 }) {
   return (
       <Card className={cn(panelClass, "gap-4 px-0 py-0")}>
-        <CardContent className="flex items-start justify-between px-5 py-5">
-          <div>
-            <p className="text-sm text-slate-500 dark:text-slate-400">{title}</p>
+        <CardContent className="flex items-start justify-between gap-4 px-5 py-5">
+          <div className="min-w-0">
+            <p className="break-words text-sm text-slate-500 dark:text-slate-400">{title}</p>
             <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">{value}</p>
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{description}</p>
+            <p className="mt-2 break-words text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
           </div>
-          <div className="rounded-2xl bg-slate-100 p-3 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+          <div className="shrink-0 rounded-2xl bg-slate-100 p-3 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
             <Icon className="h-5 w-5" />
           </div>
         </CardContent>
@@ -5000,9 +5320,9 @@ function TodoCard({
 }) {
   return (
       <div className="rounded-[22px] border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{title}</p>
+        <p className="break-words text-sm font-medium text-slate-900 dark:text-slate-100">{title}</p>
         <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">{value}</p>
-        <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
+        <p className="mt-2 break-words text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
       </div>
   );
 }
@@ -5025,11 +5345,11 @@ function QuickActionCard({
           className="rounded-[22px] border border-slate-200/80 bg-white px-5 py-5 text-left transition hover:-translate-y-0.5 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950"
       >
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{title}</p>
-            <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{description}</p>
+          <div className="min-w-0">
+            <p className="break-words text-base font-semibold text-slate-900 dark:text-slate-100">{title}</p>
+            <p className="mt-2 break-words text-sm leading-6 text-slate-500 dark:text-slate-400">{description}</p>
           </div>
-          <div className="rounded-2xl bg-slate-100 p-3 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+          <div className="shrink-0 rounded-2xl bg-slate-100 p-3 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
             <Icon className="h-5 w-5" />
           </div>
         </div>
@@ -5043,6 +5363,7 @@ function SectionNavButton({
                             title,
                             description,
                             count,
+                            collapsed = false,
                             onClick,
                           }: {
   active: boolean;
@@ -5050,33 +5371,38 @@ function SectionNavButton({
   title: string;
   description: string;
   count?: number;
+  collapsed?: boolean;
   onClick: () => void;
 }) {
   return (
       <button
           type="button"
           onClick={onClick}
+          title={title}
           className={cn(
-              "w-full rounded-[22px] border px-4 py-4 text-left transition",
+              "w-full rounded-[22px] border transition",
+              collapsed ? "px-2 py-3 text-center" : "px-4 py-4 text-left",
               active
                   ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                   : "border-slate-200/80 bg-white/80 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/70",
           )}
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
+        <div className={cn("flex gap-3", collapsed ? "flex-col items-center justify-center" : "items-start justify-between")}>
+          <div className={cn("flex gap-3", collapsed ? "flex-col items-center" : "items-start")}>
             <div className={cn("rounded-2xl p-2", active ? "bg-white/10 dark:bg-slate-200" : "bg-slate-100 dark:bg-slate-900")}>
               <Icon className="h-4 w-4" />
             </div>
-            <div>
-              <p className="font-semibold">{title}</p>
-              <p className={cn("mt-1 text-xs leading-5", active ? "text-white/75 dark:text-slate-700" : "text-slate-500 dark:text-slate-400")}>
-                {description}
-              </p>
+            <div className={cn("min-w-0", collapsed ? "text-center" : "")}>
+              <p className={cn("font-semibold", collapsed ? "text-[11px] leading-4" : "")}>{title}</p>
+              {!collapsed ? (
+                <p className={cn("mt-1 text-xs leading-5", active ? "text-white/75 dark:text-slate-700" : "text-slate-500 dark:text-slate-400")}>
+                  {description}
+                </p>
+              ) : null}
             </div>
           </div>
           {typeof count === "number" ? (
-              <Badge className={cn("rounded-full border", active ? "border-white/20 bg-white/10 text-white dark:border-slate-300 dark:bg-slate-200 dark:text-slate-900" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
+              <Badge className={cn("rounded-full border", collapsed ? "px-2 py-0 text-[10px]" : "", active ? "border-white/20 bg-white/10 text-white dark:border-slate-300 dark:bg-slate-200 dark:text-slate-900" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
                 {count}
               </Badge>
           ) : null}

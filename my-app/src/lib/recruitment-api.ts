@@ -324,6 +324,8 @@ export interface ChatResponse {
   model_name?: string | null;
   used_skill_ids?: number[];
   used_skills?: RecruitmentSkill[];
+  used_fallback?: boolean;
+  fallback_error?: string | null;
 }
 
 export interface RecruitmentMailSenderConfig {

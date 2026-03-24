@@ -18,6 +18,7 @@ from .recruitment_models import (
     RecruitmentRuleConfig,
     RecruitmentSkill,
 )
+from .secret_crypto import encrypt_secret
 from .services.recruitment_utils import DEFAULT_RULE_CONFIGS, DEFAULT_SKILLS
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,28 @@ def _build_default_recruitment_llm_seed() -> dict:
         "model_name": (os.getenv("RECRUITMENT_LLM_MODEL") or "gpt-4o-mini").strip(),
         "base_url": (os.getenv("RECRUITMENT_LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None),
         "api_key_env": "AI_API_KEY",
+    }
+
+
+def _build_glm_template_seed() -> dict:
+    placeholder_key = "1021021902920901"
+    ciphertext = None
+    try:
+        ciphertext = encrypt_secret(placeholder_key)
+    except Exception as exc:
+        logger.warning("Failed to seed stored GLM placeholder key: %s", exc)
+
+    return {
+        "config_key": "glm-flash-template",
+        "task_type": "default",
+        "provider": "glm",
+        "model_name": (os.getenv("GLM_MODEL") or os.getenv("ZHIPUAI_MODEL") or "glm-4-flash").strip(),
+        "base_url": (os.getenv("GLM_BASE_URL") or os.getenv("ZHIPUAI_BASE_URL") or "https://open.bigmodel.cn/api/paas/v4").strip(),
+        "api_key_env": "GLM_API_KEY",
+        "api_key_ciphertext": ciphertext,
+        "extra_config_json": json.dumps({}, ensure_ascii=False),
+        "is_active": True,
+        "priority": 99,
     }
 
 
@@ -237,6 +260,19 @@ def ensure_recruitment_schema() -> None:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN output_snapshot TEXT NULL"))
             logger.info("Added recruitment_ai_task_logs.output_snapshot column")
 
+        score_columns = {column["name"]: column for column in inspector.get_columns("recruitment_candidate_scores")}
+        recommendation_column = score_columns.get("recommendation")
+        recommendation_length = None
+        if recommendation_column is not None:
+            recommendation_length = getattr(recommendation_column.get("type"), "length", None)
+        if recommendation_column is not None and recommendation_length and recommendation_length < 255:
+            if engine.dialect.name == "mysql":
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidate_scores MODIFY COLUMN recommendation VARCHAR(255) NULL"))
+                logger.info("Expanded recruitment_candidate_scores.recommendation to VARCHAR(255)")
+            else:
+                logger.info("Skipped expanding recruitment_candidate_scores.recommendation on dialect %s", engine.dialect.name)
+
         llm_columns = {column["name"] for column in inspector.get_columns("recruitment_llm_configs")}
         if "api_key_ciphertext" not in llm_columns:
             with engine.begin() as connection:
@@ -254,13 +290,14 @@ def ensure_recruitment_schema() -> None:
                 exists = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == skill["skill_code"]).first()
                 if not exists:
                     db.add(RecruitmentSkill(skill_code=skill["skill_code"], name=skill["name"], description=skill.get("description"), content=skill["content"], tags_json=json.dumps(skill.get("tags") or [], ensure_ascii=False), sort_order=skill.get("sort_order") or 99, is_enabled=True, created_by="system", updated_by="system", deleted=False))
+                elif exists.deleted:
+                    continue
                 elif (exists.updated_by or "system") == "system":
                     exists.name = skill["name"]
                     exists.description = skill.get("description")
                     exists.content = skill["content"]
                     exists.tags_json = json.dumps(skill.get("tags") or [], ensure_ascii=False)
                     exists.sort_order = skill.get("sort_order") or 99
-                    exists.deleted = False
                     exists.is_enabled = True
                     exists.updated_by = "system"
 
@@ -290,6 +327,24 @@ def ensure_recruitment_schema() -> None:
                             priority=1,
                         ),
                     )
+
+            glm_seed = _build_glm_template_seed()
+            glm_exists = db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.config_key == glm_seed["config_key"]).first()
+            if not glm_exists:
+                db.add(
+                    RecruitmentLLMConfig(
+                        config_key=glm_seed["config_key"],
+                        task_type=glm_seed["task_type"],
+                        provider=glm_seed["provider"],
+                        model_name=glm_seed["model_name"],
+                        base_url=glm_seed["base_url"],
+                        api_key_env=glm_seed["api_key_env"],
+                        api_key_ciphertext=glm_seed["api_key_ciphertext"],
+                        extra_config_json=glm_seed["extra_config_json"],
+                        is_active=glm_seed["is_active"],
+                        priority=glm_seed["priority"],
+                    ),
+                )
 
             db.commit()
 

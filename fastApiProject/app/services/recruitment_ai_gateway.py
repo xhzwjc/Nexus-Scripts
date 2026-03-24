@@ -1,6 +1,7 @@
 ﻿import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
@@ -31,6 +32,49 @@ def _strip_json_fences(value: str) -> str:
     if text.endswith("```"):
         text = text[:-3].strip()
     return text
+
+
+def _format_http_error(exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        response = exc.response
+        status = response.status_code
+        reason = response.reason_phrase or "HTTP Error"
+        body = ""
+        try:
+            body = (response.text or "").strip()
+        except Exception:
+            body = ""
+        details = _truncate(body, 1200) if body else ""
+        if details:
+            return f"{status} {reason}: {details}"
+        return f"{status} {reason}"
+
+    if isinstance(exc, httpx.RequestError):
+        request = exc.request
+        target = request.url if request else ""
+        if target:
+            return f"Request error for {target}: {exc}"
+        return f"Request error: {exc}"
+
+    return str(exc)
+
+
+def _is_retryable_error(exc: Exception) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status in {408, 409, 425, 429} or status >= 500:
+            return True
+        try:
+            body = (exc.response.text or "").strip()
+        except Exception:
+            body = ""
+        if "速率限制" in body or "rate limit" in body.lower():
+            return True
+        return False
+    if isinstance(exc, httpx.RequestError):
+        return True
+    message = str(exc or "").lower()
+    return "rate limit" in message or "速率限制" in message or "too many requests" in message
 
 
 @dataclass(frozen=True)
@@ -249,34 +293,56 @@ class RecruitmentAIGateway:
     def generate_json(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
         config = self.resolve_config(task_type)
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
-        try:
-            if config.runtime_provider == "gemini":
-                response_payload = self._call_gemini_json(config, system_prompt, user_prompt)
-            elif config.runtime_provider == "anthropic":
-                response_payload = self._call_anthropic_json(config, system_prompt, user_prompt)
-            else:
-                response_payload = self._call_openai_compatible_json(config, system_prompt, user_prompt)
-            content = response_payload["content"]
-            return {"content": content, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": False, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(content, 600), "token_usage": response_payload.get("token_usage"), "error_message": None}
-        except Exception as exc:
-            logger.warning("Recruitment JSON task %s failed, falling back: %s", task_type, exc)
-            fallback = fallback_builder()
-            return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": str(exc)}
+        max_retries = max(0, int(config.extra_config.get("max_retries") or 2))
+        retry_delay = float(config.extra_config.get("retry_delay_seconds") or 1.2)
+        last_error: Exception | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                if config.runtime_provider == "gemini":
+                    response_payload = self._call_gemini_json(config, system_prompt, user_prompt)
+                elif config.runtime_provider == "anthropic":
+                    response_payload = self._call_anthropic_json(config, system_prompt, user_prompt)
+                else:
+                    response_payload = self._call_openai_compatible_json(config, system_prompt, user_prompt)
+                content = response_payload["content"]
+                return {"content": content, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": False, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(content, 600), "token_usage": response_payload.get("token_usage"), "error_message": None}
+            except Exception as exc:
+                last_error = exc
+                if attempt < max_retries and _is_retryable_error(exc):
+                    sleep_seconds = retry_delay * (attempt + 1)
+                    logger.warning("Recruitment JSON task %s hit retryable error, retrying in %.1fs: %s", task_type, sleep_seconds, exc)
+                    time.sleep(sleep_seconds)
+                    continue
+                logger.warning("Recruitment JSON task %s failed, falling back: %s", task_type, exc)
+                break
+        fallback = fallback_builder()
+        return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure"))}
 
     def generate_text(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Callable[[], Dict[str, str]]) -> Dict[str, Any]:
         config = self.resolve_config(task_type)
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
-        try:
-            if config.runtime_provider == "gemini":
-                response_payload = self._call_gemini_text(config, system_prompt, user_prompt)
-            elif config.runtime_provider == "anthropic":
-                response_payload = self._call_anthropic_text(config, system_prompt, user_prompt)
-            else:
-                response_payload = self._call_openai_compatible_text(config, system_prompt, user_prompt)
-            content = response_payload["content"]
-            output_summary = content.get("markdown") if isinstance(content, dict) else content
-            return {"content": content, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": False, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(output_summary, 600), "token_usage": response_payload.get("token_usage"), "error_message": None}
-        except Exception as exc:
-            logger.warning("Recruitment text task %s failed, falling back: %s", task_type, exc)
-            fallback = fallback_builder()
-            return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": str(exc)}
+        max_retries = max(0, int(config.extra_config.get("max_retries") or 2))
+        retry_delay = float(config.extra_config.get("retry_delay_seconds") or 1.2)
+        last_error: Exception | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                if config.runtime_provider == "gemini":
+                    response_payload = self._call_gemini_text(config, system_prompt, user_prompt)
+                elif config.runtime_provider == "anthropic":
+                    response_payload = self._call_anthropic_text(config, system_prompt, user_prompt)
+                else:
+                    response_payload = self._call_openai_compatible_text(config, system_prompt, user_prompt)
+                content = response_payload["content"]
+                output_summary = content.get("markdown") if isinstance(content, dict) else content
+                return {"content": content, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": False, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(output_summary, 600), "token_usage": response_payload.get("token_usage"), "error_message": None}
+            except Exception as exc:
+                last_error = exc
+                if attempt < max_retries and _is_retryable_error(exc):
+                    sleep_seconds = retry_delay * (attempt + 1)
+                    logger.warning("Recruitment text task %s hit retryable error, retrying in %.1fs: %s", task_type, sleep_seconds, exc)
+                    time.sleep(sleep_seconds)
+                    continue
+                logger.warning("Recruitment text task %s failed, falling back: %s", task_type, exc)
+                break
+        fallback = fallback_builder()
+        return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure"))}

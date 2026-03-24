@@ -122,7 +122,7 @@ class RecruitmentCandidateScore(Base):
     match_percent = Column(Float)
     advantages_text = Column(Text)
     concerns_text = Column(Text)
-    recommendation = Column(String(60))
+    recommendation = Column(String(255))
     suggested_status = Column(String(50), index=True)
     manual_override_score = Column(Float)
     manual_override_reason = Column(Text)

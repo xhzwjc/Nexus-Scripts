@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import mimetypes
 from datetime import datetime, timedelta
 import re
 import uuid
@@ -36,9 +37,9 @@ from ..recruitment_models import (
 from ..secret_crypto import decrypt_secret, encrypt_secret, mask_secret
 from .recruitment_ai_gateway import RecruitmentAIGateway, get_provider_options
 from .recruitment_mailer import RecruitmentMailSenderRuntime, build_resume_email, load_attachment_from_path, send_email_via_smtp
-from .recruitment_prompts import INTERVIEW_QUESTION_SYSTEM_PROMPT, RESUME_PARSE_SYSTEM_PROMPT, RESUME_SCORE_SYSTEM_PROMPT
+from .recruitment_prompts import INTERVIEW_QUESTION_SYSTEM_PROMPT, JD_GENERATION_SYSTEM_PROMPT, RESUME_PARSE_SYSTEM_PROMPT, RESUME_SCORE_SYSTEM_PROMPT, RESUME_SCREENING_SYSTEM_PROMPT
 from .recruitment_publish_adapters import build_publish_adapter
-from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_interview_fallback, build_jd_fallback, extract_resume_structured_data, extract_resume_text, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text
+from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_interview_fallback, build_jd_structured_fallback, extract_keywords, extract_resume_structured_data, extract_resume_text, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_structured_jd, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text
 
 KNOWN_AI_TASK_TYPES = ["jd_generation", "resume_parse", "resume_score", "interview_question_generation", "chat_orchestrator", "resume_mail_dispatch", "publish_task"]
 LLM_TASK_TYPE_OPTIONS = [{"value": "default", "label": "默认模型"}, {"value": "jd_generation", "label": "JD 生成"}, {"value": "resume_parse", "label": "简历解析"}, {"value": "resume_score", "label": "简历评分"}, {"value": "interview_question_generation", "label": "面试题生成"}, {"value": "chat_orchestrator", "label": "AI 助手"}]
@@ -94,6 +95,342 @@ def _truncate_utf8_text(value: Optional[str], max_bytes: int) -> Optional[str]:
         except UnicodeDecodeError:
             clipped = clipped[:-1]
     return "..."
+
+
+def _compact_recommendation(value: Any, max_length: int = 240) -> Optional[str]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    sentence = re.split(r"[。！？!?;\n]+", text, maxsplit=1)[0].strip()
+    compact = re.sub(r"\s+", " ", sentence or text).strip()
+    if len(compact) <= max_length:
+        return compact
+    return f"{compact[: max_length - 3].rstrip()}..."
+
+
+def _parse_score_number(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if numeric != numeric:
+            return None
+        return numeric
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = re.search(r"-?\d+(?:\.\d+)?", text)
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+
+def _contains_cjk_text(value: Any) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", str(value or "")))
+
+
+def _normalize_suggested_status(value: Any) -> Optional[str]:
+    text = str(value or "").strip().lower()
+    mapping = {
+        "screening_passed": "screening_passed",
+        "pass": "screening_passed",
+        "passed": "screening_passed",
+        "interview": "screening_passed",
+        "talent_pool": "talent_pool",
+        "pool": "talent_pool",
+        "hold": "talent_pool",
+        "review": "talent_pool",
+        "screening_rejected": "screening_rejected",
+        "reject": "screening_rejected",
+        "rejected": "screening_rejected",
+        "淘汰": "screening_rejected",
+        "通过": "screening_passed",
+        "人才库": "talent_pool",
+    }
+    normalized = mapping.get(text, text)
+    return normalized if normalized in {"screening_passed", "talent_pool", "screening_rejected"} else None
+
+
+def _strip_skill_frontmatter(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.startswith("---"):
+        parts = text.split("\n---", 1)
+        if len(parts) == 2:
+            text = parts[1].lstrip("\n")
+    return text.strip()
+
+
+def _extract_markdown_block(text: str, heading: str, next_headings: Sequence[str]) -> str:
+    start = text.find(heading)
+    if start < 0:
+        return ""
+    end = len(text)
+    for marker in next_headings:
+        index = text.find(marker, start + len(heading))
+        if index >= 0:
+            end = min(end, index)
+    return text[start:end].strip()
+
+
+def _collapse_blank_lines(text: str) -> str:
+    return re.sub(r"\n{3,}", "\n\n", text or "").strip()
+
+
+def _tailor_skill_content_for_task(content: Any, task_kind: str) -> str:
+    text = _strip_skill_frontmatter(content)
+    if not text:
+        return ""
+    if "## 模块一" not in text and "## 模块二" not in text and "## 模块三" not in text:
+        return text
+
+    def normalize_line(line: str) -> str:
+        cleaned = strip_markdown(line or "").strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned
+
+    def compact_lines(block: str, *, mode: str) -> str:
+        lines: List[str] = []
+        current_section = ""
+        for line in block.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped == "---" or stripped.startswith("```"):
+                continue
+            if stripped.startswith("## ") or stripped.startswith("### "):
+                current_section = normalize_line(stripped)
+                continue
+            if stripped.startswith("|"):
+                cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+                if len(cells) >= 4 and cells[0] not in {"维度", "------"}:
+                    lines.append(f"{cells[0]}：{cells[3]}")
+                continue
+            normalized = normalize_line(stripped)
+            if not normalized:
+                continue
+            if mode == "screening":
+                if any(normalized.startswith(prefix) for prefix in ["岗位职责：", "任职要求：", "加分项：", "补充说明"]):
+                    lines.append(normalized)
+                    continue
+                if any(keyword in current_section for keyword in ["补充说明", "打分规则", "打分维度"]) and (stripped.startswith("-") or re.match(r"^\d+\.", stripped)):
+                    lines.append(normalized)
+                    continue
+            elif mode == "interview":
+                if any(keyword in normalized for keyword in ["强制出题", "软件测试不为零", "AI工具必出"]):
+                    lines.append(normalized)
+                    continue
+                if "模块二" in current_section or "面试题" in current_section:
+                    if stripped.startswith("-") or re.match(r"^\d+\.", stripped) or stripped.startswith("**"):
+                        lines.append(normalized)
+                        continue
+        return "\n".join(_dedupe_texts(lines))
+
+    module1 = _extract_markdown_block(text, "## 模块一", ["## 模块二", "## 模块三"])
+    module2 = _extract_markdown_block(text, "## 模块二", ["## 模块三"])
+    intro_end_candidates = [index for index in [text.find("## 模块一"), text.find("## 模块二"), text.find("## 模块三")] if index >= 0]
+    intro = text[: min(intro_end_candidates)] if intro_end_candidates else text
+
+    if task_kind == "screening":
+        compact_intro = compact_lines(intro, mode="screening")
+        compact_module1 = compact_lines(module1.split("### 初筛报告输出格式", 1)[0].strip() if "### 初筛报告输出格式" in module1 else module1, mode="screening")
+        return _collapse_blank_lines("\n".join(part for part in [compact_intro, compact_module1] if part.strip()))
+
+    if task_kind == "interview":
+        compact_intro = compact_lines(intro, mode="interview")
+        compact_module2 = compact_lines(module2, mode="interview")
+        return _collapse_blank_lines("\n".join(part for part in [compact_intro, compact_module2] if part.strip()))
+
+    return text
+
+
+def _unsupported_claim_labels(statement: str, raw_text: str, work_experiences: Optional[Iterable[Any]] = None) -> List[str]:
+    lowered_statement = str(statement or "").lower()
+    lowered_raw = str(raw_text or "").lower()
+    lowered_work = " ".join(str(item or "") for item in (work_experiences or [])).lower()
+    checks = [
+        ("AI 工具", ["ai工具", "ai 工具", "chatgpt", "copilot", "大模型", "aigc"], ["ai工具", "ai 工具", "chatgpt", "copilot", "大模型", "aigc"]),
+        ("自动化测试", ["自动化测试", "自动化"], ["自动化测试", "自动化", "appium", "selenium", "uiautomator", "espresso"]),
+    ]
+    result: List[str] = []
+    for label, triggers, evidences in checks:
+        if any(trigger in lowered_statement for trigger in triggers) and not any(evidence.lower() in lowered_raw for evidence in evidences):
+            result.append(label)
+    if any(trigger in lowered_statement for trigger in ["大厂", "头部企业", "头部厂商"]) and not any(
+        brand in lowered_work for brand in ["小米", "华为", "美的", "海尔", "阿里", "腾讯", "百度", "字节", "京东", "美团", "滴滴", "快手", "网易", "小红书"]
+    ):
+        result.append("大厂/头部企业")
+    return result
+
+
+def _resume_search_text(raw_text: Any) -> str:
+    return re.sub(r"\s+", " ", str(raw_text or "")).lower()
+
+
+def _resume_item_supported(item: Any, raw_text: str, *, allow_short: bool = False) -> bool:
+    text = strip_markdown(str(item or "")).strip()
+    if not text:
+        return False
+    searchable = _resume_search_text(raw_text)
+    lowered = text.lower()
+    if lowered in searchable:
+        return True
+    segments = [
+        segment.strip().lower()
+        for segment in re.split(r"[\n\r,，。；;、|/（）()]+", lowered)
+        if segment.strip()
+    ]
+    result_tokens: List[str] = []
+    generic_tokens = {
+        "负责", "相关", "经验", "能力", "项目", "工作", "参与", "支持", "协作", "测试", "研发",
+        "系统", "平台", "流程", "模块", "优化", "输出", "问题", "管理", "推动", "具备",
+    }
+
+    def push(token: str) -> None:
+        normalized = str(token or "").strip().lower()
+        normalized = normalized.strip("：:()（）[]【】,.，。；;!！?？")
+        min_length = 2 if allow_short else 3
+        if (
+            len(normalized) < min_length
+            or len(normalized) > 24
+            or normalized in result_tokens
+            or normalized in generic_tokens
+        ):
+            return
+        result_tokens.append(normalized)
+
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9+_.-]{1,24}", lowered):
+        push(token)
+    for segment in segments:
+        push(segment)
+        for token in extract_keywords(segment):
+            push(token)
+    if not result_tokens:
+        return False
+    matched = [token for token in result_tokens if token in searchable]
+    return len(matched) >= max(1, min(len(result_tokens), 2))
+
+
+def _sanitize_resume_list(ai_items: Any, raw_text: str, fallback_items: Any, *, limit: int, allow_short: bool = False) -> List[str]:
+    result: List[str] = []
+    for collection in [ai_items if isinstance(ai_items, list) else [], fallback_items if isinstance(fallback_items, list) else []]:
+        for item in collection:
+            text = strip_markdown(str(item or "")).strip()
+            if not text:
+                continue
+            if item in (ai_items if isinstance(ai_items, list) else []) and not _resume_item_supported(text, raw_text, allow_short=allow_short):
+                continue
+            if text not in result:
+                result.append(text)
+            if len(result) >= limit:
+                return result
+    return result[:limit]
+
+
+def _sanitize_resume_basic_info(ai_basic_info: Any, fallback_basic_info: Any, raw_text: str) -> Dict[str, Any]:
+    ai_info = ai_basic_info if isinstance(ai_basic_info, dict) else {}
+    fallback = dict(fallback_basic_info if isinstance(fallback_basic_info, dict) else {})
+    searchable = _resume_search_text(raw_text)
+    for field in ["name", "phone", "email", "years_of_experience", "education", "location"]:
+        value = str(ai_info.get(field) or "").strip()
+        if not value:
+            continue
+        if field in {"phone", "email"}:
+            if value.lower() in searchable:
+                fallback[field] = value
+        elif field == "name":
+            if value in str(raw_text or "") or not fallback.get(field):
+                fallback[field] = value
+        elif value.lower() in searchable or value in str(raw_text or ""):
+            fallback[field] = value
+    return fallback
+
+
+def _sanitize_ai_parsed_resume(parsed_resume: Dict[str, Any], raw_text: str, fallback_name: str) -> Dict[str, Any]:
+    normalized = _normalize_resume_parse_payload(parsed_resume)
+    raw_based = _normalize_resume_parse_payload(extract_resume_structured_data(raw_text, fallback_name))
+    return {
+        "basic_info": _sanitize_resume_basic_info(normalized.get("basic_info"), raw_based.get("basic_info"), raw_text),
+        "work_experiences": _sanitize_resume_list(normalized.get("work_experiences"), raw_text, raw_based.get("work_experiences"), limit=8),
+        "education_experiences": _sanitize_resume_list(normalized.get("education_experiences"), raw_text, raw_based.get("education_experiences"), limit=6),
+        "skills": _sanitize_resume_list(normalized.get("skills"), raw_text, raw_based.get("skills"), limit=20, allow_short=True),
+        "projects": _sanitize_resume_list(normalized.get("projects"), raw_text, raw_based.get("projects"), limit=6),
+        "summary": raw_based.get("summary") or normalized.get("summary") or "",
+        "raw_text": raw_text,
+    }
+
+
+def _normalize_resume_attachment_name(file_name: Any, file_ext: Any, fallback_stem: str) -> str:
+    normalized_name = Path(str(file_name or "").strip() or fallback_stem).name or fallback_stem
+    normalized_ext = str(file_ext or "").strip().lower()
+    if normalized_ext and not normalized_ext.startswith("."):
+        normalized_ext = f".{normalized_ext}"
+    current_ext = Path(normalized_name).suffix.lower()
+    if normalized_ext and current_ext in {"", ".bin", ".dat", ".tmp"}:
+        stem = safe_file_stem(Path(normalized_name).stem or fallback_stem) or fallback_stem
+        return f"{stem}{normalized_ext}"
+    return normalized_name
+
+
+def _resolve_resume_attachment_extension(file_name: Any, file_ext: Any, mime_type: Any) -> str:
+    normalized_name = _normalize_resume_attachment_name(file_name, file_ext, "resume")
+    extension = Path(normalized_name).suffix.lower()
+    if extension and extension not in {".bin", ".dat", ".tmp"}:
+        return extension
+    normalized_mime = str(mime_type or "").strip().lower()
+    if normalized_mime:
+        guessed_ext = mimetypes.guess_extension(normalized_mime, strict=False)
+        if guessed_ext:
+            return guessed_ext.lower()
+    normalized_ext = str(file_ext or "").strip().lower()
+    if normalized_ext:
+        return normalized_ext if normalized_ext.startswith(".") else f".{normalized_ext}"
+    return ".pdf" if normalized_mime == "application/pdf" else ".bin"
+
+
+def _normalize_resume_parse_payload(content: Any) -> Dict[str, Any]:
+    payload = content if isinstance(content, dict) else {}
+    basic_info = payload.get("basic_info") if isinstance(payload.get("basic_info"), dict) else {}
+    return {
+        "basic_info": basic_info,
+        "work_experiences": payload.get("work_experiences") if isinstance(payload.get("work_experiences"), list) else [],
+        "education_experiences": payload.get("education_experiences") if isinstance(payload.get("education_experiences"), list) else [],
+        "skills": payload.get("skills") if isinstance(payload.get("skills"), list) else [],
+        "projects": payload.get("projects") if isinstance(payload.get("projects"), list) else [],
+        "summary": str(payload.get("summary") or "").strip(),
+    }
+
+
+def _normalize_resume_score_payload(content: Any) -> Dict[str, Any]:
+    payload = content if isinstance(content, dict) else {}
+    advantages = payload.get("advantages")
+    concerns = payload.get("concerns")
+    total_score = _parse_score_number(payload.get("total_score"))
+    match_percent = _parse_score_number(payload.get("match_percent"))
+    if total_score is None and match_percent is not None:
+        total_score = match_percent
+    if match_percent is None and total_score is not None:
+        match_percent = total_score
+    if total_score is not None:
+        total_score = max(0.0, min(100.0, total_score))
+    if match_percent is not None:
+        match_percent = max(0.0, min(100.0, match_percent))
+    return {
+        "total_score": total_score,
+        "match_percent": match_percent,
+        "advantages": advantages if isinstance(advantages, list) else [],
+        "concerns": concerns if isinstance(concerns, list) else [],
+        "recommendation": str(payload.get("recommendation") or "").strip(),
+        "suggested_status": _normalize_suggested_status(payload.get("suggested_status")),
+    }
+
+
+def _has_resume_parse_content(content: Any) -> bool:
+    return isinstance(content, dict) and any(key in content for key in ["basic_info", "work_experiences", "education_experiences", "skills", "projects", "summary"])
+
+
+def _has_resume_score_content(content: Any) -> bool:
+    return isinstance(content, dict) and any(key in content for key in ["total_score", "match_percent", "advantages", "concerns", "recommendation", "suggested_status"])
 
 
 class RecruitmentService:
@@ -291,6 +628,15 @@ class RecruitmentService:
             )
         return snapshots
 
+    def _tailor_skill_snapshots_for_task(self, skill_snapshots: Sequence[Dict[str, Any]], task_kind: str) -> List[Dict[str, Any]]:
+        tailored: List[Dict[str, Any]] = []
+        for item in skill_snapshots:
+            snapshot = dict(item)
+            if snapshot.get("skill_code") != "custom-hard-requirement":
+                snapshot["content"] = _tailor_skill_content_for_task(snapshot.get("content"), task_kind)
+            tailored.append(snapshot)
+        return tailored
+
     def _extract_related_skill_ids(self, skill_snapshots: Sequence[Dict[str, Any]]) -> List[int]:
         ids: List[int] = []
         for skill in skill_snapshots:
@@ -426,9 +772,10 @@ class RecruitmentService:
         self.db.refresh(row)
         return self._serialize_skill(row)
 
-    def delete_skill(self, skill_id: int) -> None:
+    def delete_skill(self, skill_id: int, actor_id: str) -> None:
         row = self._get_skill(skill_id)
         row.deleted = True
+        row.updated_by = actor_id
         self.db.add(row)
         self.db.commit()
 
@@ -538,7 +885,10 @@ class RecruitmentService:
             self.db.add(candidate)
             self.db.flush()
             candidate.candidate_code = f"CAD-{candidate.id:05d}"
-            resume_file = RecruitmentResumeFile(candidate_id=candidate.id, original_name=file_name, stored_name=stored_name, file_ext=ext, mime_type=item.get("content_type") or None, file_size=len(item.get("content") or b""), storage_path=str(storage_path), parse_status="pending", uploaded_by=actor_id)
+            upload_mime_type = str(item.get("content_type") or "").strip()
+            if not upload_mime_type or upload_mime_type in {"application/octet-stream", "binary/octet-stream"}:
+                upload_mime_type = mimetypes.guess_type(file_name)[0] or None
+            resume_file = RecruitmentResumeFile(candidate_id=candidate.id, original_name=file_name, stored_name=stored_name, file_ext=ext, mime_type=upload_mime_type or None, file_size=len(item.get("content") or b""), storage_path=str(storage_path), parse_status="pending", uploaded_by=actor_id)
             self.db.add(resume_file)
             self.db.flush()
             candidate.latest_resume_file_id = resume_file.id
@@ -565,6 +915,207 @@ class RecruitmentService:
                 return memory_rows, workflow.screening_memory_source or "candidate_memory"
         enabled_rows = self._load_enabled_skills()
         return enabled_rows, "global"
+
+    def _get_position_screening_payload(self, candidate: RecruitmentCandidate) -> Optional[Dict[str, Any]]:
+        position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == candidate.position_id, RecruitmentPosition.deleted.is_(False)).first() if candidate.position_id else None
+        if not position:
+            return None
+        return {
+            "title": position.title,
+            "department": position.department,
+            "location": position.location,
+            "employment_type": position.employment_type,
+            "salary_range": position.salary_range,
+            "key_requirements": position.key_requirements,
+            "bonus_points": position.bonus_points,
+            "summary": position.summary,
+        }
+
+    def _save_score_result(self, candidate: RecruitmentCandidate, parse_row: RecruitmentResumeParseResult, actor_id: str, content: Dict[str, Any]) -> RecruitmentCandidateScore:
+        payload = content if isinstance(content, dict) else {}
+        normalized = _normalize_resume_score_payload(payload)
+        score_row = RecruitmentCandidateScore(
+            candidate_id=candidate.id,
+            parse_result_id=parse_row.id,
+            score_json=json_dumps_safe(payload),
+            total_score=normalized.get("total_score"),
+            match_percent=normalized.get("match_percent"),
+            advantages_text="\n".join(normalized.get("advantages") or []),
+            concerns_text="\n".join(normalized.get("concerns") or []),
+            recommendation=_compact_recommendation(normalized.get("recommendation")),
+            suggested_status=normalized.get("suggested_status"),
+            created_at=None,
+        )
+        self.db.add(score_row)
+        self.db.flush()
+        candidate.latest_score_id = score_row.id
+        candidate.match_percent = normalized.get("match_percent")
+        candidate.ai_recommended_status = normalized.get("suggested_status")
+        candidate.updated_by = actor_id
+        self.db.add(candidate)
+        return score_row
+
+    def _finalize_score_payload(self, *, candidate: RecruitmentCandidate, parsed_payload: Dict[str, Any], model_payload: Dict[str, Any], weights: Dict[str, Any], status_rules: Dict[str, Any], skill_snapshots: Sequence[Dict[str, Any]]) -> Tuple[Dict[str, Any], bool, Optional[str]]:
+        position_or_candidate = self._get_position(candidate.position_id) if candidate.position_id else candidate
+        normalized_model = _normalize_resume_score_payload(model_payload)
+        fallback_payload = score_candidate_fallback(position_or_candidate, parsed_payload, weights, status_rules, skill_snapshots)
+        normalized_fallback = _normalize_resume_score_payload(fallback_payload)
+        raw_text = str(parsed_payload.get("raw_text") or "")
+        work_experiences = parsed_payload.get("work_experiences") or []
+        text_blocks = [normalized_model.get("recommendation") or "", *[str(item or "") for item in normalized_model.get("advantages") or []], *[str(item or "") for item in normalized_model.get("concerns") or []]]
+        combined_text = " ".join([text for text in text_blocks if text]).strip()
+        expects_chinese = _contains_cjk_text(getattr(position_or_candidate, "title", "")) or any(_contains_cjk_text(skill.get("name")) or _contains_cjk_text(skill.get("content")) for skill in skill_snapshots)
+        repair_reason: Optional[str] = None
+        unsupported_labels: List[str] = []
+        for statement in [*[str(item or "") for item in normalized_model.get("advantages") or []], *[str(item or "") for item in normalized_model.get("concerns") or []], str(normalized_model.get("recommendation") or "")]:
+            unsupported_labels.extend(_unsupported_claim_labels(statement, raw_text, work_experiences))
+        unsupported_labels = _dedupe_texts(unsupported_labels)
+        if normalized_model.get("total_score") is None or normalized_model.get("match_percent") is None:
+            repair_reason = "模型未返回完整分数"
+        elif normalized_model.get("suggested_status") is None:
+            repair_reason = "模型未返回合法推荐状态"
+        elif not normalized_model.get("advantages") and not normalized_model.get("concerns"):
+            repair_reason = "模型未返回有效优劣势"
+        elif unsupported_labels:
+            repair_reason = f"模型输出包含无原文依据的结论：{'、'.join(unsupported_labels)}"
+        elif normalized_model.get("match_percent", 0) <= 0 and (combined_text or normalized_model.get("suggested_status")):
+            repair_reason = "模型返回了异常低分"
+        elif normalized_model.get("suggested_status") in {"screening_passed", "talent_pool"} and normalized_model.get("match_percent", 0) < 30:
+            repair_reason = "模型分数与建议状态不一致"
+        elif expects_chinese and combined_text and not _contains_cjk_text(combined_text):
+            repair_reason = "模型结果未按中文招聘场景输出"
+
+        if repair_reason:
+            repaired_payload = dict(fallback_payload)
+            repaired_payload["repair_reason"] = repair_reason
+            return repaired_payload, True, repair_reason
+
+        finalized_payload = dict(model_payload)
+        finalized_payload["total_score"] = normalized_model.get("total_score")
+        finalized_payload["match_percent"] = normalized_model.get("match_percent")
+        finalized_payload["advantages"] = normalized_model.get("advantages") or []
+        finalized_payload["concerns"] = normalized_model.get("concerns") or []
+        finalized_payload["suggested_status"] = normalized_model.get("suggested_status")
+        finalized_payload["recommendation"] = _compact_recommendation(normalized_model.get("recommendation")) or normalized_fallback.get("recommendation")
+        return finalized_payload, False, None
+
+    def _build_resume_screening_prompt(self, *, candidate: RecruitmentCandidate, raw_text: str, skill_snapshots: Sequence[Dict[str, Any]], custom_requirements: str, weights: Dict[str, Any], status_rules: Dict[str, Any]) -> str:
+        return json_dumps_safe({
+            "candidate_name": candidate.name,
+            "position": self._get_position_screening_payload(candidate),
+            "resume_text": raw_text[:30000],
+            "weights": weights,
+            "status_rules": status_rules,
+            "custom_requirements": custom_requirements or None,
+            "skills": [
+                {
+                    "id": skill.get("id"),
+                    "name": skill.get("name"),
+                    "description": skill.get("description"),
+                    "content": truncate_text(skill.get("content") or "", 12000),
+                }
+                for skill in skill_snapshots
+            ],
+        })
+
+    def _build_combined_screening_fallback(self, *, candidate: RecruitmentCandidate, raw_text: str, weights: Dict[str, Any], status_rules: Dict[str, Any], skill_snapshots: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+        parsed_resume = extract_resume_structured_data(raw_text, candidate.name)
+        score = score_candidate_fallback(self._get_position(candidate.position_id) if candidate.position_id else candidate, parsed_resume, weights, status_rules, skill_snapshots)
+        return {"parsed_resume": parsed_resume, "score": score}
+
+    def _get_current_parse_result(self, candidate: RecruitmentCandidate) -> Optional[RecruitmentResumeParseResult]:
+        if not candidate.latest_parse_result_id or not candidate.latest_resume_file_id:
+            return None
+        parse_row = self.db.query(RecruitmentResumeParseResult).filter(RecruitmentResumeParseResult.id == candidate.latest_parse_result_id).first()
+        if not parse_row:
+            return None
+        if parse_row.resume_file_id != candidate.latest_resume_file_id:
+            return None
+        if parse_row.status != "success":
+            return None
+        return parse_row
+
+    def _screen_candidate_with_single_ai_call(self, candidate: RecruitmentCandidate, actor_id: str, skill_rows: Sequence[RecruitmentSkill], memory_source: str, custom_requirements: str = "") -> Tuple[RecruitmentResumeParseResult, RecruitmentCandidateScore]:
+        if not candidate.latest_resume_file_id:
+            raise ValueError("鎿嶄綔澶辫触")
+        resume_file = self._get_resume_file(candidate.latest_resume_file_id)
+        resume_file.parse_status = "processing"
+        self.db.add(resume_file)
+        self.db.commit()
+        raw_text = extract_resume_text(Path(resume_file.storage_path), resume_file.file_ext or "")
+        weights = self._get_rule_config("resume_score_weights", DEFAULT_RULE_CONFIGS["resume_score_weights"])
+        status_rules = self._get_rule_config("default_status_rules", DEFAULT_RULE_CONFIGS["default_status_rules"])
+        skill_snapshots = self._tailor_skill_snapshots_for_task(self._build_skill_snapshots(skill_rows, custom_requirements, custom_name="附加初筛要求"), "screening")
+        related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
+        prompt = self._build_resume_screening_prompt(
+            candidate=candidate,
+            raw_text=raw_text,
+            skill_snapshots=skill_snapshots,
+            custom_requirements=custom_requirements,
+            weights=weights,
+            status_rules=status_rules,
+        )
+        request_hash = self._build_request_hash("resume_screening", candidate.id, resume_file.id, related_skill_ids, memory_source, custom_requirements)
+        log_row = self._create_ai_task_log("resume_score", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=resume_file.id, memory_source=memory_source, request_hash=request_hash)
+        self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在执行简历解析与初筛评分")
+        task = self.ai_gateway.generate_json(
+            task_type="resume_score",
+            system_prompt=RESUME_SCREENING_SYSTEM_PROMPT,
+            user_prompt=prompt,
+            fallback_builder=lambda: self._build_combined_screening_fallback(candidate=candidate, raw_text=raw_text, weights=weights, status_rules=status_rules, skill_snapshots=skill_snapshots),
+        )
+        content = task.get("content") or {}
+        parse_candidate = content.get("parsed_resume") if isinstance(content, dict) else None
+        if not _has_resume_parse_content(parse_candidate) and _has_resume_parse_content(content):
+            parse_candidate = content
+        parsed_resume = _normalize_resume_parse_payload(parse_candidate)
+        parsed_resume = _sanitize_ai_parsed_resume(parsed_resume, raw_text, candidate.name)
+        score_candidate = content.get("score") if isinstance(content, dict) else None
+        if not _has_resume_score_content(score_candidate) and _has_resume_score_content(content):
+            score_candidate = content
+        raw_score_payload = score_candidate if isinstance(score_candidate, dict) else {}
+        score_payload, score_repaired, repair_reason = self._finalize_score_payload(
+            candidate=candidate,
+            parsed_payload=parsed_resume,
+            model_payload=raw_score_payload,
+            weights=weights,
+            status_rules=status_rules,
+            skill_snapshots=skill_snapshots,
+        )
+        parse_row = RecruitmentResumeParseResult(
+            candidate_id=candidate.id,
+            resume_file_id=resume_file.id,
+            raw_text=raw_text,
+            basic_info_json=json_dumps_safe(parsed_resume.get("basic_info") or {}),
+            work_experiences_json=json_dumps_safe(parsed_resume.get("work_experiences") or []),
+            education_experiences_json=json_dumps_safe(parsed_resume.get("education_experiences") or []),
+            skills_json=json_dumps_safe(parsed_resume.get("skills") or []),
+            projects_json=json_dumps_safe(parsed_resume.get("projects") or []),
+            summary_text=parsed_resume.get("summary") or "",
+            status="success",
+            error_message=task.get("error_message"),
+        )
+        self.db.add(parse_row)
+        self.db.flush()
+        basic_info = parsed_resume.get("basic_info") or {}
+        candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
+        candidate.phone = basic_info.get("phone") or candidate.phone
+        candidate.email = basic_info.get("email") or candidate.email
+        candidate.years_of_experience = basic_info.get("years_of_experience") or candidate.years_of_experience
+        candidate.education = basic_info.get("education") or candidate.education
+        candidate.latest_parse_result_id = parse_row.id
+        candidate.updated_by = actor_id
+        resume_file.parse_status = "success"
+        resume_file.parse_error = task.get("error_message")
+        self.db.add(candidate)
+        self.db.add(resume_file)
+        score_row = self._save_score_result(candidate, parse_row, actor_id, score_payload)
+        self.db.commit()
+        self.db.refresh(parse_row)
+        self.db.refresh(score_row)
+        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"parsed_resume": parsed_resume, "score": score_payload, "raw": content, "score_repaired": score_repaired, "repair_reason": repair_reason}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+        return parse_row, score_row
+
     def _parse_latest_resume(self, candidate: RecruitmentCandidate, actor_id: str) -> RecruitmentResumeParseResult:
         if not candidate.latest_resume_file_id:
             raise ValueError("鎿嶄綔澶辫触")
@@ -579,10 +1130,11 @@ class RecruitmentService:
         self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(raw_text, 600), output_summary="正在解析简历文本")
         task = self.ai_gateway.generate_json(task_type="resume_parse", system_prompt=RESUME_PARSE_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: extract_resume_structured_data(raw_text, candidate.name))
         content = task.get("content") or {}
-        parse_row = RecruitmentResumeParseResult(candidate_id=candidate.id, resume_file_id=resume_file.id, raw_text=raw_text, basic_info_json=json_dumps_safe(content.get("basic_info") or {}), work_experiences_json=json_dumps_safe(content.get("work_experiences") or []), education_experiences_json=json_dumps_safe(content.get("education_experiences") or []), skills_json=json_dumps_safe(content.get("skills") or []), projects_json=json_dumps_safe(content.get("projects") or []), summary_text=content.get("summary") or "", status="success", error_message=task.get("error_message"))
+        sanitized_resume = _sanitize_ai_parsed_resume(content if isinstance(content, dict) else {}, raw_text, candidate.name)
+        parse_row = RecruitmentResumeParseResult(candidate_id=candidate.id, resume_file_id=resume_file.id, raw_text=raw_text, basic_info_json=json_dumps_safe(sanitized_resume.get("basic_info") or {}), work_experiences_json=json_dumps_safe(sanitized_resume.get("work_experiences") or []), education_experiences_json=json_dumps_safe(sanitized_resume.get("education_experiences") or []), skills_json=json_dumps_safe(sanitized_resume.get("skills") or []), projects_json=json_dumps_safe(sanitized_resume.get("projects") or []), summary_text=sanitized_resume.get("summary") or "", status="success", error_message=task.get("error_message"))
         self.db.add(parse_row)
         self.db.flush()
-        basic_info = content.get("basic_info") or {}
+        basic_info = sanitized_resume.get("basic_info") or {}
         candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
         candidate.phone = basic_info.get("phone") or candidate.phone
         candidate.email = basic_info.get("email") or candidate.email
@@ -604,25 +1156,26 @@ class RecruitmentService:
         parsed_payload = self._serialize_parse_result(parse_row)
         weights = self._get_rule_config("resume_score_weights", DEFAULT_RULE_CONFIGS["resume_score_weights"])
         status_rules = self._get_rule_config("default_status_rules", DEFAULT_RULE_CONFIGS["default_status_rules"])
-        skill_snapshots = self._build_skill_snapshots(skill_rows, custom_requirements, custom_name="附加初筛要求")
+        skill_snapshots = self._tailor_skill_snapshots_for_task(self._build_skill_snapshots(skill_rows, custom_requirements, custom_name="附加初筛要求"), "screening")
         related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
-        prompt = json_dumps_safe({"position": None if not position else {"title": position.title, "department": position.department, "location": position.location, "employment_type": position.employment_type, "salary_range": position.salary_range, "key_requirements": position.key_requirements, "bonus_points": position.bonus_points, "summary": position.summary}, "parsed_resume": parsed_payload, "weights": weights, "status_rules": status_rules, "custom_requirements": custom_requirements or None, "skills": [{"id": skill.get("id"), "name": skill.get("name"), "description": skill.get("description"), "content": truncate_text(skill.get("content") or "", 1200)} for skill in skill_snapshots]})
+        prompt = json_dumps_safe({"position": None if not position else {"title": position.title, "department": position.department, "location": position.location, "employment_type": position.employment_type, "salary_range": position.salary_range, "key_requirements": position.key_requirements, "bonus_points": position.bonus_points, "summary": position.summary}, "parsed_resume": parsed_payload, "weights": weights, "status_rules": status_rules, "custom_requirements": custom_requirements or None, "skills": [{"id": skill.get("id"), "name": skill.get("name"), "description": skill.get("description"), "content": truncate_text(skill.get("content") or "", 12000)} for skill in skill_snapshots]})
         request_hash = self._build_request_hash("resume_score", candidate.id, parse_row.id, related_skill_ids, memory_source, custom_requirements)
         log_row = self._create_ai_task_log("resume_score", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=parse_row.resume_file_id, memory_source=memory_source, request_hash=request_hash)
         self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在根据岗位与 Skills 进行初筛评分")
         task = self.ai_gateway.generate_json(task_type="resume_score", system_prompt=RESUME_SCORE_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: score_candidate_fallback(position or candidate, parsed_payload, weights, status_rules, skill_snapshots))
-        content = task.get("content") or {}
-        score_row = RecruitmentCandidateScore(candidate_id=candidate.id, parse_result_id=parse_row.id, score_json=json_dumps_safe(content), total_score=content.get("total_score"), match_percent=content.get("match_percent"), advantages_text="\n".join(content.get("advantages") or []), concerns_text="\n".join(content.get("concerns") or []), recommendation=content.get("recommendation"), suggested_status=content.get("suggested_status"), created_at=None)
-        self.db.add(score_row)
-        self.db.flush()
-        candidate.latest_score_id = score_row.id
-        candidate.match_percent = content.get("match_percent")
-        candidate.ai_recommended_status = content.get("suggested_status")
-        candidate.updated_by = actor_id
-        self.db.add(candidate)
+        raw_score_payload = task.get("content") or {}
+        score_payload, score_repaired, repair_reason = self._finalize_score_payload(
+            candidate=candidate,
+            parsed_payload=parsed_payload,
+            model_payload=raw_score_payload if isinstance(raw_score_payload, dict) else {},
+            weights=weights,
+            status_rules=status_rules,
+            skill_snapshots=skill_snapshots,
+        )
+        score_row = self._save_score_result(candidate, parse_row, actor_id, score_payload)
         self.db.commit()
         self.db.refresh(score_row)
-        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot=content, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"score": score_payload, "raw": raw_score_payload, "score_repaired": score_repaired, "repair_reason": repair_reason}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
         return score_row
 
     def trigger_latest_parse(self, candidate_id: int, actor_id: str) -> Dict[str, Any]:
@@ -631,17 +1184,21 @@ class RecruitmentService:
 
     def trigger_latest_score(self, candidate_id: int, actor_id: str) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
-        parse_row = self.db.query(RecruitmentResumeParseResult).filter(RecruitmentResumeParseResult.id == candidate.latest_parse_result_id).first() if candidate.latest_parse_result_id else None
-        if not parse_row:
-            parse_row = self._parse_latest_resume(candidate, actor_id)
         skill_rows, memory_source = self._resolve_screening_skills(candidate, [], use_position_skills=True, use_candidate_memory=True)
+        parse_row = self._get_current_parse_result(candidate)
+        if not parse_row:
+            _parse_row, score_row = self._screen_candidate_with_single_ai_call(candidate, actor_id, skill_rows, memory_source, "")
+            return self._serialize_score(score_row)
         return self._serialize_score(self._score_candidate(candidate, parse_row, actor_id, skill_rows, memory_source, ""))
 
     def screen_candidate(self, candidate_id: int, actor_id: str, skill_ids: Optional[Iterable[Any]] = None, use_position_skills: bool = True, use_candidate_memory: bool = True, custom_requirements: str = "") -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
-        parse_row = self._parse_latest_resume(candidate, actor_id)
         skill_rows, memory_source = self._resolve_screening_skills(candidate, skill_ids, use_position_skills=use_position_skills, use_candidate_memory=use_candidate_memory)
-        score_row = self._score_candidate(candidate, parse_row, actor_id, skill_rows, memory_source, custom_requirements)
+        parse_row = self._get_current_parse_result(candidate)
+        if parse_row:
+            score_row = self._score_candidate(candidate, parse_row, actor_id, skill_rows, memory_source, custom_requirements)
+        else:
+            parse_row, score_row = self._screen_candidate_with_single_ai_call(candidate, actor_id, skill_rows, memory_source, custom_requirements)
         position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == candidate.position_id, RecruitmentPosition.deleted.is_(False)).first() if candidate.position_id else None
         workflow = self._get_or_create_workflow_memory(candidate, actor_id)
         workflow.position_id = candidate.position_id
@@ -665,11 +1222,11 @@ class RecruitmentService:
         self.db.commit()
         return self.get_candidate_detail(candidate.id)
 
-    def _resolve_interview_skills(self, candidate: RecruitmentCandidate, explicit_skill_ids: Optional[Iterable[Any]], *, use_candidate_memory: bool = True) -> Tuple[List[RecruitmentSkill], str]:
+    def _resolve_interview_skills(self, candidate: RecruitmentCandidate, explicit_skill_ids: Optional[Iterable[Any]], *, use_candidate_memory: bool = True, use_position_skills: bool = True) -> Tuple[List[RecruitmentSkill], str]:
         manual_rows = self._load_skill_rows(explicit_skill_ids or [], enabled_only=True)
         if manual_rows:
             return manual_rows, "manual"
-        position_rows = self._get_position_skill_rows(candidate.position_id)
+        position_rows = self._get_position_skill_rows(candidate.position_id) if use_position_skills else []
         if position_rows:
             return position_rows, "position"
         workflow = self._get_workflow_memory(candidate.id)
@@ -680,17 +1237,17 @@ class RecruitmentService:
                 return memory_rows, workflow.screening_memory_source or "candidate_memory"
         return self._load_enabled_skills(), "global"
 
-    def _build_interview_skill_prompt_block(self, skill_rows: Sequence[RecruitmentSkill]) -> str:
-        if not skill_rows:
+    def _build_interview_skill_prompt_block(self, skill_snapshots: Sequence[Dict[str, Any]]) -> str:
+        if not skill_snapshots:
             return "No active skills."
         blocks: List[str] = []
-        for index, skill in enumerate(skill_rows, 1):
-            blocks.append("\n".join([f"[SKILL {index}]", f"id: {skill.id}", f"name: {skill.name}", f"description: {skill.description or 'N/A'}", "content:", truncate_text(skill.content or '', 3000)]))
+        for index, skill in enumerate(skill_snapshots, 1):
+            blocks.append("\n".join([f"[SKILL {index}]", f"id: {skill.get('id')}", f"name: {skill.get('name')}", f"description: {skill.get('description') or 'N/A'}", "content:", truncate_text(skill.get('content') or '', 12000)]))
         return "\n\n".join(blocks)
 
-    def _build_interview_question_prompt(self, *, candidate_payload: Dict[str, Any], position_payload: Optional[Dict[str, Any]], workflow_payload: Optional[Dict[str, Any]], round_name: str, custom_requirements: str, skill_rows: Sequence[RecruitmentSkill], memory_source: str) -> str:
-        structured_payload = {"candidate": candidate_payload, "position": position_payload, "workflow_memory": workflow_payload, "round_name": round_name, "custom_requirements": custom_requirements or None, "memory_source": memory_source, "skills": [{"id": skill.id, "name": skill.name, "description": skill.description, "content": truncate_text(skill.content or '', 3000)} for skill in skill_rows]}
-        skill_names = "、".join([skill.name for skill in skill_rows]) if skill_rows else "无"
+    def _build_interview_question_prompt(self, *, candidate_payload: Dict[str, Any], position_payload: Optional[Dict[str, Any]], workflow_payload: Optional[Dict[str, Any]], round_name: str, custom_requirements: str, skill_snapshots: Sequence[Dict[str, Any]], memory_source: str) -> str:
+        structured_payload = {"candidate": candidate_payload, "position": position_payload, "workflow_memory": workflow_payload, "round_name": round_name, "custom_requirements": custom_requirements or None, "memory_source": memory_source, "skills": [{"id": skill.get("id"), "name": skill.get("name"), "description": skill.get("description"), "content": truncate_text(skill.get("content") or '', 12000)} for skill in skill_snapshots]}
+        skill_names = "、".join([str(skill.get("name") or "") for skill in skill_snapshots]) if skill_snapshots else "无"
         return "\n\n".join([
             "TASK: 为候选人生成一套严格贴合 ACTIVE_SKILLS 的面试题。",
             "PRIORITY_RULES:",
@@ -703,26 +1260,26 @@ class RecruitmentService:
             f"MEMORY_SOURCE: {memory_source or 'unknown'}",
             f"ACTIVE_SKILL_NAMES: {skill_names}",
             "ACTIVE_SKILL_DETAILS:",
-            self._build_interview_skill_prompt_block(skill_rows),
+            self._build_interview_skill_prompt_block(skill_snapshots),
             "STRUCTURED_CONTEXT_JSON:",
             json_dumps_safe(structured_payload),
         ])
 
-    def generate_interview_questions(self, candidate_id: int, round_name: str, custom_requirements: str, skill_ids: Optional[Iterable[Any]], actor_id: str, use_candidate_memory: bool = True) -> Dict[str, Any]:
+    def generate_interview_questions(self, candidate_id: int, round_name: str, custom_requirements: str, skill_ids: Optional[Iterable[Any]], actor_id: str, use_candidate_memory: bool = True, use_position_skills: bool = True) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
         position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == candidate.position_id, RecruitmentPosition.deleted.is_(False)).first() if candidate.position_id else None
         workflow = self._get_workflow_memory(candidate.id)
-        skill_rows, memory_source = self._resolve_interview_skills(candidate, skill_ids, use_candidate_memory=use_candidate_memory)
-        skill_snapshots = self._build_skill_snapshots(skill_rows)
+        skill_rows, memory_source = self._resolve_interview_skills(candidate, skill_ids, use_candidate_memory=use_candidate_memory, use_position_skills=use_position_skills)
+        skill_snapshots = self._tailor_skill_snapshots_for_task(self._build_skill_snapshots(skill_rows), "interview")
         related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
         candidate_payload = self._serialize_candidate_summary(candidate)
         position_payload = None if not position else self._serialize_position(position)
         workflow_payload = self._serialize_workflow_memory(workflow) if workflow else None
-        prompt = self._build_interview_question_prompt(candidate_payload=candidate_payload, position_payload=position_payload, workflow_payload=workflow_payload, round_name=round_name, custom_requirements=custom_requirements, skill_rows=skill_rows, memory_source=memory_source)
+        prompt = self._build_interview_question_prompt(candidate_payload=candidate_payload, position_payload=position_payload, workflow_payload=workflow_payload, round_name=round_name, custom_requirements=custom_requirements, skill_snapshots=skill_snapshots, memory_source=memory_source)
         request_hash = self._build_request_hash("interview_question_generation", candidate.id, round_name, custom_requirements, related_skill_ids, memory_source)
         log_row = self._create_ai_task_log("interview_question_generation", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, memory_source=memory_source, request_hash=request_hash)
         self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成面试题")
-        task = self.ai_gateway.generate_json(task_type="interview_question_generation", system_prompt=INTERVIEW_QUESTION_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: build_interview_fallback(candidate.name, position.title if position else "当前岗位", round_name, [{"name": skill.name, "description": skill.description, "content": truncate_text(skill.content, 1200)} for skill in skill_rows], custom_requirements))
+        task = self.ai_gateway.generate_json(task_type="interview_question_generation", system_prompt=INTERVIEW_QUESTION_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: build_interview_fallback(candidate.name, position.title if position else "当前岗位", round_name, skill_snapshots, custom_requirements))
         content = task.get("content") or {}
         markdown = str(content.get("markdown") or "").strip()
         html = str(content.get("html") or "").strip()
@@ -756,7 +1313,10 @@ class RecruitmentService:
         path = Path(resume_file.storage_path)
         if not path.exists():
             raise ValueError("鎿嶄綔澶辫触")
-        return {"file_name": resume_file.original_name, "content": path.read_bytes(), "media_type": resume_file.mime_type or "application/octet-stream"}
+        media_type = (resume_file.mime_type or "").strip()
+        if not media_type or media_type in {"application/octet-stream", "binary/octet-stream"}:
+            media_type = mimetypes.guess_type(resume_file.original_name or "")[0] or "application/octet-stream"
+        return {"file_name": resume_file.original_name, "content": path.read_bytes(), "media_type": media_type}
     def generate_jd(self, position_id: int, extra_prompt: str, actor_id: str, auto_activate: bool = True) -> Dict[str, Any]:
         position = self._get_position(position_id)
         skill_rows = self._get_position_skill_rows(position.id)
@@ -765,15 +1325,17 @@ class RecruitmentService:
         request_hash = self._build_request_hash("jd_generation", position.id, extra_prompt, related_skill_ids)
         log_row = self._create_ai_task_log("jd_generation", created_by=actor_id, related_position_id=position.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, request_hash=request_hash)
         prompt = json_dumps_safe({"position": self._serialize_position(position), "skills": [{"id": skill.id, "name": skill.name, "description": skill.description, "content": truncate_text(skill.content, 800)} for skill in skill_rows], "extra_prompt": extra_prompt or None})
-        task = self.ai_gateway.generate_text(task_type="jd_generation", system_prompt="You are a recruitment JD generation assistant. Return practical Chinese markdown only, with no code fences.", user_prompt=prompt, fallback_builder=lambda: build_jd_fallback(position))
+        task = self.ai_gateway.generate_json(
+            task_type="jd_generation",
+            system_prompt=JD_GENERATION_SYSTEM_PROMPT,
+            user_prompt=prompt,
+            fallback_builder=lambda: build_jd_structured_fallback(position),
+        )
         content = task.get("content") or {}
-        markdown = str(content.get("markdown") or "").strip()
-        html = str(content.get("html") or "").strip()
-        if not markdown and html:
-            markdown = strip_markdown(html)
-        if not html and markdown:
-            html = markdown_to_html(markdown)
-        publish_text = strip_markdown(markdown) or render_publish_ready_jd({"title": position.title, "summary": markdown})
+        structured = normalize_structured_jd(content if isinstance(content, dict) else {}, position)
+        markdown = render_jd_markdown_source(structured)
+        html = markdown_to_html(markdown)
+        publish_text = render_publish_ready_jd(structured)
         version_no = (self.db.query(func.max(RecruitmentJDVersion.version_no)).filter(RecruitmentJDVersion.position_id == position.id).scalar() or 0) + 1
         row = RecruitmentJDVersion(position_id=position.id, version_no=version_no, title=f"{position.title} V{version_no}", prompt_snapshot=task.get("prompt_snapshot"), jd_markdown=markdown, jd_html=html, publish_text=publish_text, notes=extra_prompt or None, is_active=bool(auto_activate), created_by=actor_id)
         self.db.add(row)
@@ -785,7 +1347,7 @@ class RecruitmentService:
             self.db.add(position)
         self.db.commit()
         self.db.refresh(row)
-        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot=content, error_message=task.get("error_message"), token_usage=task.get("token_usage"), related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
         return self._serialize_jd_version(row)
 
     def save_jd_version(self, position_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
@@ -986,7 +1548,12 @@ class RecruitmentService:
             if not candidate.latest_resume_file_id:
                 continue
             resume_file = self._get_resume_file(candidate.latest_resume_file_id)
-            attachments.append(load_attachment_from_path(resume_file.storage_path, resume_file.original_name, resume_file.mime_type))
+            attachment_name = _normalize_resume_attachment_name(
+                resume_file.original_name,
+                resume_file.file_ext,
+                f"resume-{candidate.id}",
+            )
+            attachments.append(load_attachment_from_path(resume_file.storage_path, attachment_name, resume_file.mime_type))
         dispatch.attachment_count = len(attachments)
         self.db.add(dispatch)
         self.db.commit()
@@ -1305,25 +1872,25 @@ class RecruitmentService:
             used_skill_snapshots = self._get_chat_skill_snapshots(current_context)
             reply = f"当前 AI 助手使用的模型是 {resolved.provider} / {resolved.model_name}。如果你想切换模型，可以到“管理设置 -> 模型配置”里把对应模型设为当前使用。"
             log_row = self._record_chat_reply(user_id=user_id, message=message, current_context=current_context, reply=reply, model_provider=resolved.provider, model_name=resolved.model_name, memory_source="manual", used_skill_snapshots=used_skill_snapshots)
-            return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "manual", "model_provider": resolved.provider, "model_name": resolved.model_name, "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots}
+            return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "manual", "model_provider": resolved.provider, "model_name": resolved.model_name, "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots, "used_fallback": False, "fallback_error": None}
         if any(keyword in lower_message for keyword in switch_keywords):
             used_skill_snapshots = self._get_chat_skill_snapshots(current_context)
             reply = "要切换到新模型，请打开“管理设置 -> 模型配置”，找到对应任务类型下的模型，点击“设为当前使用”。系统会按 priority 从小到大路由，所以设为当前使用后，该模型会排到当前任务的最高优先级。"
             log_row = self._record_chat_reply(user_id=user_id, message=message, current_context=current_context, reply=reply, model_provider="system", model_name="structured-router", memory_source="manual", used_skill_snapshots=used_skill_snapshots)
-            return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "manual", "model_provider": "system", "model_name": "structured-router", "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots}
+            return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "manual", "model_provider": "system", "model_name": "structured-router", "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots, "used_fallback": False, "fallback_error": None}
 
         structured_response = self._handle_structured_chat_command(user_id, message, current_context)
         if structured_response is not None:
             next_context = structured_response.get("context") or current_context
             used_skill_snapshots = list(structured_response.get("used_skill_snapshots") or self._get_chat_skill_snapshots(next_context))
             log_row = self._record_chat_reply(user_id=user_id, message=message, current_context=next_context, reply=structured_response["reply"], model_provider="system", model_name="structured-router", memory_source=structured_response.get("memory_source"), used_skill_snapshots=used_skill_snapshots, output_snapshot={"reply": structured_response["reply"], "actions": structured_response.get("actions") or []})
-            return {"reply": structured_response["reply"], "context": next_context, "actions": structured_response.get("actions") or [], "log_id": log_row.id, "memory_source": structured_response.get("memory_source"), "model_provider": "system", "model_name": "structured-router", "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots}
+            return {"reply": structured_response["reply"], "context": next_context, "actions": structured_response.get("actions") or [], "log_id": log_row.id, "memory_source": structured_response.get("memory_source"), "model_provider": "system", "model_name": "structured-router", "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots, "used_fallback": False, "fallback_error": None}
 
         if not self._is_recruitment_related(message, current_context):
             used_skill_snapshots = self._get_chat_skill_snapshots(current_context)
             reply = "这里是 AI 招聘工作台助手，我只处理招聘相关任务，例如岗位、JD、Skills、候选人、初筛、面试题、Offer 和招聘邮件流转。像天气这类非招聘问题，请到通用助手里处理。"
             log_row = self._record_chat_reply(user_id=user_id, message=message, current_context=current_context, reply=reply, model_provider="system", model_name="recruitment-guard", memory_source="guardrail", used_skill_snapshots=used_skill_snapshots)
-            return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "guardrail", "model_provider": "system", "model_name": "recruitment-guard", "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots}
+            return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "guardrail", "model_provider": "system", "model_name": "recruitment-guard", "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots, "used_fallback": False, "fallback_error": None}
 
         used_skill_snapshots = self._get_chat_skill_snapshots(current_context)
         related_skill_ids = self._extract_related_skill_ids(used_skill_snapshots)
@@ -1334,7 +1901,7 @@ class RecruitmentService:
         content = task.get("content") or {}
         reply = str(content.get("markdown") or "").strip() or "我可以帮你处理招聘工作台中的岗位、候选人、Skills、初筛、面试题、模型配置和招聘邮件。如果你需要非招聘问题，请到通用助手处理。"
         self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"reply": reply}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), related_skill_ids=related_skill_ids, related_skill_snapshots=used_skill_snapshots)
-        return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "manual", "model_provider": task.get("provider"), "model_name": task.get("model_name"), "used_skill_ids": related_skill_ids, "used_skills": used_skill_snapshots}
+        return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "manual", "model_provider": task.get("provider"), "model_name": task.get("model_name"), "used_skill_ids": related_skill_ids, "used_skills": used_skill_snapshots, "used_fallback": bool(task.get("used_fallback")), "fallback_error": task.get("error_message")}
 
 def run_resume_pipeline_background(candidate_id: int, resume_file_id: int, actor_id: str) -> None:
     db = SessionLocal()

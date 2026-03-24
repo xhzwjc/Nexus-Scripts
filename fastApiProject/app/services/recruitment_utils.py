@@ -45,7 +45,7 @@ DEFAULT_RULE_CONFIGS = {
         "communication": 0.15,
     },
     "resume_disqualifiers": {"keywords": ["频繁跳槽", "履历造假", "无法到岗"]},
-    "default_jd_template": {"sections": ["职位描述", "岗位职责", "任职要求", "加分项", "薪资说明", "加入我们"]},
+    "default_jd_template": {"sections": ["岗位概述", "岗位职责", "任职要求", "加分项"]},
     "default_interview_template": {"sections": ["技术题", "场景题", "行为题"]},
     "default_status_rules": {"pass_threshold": 75, "pool_threshold": 55},
 }
@@ -119,41 +119,69 @@ def truncate_text(value: Any, limit: int = 500) -> str:
 
 def markdown_to_html(markdown: str) -> str:
     parts: List[str] = []
-    in_list = False
+    list_mode: Optional[str] = None
     for raw_line in (markdown or "").splitlines():
         line = raw_line.strip()
         if not line:
-            if in_list:
+            if list_mode == "ul":
                 parts.append("</ul>")
-                in_list = False
+                list_mode = None
+            elif list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
             continue
         if line.startswith("### "):
-            if in_list:
+            if list_mode == "ul":
                 parts.append("</ul>")
-                in_list = False
+                list_mode = None
+            elif list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
             parts.append(f"<h3>{html.escape(line[4:])}</h3>")
         elif line.startswith("## "):
-            if in_list:
+            if list_mode == "ul":
                 parts.append("</ul>")
-                in_list = False
+                list_mode = None
+            elif list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
             parts.append(f"<h2>{html.escape(line[3:])}</h2>")
         elif line.startswith("# "):
-            if in_list:
+            if list_mode == "ul":
                 parts.append("</ul>")
-                in_list = False
+                list_mode = None
+            elif list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
             parts.append(f"<h1>{html.escape(line[2:])}</h1>")
         elif line.startswith("- "):
-            if not in_list:
+            if list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
+            if list_mode != "ul":
                 parts.append("<ul>")
-                in_list = True
+                list_mode = "ul"
             parts.append(f"<li>{html.escape(line[2:])}</li>")
-        else:
-            if in_list:
+        elif re.match(r"^\d+[.)]\s+", line):
+            if list_mode == "ul":
                 parts.append("</ul>")
-                in_list = False
+                list_mode = None
+            if list_mode != "ol":
+                parts.append("<ol>")
+                list_mode = "ol"
+            parts.append(f"<li>{html.escape(re.sub(r'^\d+[.)]\s+', '', line))}</li>")
+        else:
+            if list_mode == "ul":
+                parts.append("</ul>")
+                list_mode = None
+            elif list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
             parts.append(f"<p>{html.escape(line)}</p>")
-    if in_list:
+    if list_mode == "ul":
         parts.append("</ul>")
+    elif list_mode == "ol":
+        parts.append("</ol>")
     return "".join(parts)
 
 
@@ -203,10 +231,20 @@ def normalize_jd_list(value: Any) -> List[str]:
         items = re.split(r"(?:\n+|[\uff1b;])", raw)
 
     normalized: List[str] = []
+    excluded_markers = [
+        "简历筛选",
+        "初筛结果",
+        "筛选结果",
+        "招聘流程",
+        "面试结果分析",
+        "最终结论",
+        "发送简历",
+        "招聘助手",
+    ]
     for item in items:
         text = normalize_jd_text_block(item).strip()
         text = re.sub(r"^[0-9]+[.)\u3001]\s*", "", text)
-        if text:
+        if text and not any(marker in text for marker in excluded_markers):
             normalized.append(text)
     return normalized
 
@@ -219,9 +257,11 @@ def build_jd_structured_fallback(position: Any) -> Dict[str, Any]:
     office_location = position.location or "\u6307\u5b9a\u529e\u516c\u5730\u70b9"
     return {
         "job_title": title,
+        "department": department,
         "work_location": work_location,
         "salary_range": salary_range,
-        "job_description": (
+        "headcount": f"{getattr(position, 'headcount', 1) or 1}\u4eba",
+        "job_overview": (
             f"\u6211\u4eec\u6b63\u5728\u5bfb\u627e\u4e00\u4f4d\u80fd\u591f\u652f\u6491\u6838\u5fc3\u4e1a\u52a1\u4ea4\u4ed8\u7684 {title}\uff0c"
             f"\u52a0\u5165 {department}\uff0c"
             f"\u5728 {office_location} \u63a8\u52a8\u5c97\u4f4d\u76ee\u6807\u843d\u5730\u3002"
@@ -237,10 +277,6 @@ def build_jd_structured_fallback(position: Any) -> Dict[str, Any]:
             "\u7ed3\u679c\u5bfc\u5411\uff0c\u80fd\u591f\u517c\u987e\u9879\u76ee\u8fdb\u5ea6\u3001\u98ce\u9669\u8bc6\u522b\u4e0e\u4ea4\u4ed8\u8d28\u91cf\u3002",
         ],
         "bonus_points": normalize_jd_list(position.bonus_points or "\u5177\u5907\u884c\u4e1a\u9879\u76ee\u7ecf\u9a8c\u3001\u81ea\u52a8\u5316\u5efa\u8bbe\u7ecf\u9a8c\u6216\u8de8\u56e2\u961f\u534f\u4f5c\u7ecf\u9a8c\u8005\u4f18\u5148\u3002"),
-        "benefits": [
-            "\u53c2\u4e0e\u6838\u5fc3\u4e1a\u52a1\u5efa\u8bbe\uff0c\u63a5\u89e6\u9ad8\u4ef7\u503c\u9879\u76ee\u4e0e\u590d\u6742\u573a\u666f\u3002",
-            "\u4e0e\u9ad8\u534f\u540c\u56e2\u961f\u5171\u4e8b\uff0c\u62e5\u6709\u6e05\u6670\u6210\u957f\u8def\u5f84\u4e0e\u53d1\u5c55\u7a7a\u95f4\u3002",
-        ],
     }
 
 
@@ -248,73 +284,77 @@ def normalize_structured_jd(payload: Dict[str, Any], position: Any) -> Dict[str,
     fallback = build_jd_structured_fallback(position)
     return {
         "job_title": normalize_jd_text_block(payload.get("job_title") or payload.get("title") or fallback["job_title"]),
+        "department": normalize_jd_text_block(payload.get("department") or fallback["department"]),
         "work_location": normalize_jd_text_block(payload.get("work_location") or payload.get("location") or fallback["work_location"]),
         "salary_range": normalize_jd_text_block(payload.get("salary_range") or fallback["salary_range"]),
-        "job_description": normalize_jd_text_block(payload.get("job_description") or payload.get("summary") or fallback["job_description"]),
+        "headcount": normalize_jd_text_block(payload.get("headcount") or fallback["headcount"]),
+        "job_overview": normalize_jd_text_block(payload.get("job_overview") or payload.get("job_description") or payload.get("summary") or fallback["job_overview"]),
         "responsibilities": normalize_jd_list(payload.get("responsibilities") or fallback["responsibilities"]),
         "requirements": normalize_jd_list(payload.get("requirements") or fallback["requirements"]),
         "bonus_points": normalize_jd_list(payload.get("bonus_points") or fallback["bonus_points"]),
-        "benefits": normalize_jd_list(payload.get("benefits") or fallback["benefits"]),
     }
 
 
 def render_publish_ready_jd(jd_payload: Dict[str, Any]) -> str:
     title = normalize_jd_text_block(jd_payload.get("job_title") or jd_payload.get("title") or "")
+    department = normalize_jd_text_block(jd_payload.get("department") or "")
     location = normalize_jd_text_block(jd_payload.get("work_location") or jd_payload.get("location") or "")
     salary = normalize_jd_text_block(jd_payload.get("salary_range") or "")
-    description = normalize_jd_text_block(jd_payload.get("job_description") or jd_payload.get("summary") or "")
+    headcount = normalize_jd_text_block(jd_payload.get("headcount") or "")
     responsibilities = normalize_jd_list(jd_payload.get("responsibilities") or [])
     requirements = normalize_jd_list(jd_payload.get("requirements") or [])
     bonus_points = normalize_jd_list(jd_payload.get("bonus_points") or [])
-    benefits = normalize_jd_list(jd_payload.get("benefits") or [])
 
     blocks: List[str] = []
     if title:
         blocks.append(f"\u5c97\u4f4d\u540d\u79f0\uff1a{title}")
+    if department:
+        blocks.append(f"\u90e8\u95e8\uff1a{department}")
     if location:
         blocks.append(f"\u5de5\u4f5c\u5730\u70b9\uff1a{location}")
     if salary:
         blocks.append(f"\u85aa\u8d44\u8303\u56f4\uff1a{salary}")
-    if description:
-        blocks.append(f"\u804c\u4f4d\u63cf\u8ff0\uff1a\n{description}")
+    if headcount:
+        blocks.append(f"\u62db\u8058\u4eba\u6570\uff1a{headcount}")
     if responsibilities:
-        blocks.append("\u5c97\u4f4d\u804c\u8d23\uff1a\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(responsibilities)))
+        blocks.append("\u4e00\uff0e\u5c97\u4f4d\u804c\u8d23\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(responsibilities)))
     if requirements:
-        blocks.append("\u4efb\u804c\u8981\u6c42\uff1a\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(requirements)))
+        blocks.append("\u4e8c\uff0e\u4efb\u804c\u8981\u6c42\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(requirements)))
     if bonus_points:
-        blocks.append("\u52a0\u5206\u9879\uff1a\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(bonus_points)))
-    if benefits:
-        blocks.append("\u798f\u5229\u4eae\u70b9\uff1a\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(benefits)))
+        blocks.append("\u4e09\uff0e\u52a0\u5206\u9879\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(bonus_points)))
     return "\n\n".join(blocks).strip()
 
 
 def render_jd_markdown_source(jd_payload: Dict[str, Any]) -> str:
     title = normalize_jd_text_block(jd_payload.get("job_title") or jd_payload.get("title") or "")
+    department = normalize_jd_text_block(jd_payload.get("department") or "")
     location = normalize_jd_text_block(jd_payload.get("work_location") or jd_payload.get("location") or "")
     salary = normalize_jd_text_block(jd_payload.get("salary_range") or "")
-    description = normalize_jd_text_block(jd_payload.get("job_description") or jd_payload.get("summary") or "")
+    headcount = normalize_jd_text_block(jd_payload.get("headcount") or "")
     responsibilities = normalize_jd_list(jd_payload.get("responsibilities") or [])
     requirements = normalize_jd_list(jd_payload.get("requirements") or [])
     bonus_points = normalize_jd_list(jd_payload.get("bonus_points") or [])
-    benefits = normalize_jd_list(jd_payload.get("benefits") or [])
 
     sections: List[str] = []
     if title:
         sections.append(f"# {title}")
+    meta_lines: List[str] = []
+    if department:
+        meta_lines.append(f"**部门**：{department}")
     if location:
-        sections.append(f"## \u5de5\u4f5c\u5730\u70b9\n{location}")
+        meta_lines.append(f"**工作地点**：{location}")
     if salary:
-        sections.append(f"## \u85aa\u8d44\u8303\u56f4\n{salary}")
-    if description:
-        sections.append(f"## \u804c\u4f4d\u63cf\u8ff0\n{description}")
+        meta_lines.append(f"**薪资范围**：{salary}")
+    if headcount:
+        meta_lines.append(f"**招聘人数**：{headcount}")
+    if meta_lines:
+        sections.append("\n".join(meta_lines))
     if responsibilities:
-        sections.append("## \u5c97\u4f4d\u804c\u8d23\n" + "\n".join(f"- {item}" for item in responsibilities))
+        sections.append("## 一．岗位职责\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(responsibilities)))
     if requirements:
-        sections.append("## \u4efb\u804c\u8981\u6c42\n" + "\n".join(f"- {item}" for item in requirements))
+        sections.append("## 二．任职要求\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(requirements)))
     if bonus_points:
-        sections.append("## \u52a0\u5206\u9879\n" + "\n".join(f"- {item}" for item in bonus_points))
-    if benefits:
-        sections.append("## \u798f\u5229\u4eae\u70b9\n" + "\n".join(f"- {item}" for item in benefits))
+        sections.append("## 三．加分项\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(bonus_points)))
     return "\n\n".join(section for section in sections if section).strip()
 
 
@@ -424,6 +464,7 @@ def build_jd_fallback(position: Any) -> Dict[str, str]:
 def _extract_skill_focus_points(skills: Iterable[Any], limit: int = 6) -> Dict[str, List[str]]:
     names: List[str] = []
     focus_points: List[str] = []
+    skip_keywords = ["触发方式", "初筛报告输出格式", "skill", "name:", "description:", "模块一", "模块二", "模块三", "输出格式"]
     for skill in skills or []:
         if isinstance(skill, dict):
             name = str(skill.get("name") or "").strip()
@@ -435,7 +476,7 @@ def _extract_skill_focus_points(skills: Iterable[Any], limit: int = 6) -> Dict[s
             content = ""
         if name and name not in names:
             names.append(name)
-        for source in [description, content]:
+        for source in [content, description]:
             if not source:
                 continue
             plain = strip_markdown(source)
@@ -443,6 +484,12 @@ def _extract_skill_focus_points(skills: Iterable[Any], limit: int = 6) -> Dict[s
 
             for segment in segments:
                 cleaned = re.sub(r"^[\-\*\d\.\s•]+", "", segment).strip()
+                if cleaned.startswith("|") or cleaned.endswith("|"):
+                    continue
+                if cleaned.startswith("#"):
+                    continue
+                if any(keyword.lower() in cleaned.lower() for keyword in skip_keywords):
+                    continue
                 if len(cleaned) < 8:
                     continue
                 point = cleaned[:60]
@@ -455,6 +502,47 @@ def _extract_skill_focus_points(skills: Iterable[Any], limit: int = 6) -> Dict[s
         if len(focus_points) >= limit:
             break
     return {"names": names, "points": focus_points}
+
+
+def _extract_focus_point_tokens(point: Any, *, limit: int = 12) -> List[str]:
+    text = strip_markdown(str(point or "")).strip()
+    if not text:
+        return []
+    label = ""
+    detail = text
+    if "：" in text:
+        label, detail = text.split("：", 1)
+    elif ":" in text:
+        label, detail = text.split(":", 1)
+    noise_keywords = {
+        "招聘助手", "skill", "核心第一优先", "第一优先", "非一票否决项", "一票否决项", "不作否决项",
+        "不要求", "即可", "具备", "能力", "经验", "相关", "原文依据", "引用简历具体内容", "简历未提及",
+        "打分", "权重", "优先", "要求", "说明", "维度", "场景", "支撑能力", "弱不作否决项",
+    }
+    result: List[str] = []
+
+    def push(token: str) -> None:
+        normalized = str(token or "").strip().lower()
+        normalized = normalized.strip("：:()（）[]【】,.，。；;!！?？")
+        normalized = re.sub(r"(等真实联动测试经历|真实联动测试经历|测试经验|相关专业|系统测试核心支撑能力|基础认知即可|非一票否决项)$", "", normalized).strip()
+        if (
+            len(normalized) < 2
+            or len(normalized) > 24
+            or normalized in result
+            or any(noise in normalized for noise in noise_keywords)
+        ):
+            return
+        result.append(normalized)
+
+    for candidate in [label, *re.findall(r"[A-Za-z][A-Za-z0-9+_.-]{1,24}", detail)]:
+        push(candidate)
+    for piece in re.split(r"[\s,，。；;、|/（）()]+", detail):
+        push(piece)
+        for keyword in extract_keywords(piece):
+            push(keyword)
+        if len(result) >= limit:
+            break
+    return result[:limit]
 
 
 def _join_resume_search_text(parsed: Dict[str, Any]) -> str:
@@ -512,12 +600,60 @@ def build_interview_fallback(candidate_name: str, position_title: str, round_nam
 
 
 def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dict[str, float], status_rules: Dict[str, Any], skills: Optional[Iterable[Any]] = None) -> Dict[str, Any]:
+    generic_tokens = {
+        "负责", "相关", "工作", "能力", "经验", "熟悉", "具备", "要求", "岗位", "工程师", "测试", "研发",
+        "团队", "项目", "流程", "质量", "问题", "平台", "模块", "业务", "支持", "沟通", "输出", "独立",
+        "招聘助手", "技能", "skills", "skill", "优先", "说明", "维度", "重点", "原文", "依据", "内容",
+    }
+
+    def filter_keywords(tokens: Iterable[str], limit: int = 18) -> List[str]:
+        result: List[str] = []
+        for token in tokens:
+            normalized = str(token or "").strip().lower()
+            if (
+                len(normalized) < 2
+                or normalized in generic_tokens
+                or normalized in result
+                or normalized.isdigit()
+            ):
+                continue
+            result.append(normalized)
+            if len(result) >= limit:
+                break
+        return result
+
+    def focus_point_keywords(points: Iterable[str], limit: int = 16) -> List[str]:
+        result: List[str] = []
+        for point in points:
+            for token in _extract_focus_point_tokens(point, limit=limit):
+                if token not in result and token not in generic_tokens:
+                    result.append(token)
+                if len(result) >= limit:
+                    return result
+        return result[:limit]
+
+    def is_focus_point_hit(point: str) -> bool:
+        cleaned = strip_markdown(str(point or "")).strip().lower()
+        if not cleaned:
+            return False
+        if cleaned in searchable_resume_text:
+            return True
+        tokens = filter_keywords(extract_keywords(cleaned), limit=6)
+        if not tokens:
+            return False
+        matched = [token for token in tokens if token in searchable_resume_text]
+        return len(matched) >= max(1, min(len(tokens), 2))
+
+    def summarize_points(points: Iterable[str]) -> str:
+        items = [strip_markdown(str(point or "")).strip() for point in points if str(point or "").strip()]
+        return "；".join(item[:18] for item in items[:2]) or "暂无"
+
     basic_info = parsed.get("basic_info") or {}
     raw_skills = parsed.get("skills") or []
     work_experiences = parsed.get("work_experiences") or []
     searchable_resume_text = _join_resume_search_text(parsed)
     requirement_text = " ".join(filter(None, [position.title, getattr(position, "key_requirements", "") or "", getattr(position, "bonus_points", "") or ""]))
-    requirement_keywords = extract_keywords(requirement_text)
+    requirement_keywords = filter_keywords(extract_keywords(requirement_text), limit=12)
     matched_keywords = [keyword for keyword in requirement_keywords if keyword and keyword in searchable_resume_text]
     skill_meta = _extract_skill_focus_points(skills or [], limit=8)
     skill_text = " ".join(
@@ -529,28 +665,30 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
             skill.get("content") if isinstance(skill, dict) else "",
         )
     ).lower()
-    skill_keywords = extract_keywords(skill_text)
-    known_skill_hits = [item for item in KNOWN_SKILLS if item.lower() in skill_text]
-    required_skill_keywords: List[str] = []
-    for keyword in [*skill_keywords, *known_skill_hits]:
-        normalized = keyword.strip().lower()
-        if len(normalized) < 2 or normalized in required_skill_keywords:
-            continue
-        required_skill_keywords.append(normalized)
+    known_skill_hits = [item.lower() for item in KNOWN_SKILLS if item.lower() in skill_text and item.lower() not in generic_tokens]
+    required_skill_keywords = filter_keywords(
+        [*focus_point_keywords(skill_meta["points"]), *known_skill_hits],
+        limit=16,
+    )
     matched_skill_keywords = [keyword for keyword in required_skill_keywords if keyword in searchable_resume_text]
     missing_skill_keywords = [keyword for keyword in required_skill_keywords if keyword not in searchable_resume_text]
+    focus_point_hits = [point for point in skill_meta["points"] if is_focus_point_hit(point)]
+    focus_point_misses = [point for point in skill_meta["points"] if point not in focus_point_hits]
 
     years = 0
     years_match = re.search(r"(\d{1,2})", str(basic_info.get("years_of_experience") or ""))
     if years_match:
         years = int(years_match.group(1))
 
-    experience_score = min(100.0, years * 20.0) if years else 55.0
-    skills_score = min(100.0, 45.0 + len(matched_keywords) * 12.0 + len(raw_skills) * 2.0)
-    if required_skill_keywords:
-        coverage_ratio = len(matched_skill_keywords) / max(len(required_skill_keywords), 1)
-        skills_score = min(100.0, max(25.0, skills_score * (0.45 + coverage_ratio)))
-        skills_score = min(100.0, skills_score + len(matched_skill_keywords) * 6.0)
+    experience_score = min(100.0, 35.0 + years * 11.0) if years else 42.0
+    focus_ratio = len(focus_point_hits) / max(len(skill_meta["points"]), 1) if skill_meta["points"] else 0.0
+    coverage_ratio = len(matched_skill_keywords) / max(len(required_skill_keywords), 1) if required_skill_keywords else 0.0
+    skills_score = 26.0 + len(matched_keywords) * 7.0 + len(raw_skills) * 1.5 + coverage_ratio * 30.0 + focus_ratio * 28.0
+    if required_skill_keywords and not matched_skill_keywords:
+        skills_score -= 18.0
+    if focus_point_misses:
+        skills_score -= min(24.0, len(focus_point_misses) * 5.0)
+    skills_score = max(8.0, min(100.0, skills_score))
     education_score = {"博士": 98.0, "硕士": 88.0, "本科": 78.0, "大专": 65.0, "高中": 45.0}.get(str(basic_info.get("education") or ""), 60.0)
     stability_score = 80.0 if len(work_experiences) >= 3 else 68.0 if len(work_experiences) >= 1 else 55.0
     communication_score = 78.0 if parsed.get("summary") else 60.0
@@ -563,12 +701,20 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
     ]
     weight_sum = sum(weights.values()) or 1
     total_score = sum(item["score"] * weights.get(item["key"], 0) for item in dimensions) / weight_sum
+    hard_penalty = 0.0
+    if required_skill_keywords:
+        hard_penalty += max(0.0, (1 - coverage_ratio) * 18.0)
+    if focus_point_misses:
+        hard_penalty += min(20.0, len(focus_point_misses) * 4.0)
+    total_score = max(0.0, total_score - hard_penalty)
     match_percent = round(total_score)
     advantages = []
     if matched_keywords:
         advantages.append(f"命中岗位关键词：{', '.join(matched_keywords[:6])}")
     if matched_skill_keywords:
         advantages.append(f"命中 Skills 硬性要求：{', '.join(matched_skill_keywords[:6])}")
+    if focus_point_hits:
+        advantages.append(f"命中 Skills 重点：{summarize_points(focus_point_hits[:2])}")
     if years >= 3:
         advantages.append(f"具备 {years} 年相关经验")
     if basic_info.get("education") in {"本科", "硕士", "博士"}:
@@ -582,6 +728,8 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
         concerns.append("未体现当前 Skills 中强调的硬性要求")
     elif missing_skill_keywords:
         concerns.append(f"部分 Skills 关注点证据不足：{', '.join(missing_skill_keywords[:4])}")
+    if focus_point_misses:
+        concerns.append(f"未充分覆盖关键 Skills 场景：{summarize_points(focus_point_misses[:2])}")
     if years < 2:
         concerns.append("相关经验年限偏少")
     if not basic_info.get("phone"):
@@ -604,6 +752,8 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
         "matched_keywords": matched_keywords,
         "matched_skill_keywords": matched_skill_keywords,
         "missing_skill_keywords": missing_skill_keywords,
+        "focus_point_hits": focus_point_hits,
+        "focus_point_misses": focus_point_misses,
         "skill_focus_points": skill_meta["points"],
         "advantages": advantages,
         "concerns": concerns,

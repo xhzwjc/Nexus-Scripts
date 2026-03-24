@@ -101,6 +101,7 @@ class InterviewQuestionGenerateRequest(BaseModel):
     custom_requirements: Optional[str] = None
     skill_ids: List[int] = Field(default_factory=list)
     use_candidate_memory: bool = True
+    use_position_skills: bool = True
 
 
 class InterviewResultCreateRequest(BaseModel):
