@@ -1080,6 +1080,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
 
   const [candidateEditor, setCandidateEditor] = useState<CandidateEditorState>(emptyCandidateEditor);
   const [statusUpdateReason, setStatusUpdateReason] = useState("");
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null); // ← 新增
   const [interviewRoundName, setInterviewRoundName] = useState("初试");
   const [interviewCustomRequirements, setInterviewCustomRequirements] = useState("");
   const [selectedInterviewSkillIds, setSelectedInterviewSkillIds] = useState<number[]>([]);
@@ -2277,9 +2278,10 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   }
 
   async function updateCandidateStatus(nextStatus: string) {
-    if (!selectedCandidateId) {
+    if (!selectedCandidateId || !candidateDetail) {
       return;
     }
+    setPendingStatus(null);
     try {
       await recruitmentApi(`/candidates/${selectedCandidateId}/status`, {
         method: "POST",
@@ -4327,11 +4329,55 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                         <Field label="状态流转">
                           <div className="space-y-3">
                             <div className="flex flex-wrap gap-2">
-                              {Object.entries(candidateStatusLabels).map(([value, label]) => (
-                                  <Button key={value} size="sm" variant={candidateDetail.candidate.status === value ? "default" : "outline"} onClick={() => void updateCandidateStatus(value)}>
-                                    {label}
-                                  </Button>
-                              ))}
+                              {Object.entries(candidateStatusLabels).map(([value, label]) => {
+                                const isCurrent = candidateDetail.candidate.status === value;
+                                return (
+                                    <Popover
+                                        key={value}
+                                        open={pendingStatus === value}
+                                        onOpenChange={(open) => {
+                                          if (!open) setPendingStatus(null);
+                                        }}
+                                    >
+                                      <PopoverTrigger asChild>
+                                        <Button
+                                            size="sm"
+                                            variant={isCurrent ? "default" : "outline"}
+                                            onClick={() => {
+                                              if (!isCurrent) setPendingStatus(value);
+                                            }}
+                                        >
+                                          {label}
+                                        </Button>
+                                      </PopoverTrigger>
+                                      <PopoverContent className="w-56 p-3" side="bottom" align="start">
+                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                          确认变更为「{label}」？
+                                        </p>
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                          当前：{labelForCandidateStatus(candidateDetail.candidate.status)}
+                                        </p>
+                                        <div className="mt-3 flex gap-2">
+                                          <Button
+                                              size="sm"
+                                              className="flex-1"
+                                              onClick={() => void updateCandidateStatus(value)}
+                                          >
+                                            确认
+                                          </Button>
+                                          <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="flex-1"
+                                              onClick={() => setPendingStatus(null)}
+                                          >
+                                            取消
+                                          </Button>
+                                        </div>
+                                      </PopoverContent>
+                                    </Popover>
+                                );
+                              })}
                             </div>
                             <Textarea value={statusUpdateReason} onChange={(event) => setStatusUpdateReason(event.target.value)} rows={3} placeholder="状态变更原因，例如：AI 初筛通过，安排技术面试" />
                             <div className="space-y-3">
