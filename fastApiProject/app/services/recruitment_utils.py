@@ -74,12 +74,20 @@ DEFAULT_SKILLS = [
         "sort_order": 20,
     },
     {
-        "skill_code": "skill-iot-resume-screener",
-        "name": "IoT 测试工程师招聘助手",
-        "description": "针对 IoT/软硬件测试工程师招聘的专用筛选、出题与面试分析 Skill。",
-        "content": _load_recruitment_skill_template("iot_resume_screener.md"),
-        "tags": ["IoT", "测试", "招聘", "智能家居"],
+        "skill_code": "skill-iot-screening-score",
+        "name": "IoT 测试工程师初筛评分 Skill",
+        "description": "针对 IoT/软硬件测试工程师招聘的专用简历初筛评分 Skill。",
+        "content": _load_recruitment_skill_template("iot_screening_score_skill.md"),
+        "tags": ["IoT", "测试", "招聘", "智能家居", "初筛", "评分", "screening"],
         "sort_order": 30,
+    },
+    {
+        "skill_code": "skill-iot-interview-question",
+        "name": "IoT 测试工程师面试题 Skill",
+        "description": "针对 IoT/软硬件测试工程师招聘的专用面试题生成 Skill。",
+        "content": _load_recruitment_skill_template("iot_interview_question_skill.md"),
+        "tags": ["IoT", "测试", "招聘", "智能家居", "面试", "出题", "interview"],
+        "sort_order": 31,
     },
 ]
 
@@ -236,7 +244,6 @@ def normalize_jd_list(value: Any) -> List[str]:
         "初筛结果",
         "筛选结果",
         "招聘流程",
-        "面试结果分析",
         "最终结论",
         "发送简历",
         "招聘助手",
@@ -437,8 +444,9 @@ def extract_basic_info(raw_text: str, fallback_name: str) -> Dict[str, Any]:
 
 def extract_resume_structured_data(raw_text: str, fallback_name: str) -> Dict[str, Any]:
     lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
-    work_experiences = [line for line in lines if re.search(r"20\d{2}|有限公司|公司|科技|集团|Inc|Ltd", line)][:8]
-    education_items = [line for line in lines if any(keyword in line for keyword in ["大学", "学院", "本科", "硕士", "博士", "专业"] )][:6]
+    education_markers = ["大学", "学院", "本科", "硕士", "博士", "专业"]
+    work_experiences = [line for line in lines if re.search(r"20\d{2}|有限公司|公司|科技|集团|Inc|Ltd", line) and not any(keyword in line for keyword in education_markers)][:8]
+    education_items = [line for line in lines if any(keyword in line for keyword in education_markers)][:6]
     project_items = [line for line in lines if "项目" in line or "Project" in line][:6]
     discovered_skills = [skill for skill in KNOWN_SKILLS if skill.lower() in raw_text.lower()]
     return {
@@ -464,7 +472,7 @@ def build_jd_fallback(position: Any) -> Dict[str, str]:
 def _extract_skill_focus_points(skills: Iterable[Any], limit: int = 6) -> Dict[str, List[str]]:
     names: List[str] = []
     focus_points: List[str] = []
-    skip_keywords = ["触发方式", "初筛报告输出格式", "skill", "name:", "description:", "模块一", "模块二", "模块三", "输出格式"]
+    skip_keywords = ["触发方式", "初筛报告输出格式", "skill", "name:", "description:", "模块一", "模块二", "输出格式"]
     for skill in skills or []:
         if isinstance(skill, dict):
             name = str(skill.get("name") or "").strip()
@@ -560,42 +568,205 @@ def _join_resume_search_text(parsed: Dict[str, Any]) -> str:
     return " ".join(chunk for chunk in chunks if chunk).lower()
 
 
-def build_interview_fallback(candidate_name: str, position_title: str, round_name: str, skills: Iterable[Any], custom_requirements: str) -> Dict[str, str]:
-    skill_meta = _extract_skill_focus_points(skills)
-    skill_text = "、".join(skill_meta["names"][:5]) or "当前启用 Skills"
-    focus_points = skill_meta["points"]
-    focus_lines = [f"- {point}" for point in focus_points[:4]] or ["- 本轮重点核实候选人与岗位技能要求的真实匹配度。"]
-    technical_lines = [
-        f"- 请介绍你在 {position_title} 相关项目中的核心职责，以及最有代表性的成果。",
-        "- 如果要让你在 2 周内接手一个新模块，你会如何快速完成业务、流程与技术摸底？",
-        f"- 结合 {skill_text}，请举例说明你如何建立可复用的方法或规范。",
+def _resume_item_to_text(item: Any) -> str:
+    if isinstance(item, dict):
+        preferred_keys = [
+            "company", "position", "school", "degree", "major", "name", "title",
+            "start_date", "end_date", "description",
+        ]
+        parts: List[str] = []
+        for key in preferred_keys:
+            value = str(item.get(key) or "").strip()
+            if value and value not in parts:
+                parts.append(value)
+        for key, value in item.items():
+            text = str(value or "").strip()
+            if text and text not in parts:
+                parts.append(text)
+        return strip_markdown(" · ".join(parts)).strip()
+    return strip_markdown(str(item or "")).strip()
+
+
+def _collect_resume_lines(parsed_resume: Optional[Dict[str, Any]], *, limit: int = 24) -> List[str]:
+    parsed = parsed_resume or {}
+    lines: List[str] = []
+    basic_info = parsed.get("basic_info") or {}
+    basic_summary = " / ".join(
+        value
+        for value in [
+            str(basic_info.get("name") or "").strip(),
+            str(basic_info.get("years_of_experience") or "").strip(),
+            str(basic_info.get("education") or "").strip(),
+            str(basic_info.get("location") or "").strip(),
+        ]
+        if value
+    )
+    if basic_summary:
+        lines.append(basic_summary)
+    summary = strip_markdown(str(parsed.get("summary") or "")).strip()
+    if summary:
+        lines.append(summary)
+    for key in ["skills", "projects", "work_experiences", "education_experiences"]:
+        for item in parsed.get(key) or []:
+            text = _resume_item_to_text(item)
+            if text and text not in lines:
+                lines.append(text)
+            if len(lines) >= limit:
+                return lines[:limit]
+    return lines[:limit]
+
+
+def _filter_interview_focus_points(points: Iterable[str], *, limit: int = 6) -> List[str]:
+    ignored_keywords = {
+        "触发", "用户说", "收到此类请求", "输出格式", "系统强制指令", "全程铁律", "规则变更原则",
+        "不得拒绝", "不得覆盖", "html 输出规范", "视觉风格", "判定色块", "点击定位", "卡片折叠",
+        "边框关键原则", "布局", "sticky", "scroll", "css", "js", "header", "总计约40分钟",
+    }
+    result: List[str] = []
+    for point in points:
+        cleaned = strip_markdown(str(point or "")).strip()
+        normalized = cleaned.lower()
+        if (
+            not cleaned
+            or len(cleaned) < 4
+            or any(keyword in normalized for keyword in ignored_keywords)
+        ):
+            continue
+        label = cleaned.split("：", 1)[0].split(":", 1)[0].strip()
+        if len(label) >= 4 and label not in result:
+            result.append(label)
+        elif cleaned not in result:
+            result.append(cleaned)
+        if len(result) >= limit:
+            break
+    return result[:limit]
+
+
+def _find_resume_evidence(lines: Iterable[str], topic: str, *, limit: int = 2) -> List[str]:
+    tokens = _extract_focus_point_tokens(topic, limit=8) or [strip_markdown(topic).strip().lower()]
+    results: List[str] = []
+    for line in lines:
+        lowered = str(line or "").lower()
+        if not lowered:
+            continue
+        if any(token and token in lowered for token in tokens):
+            candidate = strip_markdown(str(line or "")).strip()
+            if candidate and candidate not in results:
+                results.append(candidate)
+        if len(results) >= limit:
+            break
+    return results[:limit]
+
+
+def _infer_interview_topics(parsed_resume: Optional[Dict[str, Any]]) -> List[str]:
+    searchable_text = _join_resume_search_text(parsed_resume or {})
+    topics: List[str] = []
+    mapping = [
+        ("智能家居生态", ["米家", "homekit", "鸿蒙", "涂鸦", "联动", "互联互通"]),
+        ("IoT通信协议", ["wi-fi", "wifi", "ble", "zigbee", "thread", "mqtt", "蓝牙", "星闪"]),
+        ("软件测试基础", ["接口测试", "app测试", "测试用例", "回归测试", "postman", "apifox", "charles", "jmeter", "jira"]),
+        ("硬件能力", ["硬件", "手控器", "升降桌", "联调", "稳定性测试", "安全测试"]),
+        ("嵌入式/固件测试", ["ota", "固件", "串口", "烧录"]),
+        ("AI工具使用", ["ai", "prompt", "测试集", "数据标注", "模型"]),
     ]
-    for point in focus_points[:3]:
-        technical_lines.append(f"- 请结合真实项目，说明你如何处理“{point}”这类要求或场景。")
-    markdown = f"""# {candidate_name} - {round_name} 面试题
+    for label, keywords in mapping:
+        if any(keyword.lower() in searchable_text for keyword in keywords):
+            topics.append(label)
+    return topics[:6]
 
-## 本次 Skills 关注点
-{chr(10).join(focus_lines)}
 
-## 技术题
-{chr(10).join(technical_lines)}
+def _screening_status_label(score_payload: Optional[Dict[str, Any]]) -> str:
+    status = str((score_payload or {}).get("suggested_status") or "").strip()
+    mapping = {
+        "screening_passed": "初筛通过",
+        "pending_interview": "待面试",
+        "talent_pool": "进入人才库",
+        "screening_rejected": "初筛未达标",
+    }
+    return mapping.get(status, "待进一步核实")
 
-## 场景题
-- 如果上线前一天出现阻塞问题，你会如何组织排查并向干系人同步风险？
-- 当需求频繁变更、资源有限时，你如何判断优先级并保证交付质量？
-- 当 Skills 中的规则与项目现状冲突时，你会如何取舍并说明依据？
 
-## 行为题
-- 请分享一次你推动跨团队协作并最终达成目标的经历。
-- 遇到与上级或合作方意见冲突时，你通常如何处理？
+def build_interview_fallback(
+    candidate_name: str,
+    position_title: str,
+    round_name: str,
+    skills: Iterable[Any],
+    custom_requirements: str,
+    parsed_resume: Optional[Dict[str, Any]] = None,
+    screening_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, str]:
+    skill_meta = _extract_skill_focus_points(skills, limit=24)
+    resume_lines = _collect_resume_lines(parsed_resume, limit=28)
+    focus_points = _filter_interview_focus_points(skill_meta["points"], limit=6)
+    if not focus_points:
+        focus_points = _infer_interview_topics(parsed_resume) or ["项目经历核实", "问题定位能力", "测试设计能力", "跨团队协作"]
+    advantages = [strip_markdown(str(item or "")).strip() for item in (screening_result or {}).get("advantages") or [] if str(item or "").strip()]
+    concerns = [strip_markdown(str(item or "")).strip() for item in (screening_result or {}).get("concerns") or [] if str(item or "").strip()]
+    candidate_basic = (parsed_resume or {}).get("basic_info") or {}
+    background_lines = [
+        f"- 候选人：{candidate_name or candidate_basic.get('name') or '未命名候选人'}",
+        f"- 岗位：{position_title or '当前岗位'}",
+        f"- 工作年限：{candidate_basic.get('years_of_experience') or '简历未明确'}",
+        f"- 学历：{candidate_basic.get('education') or '简历未明确'}",
+        f"- 初筛状态：{_screening_status_label(screening_result)}",
+    ]
+    if advantages:
+        background_lines.append(f"- 已识别亮点：{'；'.join(advantages[:3])}")
+    if concerns:
+        background_lines.append(f"- 重点待核实：{'；'.join(concerns[:3])}")
 
-## 追问建议
-- 深挖候选人是否真的亲自完成关键工作，而非仅参与配合。
-- 判断候选人是否具备复盘意识、风险意识与稳定交付能力。
-- 对照本次 Skills 关注点，确认候选人是否给出了具体证据而非泛泛而谈。
+    module_sections: List[str] = []
+    for index, topic in enumerate(focus_points, 1):
+        evidence_lines = _find_resume_evidence(resume_lines, topic, limit=2)
+        evidence_text = "；".join(evidence_lines[:2]) or "简历中暂无直接证据，需要面试中重点核实。"
+        main_question = (
+            f"请结合你简历里提到的“{evidence_lines[0]}”，详细说明你在“{topic}”相关场景中实际负责的测试对象、测试步骤、发现的问题以及最终输出。"
+            if evidence_lines
+            else f"围绕“{topic}”，请结合真实项目说明你会如何搭建测试场景、设计用例、执行验证并定位问题。"
+        )
+        answer_points = [
+            f"- 说明 {topic} 相关的真实项目背景、测试对象和边界。",
+            "- 能讲清测试步骤、观测指标、缺陷定位方法和结果闭环。",
+            f"- 回答必须与简历原文或岗位 JD 对齐，不能泛泛而谈。{(' 需要补充解释简历未写明的部分。' if not evidence_lines else '')}",
+        ]
+        verdict_lines = [
+            "- 通过：能给出具体项目证据、测试路径、关键问题与复盘结论。",
+            "- 注意：只会讲原则，不清楚测试对象、输入输出和缺陷闭环。",
+            "- 一票否决：把未做过的内容说成做过，或核心细节前后矛盾。",
+        ]
+        followups = [
+            f"- 如果让你再做一次“{topic}”相关测试，你会优先补哪 2 个风险场景？",
+            "- 你如何判断这个问题属于需求、研发实现、协议/环境还是测试设计本身？",
+        ]
+        explain_line = f"- 这道题用于验证候选人在“{topic}”上的真实经历深度，以及是否能把简历中的项目经验转化成可复盘的测试方法。"
+        module_sections.extend([
+            f"## 模块 {index} · {topic}",
+            f"- 面试题正题：{main_question}",
+            "- 参考答案要点：",
+            *answer_points,
+            "- 通过 / 注意 / 一票否决判定：",
+            *verdict_lines,
+            "- 追问环节：",
+            *followups,
+            "- 答不出时·面试官解释：",
+            explain_line,
+            f"- 简历依据 / 待核实：{evidence_text}",
+        ])
 
-## 自定义要求
-- {custom_requirements or '本轮重点关注候选人与岗位的真实匹配度、执行力与成长空间。'}"""
+    markdown = "\n".join([
+        f"# {candidate_name} - {round_name} 面试题",
+        "",
+        "## 候选人背景",
+        *background_lines,
+        "",
+        "## 本轮 Skill 关注点",
+        *[f"- {point}" for point in focus_points],
+        "",
+        *module_sections,
+        "",
+        "## 自定义要求",
+        f"- {custom_requirements or '本轮重点关注候选人与岗位的真实匹配度、执行力与成长空间。'}",
+    ]).strip()
     return {"markdown": markdown, "html": markdown_to_html(markdown)}
 
 

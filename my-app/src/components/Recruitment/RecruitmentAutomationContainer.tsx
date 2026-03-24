@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Bot,
@@ -86,6 +86,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type RecruitmentPage =
     | "workspace"
@@ -318,8 +319,74 @@ function inferMailSenderPreset(email?: string | null): MailSenderPreset | null {
   return mailSenderPresets.find((preset) => preset.domains.includes(domain)) || null;
 }
 
+function looksLikeFullHtmlDocument(value?: string | null): boolean {
+  const html = String(value || "").trim();
+  if (!html) {
+    return false;
+  }
+  return /<!doctype\s+html/i.test(html) || /<html[\s>]/i.test(html) || /<head[\s>]/i.test(html) || /<body[\s>]/i.test(html);
+}
+
 const panelClass =
     "rounded-[24px] border border-slate-200/80 bg-white/95 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.45)] backdrop-blur dark:border-slate-800/90 dark:bg-slate-950/85";
+
+type CandidateListColumnKey = "candidate" | "position" | "status" | "match" | "source" | "updated";
+
+const candidateListColumnDefaultWidths: Record<CandidateListColumnKey, number> = {
+  candidate: 260,
+  position: 148,
+  status: 96,
+  match: 84,
+  source: 128,
+  updated: 156,
+};
+
+const candidateListColumnMinWidths: Record<CandidateListColumnKey, number> = {
+  candidate: 220,
+  position: 120,
+  status: 88,
+  match: 72,
+  source: 104,
+  updated: 136,
+};
+
+const candidateListColumnMaxWidths: Record<CandidateListColumnKey, number> = {
+  candidate: 420,
+  position: 260,
+  status: 180,
+  match: 140,
+  source: 240,
+  updated: 240,
+};
+
+function clampCandidateListColumnWidth(key: CandidateListColumnKey, width: number): number {
+  const min = candidateListColumnMinWidths[key];
+  const max = candidateListColumnMaxWidths[key];
+  return Math.min(max, Math.max(min, Math.round(width)));
+}
+
+function HoverRevealText({
+  text,
+  className,
+  tooltipClassName,
+}: {
+  text?: string | number | null;
+  className?: string;
+  tooltipClassName?: string;
+}) {
+  const value = String(text ?? "-").trim() || "-";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={cn("block min-w-0 truncate", className)}>{value}</span>
+      </TooltipTrigger>
+      <TooltipContent className={cn("max-w-md whitespace-pre-wrap break-all text-white", tooltipClassName)}>
+        {value}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 function emptyPositionForm(): PositionFormState {
   return {
@@ -480,6 +547,105 @@ function formatSkillNames(skillIds: number[] | undefined | null, skillMap: Map<n
   return ids
       .map((skillId) => skillMap.get(skillId)?.name || `Skill #${skillId}`)
       .join("、");
+}
+
+function parseSkillFrontmatter(content?: string | null) {
+  const text = content || "";
+  const match = text.match(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
+  if (!match) {
+    return {} as Record<string, string>;
+  }
+  const result: Record<string, string> = {};
+  match[1].split(/\r?\n/).forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || !line.includes(":")) {
+      return;
+    }
+    const [rawKey, ...rest] = line.split(":");
+    const key = rawKey.trim().toLowerCase();
+    const value = rest.join(":").trim().replace(/^['"]|['"]$/g, "");
+    if (key && value) {
+      result[key] = value;
+    }
+  });
+  return result;
+}
+
+function normalizeSkillTaskName(value?: string | null) {
+  const text = (value || "").trim().toLowerCase();
+  if (!text) {
+    return null;
+  }
+  if (["screening", "score", "scoring", "resume_score", "resume-screening", "初筛", "评分", "筛选"].includes(text)) {
+    return "screening";
+  }
+  if (["interview", "question", "questions", "interview-question", "面试", "面试题", "出题"].includes(text)) {
+    return "interview";
+  }
+  return null;
+}
+
+function extractSkillRuntimeMeta(skill: Partial<RecruitmentSkill> | null | undefined) {
+  const frontmatter = parseSkillFrontmatter(skill?.content || "");
+  const tags = Array.isArray(skill?.tags) ? skill.tags.filter((tag): tag is string => typeof tag === "string") : [];
+  let group = (frontmatter.skill_group || frontmatter.group || "").trim();
+  if (!group) {
+    const groupTag = tags.find((tag) => tag.toLowerCase().startsWith("group:"));
+    if (groupTag) {
+      group = groupTag.split(":").slice(1).join(":").trim();
+    }
+  }
+  const rawTaskValues: string[] = [];
+  ["applies_to", "task", "tasks", "task_type"].forEach((fieldName) => {
+    const rawValue = frontmatter[fieldName];
+    if (rawValue) {
+      rawTaskValues.push(...rawValue.split(/[,/|，、\s]+/).filter(Boolean));
+    }
+  });
+  tags.forEach((tag) => {
+    if (tag.toLowerCase().startsWith("task:")) {
+      rawTaskValues.push(tag.split(":").slice(1).join(":").trim());
+    } else {
+      rawTaskValues.push(tag);
+    }
+  });
+  const tasks = Array.from(new Set(rawTaskValues.map((item) => normalizeSkillTaskName(item)).filter((item): item is "screening" | "interview" => Boolean(item))));
+  return { group, tasks };
+}
+
+function resolveTaskSkillIds(
+    skillIds: number[] | undefined | null,
+    taskKind: "screening" | "interview",
+    skillMap: Map<number, RecruitmentSkill>,
+) {
+  const ids = (skillIds || []).filter((item): item is number => typeof item === "number");
+  if (!ids.length) {
+    return [];
+  }
+  const directMatches = ids.filter((skillId) => {
+    const skill = skillMap.get(skillId);
+    return skill?.is_enabled !== false && extractSkillRuntimeMeta(skill).tasks.includes(taskKind);
+  });
+  if (directMatches.length) {
+    return Array.from(new Set(directMatches));
+  }
+  const groups = Array.from(new Set(
+      ids
+          .map((skillId) => extractSkillRuntimeMeta(skillMap.get(skillId)).group)
+          .filter((value): value is string => Boolean(value)),
+  ));
+  if (!groups.length) {
+    return ids;
+  }
+  const relatedIds = Array.from(new Set(
+      Array.from(skillMap.values())
+          .filter((skill) => {
+            const meta = extractSkillRuntimeMeta(skill);
+            return skill.is_enabled !== false && Boolean(meta.group) && groups.includes(meta.group) && meta.tasks.includes(taskKind);
+          })
+          .map((skill) => skill.id),
+  ));
+  return relatedIds.length ? relatedIds : ids;
 }
 
 function normalizeSkillSnapshot(skill: Partial<RecruitmentSkill> | null | undefined, fallbackIndex = 0): RecruitmentSkill {
@@ -646,6 +812,15 @@ function formatPercent(value?: number | null) {
   return `${Math.round(value)}%`;
 }
 
+function formatScoreValue(value?: number | null, scale?: number | null) {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return "-";
+  }
+  const normalized = Number(value);
+  const text = Number.isInteger(normalized) ? String(normalized) : normalized.toFixed(1).replace(/\.0$/, "");
+  return scale === 10 ? `${text} / 10` : text;
+}
+
 function extractPublishText(markdown?: string | null, publishText?: string | null) {
   if (publishText?.trim()) {
     return publishText.trim();
@@ -681,6 +856,25 @@ function labelForJDGenerationStatus(status?: string | null) {
       return "排队中";
     default:
       return "待生成";
+  }
+}
+
+function labelForTaskExecutionStatus(status?: string | null) {
+  switch (status) {
+    case "success":
+      return "已完成";
+    case "fallback":
+      return "兜底完成";
+    case "running":
+      return "执行中";
+    case "queued":
+      return "排队中";
+    case "pending":
+      return "待执行";
+    case "failed":
+      return "失败";
+    default:
+      return status || "-";
   }
 }
 
@@ -767,6 +961,20 @@ interface RecruitmentAutomationContainerProps {
 export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAutomationContainerProps) {
   const sessionUser = useMemo(() => getStoredScriptHubSession()?.user ?? null, []);
   const jdGenerationInFlightRef = useRef(false);
+  const [candidateListScrollEl, setCandidateListScrollEl] = useState<HTMLDivElement | null>(null);
+  const candidateListScrollRef = useCallback((node: HTMLDivElement | null) => {
+    setCandidateListScrollEl(node);
+  }, []);
+  const [candidateListHorizontalRailEl, setCandidateListHorizontalRailEl] = useState<HTMLDivElement | null>(null);
+  const candidateListHorizontalRailRef = useCallback((node: HTMLDivElement | null) => {
+    setCandidateListHorizontalRailEl(node);
+  }, []);
+  const candidateListScrollSyncLockRef = useRef<"table" | "rail" | null>(null);
+  const candidateListColumnResizeRef = useRef<{
+    key: CandidateListColumnKey;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
   const canManageRecruitment = Boolean(
       sessionUser?.permissions["ai-recruitment-manage"]
       || sessionUser?.permissions["rbac-manage"],
@@ -808,6 +1016,9 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   const [candidateTimeFilter, setCandidateTimeFilter] = useState("all");
   const [candidateMatchFilter, setCandidateMatchFilter] = useState("all");
   const [candidateViewMode, setCandidateViewMode] = useState<CandidateViewMode>("list");
+  const [candidateListColumnWidths, setCandidateListColumnWidths] = useState<Record<CandidateListColumnKey, number>>(
+    candidateListColumnDefaultWidths,
+  );
   const deferredCandidateQuery = useDeferredValue(candidateQuery);
 
   const [logTaskTypeFilter, setLogTaskTypeFilter] = useState("all");
@@ -907,6 +1118,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   const [resumeMailSourceDispatchId, setResumeMailSourceDispatchId] = useState<number | null>(null);
   const [resumeMailForm, setResumeMailForm] = useState<ResumeMailFormState>(emptyResumeMailForm);
   const [interviewSkillSelectionDirty, setInterviewSkillSelectionDirty] = useState(false);
+  const [candidateProcessLogsExpanded, setCandidateProcessLogsExpanded] = useState(false);
 
   const positionMap = useMemo(() => new Map(positions.map((item) => [item.id, item])), [positions]);
   const candidateMap = useMemo(() => new Map(candidates.map((item) => [item.id, item])), [candidates]);
@@ -974,17 +1186,17 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   }, [candidateDetail?.activity]);
   const preferredInterviewSkillIds = useMemo(() => {
     if (workflowInterviewSkillIds.length) {
-      return workflowInterviewSkillIds;
+      return resolveTaskSkillIds(workflowInterviewSkillIds, "interview", skillMap);
     }
     if (workflowScreeningSkillIds.length) {
-      return workflowScreeningSkillIds;
+      return resolveTaskSkillIds(workflowScreeningSkillIds, "interview", skillMap);
     }
     const positionSkillIds = candidateDetail?.candidate.position_screening_skill_ids || [];
     if (positionSkillIds.length) {
-      return positionSkillIds;
+      return resolveTaskSkillIds(positionSkillIds, "interview", skillMap);
     }
-    return chatContext.skill_ids || [];
-  }, [candidateDetail, chatContext.skill_ids, workflowInterviewSkillIds, workflowScreeningSkillIds]);
+    return resolveTaskSkillIds(chatContext.skill_ids || [], "interview", skillMap);
+  }, [candidateDetail, chatContext.skill_ids, skillMap, workflowInterviewSkillIds, workflowScreeningSkillIds]);
   const preferredInterviewSkillSourceLabel = workflowInterviewSkillIds.length
     ? "工作记忆中的面试题 Skills"
     : workflowScreeningSkillIds.length
@@ -994,28 +1206,28 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
         : (chatContext.skill_ids?.length ? "助手当前激活 Skills" : "系统默认 Skills"));
   const effectiveScreeningSkillIds = useMemo(() => {
     if (positionScreeningSkillIds.length) {
-      return positionScreeningSkillIds;
+      return resolveTaskSkillIds(positionScreeningSkillIds, "screening", skillMap);
     }
     if (workflowScreeningSkillIds.length) {
-      return workflowScreeningSkillIds;
+      return resolveTaskSkillIds(workflowScreeningSkillIds, "screening", skillMap);
     }
     return [];
-  }, [positionScreeningSkillIds, workflowScreeningSkillIds]);
+  }, [positionScreeningSkillIds, skillMap, workflowScreeningSkillIds]);
   const effectiveScreeningSkillSourceLabel = positionScreeningSkillIds.length
     ? "岗位绑定 Skills"
     : (workflowScreeningSkillIds.length ? "初筛工作记忆 Skills" : "全局默认 Skills");
   const autoInterviewSkillIds = useMemo(() => {
     if (positionScreeningSkillIds.length) {
-      return positionScreeningSkillIds;
+      return resolveTaskSkillIds(positionScreeningSkillIds, "interview", skillMap);
     }
     if (workflowInterviewSkillIds.length) {
-      return workflowInterviewSkillIds;
+      return resolveTaskSkillIds(workflowInterviewSkillIds, "interview", skillMap);
     }
     if (workflowScreeningSkillIds.length) {
-      return workflowScreeningSkillIds;
+      return resolveTaskSkillIds(workflowScreeningSkillIds, "interview", skillMap);
     }
     return [];
-  }, [positionScreeningSkillIds, workflowInterviewSkillIds, workflowScreeningSkillIds]);
+  }, [positionScreeningSkillIds, skillMap, workflowInterviewSkillIds, workflowScreeningSkillIds]);
   const autoInterviewSkillSourceLabel = positionScreeningSkillIds.length
     ? "岗位绑定 Skills"
     : workflowInterviewSkillIds.length
@@ -1121,6 +1333,10 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
       items: visibleCandidates.filter((candidate) => candidate.status === status),
     }));
   }, [metadata, visibleCandidates]);
+
+  const candidateListTableMinWidth = useMemo(() => {
+    return 56 + Object.values(candidateListColumnWidths).reduce((sum, width) => sum + width, 0);
+  }, [candidateListColumnWidths]);
 
   const todayNewResumes = useMemo(
       () => candidates.filter((candidate) => isToday(candidate.created_at)).length,
@@ -1324,7 +1540,151 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
   useEffect(() => {
     setSelectedInterviewSkillIds([]);
     setInterviewSkillSelectionDirty(false);
+    setCandidateProcessLogsExpanded(false);
   }, [selectedCandidateId]);
+
+  useEffect(() => {
+    if (candidateViewMode !== "list") return;
+    const targets = [candidateListScrollEl, candidateListHorizontalRailEl]
+        .filter((node): node is HTMLDivElement => Boolean(node));
+    if (!targets.length) return;
+    const cleanups = targets.map((container) => {
+      const handleWheel = (event: WheelEvent) => {
+        if (!event.shiftKey) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (container.scrollWidth <= container.clientWidth) return;
+        const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
+        if (!delta) return;
+        container.scrollLeft += delta;
+      };
+      container.addEventListener("wheel", handleWheel, { passive: false, capture: true });
+      return () => container.removeEventListener("wheel", handleWheel, true);
+    });
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, [candidateViewMode, candidateListScrollEl, candidateListHorizontalRailEl]);
+
+  useEffect(() => {
+    const tableScroller = candidateListScrollEl;
+    const horizontalRail = candidateListHorizontalRailEl;
+    if (!tableScroller || !horizontalRail || candidateViewMode !== "list") {
+      return;
+    }
+
+    const releaseLock = (owner: "table" | "rail") => {
+      requestAnimationFrame(() => {
+        if (candidateListScrollSyncLockRef.current === owner) {
+          candidateListScrollSyncLockRef.current = null;
+        }
+      });
+    };
+
+    const syncFromTable = () => {
+      if (candidateListScrollSyncLockRef.current === "rail") {
+        return;
+      }
+      candidateListScrollSyncLockRef.current = "table";
+      horizontalRail.scrollLeft = tableScroller.scrollLeft;
+      releaseLock("table");
+    };
+
+    const syncFromRail = () => {
+      if (candidateListScrollSyncLockRef.current === "table") {
+        return;
+      }
+      candidateListScrollSyncLockRef.current = "rail";
+      tableScroller.scrollLeft = horizontalRail.scrollLeft;
+      releaseLock("rail");
+    };
+
+    tableScroller.addEventListener("scroll", syncFromTable, { passive: true });
+    horizontalRail.addEventListener("scroll", syncFromRail, { passive: true });
+    horizontalRail.scrollLeft = tableScroller.scrollLeft;
+
+    return () => {
+      tableScroller.removeEventListener("scroll", syncFromTable);
+      horizontalRail.removeEventListener("scroll", syncFromRail);
+    };
+  }, [candidateViewMode, candidateListScrollEl, candidateListHorizontalRailEl]);
+
+  useEffect(() => {
+    function stopCandidateColumnResize() {
+      if (!candidateListColumnResizeRef.current) {
+        return;
+      }
+      candidateListColumnResizeRef.current = null;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+
+    function handleCandidateColumnResize(event: MouseEvent) {
+      const current = candidateListColumnResizeRef.current;
+      if (!current) {
+        return;
+      }
+      const nextWidth = clampCandidateListColumnWidth(current.key, current.startWidth + event.clientX - current.startX);
+      setCandidateListColumnWidths((prev) => (
+        prev[current.key] === nextWidth
+          ? prev
+          : {
+            ...prev,
+            [current.key]: nextWidth,
+          }
+      ));
+    }
+
+    window.addEventListener("mousemove", handleCandidateColumnResize);
+    window.addEventListener("mouseup", stopCandidateColumnResize);
+    return () => {
+      window.removeEventListener("mousemove", handleCandidateColumnResize);
+      window.removeEventListener("mouseup", stopCandidateColumnResize);
+      stopCandidateColumnResize();
+    };
+  }, []);
+
+  function beginCandidateColumnResize(key: CandidateListColumnKey, event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    candidateListColumnResizeRef.current = {
+      key,
+      startX: event.clientX,
+      startWidth: candidateListColumnWidths[key],
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }
+
+  function resetCandidateColumnWidth(key: CandidateListColumnKey, event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setCandidateListColumnWidths((prev) => ({
+      ...prev,
+      [key]: candidateListColumnDefaultWidths[key],
+    }));
+  }
+
+  function renderCandidateListHeaderCell(key: CandidateListColumnKey, label: string) {
+    const width = candidateListColumnWidths[key];
+    return (
+      <th
+        key={key}
+        style={{ width, minWidth: width, maxWidth: width }}
+        className="text-foreground sticky top-0 z-10 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap"
+      >
+        <div className="group relative flex items-center gap-2 pr-3">
+          <span className="truncate">{label}</span>
+          <button
+            type="button"
+            className="absolute -right-2 top-1/2 h-7 w-3 -translate-y-1/2 cursor-col-resize rounded-full border border-transparent bg-transparent opacity-0 transition hover:border-slate-300 hover:bg-slate-100/90 group-hover:opacity-100 dark:hover:border-slate-600 dark:hover:bg-slate-800/90"
+            onMouseDown={(event) => beginCandidateColumnResize(key, event)}
+            onDoubleClick={(event) => resetCandidateColumnWidth(key, event)}
+            aria-label={`调整${label}列宽`}
+            title={`拖拽调整${label}列宽，双击恢复默认`}
+          />
+        </div>
+      </th>
+    );
+  }
 
   async function loadMetadata() {
     const data = await recruitmentApi<RecruitmentMetadata>("/metadata");
@@ -3095,7 +3455,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                           </div>
                           <div className="shrink-0 text-left sm:text-right">
                             <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
-                              {log.status}
+                              {labelForTaskExecutionStatus(log.status)}
                             </Badge>
                             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(log.created_at)}</p>
                           </div>
@@ -3459,7 +3819,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(task.created_at)}</p>
                                   </div>
                                   <Badge className={cn("rounded-full border", statusBadgeClass("task", task.status))}>
-                                    {task.status}
+                                    {labelForTaskExecutionStatus(task.status)}
                                   </Badge>
                                 </div>
                                 {task.published_url ? (
@@ -3520,7 +3880,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
 
   function renderCandidatesPage() {
     return (
-        <div className="space-y-6">
+        <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-6 overflow-hidden">
           <Card className={panelClass}>
             <CardContent className="px-6 py-6">
               <div className="flex flex-col gap-4">
@@ -3583,8 +3943,8 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
             </CardContent>
           </Card>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(400px,480px)] 2xl:grid-cols-[minmax(0,1.05fr)_minmax(430px,520px)]">
-            <Card className={cn(panelClass, "overflow-hidden")}>
+          <div className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(420px,500px)] 2xl:grid-cols-[minmax(0,1.08fr)_minmax(440px,540px)]">
+            <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
               <CardHeader className="pb-0">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -3594,7 +3954,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                   <Badge variant="outline" className="rounded-full">{visibleCandidates.length} 人</Badge>
                 </div>
               </CardHeader>
-              <CardContent className="pt-6">
+              <CardContent className="flex min-h-0 flex-1 flex-col pt-6">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     已选中 <span className="font-semibold text-slate-900 dark:text-slate-100">{selectedCandidateIds.length}</span> 位候选人
@@ -3616,79 +3976,155 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                 {candidatesLoading ? (
                     <LoadingCard label="正在加载候选人列表" />
                 ) : candidateViewMode === "list" ? (
-                    <ScrollArea className="h-[min(760px,calc(100vh-320px))]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-14">
-                              <input
-                                type="checkbox"
-                                checked={visibleCandidates.length > 0 && visibleCandidates.every((candidate) => selectedCandidateIds.includes(candidate.id))}
-                                onChange={(event) => setSelectedCandidateIds(event.target.checked ? visibleCandidates.map((candidate) => candidate.id) : [])}
-                                aria-label="全选候选人"
-                              />
-                            </TableHead>
-                            <TableHead>候选人</TableHead>
-                            <TableHead>岗位</TableHead>
-                            <TableHead>状态</TableHead>
-                            <TableHead>匹配度</TableHead>
-                            <TableHead>来源</TableHead>
-                            <TableHead>更新时间</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {visibleCandidates.length ? visibleCandidates.map((candidate) => (
-                              <TableRow
-                                  key={candidate.id}
-                                  className={cn("cursor-pointer", selectedCandidateId === candidate.id && "bg-slate-100 dark:bg-slate-900")}
-                                  onClick={() => setSelectedCandidateId(candidate.id)}
-                              >
-                                <TableCell onClick={(event) => event.stopPropagation()}>
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedCandidateIds.includes(candidate.id)}
-                                    onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
-                                    aria-label={`选择候选人 ${candidate.name}`}
-                                  />
-                                </TableCell>
-                                <TableCell>
-                                  <div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
+                    <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
+                      <div
+                        ref={candidateListScrollRef}
+                        className="min-h-0 flex-1 overflow-x-auto overflow-y-auto overscroll-contain [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
+                      >
+                        <table style={{ minWidth: candidateListTableMinWidth }} className="caption-bottom table-fixed text-sm">
+                          <thead className="[&_tr]:border-b">
+                            <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">
+                              <th className="text-foreground sticky top-0 z-10 h-10 w-14 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap">
+                                <input
+                                  type="checkbox"
+                                  checked={visibleCandidates.length > 0 && visibleCandidates.every((candidate) => selectedCandidateIds.includes(candidate.id))}
+                                  onChange={(event) => setSelectedCandidateIds(event.target.checked ? visibleCandidates.map((candidate) => candidate.id) : [])}
+                                  aria-label="全选候选人"
+                                />
+                              </th>
+                              {renderCandidateListHeaderCell("candidate", "候选人")}
+                              {renderCandidateListHeaderCell("position", "岗位")}
+                              {renderCandidateListHeaderCell("status", "状态")}
+                              {renderCandidateListHeaderCell("match", "匹配度")}
+                              {renderCandidateListHeaderCell("source", "来源")}
+                              {renderCandidateListHeaderCell("updated", "更新时间")}
+                            </tr>
+                          </thead>
+                          <tbody className="[&_tr:last-child]:border-0">
+                            {visibleCandidates.length ? visibleCandidates.map((candidate) => (
+                                <tr
+                                    key={candidate.id}
+                                    className={cn("cursor-pointer", selectedCandidateId === candidate.id && "bg-slate-100 dark:bg-slate-900")}
+                                    onClick={() => setSelectedCandidateId(candidate.id)}
+                                >
+                                  <td className="p-2 align-middle whitespace-nowrap" onClick={(event) => event.stopPropagation()}>
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedCandidateIds.includes(candidate.id)}
+                                      onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
+                                      aria-label={`选择候选人 ${candidate.name}`}
+                                    />
+                                  </td>
+                                  <td
+                                    style={{
+                                      width: candidateListColumnWidths.candidate,
+                                      minWidth: candidateListColumnWidths.candidate,
+                                      maxWidth: candidateListColumnWidths.candidate,
+                                    }}
+                                    className="p-2 align-middle"
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <HoverRevealText
+                                          text={candidate.name}
+                                          className="font-medium text-slate-900 dark:text-slate-100"
+                                        />
+                                        {getCandidateResumeMailSummary(candidate.id) ? (
+                                          <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                            已发简历
+                                          </Badge>
+                                        ) : null}
+                                      </div>
+                                      <HoverRevealText
+                                        text={candidate.phone || candidate.email || "未填写联系方式"}
+                                        className="text-xs text-slate-500 dark:text-slate-400"
+                                      />
                                       {getCandidateResumeMailSummary(candidate.id) ? (
-                                        <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                          已发简历
-                                        </Badge>
+                                        <HoverRevealText
+                                          text={getCandidateResumeMailSummary(candidate.id)}
+                                          className="mt-1 text-xs text-sky-600 dark:text-slate-300"
+                                          tooltipClassName="max-w-sm"
+                                        />
                                       ) : null}
                                     </div>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">{candidate.phone || candidate.email || "未填写联系方式"}</p>
-                                    {getCandidateResumeMailSummary(candidate.id) ? (
-                                      <p className="mt-1 text-xs text-sky-600 dark:text-sky-300">{getCandidateResumeMailSummary(candidate.id)}</p>
-                                    ) : null}
-                                  </div>
-                                </TableCell>
-                                <TableCell>{candidate.position_title || "未分配岗位"}</TableCell>
-                                <TableCell>
-                                  <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
-                                    {labelForCandidateStatus(candidate.status)}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>{formatPercent(candidate.match_percent)}</TableCell>
-                                <TableCell>{candidate.source || "-"}</TableCell>
-                                <TableCell>{formatDateTime(candidate.updated_at)}</TableCell>
-                              </TableRow>
-                          )) : (
-                              <TableRow>
-                                <TableCell colSpan={7}>
-                                  <EmptyState title="没有符合条件的候选人" description="调整筛选条件，或先上传一批简历进入系统。" />
-                                </TableCell>
-                              </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </ScrollArea>
+                                  </td>
+                                  <td
+                                    style={{
+                                      width: candidateListColumnWidths.position,
+                                      minWidth: candidateListColumnWidths.position,
+                                      maxWidth: candidateListColumnWidths.position,
+                                    }}
+                                    className="p-2 align-middle"
+                                  >
+                                    <HoverRevealText text={candidate.position_title || "未分配岗位"} />
+                                  </td>
+                                  <td
+                                    style={{
+                                      width: candidateListColumnWidths.status,
+                                      minWidth: candidateListColumnWidths.status,
+                                      maxWidth: candidateListColumnWidths.status,
+                                    }}
+                                    className="p-2 align-middle whitespace-nowrap"
+                                  >
+                                    <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
+                                      {labelForCandidateStatus(candidate.status)}
+                                    </Badge>
+                                  </td>
+                                  <td
+                                    style={{
+                                      width: candidateListColumnWidths.match,
+                                      minWidth: candidateListColumnWidths.match,
+                                      maxWidth: candidateListColumnWidths.match,
+                                    }}
+                                    className="p-2 align-middle whitespace-nowrap"
+                                  >
+                                    {formatPercent(candidate.match_percent)}
+                                  </td>
+                                  <td
+                                    style={{
+                                      width: candidateListColumnWidths.source,
+                                      minWidth: candidateListColumnWidths.source,
+                                      maxWidth: candidateListColumnWidths.source,
+                                    }}
+                                    className="p-2 align-middle"
+                                  >
+                                    <HoverRevealText
+                                      text={candidate.source || "-"}
+                                      className="text-xs text-slate-600 dark:text-slate-300"
+                                    />
+                                  </td>
+                                  <td
+                                    style={{
+                                      width: candidateListColumnWidths.updated,
+                                      minWidth: candidateListColumnWidths.updated,
+                                      maxWidth: candidateListColumnWidths.updated,
+                                    }}
+                                    className="p-2 align-middle"
+                                  >
+                                    <HoverRevealText text={formatDateTime(candidate.updated_at)} />
+                                  </td>
+                                </tr>
+                            )) : (
+                                <tr>
+                                  <td colSpan={7} className="p-2 align-middle">
+                                    <EmptyState title="没有符合条件的候选人" description="调整筛选条件，或先上传一批简历进入系统。" />
+                                  </td>
+                                </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="shrink-0 border-t border-slate-200/80 pt-2 dark:border-slate-800">
+                        <div
+                          ref={candidateListHorizontalRailRef}
+                          className="overflow-x-auto overflow-y-hidden [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.95)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100/80 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.98)_transparent] dark:[&::-webkit-scrollbar-track]:bg-slate-900/80 dark:[&::-webkit-scrollbar-thumb]:border-slate-900 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700"
+                        >
+                          <div style={{ width: candidateListTableMinWidth, height: 1 }} />
+                        </div>
+                      </div>
+                    </div>
                 ) : (
-                    <ScrollArea className="h-[min(760px,calc(100vh-320px))]">
+                    <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [scrollbar-gutter:stable]">
                       <div className="grid gap-4 xl:grid-cols-3">
                         {groupedCandidates.map((group) => (
                             <div key={group.status} className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/60">
@@ -3747,17 +4183,17 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                             </div>
                         ))}
                       </div>
-                    </ScrollArea>
+                    </div>
                 )}
               </CardContent>
             </Card>
 
-            <Card className={cn(panelClass, "min-w-0 overflow-hidden")}>
+            <Card className={cn(panelClass, "min-h-0 min-w-0 gap-0 overflow-hidden py-0")}>
               {candidateDetailLoading ? <LoadingPanel label="正在加载候选人详情" /> : candidateDetail ? (
-                  <div className="flex h-full min-h-0 min-w-0 flex-col">
+                  <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
                     <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-800">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
+                      <div className="space-y-4">
+                        <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidateDetail.candidate.status))}>
                               {labelForCandidateStatus(candidateDetail.candidate.status)}
@@ -3776,7 +4212,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                             {candidateDetail.candidate.position_title || "未分配岗位"} · {candidateDetail.candidate.phone || candidateDetail.candidate.email || "未填写联系方式"}
                           </p>
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex w-full flex-wrap items-center gap-2">
                           <Button size="sm" variant="outline" onClick={() => void triggerScreening()} disabled={screeningSubmitting}>
                             <Sparkles className="h-4 w-4" />
                             {screeningSubmitting ? "\u521d\u7b5b\u4e2d..." : "\u5f00\u59cb\u521d\u7b5b"}
@@ -3797,10 +4233,10 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                           </Button>
                         </div>
                       </div>
-                      </div>
+                    </div>
 
-                    <ScrollArea className="h-[min(780px,calc(100vh-280px))]">
-                      <div className="space-y-6 px-6 py-6 pr-10 sm:pr-12">
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+                      <div className="min-w-0 space-y-6 px-6 py-6">
                         <Field label="基础信息">
                           <div className="grid gap-3">
                             <Input value={candidateEditor.name} onChange={(event) => setCandidateEditor((current) => ({ ...current, name: event.target.value }))} placeholder="姓名" />
@@ -3817,7 +4253,12 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div className="min-w-0 flex-1">
                                 <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
-                                  {candidateDetail.score?.total_score ?? "-"}
+                                  {formatScoreValue(
+                                      candidateDetail.score?.total_score,
+                                      typeof candidateDetail.score?.total_score_scale === "number"
+                                        ? candidateDetail.score.total_score_scale
+                                        : null,
+                                  )}
                                 </p>
                                 <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
                                   AI 建议：{candidateDetail.score?.recommendation || "尚未生成"} · 推荐状态 {labelForCandidateStatus(candidateDetail.score?.suggested_status || "")}
@@ -3934,36 +4375,57 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
 
                         <Field label="AI 执行日志">
                           <div className="space-y-3">
-                            {candidateProcessActivity.length ? candidateProcessActivity.map((log) => {
-                              const logSkillSnapshots = resolveLogSkillSnapshots(log, skillMap);
-                              return (
-                              <div key={log.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
-                                    <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{labelForProvider(log.model_provider)} {"·"} {log.model_name || "-"} {"·"} {formatLongDateTime(log.created_at)}</p>
+                            {candidateProcessActivity.length ? (
+                              <>
+                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                      已记录 {candidateProcessActivity.length} 条流程日志
+                                    </p>
+                                    <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">
+                                      默认收起，避免右侧详情被日志卡片挤满；需要排查时再展开查看。
+                                    </p>
                                   </div>
-                                  <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
-                                    {log.status}
-                                  </Badge>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setCandidateProcessLogsExpanded((current) => !current)}
+                                  >
+                                    {candidateProcessLogsExpanded ? "收起日志" : "展开日志"}
+                                  </Button>
                                 </div>
-                                <div className="mt-3 grid gap-3">
-                                  <InfoTile
-                                    label="Skills"
-                                    value={formatSkillSnapshotNames(logSkillSnapshots)}
-                                  />
-                                  <InfoTile label="记忆来源" value={labelForMemorySource(log.memory_source)} />
-                                </div>
-                                {log.error_message ? <p className="mt-3 break-all text-sm text-rose-600">{log.error_message}</p> : null}
-                                <div className="mt-3 rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                  <pre className="max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">{formatStructuredValue(log.output_snapshot, log.output_summary || "执行中，等待模型返回...")}</pre>
-                                </div>
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  <Button size="sm" variant="outline" onClick={() => openTaskLogDetail(log.id)}>查看完整日志</Button>
-                                </div>
-                              </div>
-                              );
-                            }) : (
+                                {candidateProcessLogsExpanded ? candidateProcessActivity.map((log) => {
+                                  const logSkillSnapshots = resolveLogSkillSnapshots(log, skillMap);
+                                  return (
+                                  <div key={log.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
+                                        <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{labelForProvider(log.model_provider)} {"·"} {log.model_name || "-"} {"·"} {formatLongDateTime(log.created_at)}</p>
+                                      </div>
+                                      <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
+                                        {labelForTaskExecutionStatus(log.status)}
+                                      </Badge>
+                                    </div>
+                                    <div className="mt-3 grid gap-3">
+                                      <InfoTile
+                                        label="Skills"
+                                        value={formatSkillSnapshotNames(logSkillSnapshots)}
+                                      />
+                                      <InfoTile label="记忆来源" value={labelForMemorySource(log.memory_source)} />
+                                    </div>
+                                    {log.error_message ? <p className="mt-3 break-all text-sm text-rose-600">{log.error_message}</p> : null}
+                                    <div className="mt-3 min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                      <pre className="max-h-[260px] min-w-0 overflow-auto whitespace-pre-wrap break-all text-xs leading-6 text-slate-600 dark:text-slate-300">{formatStructuredValue(log.output_snapshot, log.output_summary || "执行中，等待模型返回...")}</pre>
+                                    </div>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      <Button size="sm" variant="outline" onClick={() => openTaskLogDetail(log.id)}>查看完整日志</Button>
+                                    </div>
+                                  </div>
+                                  );
+                                }) : null}
+                              </>
+                            ) : (
                               <EmptyState title="暂无 AI 执行日志" description="开始初筛、生成面试题后，这里会显示候选人的流程任务留痕与输出内容。" />
                             )}
                           </div>
@@ -4054,7 +4516,21 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                                         {"下载 HTML"}
                                       </Button>
                                     </div>
-                                    <div className="prose prose-slate max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: candidateDetail.interview_questions[0].html_content }} />
+                                    {looksLikeFullHtmlDocument(candidateDetail.interview_questions[0].html_content) ? (
+                                      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-950">
+                                        <iframe
+                                          title={`${candidateDetail.interview_questions[0].round_name}-preview`}
+                                          srcDoc={candidateDetail.interview_questions[0].html_content}
+                                          sandbox="allow-scripts"
+                                          className="h-[760px] w-full border-0 bg-white"
+                                        />
+                                      </div>
+                                    ) : (
+                                      <div
+                                        className="prose prose-slate max-w-none dark:prose-invert"
+                                        dangerouslySetInnerHTML={{ __html: candidateDetail.interview_questions[0].html_content }}
+                                      />
+                                    )}
                                   </div>
                               ) : (
                                   <EmptyState title="暂无面试题" description="点击上方按钮后，系统会结合岗位 JD、候选人简历和 Skills 生成定制化题目。" />
@@ -4064,7 +4540,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                         </Field>
 
                       </div>
-                    </ScrollArea>
+                    </div>
                   </div>
               ) : (
                   <EmptyState title="请选择一个候选人" description="左侧列表或看板选中候选人后，右侧会打开完整档案与 AI 评估区。" />
@@ -4136,7 +4612,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                                 <TableCell className="min-w-[280px]">{buildLogObjectLabel(log, positionMap, candidateMap, skillMap)}</TableCell>
                                 <TableCell>
                                   <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
-                                    {log.status}
+                                    {labelForTaskExecutionStatus(log.status)}
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="min-w-[220px]">{labelForProvider(log.model_provider)} · {log.model_name || "-"}</TableCell>
@@ -4162,7 +4638,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge className={cn("rounded-full border", statusBadgeClass("task", selectedLogDetail.status))}>
-                          {selectedLogDetail.status}
+                          {labelForTaskExecutionStatus(selectedLogDetail.status)}
                         </Badge>
                         <Badge variant="outline" className="rounded-full">{labelForTaskType(selectedLogDetail.task_type)}</Badge>
                       </div>
@@ -4215,6 +4691,11 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
                     <Field label="Prompt Snapshot">
                       <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                         <pre className="max-h-[280px] overflow-auto whitespace-pre-wrap">{selectedLogDetail.prompt_snapshot || "暂无 Prompt 快照"}</pre>
+                      </div>
+                    </Field>
+                    <Field label="完整模型请求">
+                      <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                        <pre className="max-h-[420px] overflow-auto whitespace-pre-wrap">{selectedLogDetail.full_request_snapshot || "暂无完整模型请求"}</pre>
                       </div>
                     </Field>
                     <Field label="完整输出">
@@ -4666,7 +5147,7 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
               {!navCollapsed ? (
                 <div>
                   <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">工作分区</p>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">支持手动收起，点击菜单会自动展开。</p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">支持手动收起，默认展开。</p>
                 </div>
               ) : null}
               <Button
@@ -4722,14 +5203,20 @@ export default function RecruitmentAutomationContainer({ onBack }: RecruitmentAu
           </aside>
 
           <div className="min-h-0 overflow-hidden">
-            <ScrollArea className="h-full">
-              <div className="p-6">{renderPage()}</div>
-            </ScrollArea>
+            {activePage === "candidates" ? (
+              <div className="h-full p-6">
+                {renderPage()}
+              </div>
+            ) : (
+              <ScrollArea className="h-full">
+                <div className="p-6">{renderPage()}</div>
+              </ScrollArea>
+            )}
           </div>
         </div>
 
         <Button
-            className="fixed bottom-8 right-[-44px] z-30 h-14 rounded-l-2xl rounded-r-none bg-slate-900 pl-4 pr-3 text-white shadow-[0_20px_40px_-18px_rgba(15,23,42,0.5)] transition-[right,background-color] duration-200 hover:right-0 hover:bg-slate-800 focus-visible:right-0 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+            className="fixed bottom-8 right-0 z-30 h-14 translate-x-[calc(100%-14px)] rounded-l-2xl rounded-r-none bg-slate-900 pl-4 pr-3 text-white shadow-[0_20px_40px_-18px_rgba(15,23,42,0.5)] transition-[transform,background-color] duration-200 hover:translate-x-0 hover:bg-slate-800 focus-visible:translate-x-0 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
             onClick={() => openAssistantMode("drawer")}
         >
           <Bot className="h-4 w-4" />
@@ -5275,7 +5762,7 @@ function Field({
   className?: string;
 }) {
   return (
-      <div className={cn("space-y-2", className)}>
+      <div className={cn("min-w-0 space-y-2", className)}>
         <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{label}</p>
         {children}
       </div>
@@ -5443,9 +5930,9 @@ function MiniStat({ label, value }: { label: string; value: number }) {
 
 function InfoTile({ label, value }: { label: string; value: string }) {
   return (
-      <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+      <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
         <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</p>
-        <p className="mt-2 break-words text-sm leading-6 text-slate-700 dark:text-slate-200">{value}</p>
+        <p className="mt-2 break-words text-sm leading-6 text-slate-700 [overflow-wrap:anywhere] dark:text-slate-200">{value}</p>
       </div>
   );
 }

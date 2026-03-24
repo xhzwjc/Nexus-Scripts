@@ -153,6 +153,7 @@ export interface CandidateScore {
   candidate_id: number;
   parse_result_id: number;
   total_score?: number | null;
+  total_score_scale?: number | null;
   match_percent?: number | null;
   advantages?: string[];
   concerns?: string[];
@@ -242,6 +243,7 @@ export interface AITaskLog {
   model_provider?: string | null;
   model_name?: string | null;
   prompt_snapshot?: string | null;
+  full_request_snapshot?: string | null;
   input_summary?: string | null;
   output_summary?: string | null;
   output_snapshot?: unknown;

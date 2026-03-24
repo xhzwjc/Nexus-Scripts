@@ -34,6 +34,10 @@ def _strip_json_fences(value: str) -> str:
     return text
 
 
+def _dump_request_snapshot(value: Dict[str, Any]) -> str:
+    return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+
+
 def _format_http_error(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         response = exc.response
@@ -57,6 +61,48 @@ def _format_http_error(exc: Exception) -> str:
         return f"Request error: {exc}"
 
     return str(exc)
+
+
+def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_mode: str, system_prompt: str, user_prompt: str) -> str:
+    temperature = 0.2 if response_mode == "json" else 0.3
+    if config.runtime_provider == "gemini":
+        request_body = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": f"{user_prompt}\n\n请仅返回有效 JSON。"} if response_mode == "json" else {"text": user_prompt}]}],
+            "generationConfig": {"temperature": temperature, **({"responseMimeType": "application/json"} if response_mode == "json" else {})},
+        }
+        endpoint = f"{(config.base_url or 'https://generativelanguage.googleapis.com').rstrip('/')}/v1beta/models/{config.model_name}:generateContent"
+    elif config.runtime_provider == "anthropic":
+        request_body = {
+            "model": config.model_name,
+            "max_tokens": 4000,
+            "temperature": temperature,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": f"{user_prompt}\n\nReturn valid JSON only." if response_mode == "json" else user_prompt}],
+        }
+        endpoint = f"{(config.base_url or 'https://api.anthropic.com').rstrip('/')}/v1/messages"
+    else:
+        request_body = {
+            "model": config.model_name,
+            "temperature": temperature,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"{user_prompt}\n\nPlease return valid JSON only." if response_mode == "json" else user_prompt},
+            ],
+        }
+        endpoint = f"{(config.base_url or '').rstrip('/')}/chat/completions" if config.base_url else None
+    return _dump_request_snapshot(
+        {
+            "provider": config.provider,
+            "runtime_provider": config.runtime_provider,
+            "model_name": config.model_name,
+            "source": config.source,
+            "base_url": config.base_url,
+            "endpoint": endpoint,
+            "response_mode": response_mode,
+            "request_body": request_body,
+        }
+    )
 
 
 def _is_retryable_error(exc: Exception) -> bool:
@@ -293,6 +339,7 @@ class RecruitmentAIGateway:
     def generate_json(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
         config = self.resolve_config(task_type)
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
+        full_request_snapshot = _build_request_snapshot(config, response_mode="json", system_prompt=system_prompt, user_prompt=user_prompt)
         max_retries = max(0, int(config.extra_config.get("max_retries") or 2))
         retry_delay = float(config.extra_config.get("retry_delay_seconds") or 1.2)
         last_error: Exception | None = None
@@ -305,7 +352,7 @@ class RecruitmentAIGateway:
                 else:
                     response_payload = self._call_openai_compatible_json(config, system_prompt, user_prompt)
                 content = response_payload["content"]
-                return {"content": content, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": False, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(content, 600), "token_usage": response_payload.get("token_usage"), "error_message": None}
+                return {"content": content, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": False, "prompt_snapshot": prompt_snapshot, "full_request_snapshot": full_request_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(content, 600), "token_usage": response_payload.get("token_usage"), "error_message": None}
             except Exception as exc:
                 last_error = exc
                 if attempt < max_retries and _is_retryable_error(exc):
@@ -316,11 +363,12 @@ class RecruitmentAIGateway:
                 logger.warning("Recruitment JSON task %s failed, falling back: %s", task_type, exc)
                 break
         fallback = fallback_builder()
-        return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure"))}
+        return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "full_request_snapshot": full_request_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure"))}
 
     def generate_text(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Callable[[], Dict[str, str]]) -> Dict[str, Any]:
         config = self.resolve_config(task_type)
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
+        full_request_snapshot = _build_request_snapshot(config, response_mode="text", system_prompt=system_prompt, user_prompt=user_prompt)
         max_retries = max(0, int(config.extra_config.get("max_retries") or 2))
         retry_delay = float(config.extra_config.get("retry_delay_seconds") or 1.2)
         last_error: Exception | None = None
@@ -334,7 +382,7 @@ class RecruitmentAIGateway:
                     response_payload = self._call_openai_compatible_text(config, system_prompt, user_prompt)
                 content = response_payload["content"]
                 output_summary = content.get("markdown") if isinstance(content, dict) else content
-                return {"content": content, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": False, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(output_summary, 600), "token_usage": response_payload.get("token_usage"), "error_message": None}
+                return {"content": content, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": False, "prompt_snapshot": prompt_snapshot, "full_request_snapshot": full_request_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(output_summary, 600), "token_usage": response_payload.get("token_usage"), "error_message": None}
             except Exception as exc:
                 last_error = exc
                 if attempt < max_retries and _is_retryable_error(exc):
@@ -345,4 +393,4 @@ class RecruitmentAIGateway:
                 logger.warning("Recruitment text task %s failed, falling back: %s", task_type, exc)
                 break
         fallback = fallback_builder()
-        return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure"))}
+        return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "full_request_snapshot": full_request_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure"))}

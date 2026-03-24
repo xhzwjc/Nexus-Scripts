@@ -69,6 +69,19 @@ def _build_glm_template_seed() -> dict:
     }
 
 
+def _needs_legacy_default_skill_refresh(row: RecruitmentSkill) -> bool:
+    if row.skill_code != "skill-iot-resume-screener":
+        return False
+    text = f"{row.description or ''}\n{row.content or ''}"
+    legacy_markers = [
+        "面试分析 Skill",
+        "模块三",
+        "面试结果分析",
+        "个人信息卡片时机",
+        "全流程招聘助手，分三个模块",
+        "专用筛选、出题与面试分析 Skill",
+    ]
+    return any(marker in text for marker in legacy_markers)
 def _sync_script_hub_catalog() -> None:
     db = SessionLocal()
     try:
@@ -259,6 +272,18 @@ def ensure_recruitment_schema() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN output_snapshot TEXT NULL"))
             logger.info("Added recruitment_ai_task_logs.output_snapshot column")
+        if "full_request_snapshot" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN full_request_snapshot TEXT NULL"))
+            logger.info("Added recruitment_ai_task_logs.full_request_snapshot column")
+        if engine.dialect.name == "mysql":
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN related_skill_snapshots_json LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN prompt_snapshot LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN full_request_snapshot LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN output_summary LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN output_snapshot LONGTEXT NULL"))
+            logger.info("Expanded recruitment_ai_task_logs large text columns to LONGTEXT")
 
         score_columns = {column["name"]: column for column in inspector.get_columns("recruitment_candidate_scores")}
         recommendation_column = score_columns.get("recommendation")
@@ -292,14 +317,21 @@ def ensure_recruitment_schema() -> None:
                     db.add(RecruitmentSkill(skill_code=skill["skill_code"], name=skill["name"], description=skill.get("description"), content=skill["content"], tags_json=json.dumps(skill.get("tags") or [], ensure_ascii=False), sort_order=skill.get("sort_order") or 99, is_enabled=True, created_by="system", updated_by="system", deleted=False))
                 elif exists.deleted:
                     continue
-                elif (exists.updated_by or "system") == "system":
+                elif (exists.updated_by or "system") == "system" or _needs_legacy_default_skill_refresh(exists):
                     exists.name = skill["name"]
                     exists.description = skill.get("description")
                     exists.content = skill["content"]
                     exists.tags_json = json.dumps(skill.get("tags") or [], ensure_ascii=False)
                     exists.sort_order = skill.get("sort_order") or 99
-                    exists.is_enabled = True
+                    exists.is_enabled = bool(exists.is_enabled)
                     exists.updated_by = "system"
+
+            legacy_combined_skill = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == "skill-iot-resume-screener").first()
+            split_screening_skill = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == "skill-iot-screening-score", RecruitmentSkill.deleted.is_(False)).first()
+            split_interview_skill = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == "skill-iot-interview-question", RecruitmentSkill.deleted.is_(False)).first()
+            if legacy_combined_skill and split_screening_skill and split_interview_skill and not legacy_combined_skill.deleted and (legacy_combined_skill.updated_by or "system") == "system":
+                legacy_combined_skill.is_enabled = False
+                legacy_combined_skill.updated_by = "system"
 
             default_seed = _build_default_recruitment_llm_seed()
             llm_exists = db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.config_key == default_seed["config_key"]).first()
@@ -349,7 +381,7 @@ def ensure_recruitment_schema() -> None:
             db.commit()
 
             default_position_links = [
-                ("IoT测试工程师", ["skill-iot-resume-screener"]),
+                ("IoT测试工程师", ["skill-iot-screening-score"]),
             ]
             skill_rows = {
                 row.skill_code: row
@@ -367,6 +399,12 @@ def ensure_recruitment_schema() -> None:
                     skill = skill_rows.get(skill_code)
                     if skill and skill.id not in existing_ids:
                         db.add(RecruitmentPositionSkillLink(position_id=position.id, skill_id=skill.id, created_by="system", updated_by="system"))
+                legacy_skill = skill_rows.get("skill-iot-resume-screener")
+                if legacy_skill:
+                    db.query(RecruitmentPositionSkillLink).filter(
+                        RecruitmentPositionSkillLink.position_id == position.id,
+                        RecruitmentPositionSkillLink.skill_id == legacy_skill.id,
+                    ).delete(synchronize_session=False)
                 db.commit()
         except Exception:
             db.rollback()
