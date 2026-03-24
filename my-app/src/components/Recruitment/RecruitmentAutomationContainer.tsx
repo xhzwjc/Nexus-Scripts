@@ -3465,9 +3465,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             <div className="space-y-6">
                 <Card
                     className={cn(panelClass, "overflow-hidden border-slate-200/80 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.18),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.98)_0%,rgba(241,245,249,0.95)_100%)] dark:border-slate-800 dark:bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.18),transparent_26%),linear-gradient(135deg,rgba(15,23,42,0.96)_0%,rgba(15,23,42,0.9)_100%)]")}>
-                    <CardContent className="px-6 py-6">
-                        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-                            <div className="space-y-4">
+                    <CardContent className="px-6 py-5">
+                        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(300px,0.8fr)]">
+                            <div className="space-y-3">
                                 <div className="flex flex-wrap items-center gap-2">
                                     <Badge
                                         className="rounded-full border-slate-200 bg-white/90 text-slate-700 shadow-none dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
@@ -3479,8 +3479,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     </Badge>
                                 </div>
                                 <div>
-                                    <h2 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">招聘推进总览</h2>
-                                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+                                    <h2 className="text-[1.4rem] font-semibold tracking-tight text-slate-950 dark:text-slate-50">招聘推进总览</h2>
+                                    <p className="mt-1.5 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">
                                         集中展示当前待办、关键入口与近期进展，便于快速掌握岗位、候选人及 AI 任务的整体推进状态。
                                     </p>
                                 </div>
@@ -3496,13 +3496,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 <button
                                     type="button"
                                     onClick={() => openAssistantMode("drawer")}
-                                    className="rounded-[24px] border border-slate-200/80 bg-white/90 px-5 py-5 text-left transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80"
+                                    className="rounded-[24px] border border-slate-200/80 bg-white/90 px-5 py-4 text-left transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80"
                                 >
                                     <div className="flex items-start justify-between gap-4">
                                         <div>
                                             <p className="text-base font-semibold text-slate-900 dark:text-slate-100">打开
                                                 AI 招聘助手</p>
-                                            <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">直接用自然语言生成
+                                            <p className="mt-1.5 text-sm leading-6 text-slate-500 dark:text-slate-400">直接用自然语言生成
                                                 JD、初筛、重筛和查看日志来源。</p>
                                         </div>
                                         <div
@@ -3514,12 +3514,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 <button
                                     type="button"
                                     onClick={openCreatePosition}
-                                    className="rounded-[24px] border border-slate-200/80 bg-white/90 px-5 py-5 text-left transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80"
+                                    className="rounded-[24px] border border-slate-200/80 bg-white/90 px-5 py-4 text-left transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80"
                                 >
                                     <div className="flex items-start justify-between gap-4">
                                         <div>
                                             <p className="text-base font-semibold text-slate-900 dark:text-slate-100">新建岗位</p>
-                                            <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">录入岗位后，继续在
+                                            <p className="mt-1.5 text-sm leading-6 text-slate-500 dark:text-slate-400">录入岗位后，继续在
                                                 JD 工作区、候选人工作区里向下推进。</p>
                                         </div>
                                         <div
@@ -5691,27 +5691,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             </div>
 
             <div
-                className={cn("grid min-h-0 flex-1 transition-all duration-300", navCollapsed ? "lg:grid-cols-[92px_minmax(0,1fr)]" : "lg:grid-cols-[260px_minmax(0,1fr)]")}>
+                className={cn("grid min-h-0 flex-1 transition-all duration-300", navCollapsed ? "lg:grid-cols-[76px_minmax(0,1fr)]" : "lg:grid-cols-[232px_minmax(0,1fr)]")}>
                 <aside
-                    className={cn("border-r border-slate-200/80 bg-white/70 px-3 py-5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50", navCollapsed ? "lg:px-2" : "lg:px-4")}>
+                    className={cn("border-r border-slate-200/80 bg-white/70 px-2 py-4 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50", navCollapsed ? "lg:px-1.5" : "lg:px-3")}>
                     <div
-                        className={cn("mb-4 flex items-center gap-2", navCollapsed ? "justify-center" : "justify-between")}>
-                        {!navCollapsed ? (
-                            <div>
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">工作分区</p>
-                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">支持手动收起，默认展开。</p>
-                            </div>
-                        ) : null}
+                        className={cn("mb-3 flex items-center", navCollapsed ? "justify-center" : "justify-end")}>
                         <Button
                             type="button"
                             variant="outline"
-                            size={navCollapsed ? "icon" : "sm"}
-                            className="shrink-0"
+                            size="icon"
+                            className={cn("shrink-0", navCollapsed ? "h-8 w-8" : "h-8 w-8")}
                             onClick={() => setNavCollapsed((current) => !current)}
                             title={navCollapsed ? "展开左侧菜单" : "收起左侧菜单"}
                         >
                             <LayoutGrid className="h-4 w-4"/>
-                            {!navCollapsed ? "收起菜单" : null}
                         </Button>
                     </div>
 
@@ -5735,7 +5728,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                           onClick={() => navigatePrimaryPage("assistant")}/>
                     </div>
 
-                    <Separator className="my-5"/>
+                    <Separator className="my-4"/>
 
                     <div
                         className={cn("rounded-[24px] border border-slate-200/80 bg-white/85 shadow-sm dark:border-slate-800 dark:bg-slate-950/80", navCollapsed ? "px-2 py-3" : "px-4 py-4")}>
@@ -6685,7 +6678,7 @@ function SectionNavButton({
             title={title}
             className={cn(
                 "w-full rounded-[22px] border transition",
-                collapsed ? "px-2 py-3 text-center" : "px-4 py-4 text-left",
+                collapsed ? "px-1.5 py-2.5 text-center" : "px-3 py-3.5 text-left",
                 active
                     ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                     : "border-slate-200/80 bg-white/80 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/70",
@@ -6695,7 +6688,7 @@ function SectionNavButton({
                 className={cn("flex gap-3", collapsed ? "flex-col items-center justify-center" : "items-start justify-between")}>
                 <div className={cn("flex gap-3", collapsed ? "flex-col items-center" : "items-start")}>
                     <div
-                        className={cn("rounded-2xl p-2", active ? "bg-white/10 dark:bg-slate-200" : "bg-slate-100 dark:bg-slate-900")}>
+                        className={cn("rounded-2xl", collapsed ? "p-1.5" : "p-2", active ? "bg-white/10 dark:bg-slate-200" : "bg-slate-100 dark:bg-slate-900")}>
                         <Icon className="h-4 w-4"/>
                     </div>
                     <div className={cn("min-w-0", collapsed ? "text-center" : "")}>
