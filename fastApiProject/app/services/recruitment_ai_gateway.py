@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
 import httpx
-from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..recruitment_models import RecruitmentLLMConfig
 from ..secret_crypto import decrypt_secret, mask_secret
+from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl
 
 logger = logging.getLogger(__name__)
 
@@ -249,16 +249,27 @@ class RecruitmentAIGateway:
 
         return self._build_runtime_config(get_provider_definition("openai-compatible"), model_name=settings.AI_MODEL_NAME, base_url=settings.AI_BASE_URL, api_key=settings.AI_API_KEY, source="env:fallback")
 
-    def _create_openai_client(self, config: RecruitmentLLMRuntimeConfig) -> Optional[OpenAI]:
-        if not config.api_key:
+    def _build_httpx_client(self, config: RecruitmentLLMRuntimeConfig, *, cancel_control: Optional[RecruitmentTaskControl] = None) -> httpx.Client:
+        client = httpx.Client(timeout=float(config.extra_config.get("timeout_seconds") or 180))
+        if cancel_control:
+            cancel_control.register_closer(client.close)
+        return client
+
+    def _build_openai_compatible_endpoint(self, config: RecruitmentLLMRuntimeConfig) -> str:
+        base_url = (config.base_url or "").strip().rstrip("/")
+        if not base_url:
+            raise RuntimeError("Missing base URL for OpenAI compatible provider")
+        return f"{base_url}/chat/completions"
+
+    def _extract_usage_from_openai_stream_chunk(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        usage = payload.get("usage") or {}
+        if not usage:
             return None
-        try:
-            if config.base_url:
-                return OpenAI(base_url=config.base_url, api_key=config.api_key, timeout=float(config.extra_config.get("timeout_seconds") or 180))
-            return OpenAI(api_key=config.api_key, timeout=float(config.extra_config.get("timeout_seconds") or 180))
-        except Exception as exc:
-            logger.warning("Failed to initialize recruitment LLM client: %s", exc)
-            return None
+        return {
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "total_tokens": usage.get("total_tokens"),
+        }
 
     def _extract_text_from_anthropic(self, payload: Dict[str, Any]) -> str:
         chunks = []
@@ -267,76 +278,213 @@ class RecruitmentAIGateway:
                 chunks.append(item["text"])
         return "\n".join(chunks).strip()
 
-    def _call_openai_compatible_json(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
-        client = self._create_openai_client(config)
-        if not client:
+    def _stream_openai_compatible_completion(
+        self,
+        config: RecruitmentLLMRuntimeConfig,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        response_mode: str,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+    ) -> Dict[str, Any]:
+        if not config.api_key:
             raise RuntimeError("Missing API key for OpenAI compatible provider")
-        response = client.chat.completions.create(model=config.model_name, temperature=0.2, messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": f"{user_prompt}\n\nPlease return valid JSON only."}])
-        raw_text = response.choices[0].message.content or "{}"
-        content = json.loads(_strip_json_fences(raw_text))
-        return {"content": content, "token_usage": {"prompt_tokens": getattr(response.usage, "prompt_tokens", None), "completion_tokens": getattr(response.usage, "completion_tokens", None), "total_tokens": getattr(response.usage, "total_tokens", None)}}
+        endpoint = self._build_openai_compatible_endpoint(config)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": f"{user_prompt}\n\nPlease return valid JSON only." if response_mode == "json" else user_prompt,
+            },
+        ]
+        body = {
+            "model": config.model_name,
+            "temperature": 0.2 if response_mode == "json" else 0.3,
+            "messages": messages,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        client = self._build_httpx_client(config, cancel_control=cancel_control)
+        headers = {
+            "Authorization": f"Bearer {config.api_key}",
+            "Content-Type": "application/json",
+        }
+        chunks: list[str] = []
+        token_usage: Optional[Dict[str, Any]] = None
+        try:
+            with client.stream("POST", endpoint, headers=headers, json=body) as response:
+                response.raise_for_status()
+                for raw_line in response.iter_lines():
+                    if cancel_control:
+                        cancel_control.raise_if_cancelled()
+                    if not raw_line:
+                        continue
+                    line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[len("data:"):].strip()
+                    if not data:
+                        continue
+                    if data == "[DONE]":
+                        break
+                    payload = json.loads(data)
+                    usage_payload = self._extract_usage_from_openai_stream_chunk(payload)
+                    if usage_payload:
+                        token_usage = usage_payload
+                    for choice in payload.get("choices") or []:
+                        delta = choice.get("delta") or {}
+                        delta_content = delta.get("content")
+                        if isinstance(delta_content, str) and delta_content:
+                            chunks.append(delta_content)
+                        elif isinstance(delta_content, list):
+                            for item in delta_content:
+                                if isinstance(item, dict) and item.get("text"):
+                                    chunks.append(str(item.get("text")))
+            if cancel_control:
+                cancel_control.raise_if_cancelled()
+        except Exception as exc:
+            if cancel_control and cancel_control.is_cancelled():
+                raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+            raise
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+        raw_text = "".join(chunks).strip()
+        if response_mode == "json":
+            return {
+                "content": json.loads(_strip_json_fences(raw_text or "{}")),
+                "token_usage": token_usage,
+            }
+        return {
+            "content": {"markdown": raw_text, "html": raw_text.replace("\n", "<br />")},
+            "token_usage": token_usage,
+        }
 
-    def _call_openai_compatible_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
-        client = self._create_openai_client(config)
-        if not client:
-            raise RuntimeError("Missing API key for OpenAI compatible provider")
-        response = client.chat.completions.create(model=config.model_name, temperature=0.3, messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}])
-        raw_text = response.choices[0].message.content or ""
-        return {"content": {"markdown": raw_text, "html": raw_text.replace("\n", "<br />")}, "token_usage": {"prompt_tokens": getattr(response.usage, "prompt_tokens", None), "completion_tokens": getattr(response.usage, "completion_tokens", None), "total_tokens": getattr(response.usage, "total_tokens", None)}}
+    def _call_openai_compatible_json(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
+        return self._stream_openai_compatible_completion(
+            config,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_mode="json",
+            cancel_control=cancel_control,
+        )
 
-    def _call_gemini_json(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    def _call_openai_compatible_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
+        return self._stream_openai_compatible_completion(
+            config,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_mode="text",
+            cancel_control=cancel_control,
+        )
+
+    def _call_gemini_json(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         if not config.api_key:
             raise RuntimeError("Missing API key for Gemini")
         base_url = (config.base_url or "https://generativelanguage.googleapis.com").rstrip("/")
         url = f"{base_url}/v1beta/models/{config.model_name}:generateContent"
         body = {"system_instruction": {"parts": [{"text": system_prompt}]}, "contents": [{"role": "user", "parts": [{"text": f"{user_prompt}\n\n请仅返回有效 JSON。"}]}], "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}}
-        response = httpx.post(url, params={"key": config.api_key}, json=body, timeout=float(config.extra_config.get("timeout_seconds") or 180))
-        response.raise_for_status()
-        payload = response.json()
+        client = self._build_httpx_client(config, cancel_control=cancel_control)
+        try:
+            response = client.post(url, params={"key": config.api_key}, json=body)
+            response.raise_for_status()
+            if cancel_control:
+                cancel_control.raise_if_cancelled()
+            payload = response.json()
+        except Exception as exc:
+            if cancel_control and cancel_control.is_cancelled():
+                raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+            raise
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
         parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
         raw_text = "\n".join([part.get("text", "") for part in parts if part.get("text")]).strip() or "{}"
         content = json.loads(_strip_json_fences(raw_text))
         usage = payload.get("usageMetadata") or {}
         return {"content": content, "token_usage": {"prompt_tokens": usage.get("promptTokenCount"), "completion_tokens": usage.get("candidatesTokenCount"), "total_tokens": usage.get("totalTokenCount")}}
 
-    def _call_gemini_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    def _call_gemini_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         if not config.api_key:
             raise RuntimeError("Missing API key for Gemini")
         base_url = (config.base_url or "https://generativelanguage.googleapis.com").rstrip("/")
         url = f"{base_url}/v1beta/models/{config.model_name}:generateContent"
         body = {"system_instruction": {"parts": [{"text": system_prompt}]}, "contents": [{"role": "user", "parts": [{"text": user_prompt}]}], "generationConfig": {"temperature": 0.3}}
-        response = httpx.post(url, params={"key": config.api_key}, json=body, timeout=float(config.extra_config.get("timeout_seconds") or 180))
-        response.raise_for_status()
-        payload = response.json()
+        client = self._build_httpx_client(config, cancel_control=cancel_control)
+        try:
+            response = client.post(url, params={"key": config.api_key}, json=body)
+            response.raise_for_status()
+            if cancel_control:
+                cancel_control.raise_if_cancelled()
+            payload = response.json()
+        except Exception as exc:
+            if cancel_control and cancel_control.is_cancelled():
+                raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+            raise
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
         parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
         raw_text = "\n".join([part.get("text", "") for part in parts if part.get("text")]).strip()
         usage = payload.get("usageMetadata") or {}
         return {"content": {"markdown": raw_text, "html": raw_text.replace("\n", "<br />")}, "token_usage": {"prompt_tokens": usage.get("promptTokenCount"), "completion_tokens": usage.get("candidatesTokenCount"), "total_tokens": usage.get("totalTokenCount")}}
 
-    def _call_anthropic_json(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    def _call_anthropic_json(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         if not config.api_key:
             raise RuntimeError("Missing API key for Anthropic")
         base_url = (config.base_url or "https://api.anthropic.com").rstrip("/")
-        response = httpx.post(f"{base_url}/v1/messages", headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json={"model": config.model_name, "max_tokens": 4000, "temperature": 0.2, "system": system_prompt, "messages": [{"role": "user", "content": f"{user_prompt}\n\nReturn valid JSON only."}]}, timeout=float(config.extra_config.get("timeout_seconds") or 180))
-        response.raise_for_status()
-        payload = response.json()
+        client = self._build_httpx_client(config, cancel_control=cancel_control)
+        try:
+            response = client.post(f"{base_url}/v1/messages", headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json={"model": config.model_name, "max_tokens": 4000, "temperature": 0.2, "system": system_prompt, "messages": [{"role": "user", "content": f"{user_prompt}\n\nReturn valid JSON only."}]})
+            response.raise_for_status()
+            if cancel_control:
+                cancel_control.raise_if_cancelled()
+            payload = response.json()
+        except Exception as exc:
+            if cancel_control and cancel_control.is_cancelled():
+                raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+            raise
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
         raw_text = self._extract_text_from_anthropic(payload) or "{}"
         content = json.loads(_strip_json_fences(raw_text))
         usage = payload.get("usage") or {}
         return {"content": content, "token_usage": {"prompt_tokens": usage.get("input_tokens"), "completion_tokens": usage.get("output_tokens"), "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)}}
 
-    def _call_anthropic_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    def _call_anthropic_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         if not config.api_key:
             raise RuntimeError("Missing API key for Anthropic")
         base_url = (config.base_url or "https://api.anthropic.com").rstrip("/")
-        response = httpx.post(f"{base_url}/v1/messages", headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json={"model": config.model_name, "max_tokens": 4000, "temperature": 0.3, "system": system_prompt, "messages": [{"role": "user", "content": user_prompt}]}, timeout=float(config.extra_config.get("timeout_seconds") or 180))
-        response.raise_for_status()
-        payload = response.json()
+        client = self._build_httpx_client(config, cancel_control=cancel_control)
+        try:
+            response = client.post(f"{base_url}/v1/messages", headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json={"model": config.model_name, "max_tokens": 4000, "temperature": 0.3, "system": system_prompt, "messages": [{"role": "user", "content": user_prompt}]})
+            response.raise_for_status()
+            if cancel_control:
+                cancel_control.raise_if_cancelled()
+            payload = response.json()
+        except Exception as exc:
+            if cancel_control and cancel_control.is_cancelled():
+                raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+            raise
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
         raw_text = self._extract_text_from_anthropic(payload)
         usage = payload.get("usage") or {}
         return {"content": {"markdown": raw_text, "html": raw_text.replace("\n", "<br />")}, "token_usage": {"prompt_tokens": usage.get("input_tokens"), "completion_tokens": usage.get("output_tokens"), "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)}}
 
-    def generate_json(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
+    def generate_json(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Callable[[], Dict[str, Any]], cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         config = self.resolve_config(task_type)
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
         full_request_snapshot = _build_request_snapshot(config, response_mode="json", system_prompt=system_prompt, user_prompt=user_prompt)
@@ -346,26 +494,34 @@ class RecruitmentAIGateway:
         for attempt in range(max_retries + 1):
             try:
                 if config.runtime_provider == "gemini":
-                    response_payload = self._call_gemini_json(config, system_prompt, user_prompt)
+                    response_payload = self._call_gemini_json(config, system_prompt, user_prompt, cancel_control=cancel_control)
                 elif config.runtime_provider == "anthropic":
-                    response_payload = self._call_anthropic_json(config, system_prompt, user_prompt)
+                    response_payload = self._call_anthropic_json(config, system_prompt, user_prompt, cancel_control=cancel_control)
                 else:
-                    response_payload = self._call_openai_compatible_json(config, system_prompt, user_prompt)
+                    response_payload = self._call_openai_compatible_json(config, system_prompt, user_prompt, cancel_control=cancel_control)
                 content = response_payload["content"]
                 return {"content": content, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": False, "prompt_snapshot": prompt_snapshot, "full_request_snapshot": full_request_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(content, 600), "token_usage": response_payload.get("token_usage"), "error_message": None}
+            except RecruitmentTaskCancelled:
+                raise
             except Exception as exc:
                 last_error = exc
+                if cancel_control and cancel_control.is_cancelled():
+                    raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
                 if attempt < max_retries and _is_retryable_error(exc):
                     sleep_seconds = retry_delay * (attempt + 1)
                     logger.warning("Recruitment JSON task %s hit retryable error, retrying in %.1fs: %s", task_type, sleep_seconds, exc)
-                    time.sleep(sleep_seconds)
+                    if cancel_control:
+                        if cancel_control.wait(sleep_seconds):
+                            raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+                    else:
+                        time.sleep(sleep_seconds)
                     continue
                 logger.warning("Recruitment JSON task %s failed, falling back: %s", task_type, exc)
                 break
         fallback = fallback_builder()
         return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "full_request_snapshot": full_request_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure"))}
 
-    def generate_text(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Callable[[], Dict[str, str]]) -> Dict[str, Any]:
+    def generate_text(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Callable[[], Dict[str, str]], cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         config = self.resolve_config(task_type)
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
         full_request_snapshot = _build_request_snapshot(config, response_mode="text", system_prompt=system_prompt, user_prompt=user_prompt)
@@ -375,20 +531,28 @@ class RecruitmentAIGateway:
         for attempt in range(max_retries + 1):
             try:
                 if config.runtime_provider == "gemini":
-                    response_payload = self._call_gemini_text(config, system_prompt, user_prompt)
+                    response_payload = self._call_gemini_text(config, system_prompt, user_prompt, cancel_control=cancel_control)
                 elif config.runtime_provider == "anthropic":
-                    response_payload = self._call_anthropic_text(config, system_prompt, user_prompt)
+                    response_payload = self._call_anthropic_text(config, system_prompt, user_prompt, cancel_control=cancel_control)
                 else:
-                    response_payload = self._call_openai_compatible_text(config, system_prompt, user_prompt)
+                    response_payload = self._call_openai_compatible_text(config, system_prompt, user_prompt, cancel_control=cancel_control)
                 content = response_payload["content"]
                 output_summary = content.get("markdown") if isinstance(content, dict) else content
                 return {"content": content, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": False, "prompt_snapshot": prompt_snapshot, "full_request_snapshot": full_request_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(output_summary, 600), "token_usage": response_payload.get("token_usage"), "error_message": None}
+            except RecruitmentTaskCancelled:
+                raise
             except Exception as exc:
                 last_error = exc
+                if cancel_control and cancel_control.is_cancelled():
+                    raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
                 if attempt < max_retries and _is_retryable_error(exc):
                     sleep_seconds = retry_delay * (attempt + 1)
                     logger.warning("Recruitment text task %s hit retryable error, retrying in %.1fs: %s", task_type, sleep_seconds, exc)
-                    time.sleep(sleep_seconds)
+                    if cancel_control:
+                        if cancel_control.wait(sleep_seconds):
+                            raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+                    else:
+                        time.sleep(sleep_seconds)
                     continue
                 logger.warning("Recruitment text task %s failed, falling back: %s", task_type, exc)
                 break

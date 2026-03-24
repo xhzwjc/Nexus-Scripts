@@ -4,11 +4,12 @@ import hashlib
 import json
 import logging
 import mimetypes
+import threading
 from datetime import datetime, timedelta
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from sqlalchemy import func, or_
 from sqlalchemy.exc import DataError, SQLAlchemyError
@@ -41,6 +42,7 @@ from .recruitment_ai_gateway import RecruitmentAIGateway, get_provider_options
 from .recruitment_mailer import RecruitmentMailSenderRuntime, build_resume_email, load_attachment_from_path, send_email_via_smtp
 from .recruitment_prompts import INTERVIEW_QUESTION_SYSTEM_PROMPT, JD_GENERATION_SYSTEM_PROMPT, RESUME_PARSE_SYSTEM_PROMPT, RESUME_SCORE_SYSTEM_PROMPT, RESUME_SCREENING_SYSTEM_PROMPT
 from .recruitment_publish_adapters import build_publish_adapter
+from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl, recruitment_task_registry
 from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_interview_fallback, build_jd_structured_fallback, extract_keywords, extract_resume_structured_data, extract_resume_text, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_structured_jd, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text
 
 KNOWN_AI_TASK_TYPES = ["jd_generation", "resume_parse", "resume_score", "interview_question_generation", "chat_orchestrator", "resume_mail_dispatch", "publish_task"]
@@ -745,6 +747,76 @@ class RecruitmentService:
         raw = "||".join([str(part or "") for part in parts])
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
+    def _get_ai_task_log_row(self, task_id: int) -> RecruitmentAITaskLog:
+        row = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.id == task_id).first()
+        if not row:
+            raise ValueError("操作失败")
+        return row
+
+    def _raise_if_cancelled(self, cancel_control: Optional[RecruitmentTaskControl]) -> None:
+        if cancel_control:
+            cancel_control.raise_if_cancelled()
+
+    def _mark_ai_task_cancelled(self, task_id: int, *, actor_id: Optional[str] = None, reason: Optional[str] = None) -> None:
+        row = self._get_ai_task_log_row(task_id)
+        row.status = "cancelled"
+        row.error_message = _truncate_utf8_text(reason or "任务已被用户停止。", 12000)
+        row.output_summary = _truncate_utf8_text("已停止生成", 12000)
+        if actor_id:
+            row.created_by = row.created_by or actor_id
+        self._commit_ai_task_log(row)
+
+    def _mark_ai_task_failed(self, task_id: int, message: str) -> None:
+        row = self._get_ai_task_log_row(task_id)
+        if row.status == "cancelled":
+            return
+        row.status = "failed"
+        row.error_message = _truncate_utf8_text(message, 12000)
+        self._commit_ai_task_log(row)
+
+    def _settle_orphaned_cancelling_task(self, row: RecruitmentAITaskLog) -> bool:
+        if row.status != "cancelling":
+            return False
+        if recruitment_task_registry.get(row.id):
+            return False
+        row.status = "cancelled"
+        row.error_message = _truncate_utf8_text("任务已被用户停止。", 12000)
+        row.output_summary = _truncate_utf8_text("已停止生成", 12000)
+        self.db.add(row)
+        return True
+
+    def _start_background_ai_task(self, task_id: int, runner: Callable[[RecruitmentTaskControl], None]) -> None:
+        control = RecruitmentTaskControl(task_id)
+        recruitment_task_registry.register(task_id, control)
+
+        def _target() -> None:
+            try:
+                runner(control)
+            finally:
+                recruitment_task_registry.pop(task_id)
+
+        thread = threading.Thread(target=_target, name=f"recruitment-ai-task-{task_id}", daemon=True)
+        thread.start()
+
+    def cancel_ai_task(self, task_id: int, actor_id: str) -> Dict[str, Any]:
+        row = self._get_ai_task_log_row(task_id)
+        if row.status in {"success", "fallback", "failed", "cancelled"}:
+            return self._serialize_ai_task_log(row, include_full_request_snapshot=True)
+        if row.status == "cancelling":
+            control = recruitment_task_registry.get(task_id)
+            if control:
+                control.cancel()
+            else:
+                self._mark_ai_task_cancelled(task_id, actor_id=actor_id, reason="任务已停止，未继续生成。")
+            refreshed = self._get_ai_task_log_row(task_id)
+            return self._serialize_ai_task_log(refreshed, include_full_request_snapshot=True)
+        self._mark_ai_task_cancelled(task_id, actor_id=actor_id, reason=f"用户 {actor_id} 已停止生成。")
+        control = recruitment_task_registry.get(task_id)
+        if control:
+            control.cancel()
+        refreshed = self._get_ai_task_log_row(task_id)
+        return self._serialize_ai_task_log(refreshed, include_full_request_snapshot=True)
+
     def _safe_encrypt_secret(self, plaintext: str) -> str:
         try:
             return encrypt_secret(plaintext)
@@ -944,6 +1016,12 @@ class RecruitmentService:
             return row
 
     def _update_ai_task_log(self, row: RecruitmentAITaskLog, *, status: Optional[str] = None, prompt_snapshot: Optional[str] = None, full_request_snapshot: Optional[Any] = None, input_summary: Optional[str] = None, output_summary: Optional[str] = None, output_snapshot: Optional[Any] = None, error_message: Optional[str] = None) -> RecruitmentAITaskLog:
+        try:
+            self.db.refresh(row)
+        except Exception:
+            pass
+        if row.status == "cancelled" and status not in {None, "cancelled"}:
+            return row
         if status is not None:
             row.status = status
         if prompt_snapshot is not None:
@@ -961,6 +1039,12 @@ class RecruitmentService:
         return self._commit_ai_task_log(row)
 
     def _finish_ai_task_log(self, row: RecruitmentAITaskLog, *, status: str, provider: Optional[str] = None, model_name: Optional[str] = None, prompt_snapshot: Optional[str] = None, full_request_snapshot: Optional[Any] = None, input_summary: Optional[str] = None, output_summary: Optional[str] = None, output_snapshot: Optional[Any] = None, error_message: Optional[str] = None, token_usage: Optional[Dict[str, Any]] = None, memory_source: Optional[str] = None, related_skill_ids: Optional[Iterable[Any]] = None, related_skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None) -> RecruitmentAITaskLog:
+        try:
+            self.db.refresh(row)
+        except Exception:
+            pass
+        if row.status == "cancelled":
+            return row
         row.status = status
         row.model_provider = provider
         row.model_name = model_name
@@ -1557,7 +1641,7 @@ class RecruitmentService:
             return None
         return parse_row
 
-    def _screen_candidate_with_single_ai_call(self, candidate: RecruitmentCandidate, actor_id: str, skill_rows: Sequence[RecruitmentSkill], memory_source: str, custom_requirements: str = "") -> Tuple[RecruitmentResumeParseResult, RecruitmentCandidateScore]:
+    def _screen_candidate_with_single_ai_call(self, candidate: RecruitmentCandidate, actor_id: str, skill_rows: Sequence[RecruitmentSkill], memory_source: str, custom_requirements: str = "", *, existing_task_id: Optional[int] = None, cancel_control: Optional[RecruitmentTaskControl] = None) -> Tuple[RecruitmentResumeParseResult, RecruitmentCandidateScore]:
         if not candidate.latest_resume_file_id:
             raise ValueError("鎿嶄綔澶辫触")
         resume_file = self._get_resume_file(candidate.latest_resume_file_id)
@@ -1578,14 +1662,27 @@ class RecruitmentService:
             status_rules=status_rules,
         )
         request_hash = self._build_request_hash("resume_screening", candidate.id, resume_file.id, related_skill_ids, memory_source, custom_requirements)
-        log_row = self._create_ai_task_log("resume_score", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=resume_file.id, memory_source=memory_source, request_hash=request_hash)
-        self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在执行简历解析与初筛评分")
-        task = self.ai_gateway.generate_json(
-            task_type="resume_score",
-            system_prompt=RESUME_SCREENING_SYSTEM_PROMPT,
-            user_prompt=prompt,
-            fallback_builder=lambda: self._build_combined_screening_fallback(candidate=candidate, raw_text=raw_text, weights=weights, status_rules=status_rules, skill_snapshots=skill_snapshots),
-        )
+        log_row = self._get_ai_task_log_row(existing_task_id) if existing_task_id else self._create_ai_task_log("resume_score", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=resume_file.id, memory_source=memory_source, request_hash=request_hash)
+        try:
+            self._raise_if_cancelled(cancel_control)
+            self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在执行简历解析与初筛评分")
+            task = self.ai_gateway.generate_json(
+                task_type="resume_score",
+                system_prompt=RESUME_SCREENING_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                fallback_builder=lambda: self._build_combined_screening_fallback(candidate=candidate, raw_text=raw_text, weights=weights, status_rules=status_rules, skill_snapshots=skill_snapshots),
+                cancel_control=cancel_control,
+            )
+            self._raise_if_cancelled(cancel_control)
+        except RecruitmentTaskCancelled:
+            self.db.rollback()
+            resume_file = self._get_resume_file(candidate.latest_resume_file_id)
+            resume_file.parse_status = "cancelled"
+            resume_file.parse_error = "任务已被用户停止。"
+            self.db.add(resume_file)
+            self.db.commit()
+            self._mark_ai_task_cancelled(log_row.id, actor_id=actor_id, reason="任务已被用户停止，初筛未继续生成。")
+            raise
         content = task.get("content") or {}
         parse_candidate = content.get("parsed_resume") if isinstance(content, dict) else None
         if not _has_resume_parse_content(parse_candidate) and _has_resume_parse_content(content):
@@ -1674,7 +1771,7 @@ class RecruitmentService:
         self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot=content, error_message=task.get("error_message"), token_usage=task.get("token_usage"))
         return parse_row
 
-    def _score_candidate(self, candidate: RecruitmentCandidate, parse_row: RecruitmentResumeParseResult, actor_id: str, skill_rows: Sequence[RecruitmentSkill], memory_source: str, custom_requirements: str = "") -> RecruitmentCandidateScore:
+    def _score_candidate(self, candidate: RecruitmentCandidate, parse_row: RecruitmentResumeParseResult, actor_id: str, skill_rows: Sequence[RecruitmentSkill], memory_source: str, custom_requirements: str = "", *, existing_task_id: Optional[int] = None, cancel_control: Optional[RecruitmentTaskControl] = None) -> RecruitmentCandidateScore:
         position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == candidate.position_id, RecruitmentPosition.deleted.is_(False)).first() if candidate.position_id else None
         parsed_payload = self._serialize_parse_result(parse_row)
         weights = self._get_rule_config("resume_score_weights", DEFAULT_RULE_CONFIGS["resume_score_weights"])
@@ -1683,9 +1780,16 @@ class RecruitmentService:
         related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
         prompt = json_dumps_safe({"position": None if not position else {"title": position.title, "department": position.department, "location": position.location, "employment_type": position.employment_type, "salary_range": position.salary_range, "key_requirements": position.key_requirements, "bonus_points": position.bonus_points, "summary": position.summary}, "parsed_resume": parsed_payload, "weights": weights, "status_rules": status_rules, "custom_requirements": custom_requirements or None, "skills": [{"id": skill.get("id"), "name": skill.get("name"), "description": skill.get("description"), "content": str(skill.get("content") or "")} for skill in skill_snapshots]})
         request_hash = self._build_request_hash("resume_score", candidate.id, parse_row.id, related_skill_ids, memory_source, custom_requirements)
-        log_row = self._create_ai_task_log("resume_score", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=parse_row.resume_file_id, memory_source=memory_source, request_hash=request_hash)
-        self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在根据岗位与 Skills 进行初筛评分")
-        task = self.ai_gateway.generate_json(task_type="resume_score", system_prompt=RESUME_SCORE_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: score_candidate_fallback(position or candidate, parsed_payload, weights, status_rules, skill_snapshots))
+        log_row = self._get_ai_task_log_row(existing_task_id) if existing_task_id else self._create_ai_task_log("resume_score", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=parse_row.resume_file_id, memory_source=memory_source, request_hash=request_hash)
+        try:
+            self._raise_if_cancelled(cancel_control)
+            self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在根据岗位与 Skills 进行初筛评分")
+            task = self.ai_gateway.generate_json(task_type="resume_score", system_prompt=RESUME_SCORE_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: score_candidate_fallback(position or candidate, parsed_payload, weights, status_rules, skill_snapshots), cancel_control=cancel_control)
+            self._raise_if_cancelled(cancel_control)
+        except RecruitmentTaskCancelled:
+            self.db.rollback()
+            self._mark_ai_task_cancelled(log_row.id, actor_id=actor_id, reason="任务已被用户停止，初筛评分未继续生成。")
+            raise
         raw_score_payload = task.get("content") or {}
         score_payload, score_repaired, repair_reason = self._finalize_score_payload(
             candidate=candidate,
@@ -1715,14 +1819,14 @@ class RecruitmentService:
             return self._serialize_score(score_row)
         return self._serialize_score(self._score_candidate(candidate, parse_row, actor_id, skill_rows, memory_source, ""))
 
-    def screen_candidate(self, candidate_id: int, actor_id: str, skill_ids: Optional[Iterable[Any]] = None, use_position_skills: bool = True, use_candidate_memory: bool = True, custom_requirements: str = "") -> Dict[str, Any]:
+    def screen_candidate(self, candidate_id: int, actor_id: str, skill_ids: Optional[Iterable[Any]] = None, use_position_skills: bool = True, use_candidate_memory: bool = True, custom_requirements: str = "", *, existing_task_id: Optional[int] = None, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
         skill_rows, memory_source = self._resolve_screening_skills(candidate, skill_ids, use_position_skills=use_position_skills, use_candidate_memory=use_candidate_memory)
         parse_row = self._get_current_parse_result(candidate)
         if parse_row:
-            score_row = self._score_candidate(candidate, parse_row, actor_id, skill_rows, memory_source, custom_requirements)
+            score_row = self._score_candidate(candidate, parse_row, actor_id, skill_rows, memory_source, custom_requirements, existing_task_id=existing_task_id, cancel_control=cancel_control)
         else:
-            parse_row, score_row = self._screen_candidate_with_single_ai_call(candidate, actor_id, skill_rows, memory_source, custom_requirements)
+            parse_row, score_row = self._screen_candidate_with_single_ai_call(candidate, actor_id, skill_rows, memory_source, custom_requirements, existing_task_id=existing_task_id, cancel_control=cancel_control)
         position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == candidate.position_id, RecruitmentPosition.deleted.is_(False)).first() if candidate.position_id else None
         workflow = self._get_or_create_workflow_memory(candidate, actor_id)
         workflow.position_id = candidate.position_id
@@ -1745,6 +1849,43 @@ class RecruitmentService:
         self.db.add(candidate)
         self.db.commit()
         return self.get_candidate_detail(candidate.id)
+
+    def start_screen_candidate(self, candidate_id: int, actor_id: str, skill_ids: Optional[Iterable[Any]] = None, use_position_skills: bool = True, use_candidate_memory: bool = True, custom_requirements: str = "") -> Dict[str, Any]:
+        candidate = self._get_candidate(candidate_id)
+        skill_rows, memory_source = self._resolve_screening_skills(candidate, skill_ids, use_position_skills=use_position_skills, use_candidate_memory=use_candidate_memory)
+        skill_snapshots = self._tailor_skill_snapshots_for_task(self._build_skill_snapshots(skill_rows, custom_requirements, custom_name="附加初筛要求"), "screening")
+        related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
+        request_hash = self._build_request_hash("resume_score", candidate.id, candidate.latest_resume_file_id or 0, related_skill_ids, memory_source, custom_requirements)
+        log_row = self._create_ai_task_log("resume_score", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=candidate.latest_resume_file_id, memory_source=memory_source, request_hash=request_hash)
+
+        def _runner(control: RecruitmentTaskControl) -> None:
+            db = SessionLocal()
+            service = RecruitmentService(db)
+            try:
+                service.screen_candidate(candidate_id, actor_id, skill_ids=skill_ids, use_position_skills=use_position_skills, use_candidate_memory=use_candidate_memory, custom_requirements=custom_requirements, existing_task_id=log_row.id, cancel_control=control)
+            except RecruitmentTaskCancelled:
+                pass
+            except Exception as exc:
+                db.rollback()
+                try:
+                    if control.is_cancelled():
+                        service._mark_ai_task_cancelled(log_row.id, actor_id=actor_id, reason="任务已被用户停止，初筛未继续生成。")
+                    else:
+                        service._mark_ai_task_failed(log_row.id, str(exc))
+                except Exception:
+                    db.rollback()
+                logger.exception("Background screening task %s failed", log_row.id)
+            finally:
+                db.close()
+
+        self._start_background_ai_task(log_row.id, _runner)
+        return {
+            "task_id": log_row.id,
+            "status": "pending",
+            "task_type": "resume_score",
+            "related_candidate_id": candidate.id,
+            "related_position_id": candidate.position_id,
+        }
 
     def _resolve_interview_skills(self, candidate: RecruitmentCandidate, explicit_skill_ids: Optional[Iterable[Any]], *, use_candidate_memory: bool = True, use_position_skills: bool = True) -> Tuple[List[RecruitmentSkill], str]:
         manual_rows = self._filter_skill_rows_for_task(self._load_skill_rows(explicit_skill_ids or [], enabled_only=True), "interview")
@@ -1800,7 +1941,7 @@ class RecruitmentService:
             json_dumps_safe(structured_payload),
         ])
 
-    def generate_interview_questions(self, candidate_id: int, round_name: str, custom_requirements: str, skill_ids: Optional[Iterable[Any]], actor_id: str, use_candidate_memory: bool = True, use_position_skills: bool = True) -> Dict[str, Any]:
+    def generate_interview_questions(self, candidate_id: int, round_name: str, custom_requirements: str, skill_ids: Optional[Iterable[Any]], actor_id: str, use_candidate_memory: bool = True, use_position_skills: bool = True, *, existing_task_id: Optional[int] = None, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
         position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == candidate.position_id, RecruitmentPosition.deleted.is_(False)).first() if candidate.position_id else None
         workflow = self._get_workflow_memory(candidate.id)
@@ -1816,9 +1957,16 @@ class RecruitmentService:
         workflow_payload = self._serialize_workflow_for_interview_prompt(workflow) if workflow else None
         prompt = self._build_interview_question_prompt(candidate_payload=candidate_payload, parsed_resume_payload=parsed_resume_payload, latest_screening_result_payload=latest_screening_result_payload, position_payload=position_payload, workflow_payload=workflow_payload, round_name=round_name, custom_requirements=custom_requirements, skill_snapshots=skill_snapshots, memory_source=memory_source)
         request_hash = self._build_request_hash("interview_question_generation", candidate.id, round_name, custom_requirements, related_skill_ids, memory_source)
-        log_row = self._create_ai_task_log("interview_question_generation", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, memory_source=memory_source, request_hash=request_hash)
-        self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成面试题")
-        task = self.ai_gateway.generate_json(task_type="interview_question_generation", system_prompt=INTERVIEW_QUESTION_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: build_interview_fallback(candidate.name, position.title if position else "当前岗位", round_name, skill_snapshots, custom_requirements, parsed_resume=parsed_resume_payload, screening_result=latest_screening_result_payload))
+        log_row = self._get_ai_task_log_row(existing_task_id) if existing_task_id else self._create_ai_task_log("interview_question_generation", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, memory_source=memory_source, request_hash=request_hash)
+        try:
+            self._raise_if_cancelled(cancel_control)
+            self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成面试题")
+            task = self.ai_gateway.generate_json(task_type="interview_question_generation", system_prompt=INTERVIEW_QUESTION_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: build_interview_fallback(candidate.name, position.title if position else "当前岗位", round_name, skill_snapshots, custom_requirements, parsed_resume=parsed_resume_payload, screening_result=latest_screening_result_payload), cancel_control=cancel_control)
+            self._raise_if_cancelled(cancel_control)
+        except RecruitmentTaskCancelled:
+            self.db.rollback()
+            self._mark_ai_task_cancelled(log_row.id, actor_id=actor_id, reason="任务已被用户停止，面试题未继续生成。")
+            raise
         content = task.get("content") or {}
         markdown = str(content.get("markdown") or "").strip()
         html = str(content.get("html") or "").strip()
@@ -1839,6 +1987,43 @@ class RecruitmentService:
         self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot=content, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
         return self._serialize_interview_question(row)
 
+    def start_generate_interview_questions(self, candidate_id: int, round_name: str, custom_requirements: str, skill_ids: Optional[Iterable[Any]], actor_id: str, use_candidate_memory: bool = True, use_position_skills: bool = True) -> Dict[str, Any]:
+        candidate = self._get_candidate(candidate_id)
+        skill_rows, memory_source = self._resolve_interview_skills(candidate, skill_ids, use_candidate_memory=use_candidate_memory, use_position_skills=use_position_skills)
+        skill_snapshots = self._tailor_skill_snapshots_for_task(self._build_skill_snapshots(skill_rows), "interview")
+        related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
+        request_hash = self._build_request_hash("interview_question_generation", candidate.id, round_name, custom_requirements, related_skill_ids, memory_source)
+        log_row = self._create_ai_task_log("interview_question_generation", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, memory_source=memory_source, request_hash=request_hash)
+
+        def _runner(control: RecruitmentTaskControl) -> None:
+            db = SessionLocal()
+            service = RecruitmentService(db)
+            try:
+                service.generate_interview_questions(candidate_id, round_name, custom_requirements, skill_ids, actor_id, use_candidate_memory=use_candidate_memory, use_position_skills=use_position_skills, existing_task_id=log_row.id, cancel_control=control)
+            except RecruitmentTaskCancelled:
+                pass
+            except Exception as exc:
+                db.rollback()
+                try:
+                    if control.is_cancelled():
+                        service._mark_ai_task_cancelled(log_row.id, actor_id=actor_id, reason="任务已被用户停止，面试题未继续生成。")
+                    else:
+                        service._mark_ai_task_failed(log_row.id, str(exc))
+                except Exception:
+                    db.rollback()
+                logger.exception("Background interview generation task %s failed", log_row.id)
+            finally:
+                db.close()
+
+        self._start_background_ai_task(log_row.id, _runner)
+        return {
+            "task_id": log_row.id,
+            "status": "pending",
+            "task_type": "interview_question_generation",
+            "related_candidate_id": candidate.id,
+            "related_position_id": candidate.position_id,
+        }
+
     def get_interview_question_download(self, question_id: int) -> Dict[str, Any]:
         row = self.db.query(RecruitmentInterviewQuestion).filter(RecruitmentInterviewQuestion.id == question_id).first()
         if not row:
@@ -1856,6 +2041,100 @@ class RecruitmentService:
         if not media_type or media_type in {"application/octet-stream", "binary/octet-stream"}:
             media_type = mimetypes.guess_type(resume_file.original_name or "")[0] or "application/octet-stream"
         return {"file_name": resume_file.original_name, "content": path.read_bytes(), "media_type": media_type}
+
+    def _run_generate_jd_task(self, task_id: int, position_id: int, extra_prompt: str, actor_id: str, auto_activate: bool, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
+        log_row = self._get_ai_task_log_row(task_id)
+        try:
+            position = self._get_position(position_id)
+            skill_rows, memory_source = self._resolve_jd_skills(position, [], use_position_skills=True, use_global_skills=False)
+            skill_snapshots = self._build_skill_snapshots(skill_rows)
+            related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
+            prompt = json_dumps_safe({
+                "position": self._serialize_position_for_jd_prompt(position),
+                "skills": [
+                    {
+                        "id": skill.get("id"),
+                        "name": skill.get("name"),
+                        "description": skill.get("description"),
+                        "content": str(skill.get("content") or ""),
+                    }
+                    for skill in skill_snapshots
+                ],
+                "extra_prompt": extra_prompt or None,
+            })
+            self._raise_if_cancelled(cancel_control)
+            self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成 JD")
+            task = self.ai_gateway.generate_json(
+                task_type="jd_generation",
+                system_prompt=JD_GENERATION_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                fallback_builder=lambda: build_jd_structured_fallback(position),
+                cancel_control=cancel_control,
+            )
+            self._raise_if_cancelled(cancel_control)
+            content = task.get("content") or {}
+            structured = normalize_structured_jd(content if isinstance(content, dict) else {}, position)
+            markdown = render_jd_markdown_source(structured)
+            html = markdown_to_html(markdown)
+            publish_text = render_publish_ready_jd(structured)
+            version_no = (self.db.query(func.max(RecruitmentJDVersion.version_no)).filter(RecruitmentJDVersion.position_id == position.id).scalar() or 0) + 1
+            row = RecruitmentJDVersion(position_id=position.id, version_no=version_no, title=f"{position.title} V{version_no}", prompt_snapshot=task.get("prompt_snapshot"), jd_markdown=markdown, jd_html=html, publish_text=publish_text, notes=extra_prompt or None, is_active=bool(auto_activate), created_by=actor_id)
+            self.db.add(row)
+            self.db.flush()
+            if auto_activate:
+                self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.position_id == position.id, RecruitmentJDVersion.id != row.id).update({RecruitmentJDVersion.is_active: False}, synchronize_session=False)
+                position.current_jd_version_id = row.id
+                position.updated_by = actor_id
+                self.db.add(position)
+            self.db.commit()
+            self.db.refresh(row)
+            self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+            return self._serialize_jd_version(row)
+        except RecruitmentTaskCancelled:
+            self.db.rollback()
+            self._mark_ai_task_cancelled(task_id, actor_id=actor_id, reason="任务已被用户停止，JD 未继续生成。")
+            raise
+        except Exception as exc:
+            self.db.rollback()
+            self._mark_ai_task_failed(task_id, str(exc))
+            raise
+
+    def start_generate_jd(self, position_id: int, extra_prompt: str, actor_id: str, auto_activate: bool = True) -> Dict[str, Any]:
+        position = self._get_position(position_id)
+        skill_rows, memory_source = self._resolve_jd_skills(position, [], use_position_skills=True, use_global_skills=False)
+        skill_snapshots = self._build_skill_snapshots(skill_rows)
+        related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
+        request_hash = self._build_request_hash("jd_generation", position.id, extra_prompt, related_skill_ids)
+        log_row = self._create_ai_task_log("jd_generation", created_by=actor_id, related_position_id=position.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, memory_source=memory_source, request_hash=request_hash)
+
+        def _runner(control: RecruitmentTaskControl) -> None:
+            db = SessionLocal()
+            service = RecruitmentService(db)
+            try:
+                service._run_generate_jd_task(log_row.id, position_id, extra_prompt, actor_id, auto_activate, cancel_control=control)
+            except RecruitmentTaskCancelled:
+                pass
+            except Exception as exc:
+                db.rollback()
+                try:
+                    if control.is_cancelled():
+                        service._mark_ai_task_cancelled(log_row.id, actor_id=actor_id, reason="任务已被用户停止，JD 未继续生成。")
+                    else:
+                        service._mark_ai_task_failed(log_row.id, str(exc))
+                except Exception:
+                    db.rollback()
+                logger.exception("Background JD generation task %s failed", log_row.id)
+            finally:
+                db.close()
+
+        self._start_background_ai_task(log_row.id, _runner)
+        return {
+            "task_id": log_row.id,
+            "status": "pending",
+            "task_type": "jd_generation",
+            "related_position_id": position.id,
+        }
+
     def generate_jd(self, position_id: int, extra_prompt: str, actor_id: str, auto_activate: bool = True) -> Dict[str, Any]:
         position = self._get_position(position_id)
         skill_rows, memory_source = self._resolve_jd_skills(position, [], use_position_skills=True, use_global_skills=False)
@@ -2145,7 +2424,10 @@ class RecruitmentService:
         stale_before = datetime.utcnow() - timedelta(minutes=30)
         touched = False
         for row in rows:
-            if row.status not in {"pending", "running"}:
+            if self._settle_orphaned_cancelling_task(row):
+                touched = True
+                continue
+            if row.status not in {"pending", "running", "cancelling"}:
                 continue
             checkpoint = row.updated_at or row.created_at
             if checkpoint and checkpoint < stale_before:
@@ -2163,6 +2445,9 @@ class RecruitmentService:
         row = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.id == task_id).first()
         if not row:
             raise ValueError("鎿嶄綔澶辫触")
+        if self._settle_orphaned_cancelling_task(row):
+            self.db.commit()
+            self.db.refresh(row)
         return self._serialize_ai_task_log(row, include_full_request_snapshot=True)
 
     def create_publish_task(self, position_id: int, target_platform: str, mode: str, actor_id: str) -> Dict[str, Any]:
@@ -2430,6 +2715,107 @@ class RecruitmentService:
             reply_lines.append(f"附加要求：{interview_request['custom_requirements']}")
         reply_lines.extend(["", question.get("markdown_content") or "面试题已生成，请到候选人详情查看。"])
         return {"reply": "\n".join(reply_lines), "context": next_context, "actions": ["已生成面试题"], "memory_source": latest_interview_log.memory_source if latest_interview_log else None, "used_skill_snapshots": used_skill_snapshots}
+
+    def _run_generic_chat_task(self, task_id: int, user_id: str, user_name: str, message: str, current_context: Dict[str, Any], used_skill_snapshots: Sequence[Dict[str, Any]], cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
+        log_row = self._get_ai_task_log_row(task_id)
+        related_skill_ids = self._extract_related_skill_ids(used_skill_snapshots)
+        prompt = json_dumps_safe({"user": user_name, "message": message, "context": current_context, "guardrail": "Only handle recruitment-related requests. Refuse unrelated queries briefly and redirect the user to a general assistant."})
+        system_prompt = "\n\n".join(
+            [
+                "You are an AI recruitment workbench assistant. Reply in concise Chinese. Only handle recruitment-related requests such as positions, JDs, candidates, screening, interview questions, offers, skills, model settings, and recruitment email workflows. If the user asks for unrelated topics such as weather, finance, or general trivia, politely refuse and remind them that this workspace only serves recruitment operations. When the user asks about screening or interview quality, make the active skills and hard constraints explicit.",
+                self._build_chat_skill_system_prompt(used_skill_snapshots),
+            ]
+        ).strip()
+        try:
+            self._raise_if_cancelled(cancel_control)
+            self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成对话回复")
+            task = self.ai_gateway.generate_text(task_type="chat_orchestrator", system_prompt=system_prompt, user_prompt=prompt, fallback_builder=lambda: {"markdown": "我可以帮你处理招聘工作台中的岗位、候选人、Skills、初筛、面试题、模型配置和招聘邮件。如果你需要非招聘问题，请到通用助手处理。", "html": ""}, cancel_control=cancel_control)
+            self._raise_if_cancelled(cancel_control)
+            content = task.get("content") or {}
+            reply = str(content.get("markdown") or "").strip() or "我可以帮你处理招聘工作台中的岗位、候选人、Skills、初筛、面试题、模型配置和招聘邮件。如果你需要非招聘问题，请到通用助手处理。"
+            self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"reply": reply}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), related_skill_ids=related_skill_ids, related_skill_snapshots=used_skill_snapshots)
+            return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "manual", "model_provider": task.get("provider"), "model_name": task.get("model_name"), "used_skill_ids": related_skill_ids, "used_skills": used_skill_snapshots, "used_fallback": bool(task.get("used_fallback")), "fallback_error": task.get("error_message")}
+        except RecruitmentTaskCancelled:
+            self.db.rollback()
+            self._mark_ai_task_cancelled(task_id, actor_id=user_id, reason="任务已被用户停止，对话回复未继续生成。")
+            raise
+        except Exception as exc:
+            self.db.rollback()
+            self._mark_ai_task_failed(task_id, str(exc))
+            raise
+
+    def start_chat(self, user_id: str, user_name: str, message: str, context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if context is not None:
+            self.update_chat_context(user_id, context.get("position_id"), context.get("skill_ids") or [], context.get("candidate_id"))
+        current_context = self.get_chat_context(user_id)
+        lower_message = (message or "").strip().lower()
+        resolved = self.ai_gateway.resolve_config("chat_orchestrator")
+        model_keywords = ["你是什么模型", "你现在是什么模型", "当前使用什么模型", "使用什么模型", "model", "provider"]
+        switch_keywords = ["怎么切模型", "如何切模型", "怎么换模型", "如何换模型", "切到小米", "小米模型", "切到mimo", "mimo"]
+        if any(keyword in lower_message for keyword in model_keywords):
+            used_skill_snapshots = self._get_chat_skill_snapshots(current_context)
+            reply = f"当前 AI 助手使用的模型是 {resolved.provider} / {resolved.model_name}。如果你想切换模型，可以到“管理设置 -> 模型配置”里把对应模型设为当前使用。"
+            log_row = self._record_chat_reply(user_id=user_id, message=message, current_context=current_context, reply=reply, model_provider=resolved.provider, model_name=resolved.model_name, memory_source="manual", used_skill_snapshots=used_skill_snapshots)
+            return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "manual", "model_provider": resolved.provider, "model_name": resolved.model_name, "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots, "used_fallback": False, "fallback_error": None, "pending": False, "task_id": None}
+        if any(keyword in lower_message for keyword in switch_keywords):
+            used_skill_snapshots = self._get_chat_skill_snapshots(current_context)
+            reply = "要切换到新模型，请打开“管理设置 -> 模型配置”，找到对应任务类型下的模型，点击“设为当前使用”。系统会按 priority 从小到大路由，所以设为当前使用后，该模型会排到当前任务的最高优先级。"
+            log_row = self._record_chat_reply(user_id=user_id, message=message, current_context=current_context, reply=reply, model_provider="system", model_name="structured-router", memory_source="manual", used_skill_snapshots=used_skill_snapshots)
+            return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "manual", "model_provider": "system", "model_name": "structured-router", "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots, "used_fallback": False, "fallback_error": None, "pending": False, "task_id": None}
+
+        structured_response = self._handle_structured_chat_command(user_id, message, current_context)
+        if structured_response is not None:
+            next_context = structured_response.get("context") or current_context
+            used_skill_snapshots = list(structured_response.get("used_skill_snapshots") or self._get_chat_skill_snapshots(next_context))
+            log_row = self._record_chat_reply(user_id=user_id, message=message, current_context=next_context, reply=structured_response["reply"], model_provider="system", model_name="structured-router", memory_source=structured_response.get("memory_source"), used_skill_snapshots=used_skill_snapshots, output_snapshot={"reply": structured_response["reply"], "actions": structured_response.get("actions") or []})
+            return {"reply": structured_response["reply"], "context": next_context, "actions": structured_response.get("actions") or [], "log_id": log_row.id, "memory_source": structured_response.get("memory_source"), "model_provider": "system", "model_name": "structured-router", "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots, "used_fallback": False, "fallback_error": None, "pending": False, "task_id": None}
+
+        if not self._is_recruitment_related(message, current_context):
+            used_skill_snapshots = self._get_chat_skill_snapshots(current_context)
+            reply = "这里是 AI 招聘工作台助手，我只处理招聘相关任务，例如岗位、JD、Skills、候选人、初筛、面试题、Offer 和招聘邮件流转。像天气这类非招聘问题，请到通用助手里处理。"
+            log_row = self._record_chat_reply(user_id=user_id, message=message, current_context=current_context, reply=reply, model_provider="system", model_name="recruitment-guard", memory_source="guardrail", used_skill_snapshots=used_skill_snapshots)
+            return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "guardrail", "model_provider": "system", "model_name": "recruitment-guard", "used_skill_ids": self._extract_related_skill_ids(used_skill_snapshots), "used_skills": used_skill_snapshots, "used_fallback": False, "fallback_error": None, "pending": False, "task_id": None}
+
+        used_skill_snapshots = self._get_chat_skill_snapshots(current_context)
+        related_skill_ids = self._extract_related_skill_ids(used_skill_snapshots)
+        log_row = self._create_ai_task_log("chat_orchestrator", created_by=user_id, related_position_id=current_context.get("position_id"), related_candidate_id=current_context.get("candidate_id"), related_skill_ids=related_skill_ids, related_skill_snapshots=used_skill_snapshots, request_hash=self._build_request_hash("chat_orchestrator", user_id, message, current_context))
+
+        def _runner(control: RecruitmentTaskControl) -> None:
+            db = SessionLocal()
+            service = RecruitmentService(db)
+            try:
+                service._run_generic_chat_task(log_row.id, user_id, user_name, message, current_context, used_skill_snapshots, cancel_control=control)
+            except RecruitmentTaskCancelled:
+                pass
+            except Exception as exc:
+                db.rollback()
+                try:
+                    if control.is_cancelled():
+                        service._mark_ai_task_cancelled(log_row.id, actor_id=user_id, reason="任务已被用户停止，对话回复未继续生成。")
+                    else:
+                        service._mark_ai_task_failed(log_row.id, str(exc))
+                except Exception:
+                    db.rollback()
+                logger.exception("Background chat task %s failed", log_row.id)
+            finally:
+                db.close()
+
+        self._start_background_ai_task(log_row.id, _runner)
+        return {
+            "reply": "",
+            "context": current_context,
+            "actions": [],
+            "log_id": log_row.id,
+            "task_id": log_row.id,
+            "memory_source": None,
+            "model_provider": resolved.provider,
+            "model_name": resolved.model_name,
+            "used_skill_ids": related_skill_ids,
+            "used_skills": used_skill_snapshots,
+            "used_fallback": False,
+            "fallback_error": None,
+            "pending": True,
+        }
 
     def chat(self, user_id: str, user_name: str, message: str, context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         if context is not None:

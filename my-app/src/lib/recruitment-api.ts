@@ -330,6 +330,8 @@ export interface ChatResponse {
   actions?: string[];
   question?: InterviewQuestion | null;
   log_id?: number | null;
+  task_id?: number | null;
+  pending?: boolean;
   memory_source?: string | null;
   model_provider?: string | null;
   model_name?: string | null;
@@ -337,6 +339,14 @@ export interface ChatResponse {
   used_skills?: RecruitmentSkill[];
   used_fallback?: boolean;
   fallback_error?: string | null;
+}
+
+export interface RecruitmentTaskStartResponse {
+  task_id: number;
+  status: string;
+  task_type: string;
+  related_position_id?: number | null;
+  related_candidate_id?: number | null;
 }
 
 export interface RecruitmentMailSenderConfig {

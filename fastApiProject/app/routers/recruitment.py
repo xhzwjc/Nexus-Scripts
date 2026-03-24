@@ -120,6 +120,22 @@ async def generate_jd(position_id: int, payload: JDGenerateRequest, _session: Di
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+@recruitment_router.post("/positions/{position_id}/generate-jd/start")
+async def start_generate_jd(position_id: int, payload: JDGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+    try:
+        data = await run_in_threadpool(
+            _run_recruitment_service_call,
+            "start_generate_jd",
+            position_id,
+            payload.extra_prompt or "",
+            _session.get("id") or "unknown",
+            auto_activate=payload.auto_activate,
+        )
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
 @recruitment_router.post("/positions/{position_id}/jd-versions")
 async def save_jd_version(position_id: int, payload: SaveJDVersionRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
@@ -236,6 +252,26 @@ async def screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
+
+@recruitment_router.post("/candidates/{candidate_id}/screen/start")
+async def start_screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+    try:
+        data = await run_in_threadpool(
+            _run_recruitment_service_call,
+            "start_screen_candidate",
+            candidate_id,
+            _session.get("id") or "unknown",
+            skill_ids=payload.skill_ids,
+            use_position_skills=payload.use_position_skills,
+            use_candidate_memory=payload.use_candidate_memory,
+            custom_requirements=payload.custom_requirements or "",
+        )
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
 @recruitment_router.post("/candidates/{candidate_id}/score")
 async def trigger_candidate_score(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
     try:
@@ -256,6 +292,27 @@ async def generate_interview_questions(candidate_id: int, payload: InterviewQues
         data = await run_in_threadpool(
             _run_recruitment_service_call,
             "generate_interview_questions",
+            candidate_id,
+            payload.round_name,
+            payload.custom_requirements or "",
+            payload.skill_ids,
+            _session.get("id") or "unknown",
+            use_candidate_memory=payload.use_candidate_memory,
+            use_position_skills=payload.use_position_skills,
+        )
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.post("/candidates/{candidate_id}/interview-questions/start")
+async def start_generate_interview_questions(candidate_id: int, payload: InterviewQuestionGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+    try:
+        data = await run_in_threadpool(
+            _run_recruitment_service_call,
+            "start_generate_interview_questions",
             candidate_id,
             payload.round_name,
             payload.custom_requirements or "",
@@ -469,6 +526,14 @@ async def get_ai_task_log(task_id: int, _session: Dict[str, Any] = Depends(requi
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+@recruitment_router.post("/ai-task-logs/{task_id}/cancel")
+async def cancel_ai_task(task_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        return {"success": True, "data": service.cancel_ai_task(task_id, _session.get("id") or "unknown"), "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
 @recruitment_router.post("/publish-tasks")
 async def create_publish_task(payload: PublishTaskCreateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
@@ -500,6 +565,19 @@ async def chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depen
     data = await run_in_threadpool(
         _run_recruitment_service_call,
         "chat",
+        _session.get("id") or "unknown",
+        _session.get("name") or "unknown",
+        payload.message,
+        payload.context,
+    )
+    return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+
+
+@recruitment_router.post("/chat/start")
+async def start_chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+    data = await run_in_threadpool(
+        _run_recruitment_service_call,
+        "start_chat",
         _session.get("id") or "unknown",
         _session.get("name") or "unknown",
         payload.message,
