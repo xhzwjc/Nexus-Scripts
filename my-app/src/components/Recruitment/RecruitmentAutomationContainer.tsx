@@ -4414,7 +4414,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         <Card className={cn(panelClass, "flex h-full min-h-0 flex-col overflow-hidden")}>
                             <CardHeader className="shrink-0">
                                 <CardTitle className="text-lg">状态分布</CardTitle>
-                                <CardDescription>帮助领导和 HR 快速判断流程积压位置。</CardDescription>
+                                <CardDescription>帮助招聘团队快速判断流程积压位置。</CardDescription>
                             </CardHeader>
                             <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3">
                                 {dashboard?.status_distribution?.length ? dashboard.status_distribution.map((item) => (
@@ -4619,7 +4619,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             )}
                                             {!positionWorkspaceHeaderCollapsed ? (
                                                 <p className="max-w-4xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-                                                    {positionDetail.position.summary || "这个岗位还没有补充摘要，建议先由 HR 或 AI 完善岗位背景和关键目标。"}
+                                                    {positionDetail.position.summary || "这个岗位还没有补充摘要，建议先由招聘同事或 AI 完善岗位背景和关键目标。"}
                                                 </p>
                                             ) : null}
                                         </div>
@@ -6382,7 +6382,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     </div>
                                 </div>
                             )) : <EmptyState title="暂无发件箱"
-                                             description="先配置至少一个发件箱，后续才能把简历发送给 HR、面试官或管理层。"/>}
+                                             description="先配置至少一个发件箱，后续才能把简历发送给招聘团队、面试官或业务负责人。"/>}
                         </CardContent>
                     </Card>
 
@@ -7439,8 +7439,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden">
                     <DialogHeader>
                         <DialogTitle>{mailRecipientEditingId ? "编辑收件人" : "新增收件人"}</DialogTitle>
-                        <DialogDescription>可维护公司
-                            HR、面试官、部门负责人等收件人，发送简历时支持多选和复用。</DialogDescription>
+                        <DialogDescription>可维护公司招聘团队、面试官、部门负责人等收件人，发送简历时支持多选和复用。</DialogDescription>
                     </DialogHeader>
                     <ScrollArea className="max-h-[65vh]">
                         <div className="space-y-4 px-1 py-1">
@@ -7471,7 +7470,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                        onChange={(event) => setMailRecipientForm((current) => ({
                                            ...current,
                                            tagsText: event.target.value
-                                       }))} placeholder="例如：HR，技术面试官，老板"/>
+                                       }))} placeholder="例如：招聘同事，技术面试官，业务负责人"/>
                             </Field>
                             <Field label="备注">
                                 <Textarea className="resize-y" value={mailRecipientForm.notes}
