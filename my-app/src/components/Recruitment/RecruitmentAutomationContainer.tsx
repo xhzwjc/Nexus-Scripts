@@ -3997,7 +3997,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </div>
 
                     <div
-                        className={cn("border-slate-200/80 px-5 py-5 dark:border-slate-800", isWorkspace ? "border-t" : "border-t 2xl:border-t-0 2xl:border-l")}>
+                        className={cn("min-h-0 overflow-y-auto border-slate-200/80 px-5 py-5 dark:border-slate-800", isWorkspace ? "border-t" : "border-t 2xl:border-t-0 2xl:border-l")}>
                         <div className="space-y-5">
                             <Field label="岗位上下文">
                                 <NativeSelect
@@ -4069,7 +4069,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     function renderAssistantSuspendedState() {
         const modeLabel = assistantDisplayMode === "fullscreen" ? "全屏模式" : "宽抽屉模式";
         return (
-            <div className="flex min-h-[520px] flex-col items-center justify-center gap-4 px-8 py-10 text-center">
+            <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 px-8 py-10 text-center">
                 <div
                     className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
                     <Bot className="h-6 w-6"/>
@@ -4203,13 +4203,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         </CardContent>
                     </Card>
 
-                    <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)]">
-                        <Card className={panelClass}>
-                            <CardHeader>
+                    <div className="grid gap-6 xl:grid-cols-2 xl:auto-rows-[minmax(360px,1fr)] 2xl:auto-rows-[minmax(400px,1fr)]">
+                        <Card className={cn(panelClass, "flex h-full min-h-0 flex-col overflow-hidden")}>
+                            <CardHeader className="shrink-0">
                                 <CardTitle className="text-lg">最新候选人</CardTitle>
                                 <CardDescription>快速查看最近进入系统的人选。</CardDescription>
                             </CardHeader>
-                            <CardContent className="space-y-3">
+                            <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3">
                                 {recentCandidates.length ? recentCandidates.map((candidate) => (
                                     <button
                                         key={candidate.id}
@@ -4242,18 +4242,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             </CardContent>
                         </Card>
 
-                        <Card className={cn(panelClass, "min-h-[560px] overflow-hidden xl:min-h-[620px] 2xl:min-h-[720px]")}>
-                            {assistantOpen ? renderAssistantSuspendedState() : renderAssistantConsole("workspace")}
+                        <Card className={cn(panelClass, "flex h-full min-h-0 flex-col overflow-hidden")}>
+                            <div className="min-h-0 flex-1 overflow-hidden">
+                                {assistantOpen ? renderAssistantSuspendedState() : renderAssistantConsole("workspace")}
+                            </div>
                         </Card>
-                    </div>
 
-                    <div className="grid gap-6 lg:grid-cols-2">
-                        <Card className={panelClass}>
-                            <CardHeader>
+                        <Card className={cn(panelClass, "flex h-full min-h-0 flex-col overflow-hidden")}>
+                            <CardHeader className="shrink-0">
                                 <CardTitle className="text-lg">最近 AI 任务</CardTitle>
                                 <CardDescription>用于汇报与排障的近期处理记录。</CardDescription>
                             </CardHeader>
-                            <CardContent className="space-y-3">
+                            <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3">
                                 {recentLogs.length ? recentLogs.map((log) => (
                                     <button
                                         key={log.id}
@@ -4283,12 +4283,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             </CardContent>
                         </Card>
 
-                        <Card className={panelClass}>
-                            <CardHeader>
+                        <Card className={cn(panelClass, "flex h-full min-h-0 flex-col overflow-hidden")}>
+                            <CardHeader className="shrink-0">
                                 <CardTitle className="text-lg">状态分布</CardTitle>
                                 <CardDescription>帮助领导和 HR 快速判断流程积压位置。</CardDescription>
                             </CardHeader>
-                            <CardContent className="space-y-3">
+                            <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3">
                                 {dashboard?.status_distribution?.length ? dashboard.status_distribution.map((item) => (
                                     <div key={item.status}
                                          className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
@@ -4968,7 +4968,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </Card>
 
                 <div
-                    className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(420px,500px)] 2xl:grid-cols-[minmax(0,1.08fr)_minmax(440px,540px)]">
+                    className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(520px,42%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(620px,45%)]">
                     <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
                         <CardHeader className="pb-0">
                             <div className="flex items-center justify-between gap-3">
@@ -5803,7 +5803,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </Card>
 
                 <div
-                    className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1.15fr)_minmax(420px,520px)] 2xl:grid-cols-[minmax(0,1.12fr)_minmax(460px,580px)]">
+                    className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(500px,40%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(600px,43%)]">
                     <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden")}>
                         <CardHeader className="pb-0">
                             <CardTitle className="text-lg">任务审计中心</CardTitle>
@@ -6003,7 +6003,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     function renderAssistantPage() {
         return (
-            <Card className={cn(panelClass, "overflow-hidden")}>
+            <Card className={cn(panelClass, "h-full min-h-0 overflow-hidden")}>
                 {assistantOpen ? renderAssistantSuspendedState() : renderAssistantConsole("page")}
             </Card>
         );
@@ -6690,7 +6690,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </aside>
 
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    {activePage === "candidates" || activePage === "audit" || activePage === "positions" ? (
+                    {activePage === "candidates" || activePage === "audit" || activePage === "positions" || activePage === "assistant" ? (
                         <div className="h-full p-6">
                             {renderPage()}
                         </div>
