@@ -1196,10 +1196,37 @@ class RecruitmentService:
         positions = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False)).all()
         candidates = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)).all()
         recent_candidates = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)).order_by(RecruitmentCandidate.created_at.desc(), RecruitmentCandidate.id.desc()).limit(8).all()
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
+        today_ai_task_count = (
+            self.db.query(RecruitmentAITaskLog)
+            .filter(
+                RecruitmentAITaskLog.created_at >= today_start,
+                RecruitmentAITaskLog.created_at < tomorrow_start,
+            )
+            .count()
+        )
         distribution: Dict[str, int] = {}
         for candidate in candidates:
             distribution[candidate.status] = distribution.get(candidate.status, 0) + 1
-        return {"cards": {"positions_total": len(positions), "positions_recruiting": len([item for item in positions if item.status == "recruiting"]), "candidates_total": len(candidates), "pending_screening": len([item for item in candidates if item.status == "pending_screening"]), "screening_passed": len([item for item in candidates if item.status in {"screening_passed", "pending_interview", "interview_passed", "pending_offer", "offer_sent", "hired"}]), "recent_ai_tasks": self.db.query(RecruitmentAITaskLog).count()}, "status_distribution": [{"status": key, "count": value} for key, value in sorted(distribution.items(), key=lambda item: item[0])], "recent_candidates": [self._serialize_candidate_summary(item) for item in recent_candidates]}
+        return {
+            "cards": {
+                "positions_total": len(positions),
+                "positions_recruiting": len([item for item in positions if item.status == "recruiting"]),
+                "candidates_total": len(candidates),
+                "pending_screening": len([item for item in candidates if item.status == "pending_screening"]),
+                "screening_passed": len(
+                    [
+                        item
+                        for item in candidates
+                        if item.status in {"screening_passed", "pending_interview", "interview_passed", "pending_offer", "offer_sent", "hired"}
+                    ]
+                ),
+                "recent_ai_tasks": today_ai_task_count,
+            },
+            "status_distribution": [{"status": key, "count": value} for key, value in sorted(distribution.items(), key=lambda item: item[0])],
+            "recent_candidates": [self._serialize_candidate_summary(item) for item in recent_candidates],
+        }
 
     def list_positions(self, query: Optional[str] = None, status: Optional[str] = None) -> List[Dict[str, Any]]:
         builder = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False))

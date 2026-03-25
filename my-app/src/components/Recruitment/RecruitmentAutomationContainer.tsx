@@ -249,6 +249,13 @@ const pageMeta: Record<RecruitmentPage, { title: string; description: string }> 
     },
 };
 
+function formatNavBadgeCount(count?: number): string | null {
+    if (typeof count !== "number" || !Number.isFinite(count)) {
+        return null;
+    }
+    return count > 99 ? "99+" : String(Math.max(0, count));
+}
+
 const positionStatusLabels: Record<string, string> = {
     draft: "草稿",
     recruiting: "招聘中",
@@ -6765,38 +6772,38 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 <Separator className="mb-5" />
 
                                 <div
-                                    className="rounded-[24px] border border-slate-200/80 bg-white/85 px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/80"
+                                    className="rounded-[24px] border border-slate-200/80 bg-white/85 px-3 py-2 shadow-sm dark:border-slate-800 dark:bg-slate-950/80 2xl:px-4 2xl:py-2.5"
                                 >
-                                    <div className="space-y-3">
+                                    <div className="space-y-1.5 2xl:space-y-2">
                                         <div>
-                                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">今日待办</p>
-                                            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                            <p className="text-[13px] font-semibold text-slate-900 dark:text-slate-100 2xl:text-sm">今日待办</p>
+                                            <p className="mt-1 hidden text-xs leading-5 text-slate-500 dark:text-slate-400 2xl:block">
                                                 把高频待处理项收在导航下方，切页时也能快速感知当前压力。
                                             </p>
                                         </div>
 
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                        <div className="grid grid-cols-2 gap-1.5 2xl:gap-2">
+                                            <div className="rounded-2xl bg-slate-100/80 px-2.5 py-1.5 dark:bg-slate-900/80 2xl:px-3 2xl:py-2">
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">待发布</p>
-                                                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                                <p className="mt-0.5 text-[20px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:mt-1 2xl:text-[24px]">
                                                     {todoSummary.pendingPublish}
                                                 </p>
                                             </div>
-                                            <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                            <div className="rounded-2xl bg-slate-100/80 px-2.5 py-1.5 dark:bg-slate-900/80 2xl:px-3 2xl:py-2">
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">待初筛</p>
-                                                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                                <p className="mt-0.5 text-[20px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:mt-1 2xl:text-[24px]">
                                                     {todoSummary.pendingScreening}
                                                 </p>
                                             </div>
-                                            <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                            <div className="rounded-2xl bg-slate-100/80 px-2.5 py-1.5 dark:bg-slate-900/80 2xl:px-3 2xl:py-2">
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">待面试</p>
-                                                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                                <p className="mt-0.5 text-[20px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:mt-1 2xl:text-[24px]">
                                                     {todoSummary.pendingInterview}
                                                 </p>
                                             </div>
-                                            <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                            <div className="rounded-2xl bg-slate-100/80 px-2.5 py-1.5 dark:bg-slate-900/80 2xl:px-3 2xl:py-2">
                                                 <p className="text-xs text-slate-500 dark:text-slate-400">待决策</p>
-                                                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                                <p className="mt-0.5 text-[20px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:mt-1 2xl:text-[24px]">
                                                     {todoSummary.pendingDecision}
                                                 </p>
                                             </div>
@@ -7768,6 +7775,7 @@ function SectionNavButton({
     collapsed?: boolean;
     onClick: () => void;
 }) {
+    const badgeCountText = formatNavBadgeCount(count);
     const buttonNode = (
         <button
             type="button"
@@ -7784,13 +7792,13 @@ function SectionNavButton({
             {collapsed ? (
                 <>
                     <Icon className="h-4.5 w-4.5" />
-                    {typeof count === "number" ? (
+                    {badgeCountText ? (
                         <span
                             className={cn(
-                                "absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-1 text-[10px] font-semibold leading-4 text-slate-700 shadow-[0_6px_14px_-8px_rgba(15,23,42,0.45)] ring-2 ring-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-950",
+                                "absolute -right-1 -top-1 inline-flex min-w-[20px] items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-1.5 text-[10px] font-semibold leading-4 text-slate-700 shadow-[0_6px_14px_-8px_rgba(15,23,42,0.45)] ring-2 ring-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-950",
                             )}
                         >
-                            {count}
+                            {badgeCountText}
                         </span>
                     ) : null}
                 </>
@@ -7808,10 +7816,10 @@ function SectionNavButton({
                             </p>
                         </div>
                     </div>
-                    {typeof count === "number" ? (
+                    {badgeCountText ? (
                         <Badge
                             className={cn("rounded-full border", active ? "border-white/20 bg-white/10 text-white dark:border-slate-300 dark:bg-slate-200 dark:text-slate-900" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                            {count}
+                            {badgeCountText}
                         </Badge>
                     ) : null}
                 </div>
