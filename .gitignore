@@ -22,3 +22,6 @@ docker-compose.local.yml
 ._*
 .Spotlight-V100
 .Trashes
+
+tmp/recruitment-debug/
+*.err.log
