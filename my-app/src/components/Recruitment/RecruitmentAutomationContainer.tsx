@@ -341,6 +341,7 @@ const panelClass =
     "rounded-[24px] border border-slate-200/80 bg-white/95 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.45)] backdrop-blur dark:border-slate-800/90 dark:bg-slate-950/85";
 
 type CandidateListColumnKey = "candidate" | "position" | "status" | "match" | "source" | "updated";
+type AuditListColumnKey = "taskType" | "object" | "status" | "model" | "duration" | "time";
 
 const candidateListColumnDefaultWidths: Record<CandidateListColumnKey, number> = {
     candidate: 260,
@@ -369,10 +370,67 @@ const candidateListColumnMaxWidths: Record<CandidateListColumnKey, number> = {
     updated: 240,
 };
 
+const candidateListColumnFillWeights: Record<CandidateListColumnKey, number> = {
+    candidate: 3.4,
+    position: 1.8,
+    status: 1,
+    match: 1,
+    source: 1.5,
+    updated: 1.3,
+};
+
+const auditListColumnBaseWidths: Record<AuditListColumnKey, number> = {
+    taskType: 110,
+    object: 150,
+    status: 84,
+    model: 140,
+    duration: 72,
+    time: 120,
+};
+
+const auditListColumnFillWeights: Record<AuditListColumnKey, number> = {
+    taskType: 1.4,
+    object: 2.4,
+    status: 1,
+    model: 2.1,
+    duration: 0.8,
+    time: 1.1,
+};
+
 function clampCandidateListColumnWidth(key: CandidateListColumnKey, width: number): number {
     const min = candidateListColumnMinWidths[key];
     const max = candidateListColumnMaxWidths[key];
     return Math.min(max, Math.max(min, Math.round(width)));
+}
+
+function expandTableColumnWidths<T extends string>(
+    baseWidths: Record<T, number>,
+    availableWidth: number,
+    reservedWidth: number,
+    weights: Record<T, number>,
+): Record<T, number> {
+    const entries = Object.entries(baseWidths) as Array<[T, number]>;
+    const baseTotal = reservedWidth + entries.reduce((sum, [, width]) => sum + width, 0);
+    if (!availableWidth || availableWidth <= baseTotal) {
+        return baseWidths;
+    }
+
+    const extra = availableWidth - baseTotal;
+    const totalWeight = entries.reduce((sum, [key]) => sum + (weights[key] || 1), 0);
+    if (totalWeight <= 0) {
+        return baseWidths;
+    }
+
+    let distributed = 0;
+    return entries.reduce((acc, [key, width], index) => {
+        const isLast = index === entries.length - 1;
+        const growth = isLast
+            ? extra - distributed
+            : Math.round((extra * (weights[key] || 1)) / totalWeight);
+        distributed += growth;
+        acc[key] = width + growth;
+        return acc;
+    }, {} as Record<T, number>);
 }
 
 function HoverRevealText({
@@ -1074,6 +1132,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }, []);
     const [auditListHorizontalRailEl, setAuditListHorizontalRailEl] = useState<HTMLDivElement | null>(null);
     const auditListHorizontalRailRef = useCallback((node: HTMLDivElement | null) => setAuditListHorizontalRailEl(node), []);
+    const [candidateListViewportWidth, setCandidateListViewportWidth] = useState(0);
+    const [auditListViewportWidth, setAuditListViewportWidth] = useState(0);
     const candidateListScrollSyncLockRef = useRef<"table" | "rail" | null>(null);
     const auditListScrollSyncLockRef = useRef<"table" | "rail" | null>(null);
     const candidateListColumnResizeRef = useRef<{
@@ -1494,11 +1554,31 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }));
     }, [metadata, visibleCandidates]);
 
-    const candidateListTableMinWidth = useMemo(() => {
-        return 56 + Object.values(candidateListColumnWidths).reduce((sum, width) => sum + width, 0);
-    }, [candidateListColumnWidths]);
+    const candidateListDisplayColumnWidths = useMemo(() => (
+        expandTableColumnWidths(
+            candidateListColumnWidths,
+            candidateListViewportWidth,
+            56,
+            candidateListColumnFillWeights,
+        )
+    ), [candidateListColumnWidths, candidateListViewportWidth]);
 
-    const auditListTableMinWidth = 760;
+    const candidateListTableWidth = useMemo(() => {
+        return 56 + Object.values(candidateListDisplayColumnWidths).reduce((sum, width) => sum + width, 0);
+    }, [candidateListDisplayColumnWidths]);
+
+    const auditListDisplayColumnWidths = useMemo(() => (
+        expandTableColumnWidths(
+            auditListColumnBaseWidths,
+            auditListViewportWidth,
+            0,
+            auditListColumnFillWeights,
+        )
+    ), [auditListViewportWidth]);
+
+    const auditListTableWidth = useMemo(() => {
+        return Object.values(auditListDisplayColumnWidths).reduce((sum, width) => sum + width, 0);
+    }, [auditListDisplayColumnWidths]);
 
     const todayNewResumes = useMemo(
         () => candidates.filter((candidate) => isToday(candidate.created_at)).length,
@@ -1623,7 +1703,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }, [activeChatTaskId]);
 
     useEffect(() => {
-        const viewport = assistantScrollAreaRef.current?.querySelector("[data-slot='scroll-area-viewport']") as HTMLDivElement | null;
+        const viewport = assistantScrollAreaRef.current;
         if (!viewport || !assistantScrollAnchorRef.current) {
             return;
         }
@@ -1801,6 +1881,44 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     useEffect(() => {
         setInterviewPreviewHeight(760);
     }, [selectedCandidateId, candidateDetail?.interview_questions?.[0]?.id, candidateDetail?.interview_questions?.[0]?.html_content]);
+
+    useEffect(() => {
+        if (candidateViewMode !== "list" || !candidateListScrollEl) {
+            setCandidateListViewportWidth(0);
+            return;
+        }
+
+        const updateWidth = () => setCandidateListViewportWidth(candidateListScrollEl.clientWidth);
+        updateWidth();
+
+        if (typeof ResizeObserver === "undefined") {
+            window.addEventListener("resize", updateWidth);
+            return () => window.removeEventListener("resize", updateWidth);
+        }
+
+        const observer = new ResizeObserver(() => updateWidth());
+        observer.observe(candidateListScrollEl);
+        return () => observer.disconnect();
+    }, [candidateViewMode, candidateListScrollEl]);
+
+    useEffect(() => {
+        if (!auditListScrollEl) {
+            setAuditListViewportWidth(0);
+            return;
+        }
+
+        const updateWidth = () => setAuditListViewportWidth(auditListScrollEl.clientWidth);
+        updateWidth();
+
+        if (typeof ResizeObserver === "undefined") {
+            window.addEventListener("resize", updateWidth);
+            return () => window.removeEventListener("resize", updateWidth);
+        }
+
+        const observer = new ResizeObserver(() => updateWidth());
+        observer.observe(auditListScrollEl);
+        return () => observer.disconnect();
+    }, [auditListScrollEl]);
 
     useEffect(() => {
         if (candidateViewMode !== "list") return;
@@ -1999,7 +2117,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     function renderCandidateListHeaderCell(key: CandidateListColumnKey, label: string) {
-        const width = candidateListColumnWidths[key];
+        const width = candidateListDisplayColumnWidths[key];
         return (
             <th
                 key={key}
@@ -3870,7 +3988,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 >
                     <div className="flex min-h-0 flex-col">
                         <div
-                            className="shrink-0 flex flex-wrap gap-2 border-b border-slate-200/80 px-5 py-4 dark:border-slate-800">
+                            className="shrink-0 overflow-x-auto border-b border-slate-200/80 px-5 py-3 dark:border-slate-800">
+                            <div className="flex min-w-max gap-2">
                             {suggestionPrompts.map((prompt) => (
                                 <button
                                     key={prompt}
@@ -3882,87 +4001,89 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     {prompt}
                                 </button>
                             ))}
+                            </div>
                         </div>
 
-                        <div ref={assistantScrollAreaRef} className="min-h-0 flex-1 overflow-hidden">
-                            <ScrollArea className="h-full min-h-0">
-                                <div className="space-y-4 px-5 py-5">
-                                    {chatMessages.map((message) => (
-                                        <div
-                                            key={message.id}
-                                            className={cn(
-                                                "max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-7 shadow-sm",
-                                                message.role === "assistant"
-                                                    ? "border border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-                                                    : "ml-auto bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900",
-                                            )}
-                                        >
-                                            <p className="whitespace-pre-wrap">{message.content}</p>
-                                            {message.actions?.length ? (
-                                                <div className="mt-3 flex flex-wrap gap-2">
-                                                    {message.actions.map((action) => (
-                                                        <Badge key={action} variant="outline" className="rounded-full">
-                                                            {action}
-                                                        </Badge>
-                                                    ))}
+                        <div
+                            ref={assistantScrollAreaRef}
+                            className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+                        >
+                            <div className="space-y-4 px-5 py-5">
+                                {chatMessages.map((message) => (
+                                    <div
+                                        key={message.id}
+                                        className={cn(
+                                            "max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-7 shadow-sm",
+                                            message.role === "assistant"
+                                                ? "border border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                                                : "ml-auto bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900",
+                                        )}
+                                    >
+                                        <p className="whitespace-pre-wrap">{message.content}</p>
+                                        {message.actions?.length ? (
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {message.actions.map((action) => (
+                                                    <Badge key={action} variant="outline" className="rounded-full">
+                                                        {action}
+                                                    </Badge>
+                                                ))}
+                                            </div>
+                                        ) : null}
+                                        {message.role === "assistant" && (message.usedSkills?.length || message.logId || message.usedFallback) ? (
+                                            <details
+                                                className="mt-3 rounded-2xl border border-slate-200/80 bg-white/70 px-3 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300">
+                                                <summary
+                                                    className="cursor-pointer select-none font-medium text-slate-700 dark:text-slate-200">查看本次上下文
+                                                </summary>
+                                                <div className="mt-3 space-y-3">
+                                                    <p className="leading-6">
+                                                        模型：{labelForProvider(message.modelProvider)} / {message.modelName || "-"}
+                                                        <br/>
+                                                        规则来源：{labelForMemorySource(message.memorySource)}
+                                                    </p>
+                                                    {message.usedFallback ? (
+                                                        <div
+                                                            className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                                                            <p className="font-medium">本次结果来自 fallback
+                                                                兜底</p>
+                                                            {message.fallbackError ?
+                                                                <p className="mt-1 whitespace-pre-wrap break-words leading-6">{message.fallbackError}</p> : null}
+                                                        </div>
+                                                    ) : null}
+                                                    {message.usedSkills?.length ? (
+                                                        <div className="space-y-2">
+                                                            {message.usedSkills.map((skill) => (
+                                                                <div key={skill.id}
+                                                                     className="rounded-2xl border border-slate-200/80 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
+                                                                    <p className="font-medium text-slate-900 dark:text-slate-100">{skill.name}</p>
+                                                                    {skill.description ?
+                                                                        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{skill.description}</p> : null}
+                                                                    <pre
+                                                                        className="mt-2 whitespace-pre-wrap break-words leading-6 text-slate-600 dark:text-slate-300">{skill.content || "暂无内容"}</pre>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : null}
+                                                    {message.logId ? (
+                                                        <div className="flex justify-end">
+                                                            <Button size="sm" variant="outline"
+                                                                    onClick={() => openTaskLogDetail(message.logId)}>查看完整日志</Button>
+                                                        </div>
+                                                    ) : null}
                                                 </div>
-                                            ) : null}
-                                            {message.role === "assistant" && (message.usedSkills?.length || message.logId || message.usedFallback) ? (
-                                                <details
-                                                    className="mt-3 rounded-2xl border border-slate-200/80 bg-white/70 px-3 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300">
-                                                    <summary
-                                                        className="cursor-pointer select-none font-medium text-slate-700 dark:text-slate-200">查看本次上下文
-                                                    </summary>
-                                                    <div className="mt-3 space-y-3">
-                                                        <p className="leading-6">
-                                                            模型：{labelForProvider(message.modelProvider)} / {message.modelName || "-"}
-                                                            <br/>
-                                                            规则来源：{labelForMemorySource(message.memorySource)}
-                                                        </p>
-                                                        {message.usedFallback ? (
-                                                            <div
-                                                                className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-                                                                <p className="font-medium">本次结果来自 fallback
-                                                                    兜底</p>
-                                                                {message.fallbackError ?
-                                                                    <p className="mt-1 whitespace-pre-wrap break-words leading-6">{message.fallbackError}</p> : null}
-                                                            </div>
-                                                        ) : null}
-                                                        {message.usedSkills?.length ? (
-                                                            <div className="space-y-2">
-                                                                {message.usedSkills.map((skill) => (
-                                                                    <div key={skill.id}
-                                                                         className="rounded-2xl border border-slate-200/80 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                                                                        <p className="font-medium text-slate-900 dark:text-slate-100">{skill.name}</p>
-                                                                        {skill.description ?
-                                                                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{skill.description}</p> : null}
-                                                                        <pre
-                                                                            className="mt-2 whitespace-pre-wrap break-words leading-6 text-slate-600 dark:text-slate-300">{skill.content || "暂无内容"}</pre>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        ) : null}
-                                                        {message.logId ? (
-                                                            <div className="flex justify-end">
-                                                                <Button size="sm" variant="outline"
-                                                                        onClick={() => openTaskLogDetail(message.logId)}>查看完整日志</Button>
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                </details>
-                                            ) : null}
-                                            <p className="mt-2 text-[11px] opacity-70">{formatDateTime(message.createdAt)}</p>
-                                        </div>
-                                    ))}
-                                    {chatSending ? (
-                                        <div className="flex items-center gap-2 text-sm text-slate-500">
-                                            <Loader2 className="h-4 w-4 animate-spin"/>
-                                            助手正在思考...
-                                        </div>
-                                    ) : null}
-                                    <div ref={assistantScrollAnchorRef}/>
-                                </div>
-                            </ScrollArea>
+                                            </details>
+                                        ) : null}
+                                        <p className="mt-2 text-[11px] opacity-70">{formatDateTime(message.createdAt)}</p>
+                                    </div>
+                                ))}
+                                {chatSending ? (
+                                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                                        <Loader2 className="h-4 w-4 animate-spin"/>
+                                        助手正在思考...
+                                    </div>
+                                ) : null}
+                                <div ref={assistantScrollAnchorRef}/>
+                            </div>
                         </div>
 
                         <div className="shrink-0 border-t border-slate-200/80 px-5 py-5 dark:border-slate-800">
@@ -3977,7 +4098,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         void sendChatMessage();
                                     }
                                 }}
-                                rows={isFullscreen ? 10 : 7}
+                                rows={isFullscreen ? 7 : isWorkspace ? 4 : isPage ? 4 : 5}
                                 placeholder="例如：重新对当前候选人初筛，硬性要求加强硬件测试经验；或说明这次用了哪些 Skills"
                             />
                             <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
@@ -4968,7 +5089,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </Card>
 
                 <div
-                    className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(520px,42%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(620px,45%)]">
+                    className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(560px,44%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(700px,46%)]">
                     <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
                         <CardHeader className="pb-0">
                             <div className="flex items-center justify-between gap-3">
@@ -5015,7 +5136,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         ref={candidateListScrollRef}
                                         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
                                     >
-                                        <table style={{minWidth: candidateListTableMinWidth}}
+                                        <table style={{width: candidateListTableWidth, minWidth: candidateListTableWidth}}
                                                className="caption-bottom table-fixed text-sm">
                                             <thead className="[&_tr]:border-b">
                                             <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">
@@ -5053,9 +5174,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListColumnWidths.candidate,
-                                                            minWidth: candidateListColumnWidths.candidate,
-                                                            maxWidth: candidateListColumnWidths.candidate,
+                                                            width: candidateListDisplayColumnWidths.candidate,
+                                                            minWidth: candidateListDisplayColumnWidths.candidate,
+                                                            maxWidth: candidateListDisplayColumnWidths.candidate,
                                                         }}
                                                         className="p-2 align-middle"
                                                     >
@@ -5087,9 +5208,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListColumnWidths.position,
-                                                            minWidth: candidateListColumnWidths.position,
-                                                            maxWidth: candidateListColumnWidths.position,
+                                                            width: candidateListDisplayColumnWidths.position,
+                                                            minWidth: candidateListDisplayColumnWidths.position,
+                                                            maxWidth: candidateListDisplayColumnWidths.position,
                                                         }}
                                                         className="p-2 align-middle"
                                                     >
@@ -5098,9 +5219,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListColumnWidths.status,
-                                                            minWidth: candidateListColumnWidths.status,
-                                                            maxWidth: candidateListColumnWidths.status,
+                                                            width: candidateListDisplayColumnWidths.status,
+                                                            minWidth: candidateListDisplayColumnWidths.status,
+                                                            maxWidth: candidateListDisplayColumnWidths.status,
                                                         }}
                                                         className="p-2 align-middle whitespace-nowrap"
                                                     >
@@ -5111,9 +5232,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListColumnWidths.match,
-                                                            minWidth: candidateListColumnWidths.match,
-                                                            maxWidth: candidateListColumnWidths.match,
+                                                            width: candidateListDisplayColumnWidths.match,
+                                                            minWidth: candidateListDisplayColumnWidths.match,
+                                                            maxWidth: candidateListDisplayColumnWidths.match,
                                                         }}
                                                         className="p-2 align-middle whitespace-nowrap"
                                                     >
@@ -5121,9 +5242,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListColumnWidths.source,
-                                                            minWidth: candidateListColumnWidths.source,
-                                                            maxWidth: candidateListColumnWidths.source,
+                                                            width: candidateListDisplayColumnWidths.source,
+                                                            minWidth: candidateListDisplayColumnWidths.source,
+                                                            maxWidth: candidateListDisplayColumnWidths.source,
                                                         }}
                                                         className="p-2 align-middle"
                                                     >
@@ -5134,9 +5255,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListColumnWidths.updated,
-                                                            minWidth: candidateListColumnWidths.updated,
-                                                            maxWidth: candidateListColumnWidths.updated,
+                                                            width: candidateListDisplayColumnWidths.updated,
+                                                            minWidth: candidateListDisplayColumnWidths.updated,
+                                                            maxWidth: candidateListDisplayColumnWidths.updated,
                                                         }}
                                                         className="p-2 align-middle"
                                                     >
@@ -5159,7 +5280,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             ref={candidateListHorizontalRailRef}
                                             className="overflow-x-auto overflow-y-hidden [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.95)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100/80 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.98)_transparent] dark:[&::-webkit-scrollbar-track]:bg-slate-900/80 dark:[&::-webkit-scrollbar-thumb]:border-slate-900 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700"
                                         >
-                                            <div style={{width: candidateListTableMinWidth, height: 1}}/>
+                                            <div style={{width: candidateListTableWidth, height: 1}}/>
                                         </div>
                                     </div>
                                 </div>
@@ -5803,7 +5924,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </Card>
 
                 <div
-                    className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(500px,40%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(600px,43%)]">
+                    className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(540px,42%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(680px,45%)]">
                     <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden")}>
                         <CardHeader className="pb-0">
                             <CardTitle className="text-lg">任务审计中心</CardTitle>
@@ -5818,21 +5939,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         ref={auditListScrollRef}
                                         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
                                     >
-                                        <div style={{width: "max-content", minWidth: auditListTableMinWidth}}>
-                                            <Table className="table-fixed w-auto min-w-full">
+                                        <div style={{width: auditListTableWidth, minWidth: auditListTableWidth}}>
+                                            <Table className="table-fixed" style={{width: auditListTableWidth, minWidth: auditListTableWidth}}>
                                                 <TableHeader>
                                                     <TableRow>
-                                                        <TableHead style={{width: 110, minWidth: 110, maxWidth: 110}}
+                                                        <TableHead style={{width: auditListDisplayColumnWidths.taskType, minWidth: auditListDisplayColumnWidths.taskType, maxWidth: auditListDisplayColumnWidths.taskType}}
                                                                    className="whitespace-nowrap">任务类型</TableHead>
-                                                        <TableHead style={{width: 150, minWidth: 150, maxWidth: 150}}
+                                                        <TableHead style={{width: auditListDisplayColumnWidths.object, minWidth: auditListDisplayColumnWidths.object, maxWidth: auditListDisplayColumnWidths.object}}
                                                                    className="whitespace-nowrap">关联对象</TableHead>
-                                                        <TableHead style={{width: 84, minWidth: 84, maxWidth: 84}}
+                                                        <TableHead style={{width: auditListDisplayColumnWidths.status, minWidth: auditListDisplayColumnWidths.status, maxWidth: auditListDisplayColumnWidths.status}}
                                                                    className="whitespace-nowrap">状态</TableHead>
-                                                        <TableHead style={{width: 140, minWidth: 140, maxWidth: 140}}
+                                                        <TableHead style={{width: auditListDisplayColumnWidths.model, minWidth: auditListDisplayColumnWidths.model, maxWidth: auditListDisplayColumnWidths.model}}
                                                                    className="whitespace-nowrap">模型</TableHead>
-                                                        <TableHead style={{width: 72, minWidth: 72, maxWidth: 72}}
+                                                        <TableHead style={{width: auditListDisplayColumnWidths.duration, minWidth: auditListDisplayColumnWidths.duration, maxWidth: auditListDisplayColumnWidths.duration}}
                                                                    className="whitespace-nowrap">耗时</TableHead>
-                                                        <TableHead style={{width: 120, minWidth: 120, maxWidth: 120}}
+                                                        <TableHead style={{width: auditListDisplayColumnWidths.time, minWidth: auditListDisplayColumnWidths.time, maxWidth: auditListDisplayColumnWidths.time}}
                                                                    className="whitespace-nowrap text-right">时间</TableHead>
                                                     </TableRow>
                                                 </TableHeader>
@@ -5844,32 +5965,32 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             onClick={() => setSelectedLogId(log.id)}
                                                         >
                                                             <TableCell
-                                                                style={{width: 110, minWidth: 110, maxWidth: 110}}>
+                                                                style={{width: auditListDisplayColumnWidths.taskType, minWidth: auditListDisplayColumnWidths.taskType, maxWidth: auditListDisplayColumnWidths.taskType}}>
                                                                 <HoverRevealText
                                                                     text={labelForTaskType(log.task_type)}/>
                                                             </TableCell>
                                                             <TableCell
-                                                                style={{width: 150, minWidth: 150, maxWidth: 150}}>
+                                                                style={{width: auditListDisplayColumnWidths.object, minWidth: auditListDisplayColumnWidths.object, maxWidth: auditListDisplayColumnWidths.object}}>
                                                                 <HoverRevealText
                                                                     text={buildLogObjectLabel(log, positionMap, candidateMap, skillMap)}/>
                                                             </TableCell>
-                                                            <TableCell style={{width: 84, minWidth: 84, maxWidth: 84}}>
+                                                            <TableCell style={{width: auditListDisplayColumnWidths.status, minWidth: auditListDisplayColumnWidths.status, maxWidth: auditListDisplayColumnWidths.status}}>
                                                                 <Badge
                                                                     className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
                                                                     {labelForTaskExecutionStatus(log.status)}
                                                                 </Badge>
                                                             </TableCell>
                                                             <TableCell
-                                                                style={{width: 140, minWidth: 140, maxWidth: 140}}>
+                                                                style={{width: auditListDisplayColumnWidths.model, minWidth: auditListDisplayColumnWidths.model, maxWidth: auditListDisplayColumnWidths.model}}>
                                                                 <HoverRevealText
                                                                     text={`${labelForProvider(log.model_provider)} · ${log.model_name || "-"}`}/>
                                                             </TableCell>
-                                                            <TableCell style={{width: 72, minWidth: 72, maxWidth: 72}}
+                                                            <TableCell style={{width: auditListDisplayColumnWidths.duration, minWidth: auditListDisplayColumnWidths.duration, maxWidth: auditListDisplayColumnWidths.duration}}
                                                                        className="tabular-nums">
                                                                 {log.duration_ms != null ? `${(log.duration_ms / 1000).toFixed(1)}s` : "-"}
                                                             </TableCell>
                                                             <TableCell
-                                                                style={{width: 120, minWidth: 120, maxWidth: 120}}
+                                                                style={{width: auditListDisplayColumnWidths.time, minWidth: auditListDisplayColumnWidths.time, maxWidth: auditListDisplayColumnWidths.time}}
                                                                 className="whitespace-nowrap pr-4 text-right tabular-nums">
                                                                 {formatDateTime(log.created_at)}
                                                             </TableCell>
@@ -5891,7 +6012,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             ref={auditListHorizontalRailRef}
                                             className="overflow-x-auto overflow-y-hidden [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.95)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100/80 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.98)_transparent] dark:[&::-webkit-scrollbar-track]:bg-slate-900/80 dark:[&::-webkit-scrollbar-thumb]:border-slate-900 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700"
                                         >
-                                            <div style={{width: auditListTableMinWidth, height: 1}}/>
+                                            <div style={{width: auditListTableWidth, height: 1}}/>
                                         </div>
                                     </div>
                                 </div>
@@ -6406,7 +6527,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     return (
         <div
-            className="relative flex h-full min-h-screen flex-col bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.10),_transparent_35%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)] text-slate-700 dark:bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_100%)] dark:text-slate-300">
+            className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.10),_transparent_35%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)] text-slate-700 dark:bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_100%)] dark:text-slate-300">
             <div
                 className="border-b border-slate-200/80 bg-white/85 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
                 <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3">
@@ -6526,127 +6647,126 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </div>
 
                     <div className="min-h-0 flex-1 overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0">
-                        <div className="flex min-h-full flex-col">
+                        <div className="space-y-2">
+                            <SectionNavButton
+                                active={activePage === "workspace"}
+                                icon={FolderKanban}
+                                title="招聘工作台"
+                                description="首页指标、待办、快捷操作与近期活动"
+                                count={dashboard?.cards.positions_recruiting ?? 0}
+                                collapsed={navCollapsed}
+                                onClick={() => navigatePrimaryPage("workspace")}
+                            />
+                            <SectionNavButton
+                                active={activePage === "positions"}
+                                icon={BriefcaseBusiness}
+                                title="岗位管理"
+                                description="岗位列表 + 详情工作区 + JD 版本"
+                                count={positions.length}
+                                collapsed={navCollapsed}
+                                onClick={() => navigatePrimaryPage("positions")}
+                            />
+                            <SectionNavButton
+                                active={activePage === "candidates"}
+                                icon={Users}
+                                title="候选人中心"
+                                description="ATS 列表、筛选、状态推进与档案查看"
+                                count={visibleCandidates.length}
+                                collapsed={navCollapsed}
+                                onClick={() => navigatePrimaryPage("candidates")}
+                            />
+                            <SectionNavButton
+                                active={activePage === "audit"}
+                                icon={History}
+                                title="AI 审计中心"
+                                description="看 AI 处理记录、模型、错误与留痕"
+                                count={aiLogs.length}
+                                collapsed={navCollapsed}
+                                onClick={() => navigatePrimaryPage("audit")}
+                            />
+                            <SectionNavButton
+                                active={activePage === "assistant"}
+                                icon={Bot}
+                                title="AI 招聘助手"
+                                description="自然语言驱动岗位、候选人和 Skill 上下文"
+                                collapsed={navCollapsed}
+                                onClick={() => navigatePrimaryPage("assistant")}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="shrink-0 pt-5">
+                        {navCollapsed ? (
                             <div className="space-y-2">
-                                <SectionNavButton
-                                    active={activePage === "workspace"}
-                                    icon={FolderKanban}
-                                    title="招聘工作台"
-                                    description="首页指标、待办、快捷操作与近期活动"
-                                    count={dashboard?.cards.positions_recruiting ?? 0}
-                                    collapsed={navCollapsed}
-                                    onClick={() => navigatePrimaryPage("workspace")}
-                                />
-                                <SectionNavButton
-                                    active={activePage === "positions"}
-                                    icon={BriefcaseBusiness}
-                                    title="岗位管理"
-                                    description="岗位列表 + 详情工作区 + JD 版本"
-                                    count={positions.length}
-                                    collapsed={navCollapsed}
-                                    onClick={() => navigatePrimaryPage("positions")}
-                                />
-                                <SectionNavButton
-                                    active={activePage === "candidates"}
-                                    icon={Users}
-                                    title="候选人中心"
-                                    description="ATS 列表、筛选、状态推进与档案查看"
-                                    count={visibleCandidates.length}
-                                    collapsed={navCollapsed}
-                                    onClick={() => navigatePrimaryPage("candidates")}
-                                />
-                                <SectionNavButton
-                                    active={activePage === "audit"}
-                                    icon={History}
-                                    title="AI 审计中心"
-                                    description="看 AI 处理记录、模型、错误与留痕"
-                                    count={aiLogs.length}
-                                    collapsed={navCollapsed}
-                                    onClick={() => navigatePrimaryPage("audit")}
-                                />
-                                <SectionNavButton
-                                    active={activePage === "assistant"}
-                                    icon={Bot}
-                                    title="AI 招聘助手"
-                                    description="自然语言驱动岗位、候选人和 Skill 上下文"
-                                    collapsed={navCollapsed}
-                                    onClick={() => navigatePrimaryPage("assistant")}
-                                />
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            type="button"
+                                            onClick={openCreatePosition}
+                                            className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
+                                            title="新增岗位"
+                                        >
+                                            <Plus className="h-4.5 w-4.5" />
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                        新增岗位
+                                    </TooltipContent>
+                                </Tooltip>
+
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            type="button"
+                                            onClick={() => setResumeUploadOpen(true)}
+                                            className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
+                                            title="上传简历"
+                                        >
+                                            <Upload className="h-4.5 w-4.5" />
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                        上传简历
+                                    </TooltipContent>
+                                </Tooltip>
+
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div
+                                            className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
+                                            title="待筛候选人"
+                                        >
+                                            <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待筛</span>
+                                            <span className="text-sm font-semibold leading-4">{todoSummary.pendingScreening}</span>
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                        待筛候选人 {todoSummary.pendingScreening}
+                                    </TooltipContent>
+                                </Tooltip>
+
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div
+                                            className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
+                                            title="待安排面试"
+                                        >
+                                            <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待面</span>
+                                            <span className="text-sm font-semibold leading-4">{todoSummary.pendingInterview}</span>
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                        待安排面试 {todoSummary.pendingInterview}
+                                    </TooltipContent>
+                                </Tooltip>
                             </div>
+                        ) : (
+                            <>
+                                <Separator className="mb-5" />
 
-                            {navCollapsed ? (
-                                <div className="mt-auto space-y-2 pt-5">
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <button
-                                                type="button"
-                                                onClick={openCreatePosition}
-                                                className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
-                                                title="新增岗位"
-                                            >
-                                                <Plus className="h-4.5 w-4.5" />
-                                            </button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                            新增岗位
-                                        </TooltipContent>
-                                    </Tooltip>
-
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <button
-                                                type="button"
-                                                onClick={() => setResumeUploadOpen(true)}
-                                                className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
-                                                title="上传简历"
-                                            >
-                                                <Upload className="h-4.5 w-4.5" />
-                                            </button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                            上传简历
-                                        </TooltipContent>
-                                    </Tooltip>
-
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <div
-                                                className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
-                                                title="待筛候选人"
-                                            >
-                                                <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待筛</span>
-                                                <span className="text-sm font-semibold leading-4">{todoSummary.pendingScreening}</span>
-                                            </div>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                            待筛候选人 {todoSummary.pendingScreening}
-                                        </TooltipContent>
-                                    </Tooltip>
-
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <div
-                                                className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
-                                                title="待安排面试"
-                                            >
-                                                <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待面</span>
-                                                <span className="text-sm font-semibold leading-4">{todoSummary.pendingInterview}</span>
-                                            </div>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                            待安排面试 {todoSummary.pendingInterview}
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </div>
-                            ) : null}
-
-                            {!navCollapsed ? (
-                                <>
-                                    <Separator className="my-5" />
-
-                                    <div
-                                        className="rounded-[24px] border border-slate-200/80 bg-white/85 px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/80"
-                                    >
+                                <div
+                                    className="rounded-[24px] border border-slate-200/80 bg-white/85 px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/80"
+                                >
                                     <div className="space-y-3">
                                         <div>
                                             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">今日待办</p>
@@ -6682,16 +6802,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             </div>
                                         </div>
                                     </div>
-                                    </div>
-                                </>
-                            ) : null}
-                        </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </aside>
 
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     {activePage === "candidates" || activePage === "audit" || activePage === "positions" || activePage === "assistant" ? (
-                        <div className="h-full p-6">
+                        <div className="h-full min-h-0 p-6">
                             {renderPage()}
                         </div>
                     ) : (
