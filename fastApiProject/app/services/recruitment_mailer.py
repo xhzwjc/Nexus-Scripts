@@ -156,11 +156,11 @@ def build_resume_email(
     return message
 
 
-def send_email_via_smtp(sender: RecruitmentMailSenderRuntime, message: Message) -> None:
+def send_email_via_smtp(sender: RecruitmentMailSenderRuntime, message: Message, recipients: Sequence[str]) -> None:
     if sender.use_ssl:
         with smtplib.SMTP_SSL(sender.smtp_host, sender.smtp_port, timeout=30) as client:
             client.login(sender.username, sender.password)
-            client.send_message(message)
+            client.send_message(message, from_addr=sender.from_email, to_addrs=list(recipients))
         return
 
     with smtplib.SMTP(sender.smtp_host, sender.smtp_port, timeout=30) as client:
@@ -169,7 +169,7 @@ def send_email_via_smtp(sender: RecruitmentMailSenderRuntime, message: Message) 
             client.starttls()
             client.ehlo()
         client.login(sender.username, sender.password)
-        client.send_message(message)
+        client.send_message(message, from_addr=sender.from_email, to_addrs=list(recipients))
 
 
 def load_attachment_from_path(file_path: str | Path, file_name: str, mime_type: str | None = None) -> MailAttachment:

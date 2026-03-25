@@ -1432,7 +1432,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const resumeMailDialogTitle = resumeMailDialogMode === "resend" ? "再次发送简历邮件" : "发送简历邮件";
     const resumeMailDialogDescription = resumeMailDialogMode === "resend"
         ? `已基于发送记录 #${resumeMailSourceDispatchId || "-"} 预填内容。你可以修改收件人、标题和正文后再次发送。`
-        : "支持单个或批量发送给一个或多个收件人。邮件标题和正文都允许留空，留空时由系统按默认模板生成。";
+        : "支持单个或批量发送给一个或多个收件人。上方可直接填写收件人邮箱，下方可快捷勾选内部收件人。邮件标题和正文都允许留空，留空时由系统按默认模板生成。";
     const resumeMailSubmitLabel = resumeMailSubmitting
         ? (resumeMailDialogMode === "resend" ? "发送中..." : "发送中...")
         : (resumeMailDialogMode === "resend" ? "再次发送" : "发送简历");
@@ -3486,7 +3486,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         const extraEmails = parseEmailList(resumeMailForm.extraRecipientEmails);
         if (!resumeMailForm.recipientIds.length && !extraEmails.length) {
-            toast.error("\u8bf7\u81f3\u5c11\u9009\u62e9\u4e00\u4e2a\u6536\u4ef6\u4eba\u6216\u586b\u5199\u4e00\u4e2a\u90ae\u7bb1");
+            toast.error("请至少选择一个内部收件人或填写一个收件人邮箱");
             return;
         }
         setResumeMailSubmitting(true);
@@ -6489,7 +6489,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             >
                 <aside
                     className={cn(
-                        "flex h-full min-h-0 flex-col border-r border-slate-200/80 bg-white/70 px-3 py-5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50",
+                        "flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white/70 px-3 py-5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50",
                         navCollapsed ? "lg:px-1.5" : "lg:px-4",
                     )}
                 >
@@ -6525,164 +6525,168 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         </Button>
                     </div>
 
-                    <div className="space-y-2">
-                        <SectionNavButton
-                            active={activePage === "workspace"}
-                            icon={FolderKanban}
-                            title="招聘工作台"
-                            description="首页指标、待办、快捷操作与近期活动"
-                            count={dashboard?.cards.positions_recruiting ?? 0}
-                            collapsed={navCollapsed}
-                            onClick={() => navigatePrimaryPage("workspace")}
-                        />
-                        <SectionNavButton
-                            active={activePage === "positions"}
-                            icon={BriefcaseBusiness}
-                            title="岗位管理"
-                            description="岗位列表 + 详情工作区 + JD 版本"
-                            count={positions.length}
-                            collapsed={navCollapsed}
-                            onClick={() => navigatePrimaryPage("positions")}
-                        />
-                        <SectionNavButton
-                            active={activePage === "candidates"}
-                            icon={Users}
-                            title="候选人中心"
-                            description="ATS 列表、筛选、状态推进与档案查看"
-                            count={visibleCandidates.length}
-                            collapsed={navCollapsed}
-                            onClick={() => navigatePrimaryPage("candidates")}
-                        />
-                        <SectionNavButton
-                            active={activePage === "audit"}
-                            icon={History}
-                            title="AI 审计中心"
-                            description="看 AI 处理记录、模型、错误与留痕"
-                            count={aiLogs.length}
-                            collapsed={navCollapsed}
-                            onClick={() => navigatePrimaryPage("audit")}
-                        />
-                        <SectionNavButton
-                            active={activePage === "assistant"}
-                            icon={Bot}
-                            title="AI 招聘助手"
-                            description="自然语言驱动岗位、候选人和 Skill 上下文"
-                            collapsed={navCollapsed}
-                            onClick={() => navigatePrimaryPage("assistant")}
-                        />
-                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0">
+                        <div className="flex min-h-full flex-col">
+                            <div className="space-y-2">
+                                <SectionNavButton
+                                    active={activePage === "workspace"}
+                                    icon={FolderKanban}
+                                    title="招聘工作台"
+                                    description="首页指标、待办、快捷操作与近期活动"
+                                    count={dashboard?.cards.positions_recruiting ?? 0}
+                                    collapsed={navCollapsed}
+                                    onClick={() => navigatePrimaryPage("workspace")}
+                                />
+                                <SectionNavButton
+                                    active={activePage === "positions"}
+                                    icon={BriefcaseBusiness}
+                                    title="岗位管理"
+                                    description="岗位列表 + 详情工作区 + JD 版本"
+                                    count={positions.length}
+                                    collapsed={navCollapsed}
+                                    onClick={() => navigatePrimaryPage("positions")}
+                                />
+                                <SectionNavButton
+                                    active={activePage === "candidates"}
+                                    icon={Users}
+                                    title="候选人中心"
+                                    description="ATS 列表、筛选、状态推进与档案查看"
+                                    count={visibleCandidates.length}
+                                    collapsed={navCollapsed}
+                                    onClick={() => navigatePrimaryPage("candidates")}
+                                />
+                                <SectionNavButton
+                                    active={activePage === "audit"}
+                                    icon={History}
+                                    title="AI 审计中心"
+                                    description="看 AI 处理记录、模型、错误与留痕"
+                                    count={aiLogs.length}
+                                    collapsed={navCollapsed}
+                                    onClick={() => navigatePrimaryPage("audit")}
+                                />
+                                <SectionNavButton
+                                    active={activePage === "assistant"}
+                                    icon={Bot}
+                                    title="AI 招聘助手"
+                                    description="自然语言驱动岗位、候选人和 Skill 上下文"
+                                    collapsed={navCollapsed}
+                                    onClick={() => navigatePrimaryPage("assistant")}
+                                />
+                            </div>
 
-                    {navCollapsed ? (
-                        <div className="mt-auto space-y-2 pt-5">
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <button
-                                        type="button"
-                                        onClick={openCreatePosition}
-                                        className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
-                                        title="新增岗位"
-                                    >
-                                        <Plus className="h-4.5 w-4.5" />
-                                    </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                    新增岗位
-                                </TooltipContent>
-                            </Tooltip>
+                            {navCollapsed ? (
+                                <div className="mt-auto space-y-2 pt-5">
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <button
+                                                type="button"
+                                                onClick={openCreatePosition}
+                                                className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
+                                                title="新增岗位"
+                                            >
+                                                <Plus className="h-4.5 w-4.5" />
+                                            </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                            新增岗位
+                                        </TooltipContent>
+                                    </Tooltip>
 
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <button
-                                        type="button"
-                                        onClick={() => setResumeUploadOpen(true)}
-                                        className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
-                                        title="上传简历"
-                                    >
-                                        <Upload className="h-4.5 w-4.5" />
-                                    </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                    上传简历
-                                </TooltipContent>
-                            </Tooltip>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <button
+                                                type="button"
+                                                onClick={() => setResumeUploadOpen(true)}
+                                                className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
+                                                title="上传简历"
+                                            >
+                                                <Upload className="h-4.5 w-4.5" />
+                                            </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                            上传简历
+                                        </TooltipContent>
+                                    </Tooltip>
 
-                            <Tooltip>
-                                <TooltipTrigger asChild>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <div
+                                                className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
+                                                title="待筛候选人"
+                                            >
+                                                <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待筛</span>
+                                                <span className="text-sm font-semibold leading-4">{todoSummary.pendingScreening}</span>
+                                            </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                            待筛候选人 {todoSummary.pendingScreening}
+                                        </TooltipContent>
+                                    </Tooltip>
+
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <div
+                                                className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
+                                                title="待安排面试"
+                                            >
+                                                <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待面</span>
+                                                <span className="text-sm font-semibold leading-4">{todoSummary.pendingInterview}</span>
+                                            </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
+                                            待安排面试 {todoSummary.pendingInterview}
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </div>
+                            ) : null}
+
+                            {!navCollapsed ? (
+                                <>
+                                    <Separator className="my-5" />
+
                                     <div
-                                        className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
-                                        title="待筛候选人"
+                                        className="rounded-[24px] border border-slate-200/80 bg-white/85 px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/80"
                                     >
-                                        <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待筛</span>
-                                        <span className="text-sm font-semibold leading-4">{todoSummary.pendingScreening}</span>
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                    待筛候选人 {todoSummary.pendingScreening}
-                                </TooltipContent>
-                            </Tooltip>
+                                    <div className="space-y-3">
+                                        <div>
+                                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">今日待办</p>
+                                            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                                把高频待处理项收在导航下方，切页时也能快速感知当前压力。
+                                            </p>
+                                        </div>
 
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div
-                                        className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
-                                        title="待安排面试"
-                                    >
-                                        <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待面</span>
-                                        <span className="text-sm font-semibold leading-4">{todoSummary.pendingInterview}</span>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">待发布</p>
+                                                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                                    {todoSummary.pendingPublish}
+                                                </p>
+                                            </div>
+                                            <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">待初筛</p>
+                                                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                                    {todoSummary.pendingScreening}
+                                                </p>
+                                            </div>
+                                            <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">待面试</p>
+                                                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                                    {todoSummary.pendingInterview}
+                                                </p>
+                                            </div>
+                                            <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
+                                                <p className="text-xs text-slate-500 dark:text-slate-400">待决策</p>
+                                                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                                    {todoSummary.pendingDecision}
+                                                </p>
+                                            </div>
+                                        </div>
                                     </div>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                    待安排面试 {todoSummary.pendingInterview}
-                                </TooltipContent>
-                            </Tooltip>
+                                    </div>
+                                </>
+                            ) : null}
                         </div>
-                    ) : null}
-
-                    {!navCollapsed ? (
-                        <>
-                            <Separator className="my-5" />
-
-                            <div
-                                className="rounded-[24px] border border-slate-200/80 bg-white/85 px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/80"
-                            >
-                            <div className="space-y-3">
-                                <div>
-                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">今日待办</p>
-                                    <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                                        把高频待处理项收在导航下方，切页时也能快速感知当前压力。
-                                    </p>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">待发布</p>
-                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
-                                            {todoSummary.pendingPublish}
-                                        </p>
-                                    </div>
-                                    <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">待初筛</p>
-                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
-                                            {todoSummary.pendingScreening}
-                                        </p>
-                                    </div>
-                                    <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">待面试</p>
-                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
-                                            {todoSummary.pendingInterview}
-                                        </p>
-                                    </div>
-                                    <div className="rounded-2xl bg-slate-100/80 px-3 py-3 dark:bg-slate-900/80">
-                                        <p className="text-xs text-slate-500 dark:text-slate-400">待决策</p>
-                                        <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
-                                            {todoSummary.pendingDecision}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                            </div>
-                        </>
-                    ) : null}
+                    </div>
                 </aside>
 
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -7433,14 +7437,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         ))}
                                     </NativeSelect>
                                 </Field>
-                                <Field label="补充邮箱（可选）">
+                                <Field label="收件人邮箱（可选）">
                                     <Input
                                         value={resumeMailForm.extraRecipientEmails}
                                         onChange={(event) => setResumeMailForm((current) => ({
                                             ...current,
                                             extraRecipientEmails: event.target.value
                                         }))}
-                                        placeholder="多个邮箱请用英文逗号分隔"
+                                        placeholder="可直接填写一个或多个收件人邮箱，多个请用英文逗号分隔"
                                     />
                                 </Field>
                             </div>
@@ -7466,7 +7470,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         </label>
                                     )) : (
                                         <EmptyState title="暂无可选收件人"
-                                                    description="可以直接填写补充邮箱，也可以先在邮件中心维护公司内部收件人。"/>
+                                                    description="可以直接填写上方收件人邮箱，也可以先在邮件中心维护公司内部收件人。"/>
                                     )}
                                 </div>
                             </Field>

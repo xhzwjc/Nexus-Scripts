@@ -2390,7 +2390,7 @@ class RecruitmentService:
         runtime = self._build_sender_runtime(sender_row)
         try:
             message = build_resume_email(sender=runtime, recipients=recipient_emails, subject=subject, body_text=body_text, body_html=body_html, attachments=attachments)
-            send_email_via_smtp(runtime, message)
+            send_email_via_smtp(runtime, message, recipient_emails)
             dispatch.status = "sent"
             dispatch.error_message = None
             dispatch.sent_at = func.now()
