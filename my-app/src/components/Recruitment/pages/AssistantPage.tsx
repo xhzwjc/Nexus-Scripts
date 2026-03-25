@@ -4,18 +4,17 @@ import React from "react";
 
 import {
     Bot,
-    Loader2,
     Paperclip,
     Send,
     Square,
     X,
 } from "lucide-react";
 
+import ReactMarkdown from "react-markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type {
-    AITaskLog,
     ChatContext,
     PositionSummary,
     RecruitmentLLMConfig,
@@ -28,7 +27,6 @@ import {
     formatDateTime,
     labelForMemorySource,
     labelForProvider,
-    sortSkillsForTaskPreference,
 } from "../utils";
 import { Field, NativeSelect } from "../components/SharedComponents";
 
@@ -88,6 +86,47 @@ function formatFileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function PseudoStreamingMarkdown({ content, isLatest }: { content: string, isLatest: boolean }) {
+    const [displayedCount, setDisplayedCount] = React.useState(isLatest ? 0 : content.length);
+
+    React.useEffect(() => {
+        if (!isLatest) {
+            setDisplayedCount(content.length);
+            return;
+        }
+        
+        // If content changes, reset
+        setDisplayedCount(0);
+
+        let animationFrameId: number;
+        let currentCount = 0;
+        const charsPerFrame = Math.max(1, Math.floor(content.length / 60)); // Animate over ~60 frames (1s)
+
+        const animate = () => {
+            currentCount += charsPerFrame;
+            if (currentCount >= content.length) {
+                setDisplayedCount(content.length);
+            } else {
+                setDisplayedCount(currentCount);
+                animationFrameId = requestAnimationFrame(animate);
+            }
+        };
+        animationFrameId = requestAnimationFrame(animate);
+
+        return () => cancelAnimationFrame(animationFrameId);
+    }, [content, isLatest]);
+
+    const displayedContent = content.slice(0, displayedCount);
+    // 增加闪烁的光标效果补充 UI 体验
+    const isTyping = displayedCount < content.length;
+
+    return (
+        <div className="prose prose-slate dark:prose-invert prose-sm max-w-none break-words">
+            <ReactMarkdown>{displayedContent + (isTyping ? " ▍" : "")}</ReactMarkdown>
+        </div>
+    );
 }
 
 export function AssistantPage({
@@ -226,7 +265,14 @@ export function AssistantPage({
                                             : "ml-auto bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900",
                                     )}
                                 >
-                                    <p className="whitespace-pre-wrap">{message.content}</p>
+                                    {message.role === "assistant" ? (
+                                        <PseudoStreamingMarkdown 
+                                            content={message.content} 
+                                            isLatest={message.id === chatMessages[chatMessages.length - 1]?.id} 
+                                        />
+                                    ) : (
+                                        <p className="whitespace-pre-wrap leading-7">{message.content}</p>
+                                    )}
                                     {message.actions?.length ? (
                                         <div className="mt-3 flex flex-wrap gap-2">
                                             {message.actions.map((action) => (
@@ -283,9 +329,13 @@ export function AssistantPage({
                                 </div>
                             ))}
                             {chatSending ? (
-                                <div className="flex items-center gap-2 text-sm text-slate-500">
-                                    <Loader2 className="h-4 w-4 animate-spin"/>
-                                    助手正在思考...
+                                <div className="flex items-center gap-2 px-4 py-3 max-w-[92%] rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
+                                    <div className="flex space-x-1">
+                                        <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500 [animation-delay:-0.3s]"></div>
+                                        <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500 [animation-delay:-0.15s]"></div>
+                                        <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500"></div>
+                                    </div>
+                                    <span className="text-xs font-medium text-slate-500">助手正在思考...</span>
                                 </div>
                             ) : null}
                             <div ref={assistantScrollAnchorRef}/>

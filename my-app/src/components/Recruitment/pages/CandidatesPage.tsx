@@ -17,6 +17,16 @@ import {
     Save,
 } from "lucide-react";
 
+// @ts-expect-error react-window types can be tricky with esModuleInterop
+import { FixedSizeList } from "react-window";
+
+import {
+    DndContext,
+    useDraggable,
+    useDroppable,
+    type DragEndEvent,
+} from "@dnd-kit/core";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -250,6 +260,141 @@ export function CandidatesPage({
     effectiveScreeningSkillIds,
     skills,
 }: CandidatesPageProps) {
+    const [listHeight, setListHeight] = React.useState(500);
+    const tableContainerRef = React.useRef<HTMLDivElement>(null);
+    React.useEffect(() => {
+        if (!tableContainerRef.current) return;
+        const observer = new window.ResizeObserver((entries) => {
+            if (entries[0] && entries[0].contentRect.height > 0) {
+                setListHeight(entries[0].contentRect.height);
+            }
+        });
+        observer.observe(tableContainerRef.current);
+        return () => {
+            observer.disconnect();
+        };
+    }, []);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const VirtualRow = React.useCallback(({ index, style }: any) => {
+        const candidate = visibleCandidates[index];
+        if (!candidate) return null;
+        return (
+            <div
+                style={{ ...style, width: candidateListTableWidth, display: "flex", alignItems: "center" }}
+                className={cn("border-b transition-colors hover:bg-slate-50 dark:hover:bg-slate-900 cursor-pointer", selectedCandidateId === candidate.id && "bg-slate-100 dark:bg-slate-900")}
+                onClick={() => setSelectedCandidateId(candidate.id)}
+            >
+                <div style={{ width: 56, minWidth: 56, maxWidth: 56 }} className="pl-6 px-2 align-middle whitespace-nowrap" onClick={(event) => event.stopPropagation()}>
+                    <input
+                        type="checkbox"
+                        checked={selectedCandidateIds.includes(candidate.id)}
+                        onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
+                        aria-label={`选择候选人 ${candidate.name}`}
+                    />
+                </div>
+                <div
+                    style={{
+                        width: candidateListDisplayColumnWidths.candidate,
+                        minWidth: candidateListDisplayColumnWidths.candidate,
+                        maxWidth: candidateListDisplayColumnWidths.candidate,
+                    }}
+                    className="px-2 align-middle"
+                >
+                    <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <HoverRevealText text={candidate.name} className="font-medium text-slate-900 dark:text-slate-100"/>
+                            {getCandidateResumeMailSummary(candidate.id) ? (
+                                <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                    已发简历
+                                </Badge>
+                            ) : null}
+                        </div>
+                        <HoverRevealText text={candidate.phone || candidate.email || "未填写联系方式"} className="text-xs text-slate-500 dark:text-slate-400"/>
+                        {getCandidateResumeMailSummary(candidate.id) ? (
+                            <HoverRevealText text={getCandidateResumeMailSummary(candidate.id)} className="mt-1 text-xs text-sky-600 dark:text-slate-300" tooltipClassName="max-w-sm"/>
+                        ) : null}
+                    </div>
+                </div>
+                <div
+                    style={{
+                        width: candidateListDisplayColumnWidths.position,
+                        minWidth: candidateListDisplayColumnWidths.position,
+                        maxWidth: candidateListDisplayColumnWidths.position,
+                    }}
+                    className="px-2 align-middle text-sm"
+                >
+                    <HoverRevealText text={candidate.position_title || "未分配岗位"}/>
+                </div>
+                <div
+                    style={{
+                        width: candidateListDisplayColumnWidths.status,
+                        minWidth: candidateListDisplayColumnWidths.status,
+                        maxWidth: candidateListDisplayColumnWidths.status,
+                    }}
+                    className="px-2 align-middle whitespace-nowrap text-sm"
+                >
+                    <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
+                        {labelForCandidateStatus(candidate.status)}
+                    </Badge>
+                </div>
+                <div
+                    style={{
+                        width: candidateListDisplayColumnWidths.match,
+                        minWidth: candidateListDisplayColumnWidths.match,
+                        maxWidth: candidateListDisplayColumnWidths.match,
+                    }}
+                    className="px-2 align-middle whitespace-nowrap text-sm"
+                >
+                    {formatPercent(candidate.match_percent)}
+                </div>
+                <div
+                    style={{
+                        width: candidateListDisplayColumnWidths.source,
+                        minWidth: candidateListDisplayColumnWidths.source,
+                        maxWidth: candidateListDisplayColumnWidths.source,
+                    }}
+                    className="px-2 align-middle text-sm"
+                >
+                    <HoverRevealText text={candidate.source || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
+                </div>
+                <div
+                    style={{
+                        width: candidateListDisplayColumnWidths.updated,
+                        minWidth: candidateListDisplayColumnWidths.updated,
+                        maxWidth: candidateListDisplayColumnWidths.updated,
+                    }}
+                    className="px-2 align-middle text-sm"
+                >
+                    <HoverRevealText text={formatDateTime(candidate.updated_at)}/>
+                </div>
+            </div>
+        );
+    }, [visibleCandidates, candidateListDisplayColumnWidths, candidateListTableWidth, selectedCandidateId, selectedCandidateIds, toggleCandidateSelection, getCandidateResumeMailSummary, setSelectedCandidateId]);
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over) return;
+        const candidateId = Number(active.id);
+        const newStatus = String(over.id);
+        const candidate = visibleCandidates.find((c) => c.id === candidateId);
+        if (candidate && candidate.status !== newStatus) {
+            setSelectedCandidateId(candidateId);
+            setPendingStatus(newStatus);
+        }
+    };
+
+    const hasActiveFilters = candidateQuery !== "" || candidatePositionFilter !== "all" || candidateStatusFilter !== "all" || candidateMatchFilter !== "all" || candidateSourceFilter !== "all" || candidateTimeFilter !== "all";
+
+    const handleClearFilters = () => {
+        setCandidateQuery("");
+        setCandidatePositionFilter("all");
+        setCandidateStatusFilter("all");
+        setCandidateMatchFilter("all");
+        setCandidateSourceFilter("all");
+        setCandidateTimeFilter("all");
+    };
+
     return (
         <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-6 overflow-hidden">
             <Card className={panelClass}>
@@ -257,7 +402,14 @@ export function CandidatesPage({
                     <div className="flex flex-col gap-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="min-w-0">
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">候选人筛选条</p>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">候选人筛选条</p>
+                                    {hasActiveFilters && (
+                                        <Badge variant="secondary" className="rounded-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:text-indigo-300">
+                                            {visibleCandidates.length} 个结果
+                                        </Badge>
+                                    )}
+                                </div>
                                 <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
                                     {candidateFiltersCollapsed
                                         ? candidateFilterSummary
@@ -265,6 +417,11 @@ export function CandidatesPage({
                                 </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
+                                {hasActiveFilters && (
+                                    <Button size="sm" variant="ghost" onClick={handleClearFilters} className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100">
+                                        清除筛选
+                                    </Button>
+                                )}
                                 <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
                                     <Button size="sm" variant={candidateViewMode === "list" ? "default" : "ghost"}
                                             onClick={() => setCandidateViewMode("list")}>
@@ -368,127 +525,45 @@ export function CandidatesPage({
                             <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
                                 <div
                                     ref={candidateListScrollRef}
-                                    className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
+                                    className="min-h-0 flex-1 overflow-x-hidden overflow-y-hidden [scrollbar-gutter:stable] [scrollbar-width:auto]"
                                 >
-                                    <table style={{ width: candidateListTableWidth, minWidth: candidateListTableWidth }} className="caption-bottom table-fixed text-sm">
-                                        <thead className="[&_tr]:border-b">
-                                            <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">
-                                                <th className="text-foreground sticky top-0 z-10 h-10 w-14 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={visibleCandidates.length > 0 && visibleCandidates.every((candidate) => selectedCandidateIds.includes(candidate.id))}
-                                                        onChange={(event) => setSelectedCandidateIds(event.target.checked ? visibleCandidates.map((candidate) => candidate.id) : [])}
-                                                        aria-label="全选候选人"
-                                                    />
-                                                </th>
-                                                {renderCandidateListHeaderCell("candidate", "候选人")}
-                                                {renderCandidateListHeaderCell("position", "岗位")}
-                                                {renderCandidateListHeaderCell("status", "状态")}
-                                                {renderCandidateListHeaderCell("match", "匹配度")}
-                                                {renderCandidateListHeaderCell("source", "来源")}
-                                                {renderCandidateListHeaderCell("updated", "更新时间")}
-                                            </tr>
-                                        </thead>
-                                        <tbody className="[&_tr:last-child]:border-0">
-                                            {visibleCandidates.length ? visibleCandidates.map((candidate) => (
-                                                <tr
-                                                    key={candidate.id}
-                                                    className={cn("cursor-pointer", selectedCandidateId === candidate.id && "bg-slate-100 dark:bg-slate-900")}
-                                                    onClick={() => setSelectedCandidateId(candidate.id)}
-                                                >
-                                                    <td className="p-2 align-middle whitespace-nowrap" onClick={(event) => event.stopPropagation()}>
+                                    <div style={{ width: candidateListTableWidth, minWidth: candidateListTableWidth }} className="flex flex-col h-full min-h-0">
+                                        <table className="caption-bottom table-fixed text-sm shrink-0">
+                                            <thead className="[&_tr]:border-b">
+                                                <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">
+                                                    <th className="text-foreground sticky top-0 z-10 h-10 w-14 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap">
                                                         <input
                                                             type="checkbox"
-                                                            checked={selectedCandidateIds.includes(candidate.id)}
-                                                            onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
-                                                            aria-label={`选择候选人 ${candidate.name}`}
+                                                            checked={visibleCandidates.length > 0 && visibleCandidates.every((candidate) => selectedCandidateIds.includes(candidate.id))}
+                                                            onChange={(event) => setSelectedCandidateIds(event.target.checked ? visibleCandidates.map((candidate) => candidate.id) : [])}
+                                                            aria-label="全选候选人"
                                                         />
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.candidate,
-                                                            minWidth: candidateListDisplayColumnWidths.candidate,
-                                                            maxWidth: candidateListDisplayColumnWidths.candidate,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <div className="min-w-0">
-                                                            <div className="flex flex-wrap items-center gap-2">
-                                                                <HoverRevealText text={candidate.name} className="font-medium text-slate-900 dark:text-slate-100"/>
-                                                                {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                    <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                                        已发简历
-                                                                    </Badge>
-                                                                ) : null}
-                                                            </div>
-                                                            <HoverRevealText text={candidate.phone || candidate.email || "未填写联系方式"} className="text-xs text-slate-500 dark:text-slate-400"/>
-                                                            {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                <HoverRevealText text={getCandidateResumeMailSummary(candidate.id)} className="mt-1 text-xs text-sky-600 dark:text-slate-300" tooltipClassName="max-w-sm"/>
-                                                            ) : null}
-                                                        </div>
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.position,
-                                                            minWidth: candidateListDisplayColumnWidths.position,
-                                                            maxWidth: candidateListDisplayColumnWidths.position,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <HoverRevealText text={candidate.position_title || "未分配岗位"}/>
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.status,
-                                                            minWidth: candidateListDisplayColumnWidths.status,
-                                                            maxWidth: candidateListDisplayColumnWidths.status,
-                                                        }}
-                                                        className="p-2 align-middle whitespace-nowrap"
-                                                    >
-                                                        <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
-                                                            {labelForCandidateStatus(candidate.status)}
-                                                        </Badge>
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.match,
-                                                            minWidth: candidateListDisplayColumnWidths.match,
-                                                            maxWidth: candidateListDisplayColumnWidths.match,
-                                                        }}
-                                                        className="p-2 align-middle whitespace-nowrap"
-                                                    >
-                                                        {formatPercent(candidate.match_percent)}
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.source,
-                                                            minWidth: candidateListDisplayColumnWidths.source,
-                                                            maxWidth: candidateListDisplayColumnWidths.source,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <HoverRevealText text={candidate.source || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.updated,
-                                                            minWidth: candidateListDisplayColumnWidths.updated,
-                                                            maxWidth: candidateListDisplayColumnWidths.updated,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <HoverRevealText text={formatDateTime(candidate.updated_at)}/>
-                                                    </td>
+                                                    </th>
+                                                    {renderCandidateListHeaderCell("candidate", "候选人")}
+                                                    {renderCandidateListHeaderCell("position", "岗位")}
+                                                    {renderCandidateListHeaderCell("status", "状态")}
+                                                    {renderCandidateListHeaderCell("match", "匹配度")}
+                                                    {renderCandidateListHeaderCell("source", "来源")}
+                                                    {renderCandidateListHeaderCell("updated", "更新时间")}
                                                 </tr>
-                                            )) : (
-                                                <tr>
-                                                    <td colSpan={7} className="p-2 align-middle">
-                                                        <EmptyState title="没有符合条件的候选人" description="调整筛选条件，或先上传一批简历进入系统。"/>
-                                                    </td>
-                                                </tr>
+                                            </thead>
+                                        </table>
+                                        <div ref={tableContainerRef} className="flex-1 min-h-0 w-full overflow-hidden">
+                                            {visibleCandidates.length ? (
+                                                <FixedSizeList
+                                                    height={listHeight}
+                                                    width={candidateListTableWidth}
+                                                    itemCount={visibleCandidates.length}
+                                                    itemSize={84}
+                                                    overscanCount={5}
+                                                >
+                                                    {VirtualRow}
+                                                </FixedSizeList>
+                                            ) : (
+                                                <EmptyState title="没有符合条件的候选人" description="调整筛选条件，或先上传一批简历进入系统。"/>
                                             )}
-                                        </tbody>
-                                    </table>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div className="shrink-0 border-t border-slate-200/80 pt-2 dark:border-slate-800">
                                     <div
@@ -501,64 +576,29 @@ export function CandidatesPage({
                             </div>
                         ) : (
                             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
-                                <div className="grid gap-4 xl:grid-cols-3">
-                                    {groupedCandidates.map((group) => (
-                                        <div key={group.status} className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                            <div className="mb-4 flex items-center justify-between gap-2">
-                                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{group.label}</p>
-                                                <Badge variant="outline" className="rounded-full">{group.items.length}</Badge>
-                                            </div>
-                                            <div className="space-y-3">
+                                <DndContext onDragEnd={handleDragEnd}>
+                                    <div className="grid gap-4 xl:grid-cols-3">
+                                        {groupedCandidates.map((group) => (
+                                            <DroppableColumn key={group.status} status={group.status} label={group.label} count={group.items.length}>
                                                 {group.items.length ? group.items.map((candidate) => (
-                                                    <div
+                                                    <DraggableCandidateCard
                                                         key={candidate.id}
-                                                        className={cn(
-                                                            "w-full rounded-2xl border px-4 py-4 transition",
-                                                            selectedCandidateId === candidate.id
-                                                                ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                : "border-slate-200 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950",
-                                                        )}
-                                                    >
-                                                        <div className="flex items-start justify-between gap-3">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setSelectedCandidateId(candidate.id)}
-                                                                className="min-w-0 flex-1 text-left"
-                                                            >
-                                                                <div className="flex flex-wrap items-center gap-2">
-                                                                    <p className="font-medium">{candidate.name}</p>
-                                                                    {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                        <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                                            已发简历
-                                                                        </Badge>
-                                                                    ) : null}
-                                                                </div>
-                                                                <p className="mt-1 text-xs opacity-80">{candidate.position_title || "未分配岗位"}</p>
-                                                                {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                    <p className="mt-2 text-[11px] opacity-80">{getCandidateResumeMailSummary(candidate.id)}</p>
-                                                                ) : null}
-                                                                <div className="mt-3 flex items-center justify-between text-xs opacity-80">
-                                                                    <span>匹配度 {formatPercent(candidate.match_percent)}</span>
-                                                                    <span>{formatDateTime(candidate.updated_at)}</span>
-                                                                </div>
-                                                            </button>
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedCandidateIds.includes(candidate.id)}
-                                                                onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
-                                                                aria-label={`选择候选人 ${candidate.name}`}
-                                                            />
-                                                        </div>
-                                                    </div>
+                                                        candidate={candidate}
+                                                        isSelected={selectedCandidateId === candidate.id}
+                                                        onSelect={() => setSelectedCandidateId(candidate.id)}
+                                                        isChecked={selectedCandidateIds.includes(candidate.id)}
+                                                        toggleSelection={toggleCandidateSelection}
+                                                        mailSummary={getCandidateResumeMailSummary(candidate.id)}
+                                                    />
                                                 )) : (
                                                     <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                                         当前状态暂无候选人
                                                     </p>
                                                 )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
+                                            </DroppableColumn>
+                                        ))}
+                                    </div>
+                                </DndContext>
                             </div>
                         )}
                     </CardContent>
@@ -945,6 +985,97 @@ export function CandidatesPage({
                         <EmptyState title="请选择一个候选人" description="左侧列表或看板选中候选人后，右侧会打开完整档案与 AI 评估区。"/>
                     )}
                 </Card>
+            </div>
+        </div>
+    );
+}
+
+function DroppableColumn({ status, label, count, children }: { status: string; label: string; count: number; children: React.ReactNode }) {
+    const { isOver, setNodeRef } = useDroppable({ id: status });
+    return (
+        <div ref={setNodeRef} className={cn("rounded-2xl border p-4 transition-colors", isOver ? "border-primary bg-primary/5 dark:bg-primary/10" : "border-slate-200/80 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900/60")}>
+            <div className="mb-4 flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{label}</p>
+                <Badge variant="outline" className="rounded-full">{count}</Badge>
+            </div>
+            <div className="space-y-3 min-h-[100px]">
+                {children}
+            </div>
+        </div>
+    );
+}
+
+interface DraggableCandidateCardProps {
+    candidate: CandidateSummary;
+    isSelected: boolean;
+    onSelect: () => void;
+    toggleSelection: (id: number, checked: boolean) => void;
+    isChecked: boolean;
+    mailSummary: string | null;
+}
+
+function DraggableCandidateCard({ 
+    candidate, 
+    isSelected, 
+    onSelect, 
+    toggleSelection, 
+    isChecked, 
+    mailSummary 
+}: DraggableCandidateCardProps) {
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+        id: String(candidate.id),
+        data: { candidate },
+    });
+    const style = transform ? {
+        transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+        zIndex: isDragging ? 50 : 1,
+        opacity: isDragging ? 0.8 : 1,
+    } : undefined;
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            {...listeners}
+            {...attributes}
+            className={cn(
+                "w-full rounded-2xl border px-4 py-4 transition cursor-grab active:cursor-grabbing",
+                isSelected
+                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                    : "border-slate-200 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950",
+            )}
+        >
+            <div className="flex items-start justify-between gap-3">
+                <button
+                    type="button"
+                    onClick={() => onSelect()}
+                    className="min-w-0 flex-1 text-left"
+                >
+                    <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">{candidate.name}</p>
+                        {mailSummary ? (
+                            <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                已发简历
+                            </Badge>
+                        ) : null}
+                    </div>
+                    <p className="mt-1 text-xs opacity-80">{candidate.position_title || "未分配岗位"}</p>
+                    {mailSummary ? (
+                        <p className="mt-2 text-[11px] opacity-80">{mailSummary}</p>
+                    ) : null}
+                    <div className="mt-3 flex items-center justify-between text-xs opacity-80">
+                        <span>匹配度 {formatPercent(candidate.match_percent)}</span>
+                        <span>{formatDateTime(candidate.updated_at)}</span>
+                    </div>
+                </button>
+                <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(event) => toggleSelection(candidate.id, event.target.checked)}
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    aria-label={`选择候选人 ${candidate.name}`}
+                />
             </div>
         </div>
     );
