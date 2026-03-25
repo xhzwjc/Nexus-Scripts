@@ -14,13 +14,11 @@ export type RecruitmentPage =
     | "candidates"
     | "audit"
     | "assistant"
-    | "settings-skills"
-    | "settings-models"
-    | "settings-mail";
+    | "settings";
 
 export type CandidateViewMode = "list" | "board";
 export type JDViewMode = "publish" | "markdown" | "preview";
-export type AssistantDisplayMode = "page" | "fullscreen";
+export type AssistantDisplayMode = "page" | "drawer" | "fullscreen" | "workspace";
 export type ResumeMailDialogMode = "send" | "resend";
 
 /* ─────────────── 表单状态 ─────────────── */
@@ -180,17 +178,9 @@ export const pageMeta: Record<RecruitmentPage, { title: string; description: str
         title: "AI 招聘助手",
         description: "把岗位上下文、启用 Skill 和自然语言操作收拢到显眼且高频可用的工作区。",
     },
-    "settings-skills": {
-        title: "招聘 Skill 管理",
-        description: "Skills 是管理员配置项，因此入口隐藏在管理设置中，不占用主工作流视线。",
-    },
-    "settings-models": {
-        title: "模型配置中心",
-        description: "按任务类型管理供应商、模型、环境变量和 API key，支撑随时切换模型。",
-    },
-    "settings-mail": {
-        title: "邮件中心",
-        description: "统一维护发件箱、收件人和发送记录，并支持候选人简历单发与批量发送。",
+    settings: {
+        title: "管理设置",
+        description: "配置招聘 Skill、模型供应商以及邮件中心，为自动化流程提供底层支撑。",
     },
 };
 
