@@ -8,24 +8,18 @@ import {
     ChevronDown,
     ChevronUp,
     ClipboardCheck,
-    Download,
     ExternalLink,
     FilePlus2,
-    FileSearch,
     FolderKanban,
     History,
-    LayoutGrid,
     PanelLeftClose,
     PanelLeftOpen,
-    List,
     Loader2,
-    Mail,
     NotebookText,
     Plus,
     RefreshCw,
     Rocket,
     Save,
-    Search,
     Send,
     Settings2,
     Sparkles,
@@ -44,7 +38,6 @@ import {
     splitTags,
     type AITaskLog,
     type CandidateDetail,
-    type CandidateWorkflowMemory,
     type CandidateSummary,
     type ChatContext,
     type ChatResponse,
@@ -83,1023 +76,110 @@ import {Input} from "@/components/ui/input";
 import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover";
 import {ScrollArea} from "@/components/ui/scroll-area";
 import {Separator} from "@/components/ui/separator";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
 import {Textarea} from "@/components/ui/textarea";
 import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip";
+import {
+    aiTaskLabels,
+    type AssistantDisplayMode,
+    auditListColumnBaseWidths,
+    auditListColumnFillWeights,
+    type CandidateEditorState,
+    type CandidateListColumnKey,
+    candidateListColumnDefaultWidths,
+    candidateListColumnFillWeights,
+    candidateStatusLabels,
+    type CandidateViewMode,
+    type ChatMessage,
+    type JDViewMode,
+    type LLMFormState,
+    mailSenderPresets,
+    type MailSenderPresetKey,
+    type MailRecipientFormState,
+    type MailSenderFormState,
+    pageMeta,
+    panelClass,
+    type PositionFormState,
+    positionStatusLabels,
+    providerLabels,
+    type RecruitmentPage,
+    type ResumeMailDialogMode,
+    type ResumeMailFormState,
+    type SkillFormState,
+} from "./types";
+import {
+    buildQuery,
+    clampCandidateListColumnWidth,
+    expandTableColumnWidths,
+    emptyCandidateEditor,
+    emptyLLMForm,
+    emptyMailRecipientForm,
+    emptyMailSenderForm,
+    emptyPositionForm,
+    emptyResumeMailForm,
+    emptySkillForm,
+    extractFileNameFromDisposition,
+    extractPublishText,
+    formatActionError,
+    formatDateTime,
+    formatLongDateTime,
+    formatPercent,
+    formatSkillNames,
+    inferMailSenderPreset,
+    isLiveTaskStatus,
+    isTerminalTaskStatus,
+    isToday,
+    labelForCandidateStatus,
+    labelForJDGenerationStatus,
+    labelForMemorySource,
+    labelForPositionStatus,
+    labelForProvider,
+    labelForTaskExecutionStatus,
+    parseEmailList,
+    parseStructuredLogOutput,
+    resolveLogSkillSnapshots,
+    resolveTaskSkillIds,
+    shortText,
+    sortSkillsForTaskPreference,
+    statusBadgeClass,
+    toggleIdInList,
+    toggleSingleSkillId,
+    withinDays,
+} from "./utils";
+import {
+    EmptyState,
+    Field,
+    InfoTile,
+    LoadingCard,
+    LoadingPanel,
+    NativeSelect,
+    SearchField,
+    SectionNavButton,
+    SettingsEntry,
+} from "./components/SharedComponents";
+import {AssistantPage} from "./pages/AssistantPage";
+import {AuditPage} from "./pages/AuditPage";
+import {CandidatesPage} from "./pages/CandidatesPage";
+import {MailSettingsPage} from "./pages/MailSettingsPage";
+import {ModelSettingsPage} from "./pages/ModelSettingsPage";
+import {SkillSettingsPage} from "./pages/SkillSettingsPage";
+import {WorkspacePage} from "./pages/WorkspacePage";
 
-type RecruitmentPage =
-    | "workspace"
-    | "positions"
-    | "candidates"
-    | "audit"
-    | "assistant"
-    | "settings-skills"
-    | "settings-models"
-    | "settings-mail";
+const PAGE_ACTIVITY_POLL_VISIBLE_INTERVAL_MS = 1500;
+const PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS = 6000;
+const PAGE_ACTIVITY_POLL_MAX_INTERVAL_MS = 15000;
+const TASK_MONITOR_VISIBLE_INTERVAL_MS = 1200;
+const TASK_MONITOR_HIDDEN_INTERVAL_MS = 5000;
+const TASK_MONITOR_MAX_INTERVAL_MS = 15000;
 
-type CandidateViewMode = "list" | "board";
-type JDViewMode = "publish" | "markdown" | "preview";
-type AssistantDisplayMode = "page" | "drawer" | "fullscreen" | "workspace";
-type ResumeMailDialogMode = "send" | "resend";
-
-type PositionFormState = {
-    title: string;
-    department: string;
-    location: string;
-    employmentType: string;
-    salaryRange: string;
-    headcount: string;
-    keyRequirements: string;
-    bonusPoints: string;
-    summary: string;
-    status: string;
-    tagsText: string;
-    autoScreenOnUpload: boolean;
-    autoAdvanceOnScreening: boolean;
-    jdSkillIds: number[];
-    screeningSkillIds: number[];
-    interviewSkillIds: number[];
-};
-
-type SkillFormState = {
-    name: string;
-    description: string;
-    content: string;
-    tagsText: string;
-    sortOrder: string;
-    isEnabled: boolean;
-};
-
-type LLMFormState = {
-    configKey: string;
-    taskType: string;
-    provider: string;
-    modelName: string;
-    baseUrl: string;
-    apiKeyEnv: string;
-    apiKeyValue: string;
-    priority: string;
-    isActive: boolean;
-    extraConfigText: string;
-};
-
-type CandidateEditorState = {
-    name: string;
-    phone: string;
-    email: string;
-    currentCompany: string;
-    yearsOfExperience: string;
-    education: string;
-    notes: string;
-    tagsText: string;
-    manualOverrideScore: string;
-    manualOverrideReason: string;
-};
-
-type MailSenderFormState = {
-    name: string;
-    fromName: string;
-    fromEmail: string;
-    smtpHost: string;
-    smtpPort: string;
-    username: string;
-    password: string;
-    useSsl: boolean;
-    useStarttls: boolean;
-    isDefault: boolean;
-    isEnabled: boolean;
-};
-
-type MailRecipientFormState = {
-    name: string;
-    email: string;
-    department: string;
-    roleTitle: string;
-    tagsText: string;
-    notes: string;
-    isEnabled: boolean;
-};
-
-type ResumeMailFormState = {
-    candidateIds: number[];
-    senderConfigId: string;
-    recipientIds: number[];
-    extraRecipientEmails: string;
-    subject: string;
-    bodyText: string;
-};
-
-type ChatMessage = {
-    id: string;
-    role: "assistant" | "user";
-    content: string;
-    createdAt: string;
-    pending?: boolean;
-    taskId?: number | null;
-    actions?: string[];
-    logId?: number;
-    memorySource?: string | null;
-    modelProvider?: string | null;
-    modelName?: string | null;
-    usedSkillIds?: number[];
-    usedSkills?: RecruitmentSkill[];
-    usedFallback?: boolean;
-    fallbackError?: string | null;
-};
-
-const pageMeta: Record<RecruitmentPage, { title: string; description: string }> = {
-    workspace: {
-        title: "招聘工作台",
-        description: "聚合指标、待办、快捷动作和近期进展，一眼看清招聘推进状态。",
-    },
-    positions: {
-        title: "岗位管理",
-        description: "以岗位为主线查看基本信息、当前 JD、历史版本、发布状态和关联候选人。",
-    },
-    candidates: {
-        title: "候选人中心",
-        description: "按 ATS 视角筛选、推进和查看候选人，右侧详情区承接 AI 评估和状态流转。",
-    },
-    audit: {
-        title: "AI 审计中心",
-        description: "追踪 JD 生成、初筛评分和面试题生成，兼容展示历史简历解析记录，支持失败排查与留痕复盘。",
-    },
-    assistant: {
-        title: "AI 招聘助手",
-        description: "把岗位上下文、启用 Skill 和自然语言操作收拢到显眼且高频可用的工作区。",
-    },
-    "settings-skills": {
-        title: "招聘 Skill 管理",
-        description: "Skills 是管理员配置项，因此入口隐藏在管理设置中，不占用主工作流视线。",
-    },
-    "settings-models": {
-        title: "模型配置中心",
-        description: "按任务类型管理供应商、模型、环境变量和 API key，支撑随时切换模型。",
-    },
-    "settings-mail": {
-        title: "邮件中心",
-        description: "统一维护发件箱、收件人和发送记录，并支持候选人简历单发与批量发送。",
-    },
-};
-
-function formatNavBadgeCount(count?: number): string | null {
-    if (typeof count !== "number" || !Number.isFinite(count)) {
-        return null;
-    }
-    return count > 99 ? "99+" : String(Math.max(0, count));
-}
-
-const positionStatusLabels: Record<string, string> = {
-    draft: "草稿",
-    recruiting: "招聘中",
-    paused: "暂停中",
-    closed: "已关闭",
-};
-
-const candidateStatusLabels: Record<string, string> = {
-    new_imported: "新导入",
-    pending_screening: "待初筛",
-    screening_passed: "初筛通过",
-    screening_rejected: "初筛淘汰",
-    pending_interview: "待面试",
-    interview_passed: "面试通过",
-    interview_rejected: "面试淘汰",
-    pending_offer: "待 Offer",
-    offer_sent: "已发 Offer",
-    hired: "已入职",
-    talent_pool: "人才库",
-};
-
-const aiTaskLabels: Record<string, string> = {
-    jd_generation: "JD 生成",
-    resume_parse: "简历解析（手动/历史）",
-    resume_score: "简历评分",
-    interview_question_generation: "面试题生成",
-    chat_orchestrator: "对话助手",
-};
-
-const providerLabels: Record<string, string> = {
-    gemini: "Gemini",
-    openai: "GPT / OpenAI",
-    anthropic: "Claude",
-    deepseek: "DeepSeek",
-    kimi: "Kimi",
-    glm: "GLM",
-    "openai-compatible": "OpenAI Compatible",
-};
-
-type MailSenderPresetKey = "163" | "outlook";
-
-type MailSenderPreset = {
-    key: MailSenderPresetKey;
-    label: string;
-    smtpHost: string;
-    smtpPort: string;
-    useSsl: boolean;
-    useStarttls: boolean;
-    domains: string[];
-};
-
-const mailSenderPresets: MailSenderPreset[] = [
-    {
-        key: "163",
-        label: "163 默认",
-        smtpHost: "smtp.163.com",
-        smtpPort: "465",
-        useSsl: true,
-        useStarttls: false,
-        domains: ["163.com"],
-    },
-    {
-        key: "outlook",
-        label: "Outlook 默认",
-        smtpHost: "smtp-mail.outlook.com",
-        smtpPort: "587",
-        useSsl: false,
-        useStarttls: true,
-        domains: ["outlook.com", "hotmail.com", "live.com", "office365.com", "microsoft.com"],
-    },
-];
-
-function inferMailSenderPreset(email?: string | null): MailSenderPreset | null {
-    const domain = String(email || "").trim().toLowerCase().split("@")[1] || "";
-    if (!domain) {
-        return null;
-    }
-    return mailSenderPresets.find((preset) => preset.domains.includes(domain)) || null;
-}
-
-function looksLikeFullHtmlDocument(value?: string | null): boolean {
-    const html = String(value || "").trim();
-    if (!html) {
-        return false;
-    }
-    return /<!doctype\s+html/i.test(html) || /<html[\s>]/i.test(html) || /<head[\s>]/i.test(html) || /<body[\s>]/i.test(html);
-}
-
-const panelClass =
-    "rounded-[24px] border border-slate-200/80 bg-white/95 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.45)] backdrop-blur dark:border-slate-800/90 dark:bg-slate-950/85";
-
-type CandidateListColumnKey = "candidate" | "position" | "status" | "match" | "source" | "updated";
-type AuditListColumnKey = "taskType" | "object" | "status" | "model" | "duration" | "time";
-
-const candidateListColumnDefaultWidths: Record<CandidateListColumnKey, number> = {
-    candidate: 260,
-    position: 148,
-    status: 96,
-    match: 84,
-    source: 128,
-    updated: 156,
-};
-
-const candidateListColumnMinWidths: Record<CandidateListColumnKey, number> = {
-    candidate: 220,
-    position: 120,
-    status: 88,
-    match: 72,
-    source: 104,
-    updated: 136,
-};
-
-const candidateListColumnMaxWidths: Record<CandidateListColumnKey, number> = {
-    candidate: 420,
-    position: 260,
-    status: 180,
-    match: 140,
-    source: 240,
-    updated: 240,
-};
-
-const candidateListColumnFillWeights: Record<CandidateListColumnKey, number> = {
-    candidate: 3.4,
-    position: 1.8,
-    status: 1,
-    match: 1,
-    source: 1.5,
-    updated: 1.3,
-};
-
-const auditListColumnBaseWidths: Record<AuditListColumnKey, number> = {
-    taskType: 110,
-    object: 150,
-    status: 84,
-    model: 140,
-    duration: 72,
-    time: 120,
-};
-
-const auditListColumnFillWeights: Record<AuditListColumnKey, number> = {
-    taskType: 1.4,
-    object: 2.4,
-    status: 1,
-    model: 2.1,
-    duration: 0.8,
-    time: 1.1,
-};
-
-function clampCandidateListColumnWidth(key: CandidateListColumnKey, width: number): number {
-    const min = candidateListColumnMinWidths[key];
-    const max = candidateListColumnMaxWidths[key];
-    return Math.min(max, Math.max(min, Math.round(width)));
-}
-
-function expandTableColumnWidths<T extends string>(
-    baseWidths: Record<T, number>,
-    availableWidth: number,
-    reservedWidth: number,
-    weights: Record<T, number>,
-): Record<T, number> {
-    const entries = Object.entries(baseWidths) as Array<[T, number]>;
-    const baseTotal = reservedWidth + entries.reduce((sum, [, width]) => sum + width, 0);
-    if (!availableWidth || availableWidth <= baseTotal) {
-        return baseWidths;
-    }
-
-    const extra = availableWidth - baseTotal;
-    const totalWeight = entries.reduce((sum, [key]) => sum + (weights[key] || 1), 0);
-    if (totalWeight <= 0) {
-        return baseWidths;
-    }
-
-    let distributed = 0;
-    return entries.reduce((acc, [key, width], index) => {
-        const isLast = index === entries.length - 1;
-        const growth = isLast
-            ? extra - distributed
-            : Math.round((extra * (weights[key] || 1)) / totalWeight);
-        distributed += growth;
-        acc[key] = width + growth;
-        return acc;
-    }, {} as Record<T, number>);
-}
-
-function HoverRevealText({
-                             text,
-                             className,
-                             tooltipClassName,
-                         }: {
-    text?: string | number | null;
-    className?: string;
-    tooltipClassName?: string;
-}) {
-    const value = String(text ?? "-").trim() || "-";
-
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <span className={cn("block min-w-0 truncate", className)}>{value}</span>
-            </TooltipTrigger>
-            <TooltipContent className={cn("max-w-md whitespace-pre-wrap break-all text-white", tooltipClassName)}>
-                {value}
-            </TooltipContent>
-        </Tooltip>
-    );
-}
-
-function emptyPositionForm(): PositionFormState {
-    return {
-        title: "",
-        department: "",
-        location: "",
-        employmentType: "",
-        salaryRange: "",
-        headcount: "1",
-        keyRequirements: "",
-        bonusPoints: "",
-        summary: "",
-        status: "draft",
-        tagsText: "",
-        autoScreenOnUpload: false,
-        autoAdvanceOnScreening: true,
-        jdSkillIds: [],
-        screeningSkillIds: [],
-        interviewSkillIds: [],
-    };
-}
-
-function emptySkillForm(): SkillFormState {
-    return {
-        name: "",
-        description: "",
-        content: "",
-        tagsText: "",
-        sortOrder: "99",
-        isEnabled: true,
-    };
-}
-
-function emptyLLMForm(): LLMFormState {
-    return {
-        configKey: "",
-        taskType: "default",
-        provider: "gemini",
-        modelName: "",
-        baseUrl: "",
-        apiKeyEnv: "",
-        apiKeyValue: "",
-        priority: "99",
-        isActive: true,
-        extraConfigText: "{}",
-    };
-}
-
-function emptyCandidateEditor(): CandidateEditorState {
-    return {
-        name: "",
-        phone: "",
-        email: "",
-        currentCompany: "",
-        yearsOfExperience: "",
-        education: "",
-        notes: "",
-        tagsText: "",
-        manualOverrideScore: "",
-        manualOverrideReason: "",
-    };
-}
-
-function emptyMailSenderForm(): MailSenderFormState {
-    return {
-        name: "",
-        fromName: "",
-        fromEmail: "",
-        smtpHost: "",
-        smtpPort: "465",
-        username: "",
-        password: "",
-        useSsl: true,
-        useStarttls: false,
-        isDefault: false,
-        isEnabled: true,
-    };
-}
-
-function emptyMailRecipientForm(): MailRecipientFormState {
-    return {
-        name: "",
-        email: "",
-        department: "",
-        roleTitle: "",
-        tagsText: "",
-        notes: "",
-        isEnabled: true,
-    };
-}
-
-function emptyResumeMailForm(): ResumeMailFormState {
-    return {
-        candidateIds: [],
-        senderConfigId: "",
-        recipientIds: [],
-        extraRecipientEmails: "",
-        subject: "",
-        bodyText: "",
-    };
-}
-
-function buildQuery(params: Record<string, string | number | boolean | undefined | null>) {
-    const search = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-        if (value === undefined || value === null || value === "" || value === "all") {
-            return;
-        }
-        search.set(key, String(value));
-    });
-    const output = search.toString();
-    return output ? `?${output}` : "";
-}
-
-function formatDateTime(value?: string | null) {
-    if (!value) {
-        return "-";
-    }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-    return new Intl.DateTimeFormat("zh-CN", {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-    }).format(date);
-}
-
-function formatLongDateTime(value?: string | null) {
-    if (!value) {
-        return "-";
-    }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-    return new Intl.DateTimeFormat("zh-CN", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-    }).format(date);
-}
-
-function shortText(value?: string | null, limit = 120) {
-    if (!value) {
-        return "-";
-    }
-    return value.length > limit ? `${value.slice(0, limit)}...` : value;
-}
-
-function formatSkillNames(skillIds: number[] | undefined | null, skillMap: Map<number, RecruitmentSkill>) {
-    const ids = skillIds || [];
-    if (!ids.length) {
-        return "未关联 Skills";
-    }
-    return ids
-        .map((skillId) => skillMap.get(skillId)?.name || `Skill #${skillId}`)
-        .join("、");
-}
-
-function parseSkillFrontmatter(content?: string | null) {
-    const text = content || "";
-    const match = text.match(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
-    if (!match) {
-        return {} as Record<string, string>;
-    }
-    const result: Record<string, string> = {};
-    match[1].split(/\r?\n/).forEach((rawLine) => {
-        const line = rawLine.trim();
-        if (!line || line.startsWith("#") || !line.includes(":")) {
-            return;
-        }
-        const [rawKey, ...rest] = line.split(":");
-        const key = rawKey.trim().toLowerCase();
-        const value = rest.join(":").trim().replace(/^['"]|['"]$/g, "");
-        if (key && value) {
-            result[key] = value;
-        }
-    });
-    return result;
-}
-
-function normalizeSkillTaskName(value?: string | null) {
-    const text = (value || "").trim().toLowerCase();
-    if (!text) {
-        return null;
-    }
-    if (["jd", "job_description", "job-description", "岗位jd", "职位jd", "jd生成", "生成jd", "岗位描述", "职位描述"].includes(text)) {
-        return "jd";
-    }
-    if (["screening", "score", "scoring", "resume_score", "resume-screening", "初筛", "评分", "筛选"].includes(text)) {
-        return "screening";
-    }
-    if (["interview", "question", "questions", "interview-question", "面试", "面试题", "出题"].includes(text)) {
-        return "interview";
-    }
-    return null;
-}
-
-function extractSkillRuntimeMeta(skill: Partial<RecruitmentSkill> | null | undefined) {
-    const frontmatter = parseSkillFrontmatter(skill?.content || "");
-    const tags = Array.isArray(skill?.tags) ? skill.tags.filter((tag): tag is string => typeof tag === "string") : [];
-    let group = (frontmatter.skill_group || frontmatter.group || "").trim();
-    if (!group) {
-        const groupTag = tags.find((tag) => tag.toLowerCase().startsWith("group:"));
-        if (groupTag) {
-            group = groupTag.split(":").slice(1).join(":").trim();
-        }
-    }
-    const rawTaskValues: string[] = [];
-    ["applies_to", "task", "tasks", "task_type"].forEach((fieldName) => {
-        const rawValue = frontmatter[fieldName];
-        if (rawValue) {
-            rawTaskValues.push(...rawValue.split(/[,/|，、\s]+/).filter(Boolean));
-        }
-    });
-    tags.forEach((tag) => {
-        if (tag.toLowerCase().startsWith("task:")) {
-            rawTaskValues.push(tag.split(":").slice(1).join(":").trim());
-        } else {
-            rawTaskValues.push(tag);
-        }
-    });
-    const tasks = Array.from(new Set(rawTaskValues.map((item) => normalizeSkillTaskName(item)).filter((item): item is "jd" | "screening" | "interview" => Boolean(item))));
-    return {group, tasks};
-}
-
-function resolveTaskSkillIds(
-    skillIds: number[] | undefined | null,
-    taskKind: "jd" | "screening" | "interview",
-    skillMap: Map<number, RecruitmentSkill>,
+function getPollingDelay(
+    visible: boolean,
+    failureCount: number,
+    visibleInterval: number,
+    hiddenInterval: number,
+    maxInterval: number,
 ) {
-    const ids = (skillIds || []).filter((item): item is number => typeof item === "number");
-    if (!ids.length) {
-        return [];
-    }
-    const directMatches = ids.filter((skillId) => {
-        const skill = skillMap.get(skillId);
-        return skill?.is_enabled !== false && extractSkillRuntimeMeta(skill).tasks.includes(taskKind);
-    });
-    if (directMatches.length) {
-        return Array.from(new Set(directMatches));
-    }
-    const groups = Array.from(new Set(
-        ids
-            .map((skillId) => extractSkillRuntimeMeta(skillMap.get(skillId)).group)
-            .filter((value): value is string => Boolean(value)),
-    ));
-    if (!groups.length) {
-        return ids;
-    }
-    const relatedIds = Array.from(new Set(
-        Array.from(skillMap.values())
-            .filter((skill) => {
-                const meta = extractSkillRuntimeMeta(skill);
-                return skill.is_enabled !== false && Boolean(meta.group) && groups.includes(meta.group) && meta.tasks.includes(taskKind);
-            })
-            .map((skill) => skill.id),
-    ));
-    return relatedIds.length ? relatedIds : ids;
-}
-
-function toggleSingleSkillId(current: number[], targetId: number) {
-    return current.includes(targetId) ? [] : [targetId];
-}
-
-function sortSkillsForTaskPreference(
-    source: RecruitmentSkill[],
-    taskKind: "jd" | "screening" | "interview",
-) {
-    return [...source].sort((left, right) => {
-        const leftMeta = extractSkillRuntimeMeta(left);
-        const rightMeta = extractSkillRuntimeMeta(right);
-        const leftMatch = leftMeta.tasks.includes(taskKind) ? 1 : 0;
-        const rightMatch = rightMeta.tasks.includes(taskKind) ? 1 : 0;
-        if (leftMatch !== rightMatch) {
-            return rightMatch - leftMatch;
-        }
-        const leftOrder = Number.isFinite(Number(left.sort_order)) ? Number(left.sort_order) : 999;
-        const rightOrder = Number.isFinite(Number(right.sort_order)) ? Number(right.sort_order) : 999;
-        if (leftOrder !== rightOrder) {
-            return leftOrder - rightOrder;
-        }
-        return String(left.name || "").localeCompare(String(right.name || ""), "zh-Hans-CN");
-    });
-}
-
-function normalizeSkillSnapshot(skill: Partial<RecruitmentSkill> | null | undefined, fallbackIndex = 0): RecruitmentSkill {
-    const fallbackId = typeof skill?.id === "number" ? skill.id : -(fallbackIndex + 1);
-    const normalizedTags = Array.isArray(skill?.tags)
-        ? skill.tags.filter((tag): tag is string => typeof tag === "string")
-        : [];
-    return {
-        id: fallbackId,
-        skill_code: skill?.skill_code || `snapshot-${Math.abs(fallbackId) || fallbackIndex + 1}`,
-        name: skill?.name || `Skill #${Math.abs(fallbackId) || fallbackIndex + 1}`,
-        description: skill?.description || null,
-        content: skill?.content || "",
-        tags: normalizedTags,
-        sort_order: Number.isFinite(Number(skill?.sort_order)) ? Number(skill?.sort_order) : 999,
-        is_enabled: skill?.is_enabled !== false,
-        created_by: skill?.created_by || null,
-        updated_by: skill?.updated_by || null,
-        created_at: skill?.created_at || null,
-        updated_at: skill?.updated_at || null,
-    };
-}
-
-function resolveLogSkillSnapshots(
-    log: Pick<AITaskLog, "related_skill_snapshots" | "related_skill_ids" | "related_skill_id">,
-    skillMap: Map<number, RecruitmentSkill>,
-) {
-    if (log.related_skill_snapshots?.length) {
-        return log.related_skill_snapshots.map((skill, index) => normalizeSkillSnapshot(skill, index));
-    }
-    const ids = log.related_skill_ids?.length
-        ? log.related_skill_ids
-        : (log.related_skill_id ? [log.related_skill_id] : []);
-    return ids.map((skillId, index) => normalizeSkillSnapshot(
-        skillMap.get(skillId) || {
-            id: skillId,
-            skill_code: `skill-${skillId}`,
-            name: `Skill #${skillId}`,
-            content: "",
-            tags: [],
-            sort_order: 999,
-            is_enabled: true,
-        },
-        index,
-    ));
-}
-
-function formatSkillSnapshotNames(skillSnapshots: RecruitmentSkill[]) {
-    if (!skillSnapshots.length) {
-        return "未关联 Skills";
-    }
-    return skillSnapshots.map((skill) => skill.name || `Skill #${skill.id}`).join("、");
-}
-
-function formatStructuredValue(value: unknown, fallback: string) {
-    if (typeof value === "string") {
-        return value.trim() ? value : fallback;
-    }
-    if (value == null) {
-        return fallback;
-    }
-    try {
-        return JSON.stringify(value, null, 2);
-    } catch {
-        return String(value);
-    }
-}
-
-function parseStructuredLogOutput(value: unknown) {
-    if (typeof value !== "string") {
-        return value;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-        return null;
-    }
-    if (
-        (trimmed.startsWith("{") && trimmed.endsWith("}"))
-        || (trimmed.startsWith("[") && trimmed.endsWith("]"))
-    ) {
-        try {
-            return JSON.parse(trimmed);
-        } catch {
-            return trimmed;
-        }
-    }
-    return trimmed;
-}
-
-function isLiveTaskStatus(status?: string | null) {
-    return ["queued", "pending", "running", "cancelling"].includes(status || "");
-}
-
-function isTerminalTaskStatus(status?: string | null) {
-    return ["success", "fallback", "failed", "cancelled"].includes(status || "");
-}
-
-function labelForMemorySource(source?: string | null) {
-    switch (source) {
-        case "manual_override":
-        case "manual":
-            return "手动指定 Skills";
-        case "candidate_memory":
-            return "候选人工作记忆";
-        case "position":
-        case "position_default":
-            return "岗位绑定 Skills";
-        case "global":
-        case "enabled_global_fallback":
-            return "全局启用 Skills";
-        case "guardrail":
-            return "非招聘拒答规则";
-        default:
-            return source || "未记录";
-    }
-}
-
-function parseEmailList(value: string) {
-    return Array.from(
-        new Set(
-            value
-                .split(/[\n,;，；\s]+/)
-                .map((item) => item.trim())
-                .filter(Boolean),
-        ),
-    );
-}
-
-function extractFileNameFromDisposition(value: string | null, fallback: string) {
-    if (!value) {
-        return fallback;
-    }
-    const encodedMatch = value.match(/filename\*=UTF-8''([^;]+)/i);
-    if (encodedMatch?.[1]) {
-        try {
-            return decodeURIComponent(encodedMatch[1].replace(/"/g, ""));
-        } catch {
-            return encodedMatch[1].replace(/"/g, "");
-        }
-    }
-
-    const quotedMatch = value.match(/filename="([^"]+)"/i);
-    if (quotedMatch?.[1]) {
-        return quotedMatch[1];
-    }
-
-    const plainMatch = value.match(/filename=([^;]+)/i);
-    if (!plainMatch?.[1]) {
-        return fallback;
-    }
-    try {
-        return decodeURIComponent(plainMatch[1].replace(/"/g, ""));
-    } catch {
-        return plainMatch[1].replace(/"/g, "");
-    }
-}
-
-function formatActionError(error: unknown) {
-    if (error instanceof Error && error.message) {
-        return error.message;
-    }
-    if (typeof error === "string") {
-        return error;
-    }
-    if (error && typeof error === "object") {
-        try {
-            return JSON.stringify(error);
-        } catch {
-            return String(error);
-        }
-    }
-    return "\u672a\u77e5\u9519\u8bef";
-}
-
-function toggleIdInList(current: number[], targetId: number, nextChecked?: boolean) {
-    const exists = current.includes(targetId);
-    if (nextChecked === true && !exists) {
-        return [...current, targetId];
-    }
-    if (nextChecked === false && exists) {
-        return current.filter((item) => item !== targetId);
-    }
-    if (nextChecked === undefined) {
-        return exists ? current.filter((item) => item !== targetId) : [...current, targetId];
-    }
-    return current;
-}
-
-function formatPercent(value?: number | null) {
-    if (value === undefined || value === null || Number.isNaN(value)) {
-        return "-";
-    }
-    return `${Math.round(value)}%`;
-}
-
-function formatScoreValue(value?: number | null, scale?: number | null) {
-    if (value === undefined || value === null || Number.isNaN(value)) {
-        return "-";
-    }
-    const normalized = Number(value);
-    const text = Number.isInteger(normalized) ? String(normalized) : normalized.toFixed(1).replace(/\.0$/, "");
-    return scale === 10 ? `${text} / 10` : text;
-}
-
-function extractPublishText(markdown?: string | null, publishText?: string | null) {
-    if (publishText?.trim()) {
-        return publishText.trim();
-    }
-    const plain = (markdown || "")
-        .replace(/\r\n/g, "\n")
-        .replace(/^\s*---+\s*$/gm, "")
-        .replace(/^\s*#{1,6}\s*/gm, "")
-        .replace(/^\s*[-*+]\s*/gm, "")
-        .replace(/\*\*(.*?)\*\*/g, "$1")
-        .replace(/__(.*?)__/g, "$1")
-        .replace(/`([^`]*)`/g, "$1")
-        .replace(/^\s*(好的|当然|以下是|下面是|这是一份|这是)\s*[：:，,]?\s*/i, "")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-
-    return plain;
-}
-
-function labelForJDGenerationStatus(status?: string | null) {
-    switch (status) {
-        case "pending":
-            return "排队中";
-        case "running":
-        case "generating":
-            return "生成中";
-        case "cancelling":
-            return "停止中";
-        case "cancelled":
-            return "已停止";
-        case "syncing":
-            return "同步中";
-        case "success":
-            return "已完成";
-        case "fallback":
-            return "已完成";
-        case "failed":
-            return "失败";
-        case "queued":
-            return "排队中";
-        default:
-            return "待生成";
-    }
-}
-
-function labelForTaskExecutionStatus(status?: string | null) {
-    switch (status) {
-        case "success":
-            return "已完成";
-        case "fallback":
-            return "兜底完成";
-        case "running":
-            return "执行中";
-        case "cancelling":
-            return "停止中";
-        case "cancelled":
-            return "已停止";
-        case "queued":
-            return "排队中";
-        case "pending":
-            return "待执行";
-        case "failed":
-            return "失败";
-        default:
-            return status || "-";
-    }
-}
-
-function isToday(value?: string | null) {
-    if (!value) {
-        return false;
-    }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return false;
-    }
-    const now = new Date();
-    return (
-        date.getFullYear() === now.getFullYear()
-        && date.getMonth() === now.getMonth()
-        && date.getDate() === now.getDate()
-    );
-}
-
-function withinDays(value?: string | null, days = 7) {
-    if (!value) {
-        return false;
-    }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return false;
-    }
-    return Date.now() - date.getTime() <= days * 24 * 60 * 60 * 1000;
-}
-
-function statusBadgeClass(kind: "position" | "candidate" | "task", value?: string | null) {
-    if (kind === "task") {
-        if (value === "success") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200";
-        if (value === "fallback") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
-        if (value === "pending" || value === "queued") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200";
-        if (value === "running") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200";
-        if (value === "cancelling") return "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200";
-        if (value === "cancelled") return "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300";
-        if (value === "failed") return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
-    }
-    if (kind === "position") {
-        if (value === "recruiting") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200";
-        if (value === "paused") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
-        if (value === "closed") return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
-    }
-    if (kind === "candidate") {
-        if (value === "screening_passed" || value === "interview_passed" || value === "offer_sent" || value === "hired") {
-            return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200";
-        }
-        if (value === "screening_rejected" || value === "interview_rejected") {
-            return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
-        }
-        if (value === "pending_screening" || value === "pending_interview" || value === "pending_offer") {
-            return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
-        }
-    }
-    return "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";
-}
-
-function labelForPositionStatus(status?: string | null) {
-    return positionStatusLabels[status || ""] || status || "未知状态";
-}
-
-function labelForCandidateStatus(status?: string | null) {
-    return candidateStatusLabels[status || ""] || status || "未知状态";
-}
-
-function labelForTaskType(taskType?: string | null) {
-    return aiTaskLabels[taskType || ""] || taskType || "AI 任务";
-}
-
-function labelForProvider(provider?: string | null) {
-    return providerLabels[provider || ""] || provider || "-";
-}
-
-function labelForResumeMailDispatchStatus(status?: string | null) {
-    if (status === "sent") return "已发送";
-    if (status === "failed") return "发送失败";
-    if (status === "pending") return "发送中";
-    return status || "未知状态";
+    const baseInterval = visible ? visibleInterval : hiddenInterval;
+    return Math.min(baseInterval * (2 ** Math.min(failureCount, 3)), maxInterval);
 }
 
 interface RecruitmentAutomationContainerProps {
@@ -1111,9 +191,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const jdGenerationInFlightRef = useRef(false);
     const screeningLaunchInFlightRef = useRef(false);
     const taskMonitorTimersRef = useRef<Map<number, number>>(new Map());
+    const taskMonitorTokensRef = useRef<Map<number, symbol>>(new Map());
+    const requestInflightRef = useRef<Map<string, Promise<unknown>>>(new Map());
+    const primaryNavScrollRef = useRef<HTMLDivElement | null>(null);
+    const primaryNavButtonRefs = useRef<Partial<Record<RecruitmentPage, HTMLButtonElement | null>>>({});
     const selectedLogIdRef = useRef<number | null>(null);
     const selectedPositionIdRef = useRef<number | null>(null);
     const selectedCandidateIdRef = useRef<number | null>(null);
+    const positionsFiltersInitializedRef = useRef(false);
+    const candidatesFiltersInitializedRef = useRef(false);
+    const logsFiltersInitializedRef = useRef(false);
+    const positionsLoadRequestIdRef = useRef(0);
+    const candidatesLoadRequestIdRef = useRef(0);
+    const positionDetailLoadRequestIdRef = useRef(0);
     const mountedRef = useRef(true);
     const [candidateListScrollEl, setCandidateListScrollEl] = useState<HTMLDivElement | null>(null);
     const candidateListScrollRef = useCallback((node: HTMLDivElement | null) => {
@@ -1161,6 +251,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [candidateFiltersCollapsed, setCandidateFiltersCollapsed] = useState(true);
     const [auditFiltersCollapsed, setAuditFiltersCollapsed] = useState(true);
     const [bootstrapping, setBootstrapping] = useState(true);
+    const activePrimaryNavPage = assistantOpen ? "assistant" : activePage;
+    const [pageVisible, setPageVisible] = useState(() => (
+        typeof document === "undefined" ? true : document.visibilityState === "visible"
+    ));
+    const pageVisibleRef = useRef(pageVisible);
 
     const [metadata, setMetadata] = useState<RecruitmentMetadata | null>(null);
     const [dashboard, setDashboard] = useState<DashboardData | null>(null);
@@ -1200,6 +295,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     const [logTaskTypeFilter, setLogTaskTypeFilter] = useState("all");
     const [logStatusFilter, setLogStatusFilter] = useState("all");
+    const positionListRequestKey = `${deferredPositionQuery}::${positionStatusFilter}`;
+    const candidateListRequestKey = `${deferredCandidateQuery}::${candidateStatusFilter}::${candidatePositionFilter}`;
+    const auditLogRequestKey = `${logStatusFilter}::${logTaskTypeFilter}`;
+    const auditLogRequestKeyRef = useRef(auditLogRequestKey);
 
     const [selectedPositionId, setSelectedPositionId] = useState<number | null>(null);
     const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(null);
@@ -1394,28 +493,31 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const assistantModelLabel = assistantActiveLLMConfig
         ? `${labelForProvider(assistantActiveLLMConfig.resolved_provider || assistantActiveLLMConfig.provider)} / ${assistantActiveLLMConfig.resolved_model_name || assistantActiveLLMConfig.model_name}`
         : "暂未识别";
-    const positionScreeningSkillIds = candidateDetail?.candidate.position_screening_skill_ids || [];
-    const positionInterviewSkillIds = candidateDetail?.candidate.position_interview_skill_ids || [];
-    const workflowScreeningSkillIds = candidateDetail?.workflow_memory?.screening_skill_ids || [];
-    const workflowInterviewSkillIds = candidateDetail?.workflow_memory?.interview_skill_ids || [];
+    const positionScreeningSkillIds = useMemo(
+        () => candidateDetail?.candidate.position_screening_skill_ids || [],
+        [candidateDetail?.candidate.position_screening_skill_ids],
+    );
+    const positionInterviewSkillIds = useMemo(
+        () => candidateDetail?.candidate.position_interview_skill_ids || [],
+        [candidateDetail?.candidate.position_interview_skill_ids],
+    );
+    const workflowScreeningSkillIds = useMemo(
+        () => candidateDetail?.workflow_memory?.screening_skill_ids || [],
+        [candidateDetail?.workflow_memory?.screening_skill_ids],
+    );
+    const workflowInterviewSkillIds = useMemo(
+        () => candidateDetail?.workflow_memory?.interview_skill_ids || [],
+        [candidateDetail?.workflow_memory?.interview_skill_ids],
+    );
     const candidateAssistantActivity = useMemo(() => {
         return (candidateDetail?.activity || []).filter((item) => item.task_type === "chat_orchestrator");
     }, [candidateDetail?.activity]);
     const candidateProcessActivity = useMemo(() => {
         return (candidateDetail?.activity || []).filter((item) => item.task_type !== "chat_orchestrator");
     }, [candidateDetail?.activity]);
-    const preferredInterviewSkillIds = useMemo(() => {
-        if (workflowInterviewSkillIds.length) {
-            return resolveTaskSkillIds(workflowInterviewSkillIds, "interview", skillMap);
-        }
-        if (positionInterviewSkillIds.length) {
-            return resolveTaskSkillIds(positionInterviewSkillIds, "interview", skillMap);
-        }
-        return [];
-    }, [positionInterviewSkillIds, skillMap, workflowInterviewSkillIds]);
     const preferredInterviewSkillSourceLabel = workflowInterviewSkillIds.length
         ? "工作记忆中的面试题 Skills"
-        : (candidateDetail?.candidate.position_interview_skill_ids?.length
+        : (positionInterviewSkillIds.length
                 ? "岗位绑定 Skills"
                 : "未配置 Skills");
     const effectiveScreeningSkillIds = useMemo(() => {
@@ -1689,11 +791,57 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }, [selectedCandidateId]);
 
     useEffect(() => {
+        const scrollContainer = primaryNavScrollRef.current;
+        const activeButton = primaryNavButtonRefs.current[activePrimaryNavPage];
+        if (!scrollContainer || !activeButton) {
+            return undefined;
+        }
+        const frameId = window.requestAnimationFrame(() => {
+            activeButton.scrollIntoView({
+                block: "nearest",
+                inline: "nearest",
+                behavior: "smooth",
+            });
+        });
+        return () => {
+            window.cancelAnimationFrame(frameId);
+        };
+    }, [activePrimaryNavPage, navCollapsed]);
+
+    useEffect(() => {
+        auditLogRequestKeyRef.current = auditLogRequestKey;
+    }, [auditLogRequestKey]);
+
+    useEffect(() => {
+        pageVisibleRef.current = pageVisible;
+    }, [pageVisible]);
+
+    useEffect(() => {
+        if (typeof document === "undefined") {
+            return undefined;
+        }
+        const handleVisibilityChange = () => {
+            const visible = document.visibilityState === "visible";
+            pageVisibleRef.current = visible;
+            setPageVisible(visible);
+        };
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        return () => {
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+        };
+    }, []);
+
+    useEffect(() => {
         mountedRef.current = true;
+        const taskMonitorTimers = taskMonitorTimersRef.current;
+        const taskMonitorTokens = taskMonitorTokensRef.current;
+        const inflightRequests = requestInflightRef.current;
         return () => {
             mountedRef.current = false;
-            taskMonitorTimersRef.current.forEach((timerId) => window.clearInterval(timerId));
-            taskMonitorTimersRef.current.clear();
+            taskMonitorTimers.forEach((timerId) => window.clearTimeout(timerId));
+            taskMonitorTimers.clear();
+            taskMonitorTokens.clear();
+            inflightRequests.clear();
         };
     }, []);
 
@@ -1739,13 +887,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
         async function bootstrap() {
             setBootstrapping(true);
+            positionsFiltersInitializedRef.current = false;
+            candidatesFiltersInitializedRef.current = false;
+            logsFiltersInitializedRef.current = false;
             try {
-                await Promise.all([
+                await Promise.allSettled([
                     loadMetadata(),
                     loadDashboard(),
                     loadPositions(),
                     loadCandidates(),
                     loadLogs(),
+                ]);
+                void Promise.allSettled([
                     loadSkills(),
                     loadMailSettings(),
                     loadChatContext(),
@@ -1765,22 +918,37 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }, [canManageRecruitment]);
 
     useEffect(() => {
-        if (!bootstrapping) {
-            void loadPositions();
+        if (bootstrapping) {
+            return;
         }
-    }, [bootstrapping, deferredPositionQuery, positionStatusFilter]);
+        if (!positionsFiltersInitializedRef.current) {
+            positionsFiltersInitializedRef.current = true;
+            return;
+        }
+        void loadPositions();
+    }, [bootstrapping, positionListRequestKey]);
 
     useEffect(() => {
-        if (!bootstrapping) {
-            void loadCandidates();
+        if (bootstrapping) {
+            return;
         }
-    }, [bootstrapping, deferredCandidateQuery, candidatePositionFilter, candidateStatusFilter]);
+        if (!candidatesFiltersInitializedRef.current) {
+            candidatesFiltersInitializedRef.current = true;
+            return;
+        }
+        void loadCandidates();
+    }, [bootstrapping, candidateListRequestKey]);
 
     useEffect(() => {
-        if (!bootstrapping) {
-            void loadLogs();
+        if (bootstrapping) {
+            return;
         }
-    }, [bootstrapping, logStatusFilter, logTaskTypeFilter]);
+        if (!logsFiltersInitializedRef.current) {
+            logsFiltersInitializedRef.current = true;
+            return;
+        }
+        void loadLogs();
+    }, [bootstrapping, auditLogRequestKey]);
 
     useEffect(() => {
         if (!selectedPositionId) {
@@ -1827,18 +995,63 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         if (!screeningSubmitting && !interviewGenerating && !chatSending && !resumeMailSubmitting && jdGenerationStatus === "idle" && !hasVisibleLiveActivity) {
             return undefined;
         }
-        const timer = window.setInterval(() => {
-            if (shouldPollLogs) {
-                void loadLogs({silent: true});
+        let cancelled = false;
+        let polling = false;
+        let failureCount = 0;
+        let timerId: number | null = null;
+
+        const scheduleNextPoll = (delay: number) => {
+            if (cancelled) {
+                return;
             }
-            if (shouldPollCandidateDetail && selectedCandidateId) {
-                void loadCandidateDetail(selectedCandidateId, {silent: true});
+            timerId = window.setTimeout(() => {
+                void poll();
+            }, delay);
+        };
+
+        const poll = async () => {
+            if (cancelled || polling || !mountedRef.current) {
+                return;
             }
-            if (shouldPollLogDetail && selectedLogId) {
-                void loadLogDetail(selectedLogId, {silent: true});
+            polling = true;
+            try {
+                const tasks: Promise<unknown>[] = [];
+                if (shouldPollLogs && !logsLoading) {
+                    tasks.push(loadLogs({silent: true}));
+                }
+                if (shouldPollCandidateDetail && selectedCandidateId && !candidateDetailLoading) {
+                    tasks.push(loadCandidateDetail(selectedCandidateId, {silent: true}));
+                }
+                if (shouldPollLogDetail && selectedLogId && !logDetailLoading) {
+                    tasks.push(loadLogDetail(selectedLogId, {silent: true}));
+                }
+                if (tasks.length) {
+                    const results = await Promise.allSettled(tasks);
+                    failureCount = results.some((result) => result.status === "rejected")
+                        ? Math.min(failureCount + 1, 3)
+                        : 0;
+                } else {
+                    failureCount = 0;
+                }
+            } finally {
+                polling = false;
+                scheduleNextPoll(getPollingDelay(
+                    pageVisibleRef.current,
+                    failureCount,
+                    PAGE_ACTIVITY_POLL_VISIBLE_INTERVAL_MS,
+                    PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS,
+                    PAGE_ACTIVITY_POLL_MAX_INTERVAL_MS,
+                ));
             }
-        }, 1500);
-        return () => window.clearInterval(timer);
+        };
+
+        void poll();
+        return () => {
+            cancelled = true;
+            if (timerId) {
+                window.clearTimeout(timerId);
+            }
+        };
     }, [
         activePage,
         screeningSubmitting,
@@ -1850,6 +1063,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         hasLiveCandidateActivity,
         selectedCandidateId,
         selectedLogId,
+        pageVisible,
+        logsLoading,
+        candidateDetailLoading,
+        logDetailLoading,
     ]);
 
     useEffect(() => {
@@ -2146,24 +1363,59 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         );
     }
 
+    async function runDedupedRequest<T>(key: string, request: () => Promise<T>) {
+        const inflight = requestInflightRef.current.get(key) as Promise<T> | undefined;
+        if (inflight) {
+            return inflight;
+        }
+        const pending = request().finally(() => {
+            if (requestInflightRef.current.get(key) === pending) {
+                requestInflightRef.current.delete(key);
+            }
+        });
+        requestInflightRef.current.set(key, pending as Promise<unknown>);
+        return pending;
+    }
+
     async function loadMetadata() {
-        const data = await recruitmentApi<RecruitmentMetadata>("/metadata");
-        setMetadata(data);
-        return data;
+        try {
+            const data = await runDedupedRequest("metadata", () => recruitmentApi<RecruitmentMetadata>("/metadata"));
+            if (mountedRef.current) {
+                setMetadata(data);
+            }
+            return data;
+        } catch (error) {
+            toast.error(`加载基础配置失败：${error instanceof Error ? error.message : "未知错误"}`);
+            throw error;
+        }
     }
 
     async function loadDashboard() {
-        const data = await recruitmentApi<DashboardData>("/dashboard");
-        setDashboard(data);
-        return data;
+        try {
+            const data = await runDedupedRequest("dashboard", () => recruitmentApi<DashboardData>("/dashboard"));
+            if (mountedRef.current) {
+                setDashboard(data);
+            }
+            return data;
+        } catch (error) {
+            toast.error(`加载工作台失败：${error instanceof Error ? error.message : "未知错误"}`);
+            throw error;
+        }
     }
 
     async function loadPositions() {
+        const requestId = positionsLoadRequestIdRef.current + 1;
+        positionsLoadRequestIdRef.current = requestId;
         setPositionsLoading(true);
         try {
-            const data = await recruitmentApi<PositionSummary[]>(
-                `/positions${buildQuery({query: deferredPositionQuery, status: positionStatusFilter})}`,
+            const query = buildQuery({query: deferredPositionQuery, status: positionStatusFilter});
+            const data = await runDedupedRequest(
+                `positions:${query}`,
+                () => recruitmentApi<PositionSummary[]>(`/positions${query}`),
             );
+            if (!mountedRef.current || positionsLoadRequestIdRef.current !== requestId) {
+                return data;
+            }
             setPositions(data);
             setSelectedPositionId((current) => {
                 if (current && data.some((item) => item.id === current)) {
@@ -2176,34 +1428,53 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             toast.error(`加载岗位失败：${error instanceof Error ? error.message : "未知错误"}`);
             throw error;
         } finally {
-            setPositionsLoading(false);
+            if (mountedRef.current && positionsLoadRequestIdRef.current === requestId) {
+                setPositionsLoading(false);
+            }
         }
     }
 
     async function loadPositionDetail(positionId: number) {
+        const requestId = positionDetailLoadRequestIdRef.current + 1;
+        positionDetailLoadRequestIdRef.current = requestId;
         setPositionDetailLoading(true);
         try {
-            const data = await recruitmentApi<PositionDetail>(`/positions/${positionId}`);
+            const data = await runDedupedRequest(
+                `position-detail:${positionId}`,
+                () => recruitmentApi<PositionDetail>(`/positions/${positionId}`),
+            );
+            if (!mountedRef.current || positionDetailLoadRequestIdRef.current !== requestId) {
+                return data;
+            }
             setPositionDetail(data);
             return data;
         } catch (error) {
             toast.error(`加载岗位详情失败：${error instanceof Error ? error.message : "未知错误"}`);
             return null;
         } finally {
-            setPositionDetailLoading(false);
+            if (mountedRef.current && positionDetailLoadRequestIdRef.current === requestId) {
+                setPositionDetailLoading(false);
+            }
         }
     }
 
     async function loadCandidates() {
+        const requestId = candidatesLoadRequestIdRef.current + 1;
+        candidatesLoadRequestIdRef.current = requestId;
         setCandidatesLoading(true);
         try {
-            const data = await recruitmentApi<CandidateSummary[]>(
-                `/candidates${buildQuery({
-                    query: deferredCandidateQuery,
-                    status: candidateStatusFilter,
-                    position_id: candidatePositionFilter === "all" ? null : candidatePositionFilter,
-                })}`,
+            const query = buildQuery({
+                query: deferredCandidateQuery,
+                status: candidateStatusFilter,
+                position_id: candidatePositionFilter === "all" ? null : candidatePositionFilter,
+            });
+            const data = await runDedupedRequest(
+                `candidates:${query}`,
+                () => recruitmentApi<CandidateSummary[]>(`/candidates${query}`),
             );
+            if (!mountedRef.current || candidatesLoadRequestIdRef.current !== requestId) {
+                return data;
+            }
             setCandidates(data);
             setSelectedCandidateId((current) => {
                 if (current && data.some((item) => item.id === current)) {
@@ -2216,7 +1487,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             toast.error(`加载候选人失败：${error instanceof Error ? error.message : "未知错误"}`);
             throw error;
         } finally {
-            setCandidatesLoading(false);
+            if (mountedRef.current && candidatesLoadRequestIdRef.current === requestId) {
+                setCandidatesLoading(false);
+            }
         }
     }
 
@@ -2225,7 +1498,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setCandidateDetailLoading(true);
         }
         try {
-            const data = await recruitmentApi<CandidateDetail>(`/candidates/${candidateId}`);
+            const data = await runDedupedRequest(
+                `candidate-detail:${candidateId}:${options?.silent ? "silent" : "full"}`,
+                () => recruitmentApi<CandidateDetail>(`/candidates/${candidateId}`),
+            );
+            if (!mountedRef.current || selectedCandidateIdRef.current !== candidateId) {
+                return data;
+            }
             setCandidateDetail(data);
             const nextPositionId = data.candidate.position_id ?? null;
             if (
@@ -2252,16 +1531,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setLogsLoading(true);
         }
         try {
-            const data = await recruitmentApi<AITaskLog[]>(
-                `/ai-task-logs${buildQuery({task_type: logTaskTypeFilter, status: logStatusFilter})}`,
+            const query = buildQuery({task_type: logTaskTypeFilter, status: logStatusFilter});
+            const currentRequestKey = `${logStatusFilter}::${logTaskTypeFilter}`;
+            const data = await runDedupedRequest(
+                `logs:${options?.silent ? "silent" : "full"}:${query}`,
+                () => recruitmentApi<AITaskLog[]>(`/ai-task-logs${query}`),
             );
-            setAiLogs(data);
-            setSelectedLogId((current) => {
-                if (current && data.some((item) => item.id === current)) {
-                    return current;
-                }
-                return data[0]?.id || null;
-            });
+            if (mountedRef.current && auditLogRequestKeyRef.current === currentRequestKey) {
+                setAiLogs(data);
+                setSelectedLogId((current) => {
+                    if (current && data.some((item) => item.id === current)) {
+                        return current;
+                    }
+                    return data[0]?.id || null;
+                });
+            }
             return data;
         } catch (error) {
             if (!options?.silent) {
@@ -2280,12 +1564,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setLogDetailLoading(true);
         }
         try {
-            const data = await recruitmentApi<AITaskLog>(`/ai-task-logs/${taskId}`);
-            setSelectedLogDetail(data);
+            const data = await runDedupedRequest(
+                `log-detail:${taskId}:${options?.silent ? "silent" : "full"}`,
+                () => recruitmentApi<AITaskLog>(`/ai-task-logs/${taskId}`),
+            );
+            if (mountedRef.current && selectedLogIdRef.current === taskId) {
+                setSelectedLogDetail(data);
+            }
+            return data;
         } catch (error) {
             if (!options?.silent) {
                 toast.error(`\u52a0\u8f7d\u4efb\u52a1\u8be6\u60c5\u5931\u8d25\uff1a${error instanceof Error ? error.message : "\u672a\u77e5\u9519\u8bef"}`);
             }
+            return null;
         } finally {
             if (!options?.silent) {
                 setLogDetailLoading(false);
@@ -2296,8 +1587,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     async function loadSkills() {
         setSkillsLoading(true);
         try {
-            const data = await recruitmentApi<RecruitmentSkill[]>("/skills");
-            setSkills(data);
+            const data = await runDedupedRequest("skills", () => recruitmentApi<RecruitmentSkill[]>("/skills"));
+            if (mountedRef.current) {
+                setSkills(data);
+            }
             return data;
         } catch (error) {
             toast.error(`加载 Skills 失败：${error instanceof Error ? error.message : "未知错误"}`);
@@ -2313,8 +1606,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         setModelsLoading(true);
         try {
-            const data = await recruitmentApi<RecruitmentLLMConfig[]>("/llm-configs");
-            setLlmConfigs(data);
+            const data = await runDedupedRequest("llm-configs", () => recruitmentApi<RecruitmentLLMConfig[]>("/llm-configs"));
+            if (mountedRef.current) {
+                setLlmConfigs(data);
+            }
             return data;
         } catch (error) {
             toast.error(`加载模型配置失败：${error instanceof Error ? error.message : "未知错误"}`);
@@ -2325,22 +1620,38 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     async function loadChatContext() {
-        const data = await recruitmentApi<ChatContext>("/chat/context");
-        setChatContext(data);
-        return data;
+        try {
+            const data = await runDedupedRequest("chat-context", () => recruitmentApi<ChatContext>("/chat/context"));
+            if (mountedRef.current) {
+                setChatContext(data);
+            }
+            return data;
+        } catch (error) {
+            toast.error(`加载助手上下文失败：${error instanceof Error ? error.message : "未知错误"}`);
+            throw error;
+        }
     }
 
     async function loadMailSettings() {
         setMailSettingsLoading(true);
         try {
-            const [senders, recipients, dispatches] = await Promise.all([
-                recruitmentApi<RecruitmentMailSenderConfig[]>("/mail-senders"),
-                recruitmentApi<RecruitmentMailRecipient[]>("/mail-recipients"),
-                recruitmentApi<RecruitmentResumeMailDispatch[]>("/resume-mail-dispatches"),
-            ]);
-            setMailSenderConfigs(senders);
-            setMailRecipients(recipients);
-            setResumeMailDispatches(dispatches);
+            const {senders, recipients, dispatches} = await runDedupedRequest("mail-settings", async () => {
+                const [nextSenders, nextRecipients, nextDispatches] = await Promise.all([
+                    recruitmentApi<RecruitmentMailSenderConfig[]>("/mail-senders"),
+                    recruitmentApi<RecruitmentMailRecipient[]>("/mail-recipients"),
+                    recruitmentApi<RecruitmentResumeMailDispatch[]>("/resume-mail-dispatches"),
+                ]);
+                return {
+                    senders: nextSenders,
+                    recipients: nextRecipients,
+                    dispatches: nextDispatches,
+                };
+            });
+            if (mountedRef.current) {
+                setMailSenderConfigs(senders);
+                setMailRecipients(recipients);
+                setResumeMailDispatches(dispatches);
+            }
             return {senders, recipients, dispatches};
         } catch (error) {
             toast.error(`加载邮件配置失败：${error instanceof Error ? error.message : "未知错误"}`);
@@ -2350,8 +1661,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
-    async function refreshCoreData() {
-        await Promise.all([loadDashboard(), loadPositions(), loadCandidates(), loadLogs(), loadMailSettings()]);
+    async function refreshCoreData(options?: { includeMailSettings?: boolean }) {
+        const tasks: Promise<unknown>[] = [
+            loadDashboard(),
+            loadPositions(),
+            loadCandidates(),
+            loadLogs(),
+        ];
+        if (options?.includeMailSettings) {
+            tasks.push(loadMailSettings());
+        }
+        await Promise.all(tasks);
     }
 
     async function refreshCoreDataWithFeedback() {
@@ -2443,9 +1763,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     function stopTaskMonitor(taskId: number) {
         const timerId = taskMonitorTimersRef.current.get(taskId);
         if (timerId) {
-            window.clearInterval(timerId);
-            taskMonitorTimersRef.current.delete(taskId);
+            window.clearTimeout(timerId);
         }
+        taskMonitorTimersRef.current.delete(taskId);
+        taskMonitorTokensRef.current.delete(taskId);
     }
 
     function updateChatMessage(messageId: string, updater: (message: ChatMessage) => ChatMessage) {
@@ -2509,16 +1830,31 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     ) {
         stopTaskMonitor(taskId);
         let polling = false;
+        let failureCount = 0;
+        const token = Symbol(`task-monitor-${taskId}`);
+        taskMonitorTokensRef.current.set(taskId, token);
+
+        const scheduleNextPoll = (delay: number) => {
+            if (!mountedRef.current || taskMonitorTokensRef.current.get(taskId) !== token) {
+                return;
+            }
+            const timerId = window.setTimeout(() => {
+                void poll();
+            }, delay);
+            taskMonitorTimersRef.current.set(taskId, timerId);
+        };
+
         const poll = async () => {
-            if (polling || !mountedRef.current) {
+            if (polling || !mountedRef.current || taskMonitorTokensRef.current.get(taskId) !== token) {
                 return;
             }
             polling = true;
             try {
                 const log = await recruitmentApi<AITaskLog>(`/ai-task-logs/${taskId}`);
-                if (!mountedRef.current) {
+                if (!mountedRef.current || taskMonitorTokensRef.current.get(taskId) !== token) {
                     return;
                 }
+                failureCount = 0;
                 mergeAiTaskLog(log);
                 if (selectedLogIdRef.current === taskId) {
                     setSelectedLogDetail(log);
@@ -2527,37 +1863,25 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 if (isTerminalTaskStatus(log.status)) {
                     stopTaskMonitor(taskId);
                     await onFinish?.(log);
+                    return;
                 }
             } catch {
-                // Ignore transient polling errors and retry on the next tick.
+                failureCount = Math.min(failureCount + 1, 3);
             } finally {
                 polling = false;
+                if (mountedRef.current && taskMonitorTokensRef.current.get(taskId) === token) {
+                    scheduleNextPoll(getPollingDelay(
+                        pageVisibleRef.current,
+                        failureCount,
+                        TASK_MONITOR_VISIBLE_INTERVAL_MS,
+                        TASK_MONITOR_HIDDEN_INTERVAL_MS,
+                        TASK_MONITOR_MAX_INTERVAL_MS,
+                    ));
+                }
             }
         };
 
         void poll();
-        const timerId = window.setInterval(() => {
-            void poll();
-        }, 1200);
-        taskMonitorTimersRef.current.set(taskId, timerId);
-    }
-
-    async function waitForJDVersionSync(positionId: number, expectedVersionId?: number | null) {
-        for (let attempt = 0; attempt < 10; attempt += 1) {
-            const detail = await loadPositionDetail(positionId);
-            if (!detail) {
-                await new Promise((resolve) => setTimeout(resolve, 500));
-                continue;
-            }
-            if (!expectedVersionId || detail.current_jd_version?.id === expectedVersionId) {
-                return detail;
-            }
-            if (detail.jd_versions.some((version) => version.id === expectedVersionId)) {
-                return detail;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 500));
-        }
-        throw new Error("JD 已生成，但页面暂未同步到最新版本，请稍后刷新重试。");
     }
 
     function openAssistantMode(mode: AssistantDisplayMode) {
@@ -2593,8 +1917,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         event.preventDefault();
     }
 
-    function applyAssistantPrompt(prompt: string) {
+    function applyAssistantPrompt(prompt: string, options?: { openMode?: AssistantDisplayMode }) {
         setChatInput(prompt);
+        if (options?.openMode) {
+            openAssistantMode(options.openMode);
+        }
         queueAssistantInputFocus(true);
     }
 
@@ -3950,6 +3277,115 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             "说明这次对话用了哪些 Skills",
             "当前使用什么模型",
         ];
+        const workspaceSuggestionPrompts = [
+            "帮我生成 IoT 测试工程师 JD",
+            "查看当前岗位候选人列表",
+            "重新对当前候选人初筛，硬性要求加强硬件测试经验",
+            "给当前候选人生成初试题，重点考察硬件联调",
+            "说明这次对话用了哪些 Skills 和模型",
+        ];
+        const assistantContextPanel = (
+            <div className="space-y-5">
+                {isWorkspace ? (
+                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+                        当前岗位：{chatContext.position_title || "未指定"}
+                        <br/>
+                        当前候选人：{chatContextCandidateLabel}
+                        <br/>
+                        激活 Skills：{chatContext.skills?.length || 0} · 当前模型：{assistantModelLabel}
+                    </div>
+                ) : null}
+                <Field label="岗位上下文">
+                    <NativeSelect
+                        value={chatContext.position_id ? String(chatContext.position_id) : "none"}
+                        onChange={(event) => {
+                            const nextPositionId = event.target.value === "none" ? null : Number(event.target.value);
+                            void saveChatContext(nextPositionId, chatContext.skill_ids);
+                            queueAssistantInputFocus();
+                        }}
+                    >
+                        <option value="none">未指定岗位</option>
+                        {positions.map((position) => (
+                            <option key={position.id} value={position.id}>
+                                {position.title}
+                            </option>
+                        ))}
+                    </NativeSelect>
+                </Field>
+
+                <Field label="激活 Skills">
+                    <div className="flex flex-wrap gap-2">
+                        {skills.map((skill) => (
+                            <button
+                                key={skill.id}
+                                type="button"
+                                onMouseDown={preventAssistantActionFocusLoss}
+                                onClick={() => toggleSkillInAssistant(skill.id)}
+                                className={cn(
+                                    "rounded-full border px-3 py-2 text-xs font-medium transition",
+                                    chatContext.skill_ids.includes(skill.id)
+                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                )}
+                            >
+                                {skill.name}
+                            </button>
+                        ))}
+                    </div>
+                </Field>
+
+                <Field label="推荐问题">
+                    <div className="space-y-2">
+                        {workspaceSuggestionPrompts.map((prompt) => (
+                            <button
+                                key={prompt}
+                                type="button"
+                                onMouseDown={preventAssistantActionFocusLoss}
+                                onClick={() => applyAssistantPrompt(prompt, {openMode: "drawer"})}
+                                className="w-full rounded-2xl border border-dashed border-slate-200 px-3 py-3 text-left text-xs text-slate-600 transition hover:border-slate-400 dark:border-slate-800 dark:text-slate-300"
+                            >
+                                {prompt}
+                            </button>
+                        ))}
+                    </div>
+                </Field>
+                {isWorkspace ? (
+                    <div className="flex flex-wrap gap-2">
+                        <Button size="sm" onClick={() => openAssistantMode("drawer")}>
+                            <Bot className="h-4 w-4"/>
+                            打开完整助手
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => openAssistantMode("page")}>
+                            页内展开
+                        </Button>
+                    </div>
+                ) : null}
+            </div>
+        );
+
+        if (isWorkspace) {
+            return (
+                <div className="flex h-full min-h-0 flex-col">
+                    <div className="flex items-start justify-between gap-3 border-b border-slate-200/80 px-4 py-3 dark:border-slate-800">
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <Bot className="h-4 w-4 text-sky-600"/>
+                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI 招聘助手</p>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                在工作台里快速切上下文、挑 Skills、直接带着推荐问题打开完整助手。
+                            </p>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => openAssistantMode("drawer")}>
+                            打开
+                        </Button>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 [scrollbar-gutter:stable]">
+                        {assistantContextPanel}
+                    </div>
+                </div>
+            );
+        }
 
         return (
             <div className="flex h-full min-h-0 flex-col">
@@ -4002,7 +3438,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     key={prompt}
                                     type="button"
                                     onMouseDown={preventAssistantActionFocusLoss}
-                                    onClick={() => applyAssistantPrompt(prompt)}
+                                onClick={() => applyAssistantPrompt(prompt, {openMode: "drawer"})}
                                     className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:text-slate-100"
                                 >
                                     {prompt}
@@ -4126,68 +3562,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                     <div
                         className={cn("min-h-0 overflow-y-auto border-slate-200/80 px-5 py-5 dark:border-slate-800", isWorkspace ? "border-t" : "border-t 2xl:border-t-0 2xl:border-l")}>
-                        <div className="space-y-5">
-                            <Field label="岗位上下文">
-                                <NativeSelect
-                                    value={chatContext.position_id ? String(chatContext.position_id) : "none"}
-                                    onChange={(event) => {
-                                        const nextPositionId = event.target.value === "none" ? null : Number(event.target.value);
-                                        void saveChatContext(nextPositionId, chatContext.skill_ids);
-                                        queueAssistantInputFocus();
-                                    }}
-                                >
-                                    <option value="none">未指定岗位</option>
-                                    {positions.map((position) => (
-                                        <option key={position.id} value={position.id}>
-                                            {position.title}
-                                        </option>
-                                    ))}
-                                </NativeSelect>
-                            </Field>
-
-                            <Field label="激活 Skills">
-                                <div className="flex flex-wrap gap-2">
-                                    {skills.map((skill) => (
-                                        <button
-                                            key={skill.id}
-                                            type="button"
-                                            onMouseDown={preventAssistantActionFocusLoss}
-                                            onClick={() => toggleSkillInAssistant(skill.id)}
-                                            className={cn(
-                                                "rounded-full border px-3 py-2 text-xs font-medium transition",
-                                                chatContext.skill_ids.includes(skill.id)
-                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                            )}
-                                        >
-                                            {skill.name}
-                                        </button>
-                                    ))}
-                                </div>
-                            </Field>
-
-                            <Field label="推荐问题">
-                                <div className="space-y-2">
-                                    {[
-                                        "帮我生成 IoT 测试工程师 JD",
-                                        "查看当前岗位候选人列表",
-                                        "重新对当前候选人初筛，硬性要求加强硬件测试经验",
-                                        "给当前候选人生成初试题，重点考察硬件联调",
-                                        "说明这次对话用了哪些 Skills 和模型",
-                                    ].map((prompt) => (
-                                        <button
-                                            key={prompt}
-                                            type="button"
-                                            onMouseDown={preventAssistantActionFocusLoss}
-                                            onClick={() => applyAssistantPrompt(prompt)}
-                                            className="w-full rounded-2xl border border-dashed border-slate-200 px-3 py-3 text-left text-xs text-slate-600 transition hover:border-slate-400 dark:border-slate-800 dark:text-slate-300"
-                                        >
-                                            {prompt}
-                                        </button>
-                                    ))}
-                                </div>
-                            </Field>
-                        </div>
+                        {assistantContextPanel}
                     </div>
                 </div>
             </div>
@@ -4218,222 +3593,23 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     function renderWorkspacePage() {
         return (
-            <div className="space-y-6">
-                <Card
-                    className={cn(panelClass, "overflow-hidden border-slate-200/80 bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.18),transparent_30%),linear-gradient(135deg,rgba(255,255,255,0.98)_0%,rgba(241,245,249,0.95)_100%)] dark:border-slate-800 dark:bg-[radial-gradient(circle_at_top_right,rgba(56,189,248,0.18),transparent_26%),linear-gradient(135deg,rgba(15,23,42,0.96)_0%,rgba(15,23,42,0.9)_100%)]")}>
-                    <CardContent className="px-4 py-3 sm:px-5">
-                        <div className="space-y-2.5">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <Badge
-                                    className="rounded-full border-slate-200 bg-white/90 px-2.5 py-0.5 text-[11px] text-slate-700 shadow-none dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
-                                    今日总览
-                                </Badge>
-                                <h2 className="text-lg font-semibold tracking-tight text-slate-950 dark:text-slate-50 sm:text-[1.15rem]">
-                                    招聘推进总览
-                                </h2>
-                            </div>
-                            <div className="flex flex-wrap items-center justify-between gap-2.5">
-                                <p className="min-w-[220px] flex-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                                    集中查看岗位、候选人和 AI 任务的当前进度。
-                                </p>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
-                                        <span className="text-xs text-slate-500 dark:text-slate-400">招聘中岗位</span>
-                                        <span className="font-semibold text-slate-950 dark:text-slate-50">{dashboard?.cards.positions_recruiting ?? 0}</span>
-                                    </div>
-                                    <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
-                                        <span className="text-xs text-slate-500 dark:text-slate-400">待初筛候选人</span>
-                                        <span className="font-semibold text-slate-950 dark:text-slate-50">{dashboard?.cards.pending_screening ?? 0}</span>
-                                    </div>
-                                    <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
-                                        <span className="text-xs text-slate-500 dark:text-slate-400">今日新增简历</span>
-                                        <span className="font-semibold text-slate-950 dark:text-slate-50">{todayNewResumes}</span>
-                                    </div>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <Button
-                                        type="button"
-                                        onClick={() => openAssistantMode("drawer")}
-                                        size="sm"
-                                        className="h-9 rounded-xl px-3.5 text-sm"
-                                    >
-                                        <Bot className="h-4 w-4"/>
-                                        打开 AI 招聘助手
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        onClick={openCreatePosition}
-                                        size="sm"
-                                        className="h-9 rounded-xl px-3.5 text-sm"
-                                    >
-                                        <Plus className="h-4 w-4"/>
-                                        新建岗位
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                    <MetricCard title="招聘中岗位" value={dashboard?.cards.positions_recruiting ?? 0}
-                                description="当前在推进的岗位" icon={BriefcaseBusiness}/>
-                    <MetricCard title="今日新增简历" value={todayNewResumes} description="今天导入的候选人数量"
-                                icon={Upload}/>
-                    <MetricCard title="待初筛候选人" value={dashboard?.cards.pending_screening ?? 0}
-                                description="优先需要处理的简历" icon={FileSearch}/>
-                    <MetricCard title="初筛通过人数" value={dashboard?.cards.screening_passed ?? 0}
-                                description="已进入后续流程" icon={ClipboardCheck}/>
-                    <MetricCard title="今日 AI 处理数" value={dashboard?.cards.recent_ai_tasks ?? 0}
-                                description="今天触发的 AI 任务" icon={Sparkles}/>
-                    <MetricCard title="待发布岗位" value={todoSummary.pendingPublish}
-                                description="草稿或尚未完成发布的岗位" icon={Rocket}/>
-                    <MetricCard title="待安排面试" value={todoSummary.pendingInterview}
-                                description="已通过初筛但未安排面试" icon={NotebookText}/>
-                    <MetricCard title="待确认结果" value={todoSummary.pendingDecision}
-                                description="需要确认 Offer 或后续结果" icon={ClipboardCheck}/>
-                </div>
-
-                <div className="space-y-6">
-                    <Card className={panelClass}>
-                        <CardHeader className="pb-0">
-                            <div className="space-y-1.5">
-                                <CardTitle className="text-lg">快捷操作</CardTitle>
-                                <CardDescription className="text-xs leading-5 text-slate-500 dark:text-slate-400">
-                                    把
-                                    <span className="mx-1 font-medium text-slate-700 dark:text-slate-200">JD 生成</span>
-                                    、
-                                    <span className="mx-1 font-medium text-slate-700 dark:text-slate-200">上传简历</span>
-                                    、
-                                    <span className="mx-1 font-medium text-slate-700 dark:text-slate-200">批量初筛</span>
-                                    、
-                                    <span className="mx-1 font-medium text-slate-700 dark:text-slate-200">面试题</span>
-                                    和
-                                    <span className="mx-1 font-medium text-slate-700 dark:text-slate-200">AI 助手</span>
-                                    集中在这里，减少来回切页。
-                                </CardDescription>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="grid gap-3 pt-2 sm:grid-cols-2 2xl:grid-cols-3">
-                            <QuickActionCard title="新建岗位" description="录入岗位并进入详情工作区" icon={Plus}
-                                             onClick={openCreatePosition}/>
-                            <QuickActionCard title="生成 JD" description="直接跳到当前岗位的 JD 工作区" icon={Wand2}
-                                             onClick={() => setActivePage("positions")}/>
-                            <QuickActionCard title="上传简历" description="批量上传 PDF / DOC / DOCX 简历"
-                                             icon={Upload} onClick={() => setResumeUploadOpen(true)}/>
-                            <QuickActionCard title="批量初筛" description="进入候选人页集中触发 AI 初筛"
-                                             icon={ClipboardCheck} onClick={() => setActivePage("candidates")}/>
-                            <QuickActionCard title="生成面试题" description="在候选人详情区生成个性化题目"
-                                             icon={NotebookText} onClick={() => setActivePage("candidates")}/>
-                            <QuickActionCard title="打开 AI 助手" description="自然语言驱动整个招聘流程" icon={Bot}
-                                             onClick={() => openAssistantMode("drawer")}/>
-                        </CardContent>
-                    </Card>
-
-                    <div className="grid gap-6 xl:grid-cols-2 xl:auto-rows-[minmax(360px,1fr)] 2xl:auto-rows-[minmax(400px,1fr)]">
-                        <Card className={cn(panelClass, "flex h-full min-h-0 flex-col overflow-hidden")}>
-                            <CardHeader className="shrink-0">
-                                <CardTitle className="text-lg">最新候选人</CardTitle>
-                                <CardDescription>快速查看最近进入系统的人选。</CardDescription>
-                            </CardHeader>
-                            <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3">
-                                {recentCandidates.length ? recentCandidates.map((candidate) => (
-                                    <button
-                                        key={candidate.id}
-                                        type="button"
-                                        className="flex w-full flex-col gap-3 rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 sm:flex-row sm:items-start sm:justify-between dark:border-slate-800"
-                                        onClick={() => {
-                                            setActivePage("candidates");
-                                            setSelectedCandidateId(candidate.id);
-                                        }}
-                                    >
-                                        <div className="min-w-0">
-                                            <p className="break-words font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                                            <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
-                                                {candidate.position_title || "未分配岗位"} ·
-                                                匹配度 {formatPercent(candidate.match_percent)}
-                                            </p>
-                                        </div>
-                                        <div className="shrink-0 text-left sm:text-right">
-                                            <Badge
-                                                className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
-                                                {labelForCandidateStatus(candidate.status)}
-                                            </Badge>
-                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.created_at)}</p>
-                                        </div>
-                                    </button>
-                                )) : (
-                                    <EmptyState title="暂无候选人"
-                                                description="上传简历后，这里会显示最新进入系统的候选人。"/>
-                                )}
-                            </CardContent>
-                        </Card>
-
-                        <Card className={cn(panelClass, "flex h-full min-h-0 flex-col overflow-hidden")}>
-                            <div className="min-h-0 flex-1 overflow-hidden">
-                                {assistantOpen ? renderAssistantSuspendedState() : renderAssistantConsole("workspace")}
-                            </div>
-                        </Card>
-
-                        <Card className={cn(panelClass, "flex h-full min-h-0 flex-col overflow-hidden")}>
-                            <CardHeader className="shrink-0">
-                                <CardTitle className="text-lg">最近 AI 任务</CardTitle>
-                                <CardDescription>用于汇报与排障的近期处理记录。</CardDescription>
-                            </CardHeader>
-                            <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3">
-                                {recentLogs.length ? recentLogs.map((log) => (
-                                    <button
-                                        key={log.id}
-                                        type="button"
-                                        className="flex w-full flex-col gap-3 rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 sm:flex-row sm:items-start sm:justify-between dark:border-slate-800"
-                                        onClick={() => {
-                                            setActivePage("audit");
-                                            setSelectedLogId(log.id);
-                                        }}
-                                    >
-                                        <div className="min-w-0">
-                                            <p className="break-words font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
-                                            <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{shortText(log.input_summary, 72)}</p>
-                                        </div>
-                                        <div className="shrink-0 text-left sm:text-right">
-                                            <Badge
-                                                className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
-                                                {labelForTaskExecutionStatus(log.status)}
-                                            </Badge>
-                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(log.created_at)}</p>
-                                        </div>
-                                    </button>
-                                )) : (
-                                    <EmptyState title="暂无 AI 记录"
-                                                description="触发 JD 生成、初筛评分和面试题生成后，这里会开始出现任务记录；历史数据里仍可能看到旧的简历解析记录。"/>
-                                )}
-                            </CardContent>
-                        </Card>
-
-                        <Card className={cn(panelClass, "flex h-full min-h-0 flex-col overflow-hidden")}>
-                            <CardHeader className="shrink-0">
-                                <CardTitle className="text-lg">状态分布</CardTitle>
-                                <CardDescription>帮助招聘团队快速判断流程积压位置。</CardDescription>
-                            </CardHeader>
-                            <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3">
-                                {dashboard?.status_distribution?.length ? dashboard.status_distribution.map((item) => (
-                                    <div key={item.status}
-                                         className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForCandidateStatus(item.status)}</p>
-                                            <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{item.count}</p>
-                                        </div>
-                                    </div>
-                                )) : (
-                                    <EmptyState title="暂无统计"
-                                                description="候选人进入系统后，这里会展示各状态的人数分布。"/>
-                                )}
-                            </CardContent>
-                        </Card>
-                    </div>
-                </div>
-            </div>
+            <WorkspacePage
+                dashboard={dashboard}
+                todayNewResumes={todayNewResumes}
+                todoSummary={todoSummary}
+                recentCandidates={recentCandidates}
+                recentLogs={recentLogs}
+                panelClass={panelClass}
+                assistantOpen={assistantOpen}
+                setActivePage={setActivePage}
+                setSelectedCandidateId={setSelectedCandidateId}
+                setSelectedLogId={setSelectedLogId}
+                openAssistantMode={openAssistantMode}
+                openCreatePosition={openCreatePosition}
+                setResumeUploadOpen={setResumeUploadOpen}
+                renderAssistantConsole={renderAssistantConsole}
+                renderAssistantSuspendedState={renderAssistantSuspendedState}
+            />
         );
     }
 
@@ -5006,1493 +4182,186 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     function renderCandidatesPage() {
         return (
-            <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-6 overflow-hidden">
-                <Card className={panelClass}>
-                    <CardContent className={cn("px-6", candidateFiltersCollapsed ? "py-4" : "py-6")}>
-                        <div className="flex flex-col gap-4">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">候选人筛选条</p>
-                                    <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
-                                        {candidateFiltersCollapsed
-                                            ? candidateFilterSummary
-                                            : "围绕岗位、状态、匹配度和来源过滤，保持 ATS 使用效率。"}
-                                    </p>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <div
-                                        className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
-                                        <Button size="sm" variant={candidateViewMode === "list" ? "default" : "ghost"}
-                                                onClick={() => setCandidateViewMode("list")}>
-                                            <List className="h-4 w-4"/>
-                                            列表
-                                        </Button>
-                                        <Button size="sm" variant={candidateViewMode === "board" ? "default" : "ghost"}
-                                                onClick={() => setCandidateViewMode("board")}>
-                                            <LayoutGrid className="h-4 w-4"/>
-                                            看板
-                                        </Button>
-                                    </div>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setCandidateFiltersCollapsed((current) => !current)}
-                                    >
-                                        {candidateFiltersCollapsed ? <ChevronDown className="h-4 w-4"/> : <ChevronUp className="h-4 w-4"/>}
-                                        {candidateFiltersCollapsed ? "展开筛选" : "收起筛选"}
-                                    </Button>
-                                </div>
-                            </div>
-                            {!candidateFiltersCollapsed ? (
-                                <div className="grid gap-3 xl:grid-cols-[1.4fr_repeat(5,minmax(0,1fr))]">
-                                    <SearchField value={candidateQuery} onChange={setCandidateQuery}
-                                                 placeholder="搜索候选人、手机号、邮箱、公司"/>
-                                    <NativeSelect value={candidatePositionFilter}
-                                                  onChange={(event) => setCandidatePositionFilter(event.target.value)}>
-                                        <option value="all">全部岗位</option>
-                                        {positions.map((position) => (
-                                            <option key={position.id} value={position.id}>
-                                                {position.title}
-                                            </option>
-                                        ))}
-                                    </NativeSelect>
-                                    <NativeSelect value={candidateStatusFilter}
-                                                  onChange={(event) => setCandidateStatusFilter(event.target.value)}>
-                                        <option value="all">全部状态</option>
-                                        {Object.entries(candidateStatusLabels).map(([value, label]) => (
-                                            <option key={value} value={value}>
-                                                {label}
-                                            </option>
-                                        ))}
-                                    </NativeSelect>
-                                    <NativeSelect value={candidateMatchFilter}
-                                                  onChange={(event) => setCandidateMatchFilter(event.target.value)}>
-                                        <option value="all">全部匹配度</option>
-                                        <option value="80+">80% 以上</option>
-                                        <option value="60+">60% 以上</option>
-                                        <option value="40+">40% 以上</option>
-                                    </NativeSelect>
-                                    <NativeSelect value={candidateSourceFilter}
-                                                  onChange={(event) => setCandidateSourceFilter(event.target.value)}>
-                                        <option value="all">全部来源</option>
-                                        {sourceOptions.map((source) => (
-                                            <option key={source} value={source}>
-                                                {source}
-                                            </option>
-                                        ))}
-                                    </NativeSelect>
-                                    <NativeSelect value={candidateTimeFilter}
-                                                  onChange={(event) => setCandidateTimeFilter(event.target.value)}>
-                                        <option value="all">全部时间</option>
-                                        <option value="today">今天</option>
-                                        <option value="7d">近 7 天</option>
-                                        <option value="30d">近 30 天</option>
-                                    </NativeSelect>
-                                </div>
-                            ) : null}
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <div
-                    className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(560px,44%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(700px,46%)]">
-                    <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
-                        <CardHeader className="pb-0">
-                            <div className="flex items-center justify-between gap-3">
-                                <div>
-                                    <CardTitle className="text-lg">候选人列表</CardTitle>
-                                    <CardDescription>支持列表视图与状态看板视图，选中后右侧展示完整档案。</CardDescription>
-                                </div>
-                                <Badge variant="outline" className="rounded-full">{visibleCandidates.length} 人</Badge>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="flex min-h-0 flex-1 flex-col pt-6">
-                            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    已选中 <span
-                                    className="font-semibold text-slate-900 dark:text-slate-100">{selectedCandidateIds.length}</span> 位候选人
-                                </p>
-                                <div className="flex flex-wrap gap-2">
-                                    <Button size="sm" variant="outline" onClick={() => setSelectedCandidateIds([])}
-                                            disabled={!selectedCandidateIds.length}>
-                                        清空选择
-                                    </Button>
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => void triggerScreening(selectedCandidateIds)}
-                                        disabled={isBatchScreeningCancelling || (screeningSubmitting && !isBatchScreeningRunning) || (!isBatchScreeningRunning && !selectedCandidateIds.length)}
-                                    >
-                                        {isBatchScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : isBatchScreeningRunning ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
-                                        {isBatchScreeningCancelling ? "停止中..." : isBatchScreeningRunning ? "停止批量初筛" : screeningSubmitting ? "启动中..." : "批量开始初筛"}
-                                    </Button>
-                                    <Button size="sm" variant="outline"
-                                            onClick={() => openResumeMailDialog(selectedCandidateIds)}
-                                            disabled={!selectedCandidateIds.length}>
-                                        <Mail className="h-4 w-4"/>
-                                        批量发送简历
-                                    </Button>
-                                </div>
-                            </div>
-                            {candidatesLoading ? (
-                                <LoadingCard label="正在加载候选人列表"/>
-                            ) : candidateViewMode === "list" ? (
-                                <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
-                                    <div
-                                        ref={candidateListScrollRef}
-                                        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
-                                    >
-                                        <table style={{width: candidateListTableWidth, minWidth: candidateListTableWidth}}
-                                               className="caption-bottom table-fixed text-sm">
-                                            <thead className="[&_tr]:border-b">
-                                            <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">
-                                                <th className="text-foreground sticky top-0 z-10 h-10 w-14 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={visibleCandidates.length > 0 && visibleCandidates.every((candidate) => selectedCandidateIds.includes(candidate.id))}
-                                                        onChange={(event) => setSelectedCandidateIds(event.target.checked ? visibleCandidates.map((candidate) => candidate.id) : [])}
-                                                        aria-label="全选候选人"
-                                                    />
-                                                </th>
-                                                {renderCandidateListHeaderCell("candidate", "候选人")}
-                                                {renderCandidateListHeaderCell("position", "岗位")}
-                                                {renderCandidateListHeaderCell("status", "状态")}
-                                                {renderCandidateListHeaderCell("match", "匹配度")}
-                                                {renderCandidateListHeaderCell("source", "来源")}
-                                                {renderCandidateListHeaderCell("updated", "更新时间")}
-                                            </tr>
-                                            </thead>
-                                            <tbody className="[&_tr:last-child]:border-0">
-                                            {visibleCandidates.length ? visibleCandidates.map((candidate) => (
-                                                <tr
-                                                    key={candidate.id}
-                                                    className={cn("cursor-pointer", selectedCandidateId === candidate.id && "bg-slate-100 dark:bg-slate-900")}
-                                                    onClick={() => setSelectedCandidateId(candidate.id)}
-                                                >
-                                                    <td className="p-2 align-middle whitespace-nowrap"
-                                                        onClick={(event) => event.stopPropagation()}>
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={selectedCandidateIds.includes(candidate.id)}
-                                                            onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
-                                                            aria-label={`选择候选人 ${candidate.name}`}
-                                                        />
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.candidate,
-                                                            minWidth: candidateListDisplayColumnWidths.candidate,
-                                                            maxWidth: candidateListDisplayColumnWidths.candidate,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <div className="min-w-0">
-                                                            <div className="flex flex-wrap items-center gap-2">
-                                                                <HoverRevealText
-                                                                    text={candidate.name}
-                                                                    className="font-medium text-slate-900 dark:text-slate-100"
-                                                                />
-                                                                {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                    <Badge
-                                                                        className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                                        已发简历
-                                                                    </Badge>
-                                                                ) : null}
-                                                            </div>
-                                                            <HoverRevealText
-                                                                text={candidate.phone || candidate.email || "未填写联系方式"}
-                                                                className="text-xs text-slate-500 dark:text-slate-400"
-                                                            />
-                                                            {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                <HoverRevealText
-                                                                    text={getCandidateResumeMailSummary(candidate.id)}
-                                                                    className="mt-1 text-xs text-sky-600 dark:text-slate-300"
-                                                                    tooltipClassName="max-w-sm"
-                                                                />
-                                                            ) : null}
-                                                        </div>
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.position,
-                                                            minWidth: candidateListDisplayColumnWidths.position,
-                                                            maxWidth: candidateListDisplayColumnWidths.position,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <HoverRevealText
-                                                            text={candidate.position_title || "未分配岗位"}/>
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.status,
-                                                            minWidth: candidateListDisplayColumnWidths.status,
-                                                            maxWidth: candidateListDisplayColumnWidths.status,
-                                                        }}
-                                                        className="p-2 align-middle whitespace-nowrap"
-                                                    >
-                                                        <Badge
-                                                            className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
-                                                            {labelForCandidateStatus(candidate.status)}
-                                                        </Badge>
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.match,
-                                                            minWidth: candidateListDisplayColumnWidths.match,
-                                                            maxWidth: candidateListDisplayColumnWidths.match,
-                                                        }}
-                                                        className="p-2 align-middle whitespace-nowrap"
-                                                    >
-                                                        {formatPercent(candidate.match_percent)}
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.source,
-                                                            minWidth: candidateListDisplayColumnWidths.source,
-                                                            maxWidth: candidateListDisplayColumnWidths.source,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <HoverRevealText
-                                                            text={candidate.source || "-"}
-                                                            className="text-xs text-slate-600 dark:text-slate-300"
-                                                        />
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListDisplayColumnWidths.updated,
-                                                            minWidth: candidateListDisplayColumnWidths.updated,
-                                                            maxWidth: candidateListDisplayColumnWidths.updated,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <HoverRevealText text={formatDateTime(candidate.updated_at)}/>
-                                                    </td>
-                                                </tr>
-                                            )) : (
-                                                <tr>
-                                                    <td colSpan={7} className="p-2 align-middle">
-                                                        <EmptyState title="没有符合条件的候选人"
-                                                                    description="调整筛选条件，或先上传一批简历进入系统。"/>
-                                                    </td>
-                                                </tr>
-                                            )}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <div className="shrink-0 border-t border-slate-200/80 pt-2 dark:border-slate-800">
-                                        <div
-                                            ref={candidateListHorizontalRailRef}
-                                            className="overflow-x-auto overflow-y-hidden [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.95)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100/80 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.98)_transparent] dark:[&::-webkit-scrollbar-track]:bg-slate-900/80 dark:[&::-webkit-scrollbar-thumb]:border-slate-900 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700"
-                                        >
-                                            <div style={{width: candidateListTableWidth, height: 1}}/>
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div
-                                    className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
-                                    <div className="grid gap-4 xl:grid-cols-3">
-                                        {groupedCandidates.map((group) => (
-                                            <div key={group.status}
-                                                 className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                <div className="mb-4 flex items-center justify-between gap-2">
-                                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{group.label}</p>
-                                                    <Badge variant="outline"
-                                                           className="rounded-full">{group.items.length}</Badge>
-                                                </div>
-                                                <div className="space-y-3">
-                                                    {group.items.length ? group.items.map((candidate) => (
-                                                        <div
-                                                            key={candidate.id}
-                                                            className={cn(
-                                                                "w-full rounded-2xl border px-4 py-4 transition",
-                                                                selectedCandidateId === candidate.id
-                                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                    : "border-slate-200 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950",
-                                                            )}
-                                                        >
-                                                            <div className="flex items-start justify-between gap-3">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => setSelectedCandidateId(candidate.id)}
-                                                                    className="min-w-0 flex-1 text-left"
-                                                                >
-                                                                    <div className="flex flex-wrap items-center gap-2">
-                                                                        <p className="font-medium">{candidate.name}</p>
-                                                                        {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                            <Badge
-                                                                                className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                                                已发简历
-                                                                            </Badge>
-                                                                        ) : null}
-                                                                    </div>
-                                                                    <p className="mt-1 text-xs opacity-80">{candidate.position_title || "未分配岗位"}</p>
-                                                                    {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                        <p className="mt-2 text-[11px] opacity-80">{getCandidateResumeMailSummary(candidate.id)}</p>
-                                                                    ) : null}
-                                                                    <div
-                                                                        className="mt-3 flex items-center justify-between text-xs opacity-80">
-                                                                        <span>匹配度 {formatPercent(candidate.match_percent)}</span>
-                                                                        <span>{formatDateTime(candidate.updated_at)}</span>
-                                                                    </div>
-                                                                </button>
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={selectedCandidateIds.includes(candidate.id)}
-                                                                    onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
-                                                                    aria-label={`选择候选人 ${candidate.name}`}
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                    )) : (
-                                                        <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                                                            当前状态暂无候选人
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-
-                    <Card className={cn(panelClass, "min-h-0 min-w-0 gap-0 overflow-hidden py-0")}>
-                        {candidateDetailLoading ? <LoadingPanel label="正在加载候选人详情"/> : candidateDetail ? (
-                            <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-                                <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-800">
-                                    <div className="space-y-4">
-                                        <div className="min-w-0">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <Badge
-                                                    className={cn("rounded-full border", statusBadgeClass("candidate", candidateDetail.candidate.status))}>
-                                                    {labelForCandidateStatus(candidateDetail.candidate.status)}
-                                                </Badge>
-                                                <Badge variant="outline" className="rounded-full">
-                                                    匹配度 {formatPercent(candidateDetail.candidate.match_percent)}
-                                                </Badge>
-                                                {getCandidateResumeMailSummary(candidateDetail.candidate.id) ? (
-                                                    <Badge
-                                                        className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                        {getCandidateResumeMailSummary(candidateDetail.candidate.id)}
-                                                    </Badge>
-                                                ) : null}
-                                            </div>
-                                            <h3 className="mt-3 break-words text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{candidateDetail.candidate.name}</h3>
-                                            <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
-                                                {candidateDetail.candidate.position_title || "未分配岗位"} · {candidateDetail.candidate.phone || candidateDetail.candidate.email || "未填写联系方式"}
-                                            </p>
-                                        </div>
-                                        <div className="flex w-full flex-wrap items-center gap-2">
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                onClick={() => void triggerScreening()}
-                                                disabled={isSelectedCandidateScreeningCancelling || (screeningSubmitting && !selectedCandidateScreeningTaskId)}
-                                            >
-                                                {isSelectedCandidateScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : selectedCandidateScreeningTaskId ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
-                                                {isSelectedCandidateScreeningCancelling ? "停止中..." : selectedCandidateScreeningTaskId ? "停止初筛" : screeningSubmitting ? "启动中..." : "开始初筛"}
-                                            </Button>
-                                            {candidateDetail.resume_files[0] ? (
-                                                <Button size="sm" variant="outline"
-                                                        onClick={() => void openResumeFile(candidateDetail.resume_files[0])}>
-                                                    <ExternalLink className="h-4 w-4"/>
-                                                    {"\u67e5\u770b\u7b80\u5386"}
-                                                </Button>
-                                            ) : null}
-                                            <Button size="sm" variant="outline"
-                                                    onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}>
-                                                <Mail className="h-4 w-4"/>
-                                                {"\u53d1\u9001\u7b80\u5386"}
-                                            </Button>
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                onClick={() => void generateInterviewQuestions()}
-                                                disabled={isCurrentInterviewTaskCancelling}
-                                            >
-                                                {currentCandidateInterviewTaskId ? <Square className="h-4 w-4"/> : <NotebookText className="h-4 w-4"/>}
-                                                {isCurrentInterviewTaskCancelling ? "停止中..." : currentCandidateInterviewTaskId ? "停止生成" : "面试题"}
-                                            </Button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div
-                                    className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-                                    <div className="min-w-0 space-y-6 px-6 py-6">
-                                        <Field label="基础信息">
-                                            <div className="grid gap-3">
-                                                <Input value={candidateEditor.name}
-                                                       onChange={(event) => setCandidateEditor((current) => ({
-                                                           ...current,
-                                                           name: event.target.value
-                                                       }))} placeholder="姓名"/>
-                                                <Input value={candidateEditor.phone}
-                                                       onChange={(event) => setCandidateEditor((current) => ({
-                                                           ...current,
-                                                           phone: event.target.value
-                                                       }))} placeholder="手机号"/>
-                                                <Input value={candidateEditor.email}
-                                                       onChange={(event) => setCandidateEditor((current) => ({
-                                                           ...current,
-                                                           email: event.target.value
-                                                       }))} placeholder="邮箱"/>
-                                                <Input value={candidateEditor.currentCompany}
-                                                       onChange={(event) => setCandidateEditor((current) => ({
-                                                           ...current,
-                                                           currentCompany: event.target.value
-                                                       }))} placeholder="当前公司"/>
-                                                <Input value={candidateEditor.yearsOfExperience}
-                                                       onChange={(event) => setCandidateEditor((current) => ({
-                                                           ...current,
-                                                           yearsOfExperience: event.target.value
-                                                       }))} placeholder="工作年限"/>
-                                                <Input value={candidateEditor.education}
-                                                       onChange={(event) => setCandidateEditor((current) => ({
-                                                           ...current,
-                                                           education: event.target.value
-                                                       }))} placeholder="学历"/>
-                                            </div>
-                                        </Field>
-
-                                        <Field label="AI 评分与建议">
-                                            <div
-                                                className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                                    <div className="min-w-0 flex-1">
-                                                        <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
-                                                            {formatScoreValue(
-                                                                candidateDetail.score?.total_score,
-                                                                typeof candidateDetail.score?.total_score_scale === "number"
-                                                                    ? candidateDetail.score.total_score_scale
-                                                                    : null,
-                                                            )}
-                                                        </p>
-                                                        <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
-                                                            AI
-                                                            建议：{candidateDetail.score?.recommendation || "尚未生成"} ·
-                                                            推荐状态 {labelForCandidateStatus(candidateDetail.score?.suggested_status || "")}
-                                                        </p>
-                                                    </div>
-                                                    <Badge variant="outline" className="shrink-0 rounded-full">
-                                                        匹配度 {formatPercent(candidateDetail.score?.match_percent ?? candidateDetail.candidate.match_percent)}
-                                                    </Badge>
-                                                </div>
-                                                <div
-                                                    className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
-                                                    <p className="break-words leading-7">
-                                                        <span
-                                                            className="font-medium text-slate-900 dark:text-slate-100">优势：</span>
-                                                        {candidateDetail.score?.advantages_text
-                                                            || joinTags(Array.isArray(candidateDetail.score?.advantages) ? candidateDetail.score.advantages as string[] : [])
-                                                            || "暂无"}
-                                                    </p>
-                                                    <p className="break-words leading-7">
-                                                        <span
-                                                            className="font-medium text-slate-900 dark:text-slate-100">风险点：</span>
-                                                        {candidateDetail.score?.concerns_text
-                                                            || joinTags(Array.isArray(candidateDetail.score?.concerns) ? candidateDetail.score.concerns as string[] : [])
-                                                            || "暂无"}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </Field>
-
-                                        <Field label="初筛工作记忆">
-                                            {candidateDetail.workflow_memory ? (
-                                                <div className="grid gap-3">
-                                                    <InfoTile label="记忆来源"
-                                                              value={labelForMemorySource(candidateDetail.workflow_memory.screening_memory_source)}/>
-                                                    <InfoTile label="最近初筛时间"
-                                                              value={formatLongDateTime(candidateDetail.workflow_memory.last_screened_at)}/>
-                                                    <InfoTile label="初筛 Skills"
-                                                              value={formatSkillNames(candidateDetail.workflow_memory.screening_skill_ids, skillMap)}/>
-                                                    <InfoTile label="面试题 Skills"
-                                                              value={formatSkillNames(candidateDetail.workflow_memory.interview_skill_ids, skillMap)}/>
-                                                </div>
-                                            ) : (
-                                                <EmptyState title="暂无初筛工作记忆"
-                                                            description="完成一次初筛后，这里会显示本次初筛使用的 Skills、来源和时间，便于后续生成面试题时复用。"/>
-                                            )}
-                                            <p className="mt-3 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
-                                                {`点击“开始初筛”时，会按“岗位绑定 Skills > 初筛工作记忆”继续执行；若均未配置，则本次不会传 Skills。当前预计来源：${effectiveScreeningSkillSourceLabel}。`}
-                                            </p>
-                                            <p className="mt-2 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
-                                                {`当前预计使用：${formatSkillNames(effectiveScreeningSkillIds, skillMap)}`}
-                                            </p>
-                                        </Field>
-
-                                        <div className="grid gap-4">
-                                            <Field label="人工修正分数">
-                                                <Input value={candidateEditor.manualOverrideScore}
-                                                       onChange={(event) => setCandidateEditor((current) => ({
-                                                           ...current,
-                                                           manualOverrideScore: event.target.value
-                                                       }))} placeholder="例如 88"/>
-                                            </Field>
-                                            <Field label="修正原因">
-                                                <Input value={candidateEditor.manualOverrideReason}
-                                                       onChange={(event) => setCandidateEditor((current) => ({
-                                                           ...current,
-                                                           manualOverrideReason: event.target.value
-                                                       }))} placeholder="为什么要修正这次 AI 评分"/>
-                                            </Field>
-                                        </div>
-
-                                        <Field label="标签与备注">
-                                            <div className="space-y-3">
-                                                <Input value={candidateEditor.tagsText}
-                                                       onChange={(event) => setCandidateEditor((current) => ({
-                                                           ...current,
-                                                           tagsText: event.target.value
-                                                       }))} placeholder="标签，使用英文逗号分隔"/>
-                                                <Textarea value={candidateEditor.notes}
-                                                          onChange={(event) => setCandidateEditor((current) => ({
-                                                              ...current,
-                                                              notes: event.target.value
-                                                          }))} rows={4}
-                                                          placeholder="例如：沟通不错，但对设备联调经验需要进一步核实"/>
-                                                <Button onClick={() => void saveCandidate()}>
-                                                    <Save className="h-4 w-4"/>
-                                                    保存候选人信息
-                                                </Button>
-                                            </div>
-                                        </Field>
-
-                                        <Field label="状态流转">
-                                            <div className="space-y-3">
-                                                <div className="flex flex-wrap gap-2">
-                                                    {Object.entries(candidateStatusLabels).map(([value, label]) => {
-                                                        const isCurrent = candidateDetail.candidate.status === value;
-                                                        return (
-                                                            <Popover
-                                                                key={value}
-                                                                open={pendingStatus === value}
-                                                                onOpenChange={(open) => {
-                                                                    if (!open) setPendingStatus(null);
-                                                                }}
-                                                            >
-                                                                <PopoverTrigger asChild>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant={isCurrent ? "default" : "outline"}
-                                                                        onClick={() => {
-                                                                            if (!isCurrent) setPendingStatus(value);
-                                                                        }}
-                                                                    >
-                                                                        {label}
-                                                                    </Button>
-                                                                </PopoverTrigger>
-                                                                <PopoverContent className="w-56 p-3" side="bottom"
-                                                                                align="start">
-                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                                        确认变更为「{label}」？
-                                                                    </p>
-                                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                        当前：{labelForCandidateStatus(candidateDetail.candidate.status)}
-                                                                    </p>
-                                                                    <div className="mt-3 flex gap-2">
-                                                                        <Button
-                                                                            size="sm"
-                                                                            className="flex-1"
-                                                                            onClick={() => void updateCandidateStatus(value)}
-                                                                        >
-                                                                            确认
-                                                                        </Button>
-                                                                        <Button
-                                                                            size="sm"
-                                                                            variant="outline"
-                                                                            className="flex-1"
-                                                                            onClick={() => setPendingStatus(null)}
-                                                                        >
-                                                                            取消
-                                                                        </Button>
-                                                                    </div>
-                                                                </PopoverContent>
-                                                            </Popover>
-                                                        );
-                                                    })}
-                                                </div>
-                                                <Textarea value={statusUpdateReason}
-                                                          onChange={(event) => setStatusUpdateReason(event.target.value)}
-                                                          rows={3}
-                                                          placeholder="状态变更原因，例如：AI 初筛通过，安排技术面试"/>
-                                                <div className="space-y-3">
-                                                    {candidateDetail.status_history.length ? candidateDetail.status_history.map((history) => (
-                                                        <div key={history.id}
-                                                             className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                                            <div className="flex items-center justify-between gap-3">
-                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                                    {labelForCandidateStatus(history.from_status || "")} → {labelForCandidateStatus(history.to_status)}
-                                                                </p>
-                                                                <p className="text-xs text-slate-500 dark:text-slate-400">{formatDateTime(history.created_at)}</p>
-                                                            </div>
-                                                            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{history.reason || "未填写原因"}</p>
-                                                        </div>
-                                                    )) : (
-                                                        <EmptyState title="暂无状态记录"
-                                                                    description="候选人发生流转后，这里会记录完整状态历史。"/>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </Field>
-
-                                        <Field label="AI 助手">
-                                            <div
-                                                className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                                    <div className="min-w-0 flex-1">
-                                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{"对话记录已收纳到独立助手面板"}</p>
-                                                        <p className="mt-1 break-words text-sm leading-6 text-slate-500 dark:text-slate-400">
-                                                            {candidateAssistantActivity.length
-                                                                ? `当前候选人已有 ${candidateAssistantActivity.length} 条助手对话留痕。为避免详情页被聊天卡片刷满，这里改为收纳展示。`
-                                                                : "这里不再逐条展开助手对话，避免右侧详情被聊天记录挤满。"}
-                                                        </p>
-                                                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{`面试题默认使用：${preferredInterviewSkillSourceLabel}`}</p>
-                                                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{`当前实际来源：${effectiveInterviewSkillSourceLabel}`}</p>
-                                                    </div>
-                                                    <Button size="sm" variant="outline"
-                                                            onClick={() => openAssistantMode("drawer")}>
-                                                        <Bot className="h-4 w-4"/>
-                                                        {"打开 AI 助手"}
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        </Field>
-
-                                        <Field label="AI 执行日志">
-                                            <div className="space-y-3">
-                                                {candidateProcessActivity.length ? (
-                                                    <>
-                                                        <div
-                                                            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                            <div className="min-w-0">
-                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                                    已记录 {candidateProcessActivity.length} 条流程日志
-                                                                </p>
-                                                                <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">
-                                                                    默认收起，避免右侧详情被日志卡片挤满；需要排查时再展开查看。
-                                                                </p>
-                                                            </div>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onClick={() => setCandidateProcessLogsExpanded((current) => !current)}
-                                                            >
-                                                                {candidateProcessLogsExpanded ? "收起日志" : "展开日志"}
-                                                            </Button>
-                                                        </div>
-                                                        {candidateProcessLogsExpanded ? candidateProcessActivity.map((log) => {
-                                                            const logSkillSnapshots = resolveLogSkillSnapshots(log, skillMap);
-                                                            return (
-                                                                <div key={log.id}
-                                                                     className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                                                    <div
-                                                                        className="flex flex-wrap items-start justify-between gap-3">
-                                                                        <div className="min-w-0 flex-1">
-                                                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
-                                                                            <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{labelForProvider(log.model_provider)} {"·"} {log.model_name || "-"} {"·"} {formatLongDateTime(log.created_at)}</p>
-                                                                        </div>
-                                                                        <Badge
-                                                                            className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
-                                                                            {labelForTaskExecutionStatus(log.status)}
-                                                                        </Badge>
-                                                                    </div>
-                                                                    <div className="mt-3 grid gap-3">
-                                                                        <InfoTile
-                                                                            label="Skills"
-                                                                            value={formatSkillSnapshotNames(logSkillSnapshots)}
-                                                                        />
-                                                                        <InfoTile label="记忆来源"
-                                                                                  value={labelForMemorySource(log.memory_source)}/>
-                                                                    </div>
-                                                                    {log.error_message ?
-                                                                        <p className="mt-3 break-all text-sm text-rose-600">{log.error_message}</p> : null}
-                                                                    <div
-                                                                        className="mt-3 min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                                        <pre
-                                                                            className="min-w-0 whitespace-pre-wrap break-all text-xs leading-6 text-slate-600 dark:text-slate-300">{formatStructuredValue(log.output_snapshot, log.output_summary || "执行中，等待模型返回...")}</pre>
-                                                                    </div>
-                                                                    <div className="mt-3 flex flex-wrap gap-2">
-                                                                        <Button size="sm" variant="outline"
-                                                                                onClick={() => openTaskLogDetail(log.id)}>查看完整日志</Button>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        }) : null}
-                                                    </>
-                                                ) : (
-                                                    <EmptyState title="暂无 AI 执行日志"
-                                                                description="开始初筛、生成面试题后，这里会显示候选人的流程任务留痕与输出内容。"/>
-                                                )}
-                                            </div>
-                                        </Field>
-
-
-                                        <Field label="简历与面试题">
-                                            <div className="space-y-4">
-                                                <div className="space-y-3">
-                                                    {candidateDetail.resume_files.length ? candidateDetail.resume_files.map((file) => (
-                                                        <div key={file.id}
-                                                             className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">{file.original_name}</p>
-                                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                {file.file_ext || "-"} {"·"} {file.file_size || 0} bytes {"·"} {"解析状态"} {file.parse_status}
-                                                            </p>
-                                                            {file.parse_error ?
-                                                                <p className="mt-2 break-all text-sm text-rose-600">{file.parse_error}</p> : null}
-                                                            <div className="mt-3 flex flex-wrap gap-2">
-                                                                <Button size="sm" variant="outline"
-                                                                        onClick={() => void openResumeFile(file)}>{"查看原件"}</Button>
-                                                                <Button size="sm" variant="outline"
-                                                                        onClick={() => void openResumeFile(file, true)}>{"下载简历"}</Button>
-                                                            </div>
-                                                        </div>
-                                                    )) : (
-                                                        <EmptyState title="暂无简历附件"
-                                                                    description="这个候选人还没有已上传的简历文件。"/>
-                                                    )}
-                                                </div>
-
-                                                <Separator/>
-
-                                                <div className="space-y-3">
-                                                    <div className="grid gap-3">
-                                                        <Input value={interviewRoundName}
-                                                               onChange={(event) => setInterviewRoundName(event.target.value)}
-                                                               placeholder="轮次，例如 初试 / 复试"/>
-                                                        <Input
-                                                            value={joinTags(effectiveInterviewSkillIds.map((id) => skillMap.get(id)?.name || ""))}
-                                                            readOnly placeholder="当前使用的 Skills"/>
-                                                    </div>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-400">{`当前默认来源：${preferredInterviewSkillSourceLabel}`}</p>
-                                                    <Textarea value={interviewCustomRequirements}
-                                                              onChange={(event) => setInterviewCustomRequirements(event.target.value)}
-                                                              rows={3}
-                                                              placeholder="补充要求，例如：偏向 IoT 设备联调、自动化稳定性、跨部门协作追问"/>
-                                                    <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
-                                                        {`当前实际 Skills：${formatSkillNames(effectiveInterviewSkillIds, skillMap)}`}
-                                                    </p>
-                                                    <div className="flex flex-wrap items-center justify-between gap-3">
-                                                        <p className="text-xs text-slate-500 dark:text-slate-400">{`当前实际来源：${effectiveInterviewSkillSourceLabel}`}</p>
-                                                        {interviewSkillSelectionDirty ? (
-                                                            <Button
-                                                                size="sm"
-                                                                variant="ghost"
-                                                                onClick={() => {
-                                                                    setSelectedInterviewSkillIds([]);
-                                                                    setInterviewSkillSelectionDirty(false);
-                                                                }}
-                                                            >
-                                                                恢复默认 Skills
-                                                            </Button>
-                                                        ) : null}
-                                                    </div>
-                                                    <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
-                                                        {!interviewSkillSelectionDirty
-                                                            ? "未手动选择时，生成面试题会按“岗位绑定 Skills > 面试题工作记忆”执行；若均未配置，则本次不会传 Skills。"
-                                                            : "当前已手动选择 Skills，本次会以手动选择为准。"}
-                                                    </p>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {skills.map((skill) => (
-                                                            <button
-                                                                key={skill.id}
-                                                                type="button"
-                                                                className={cn(
-                                                                    "rounded-full border px-3 py-2 text-xs transition",
-                                                                    effectiveInterviewSkillIds.includes(skill.id)
-                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                )}
-                                                                onClick={() => toggleInterviewSkillSelection(skill.id)}
-                                                            >
-                                                                {skill.name}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                    {candidateDetail.interview_questions.length ? (
-                                                        <div
-                                                            className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                            <div
-                                                                className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                                                                <p className="font-medium text-slate-900 dark:text-slate-100">
-                                                                    {"最近一份面试题："}{candidateDetail.interview_questions[0].round_name}
-                                                                </p>
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="outline"
-                                                                    onClick={() => void downloadInterviewQuestion(candidateDetail.interview_questions[0].id)}
-                                                                >
-                                                                    <Download className="h-4 w-4"/>
-                                                                    {"下载 HTML"}
-                                                                </Button>
-                                                            </div>
-                                                            {looksLikeFullHtmlDocument(candidateDetail.interview_questions[0].html_content) ? (
-                                                                <div
-                                                                    className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-950">
-                                                                    <iframe
-                                                                        title={`${candidateDetail.interview_questions[0].round_name}-preview`}
-                                                                        srcDoc={candidateDetail.interview_questions[0].html_content}
-                                                                        sandbox="allow-scripts"
-                                                                        onLoad={(event) => syncInterviewPreviewHeight(event.currentTarget)}
-                                                                        className="w-full border-0 bg-white"
-                                                                        style={{height: interviewPreviewHeight}}
-                                                                    />
-                                                                </div>
-                                                            ) : (
-                                                                <div
-                                                                    className="prose prose-slate max-w-none dark:prose-invert"
-                                                                    dangerouslySetInnerHTML={{__html: candidateDetail.interview_questions[0].html_content}}
-                                                                />
-                                                            )}
-                                                        </div>
-                                                    ) : (
-                                                        <EmptyState title="暂无面试题"
-                                                                    description="点击上方按钮后，系统会结合岗位 JD、候选人简历和 Skills 生成定制化题目。"/>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </Field>
-
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <EmptyState title="请选择一个候选人"
-                                        description="左侧列表或看板选中候选人后，右侧会打开完整档案与 AI 评估区。"/>
-                        )}
-                    </Card>
-                </div>
-            </div>
+            <CandidatesPage
+                panelClass={panelClass}
+                candidateFiltersCollapsed={candidateFiltersCollapsed}
+                candidateFilterSummary={candidateFilterSummary}
+                candidateViewMode={candidateViewMode}
+                setCandidateViewMode={setCandidateViewMode}
+                setCandidateFiltersCollapsed={setCandidateFiltersCollapsed}
+                candidateQuery={candidateQuery}
+                setCandidateQuery={setCandidateQuery}
+                candidatePositionFilter={candidatePositionFilter}
+                setCandidatePositionFilter={setCandidatePositionFilter}
+                candidateStatusFilter={candidateStatusFilter}
+                setCandidateStatusFilter={setCandidateStatusFilter}
+                candidateMatchFilter={candidateMatchFilter}
+                setCandidateMatchFilter={setCandidateMatchFilter}
+                candidateSourceFilter={candidateSourceFilter}
+                setCandidateSourceFilter={setCandidateSourceFilter}
+                candidateTimeFilter={candidateTimeFilter}
+                setCandidateTimeFilter={setCandidateTimeFilter}
+                positions={positions}
+                sourceOptions={sourceOptions}
+                visibleCandidates={visibleCandidates}
+                selectedCandidateIds={selectedCandidateIds}
+                setSelectedCandidateIds={setSelectedCandidateIds}
+                triggerScreening={triggerScreening}
+                isBatchScreeningCancelling={isBatchScreeningCancelling}
+                screeningSubmitting={screeningSubmitting}
+                isBatchScreeningRunning={isBatchScreeningRunning}
+                openResumeMailDialog={openResumeMailDialog}
+                candidatesLoading={candidatesLoading}
+                candidateListScrollRef={candidateListScrollRef}
+                candidateListHorizontalRailRef={candidateListHorizontalRailRef}
+                candidateListTableWidth={candidateListTableWidth}
+                renderCandidateListHeaderCell={renderCandidateListHeaderCell}
+                selectedCandidateId={selectedCandidateId}
+                setSelectedCandidateId={setSelectedCandidateId}
+                toggleCandidateSelection={toggleCandidateSelection}
+                candidateListDisplayColumnWidths={candidateListDisplayColumnWidths}
+                getCandidateResumeMailSummary={getCandidateResumeMailSummary}
+                groupedCandidates={groupedCandidates}
+                candidateDetailLoading={candidateDetailLoading}
+                candidateDetail={candidateDetail}
+                isSelectedCandidateScreeningCancelling={isSelectedCandidateScreeningCancelling}
+                selectedCandidateScreeningTaskId={selectedCandidateScreeningTaskId}
+                openResumeFile={openResumeFile}
+                generateInterviewQuestions={generateInterviewQuestions}
+                isCurrentInterviewTaskCancelling={isCurrentInterviewTaskCancelling}
+                currentCandidateInterviewTaskId={currentCandidateInterviewTaskId}
+                candidateEditor={candidateEditor}
+                setCandidateEditor={setCandidateEditor}
+                saveCandidate={saveCandidate}
+                effectiveScreeningSkillSourceLabel={effectiveScreeningSkillSourceLabel}
+                effectiveScreeningSkillIds={effectiveScreeningSkillIds}
+                skillMap={skillMap}
+                pendingStatus={pendingStatus}
+                setPendingStatus={setPendingStatus}
+                updateCandidateStatus={updateCandidateStatus}
+                statusUpdateReason={statusUpdateReason}
+                setStatusUpdateReason={setStatusUpdateReason}
+                candidateAssistantActivity={candidateAssistantActivity}
+                preferredInterviewSkillSourceLabel={preferredInterviewSkillSourceLabel}
+                effectiveInterviewSkillSourceLabel={effectiveInterviewSkillSourceLabel}
+                openAssistantMode={openAssistantMode}
+                candidateProcessActivity={candidateProcessActivity}
+                candidateProcessLogsExpanded={candidateProcessLogsExpanded}
+                setCandidateProcessLogsExpanded={setCandidateProcessLogsExpanded}
+                openTaskLogDetail={openTaskLogDetail}
+                interviewRoundName={interviewRoundName}
+                setInterviewRoundName={setInterviewRoundName}
+                effectiveInterviewSkillIds={effectiveInterviewSkillIds}
+                interviewCustomRequirements={interviewCustomRequirements}
+                setInterviewCustomRequirements={setInterviewCustomRequirements}
+                interviewSkillSelectionDirty={interviewSkillSelectionDirty}
+                setSelectedInterviewSkillIds={setSelectedInterviewSkillIds}
+                setInterviewSkillSelectionDirty={setInterviewSkillSelectionDirty}
+                skills={skills}
+                toggleInterviewSkillSelection={toggleInterviewSkillSelection}
+                downloadInterviewQuestion={downloadInterviewQuestion}
+                syncInterviewPreviewHeight={syncInterviewPreviewHeight}
+                interviewPreviewHeight={interviewPreviewHeight}
+            />
         );
     }
 
     function renderAuditPage() {
-        const selectedLogSkillSnapshots = selectedLogDetail ? resolveLogSkillSnapshots(selectedLogDetail, skillMap) : [];
-
         return (
-            <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-6 overflow-hidden">
-                <Card className={panelClass}>
-                    <CardContent className={cn("px-6", auditFiltersCollapsed ? "py-4" : "py-6")}>
-                        <div className="flex flex-col gap-4">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">任务筛选条</p>
-                                    <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{auditFiltersCollapsed ? auditFilterSummary : "按任务类型和状态收拢 AI 任务，便于排查与复盘。"}</p>
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                    <Button variant="outline" onClick={() => void refreshLogsWithFeedback()} disabled={logsLoading}>
-                                        {logsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> :
-                                            <RefreshCw className="h-4 w-4"/>}
-                                        {logsLoading ? "刷新中..." : "刷新任务"}
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setAuditFiltersCollapsed((current) => !current)}
-                                    >
-                                        {auditFiltersCollapsed ? <ChevronDown className="h-4 w-4"/> : <ChevronUp className="h-4 w-4"/>}
-                                        {auditFiltersCollapsed ? "展开筛选" : "收起筛选"}
-                                    </Button>
-                                </div>
-                            </div>
-                            {!auditFiltersCollapsed ? (
-                                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr]">
-                                    <NativeSelect value={logTaskTypeFilter}
-                                                  onChange={(event) => setLogTaskTypeFilter(event.target.value)}>
-                                        <option value="all">全部任务类型</option>
-                                        {Object.entries(aiTaskLabels).map(([value, label]) => (
-                                            <option key={value} value={value}>
-                                                {label}
-                                            </option>
-                                        ))}
-                                    </NativeSelect>
-                                    <NativeSelect value={logStatusFilter}
-                                                  onChange={(event) => setLogStatusFilter(event.target.value)}>
-                                        <option value="all">全部状态</option>
-                                        <option value="pending">pending</option>
-                                        <option value="success">success</option>
-                                        <option value="fallback">fallback</option>
-                                        <option value="running">running</option>
-                                        <option value="cancelling">cancelling</option>
-                                        <option value="cancelled">cancelled</option>
-                                        <option value="failed">failed</option>
-                                    </NativeSelect>
-                                </div>
-                            ) : null}
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <div
-                    className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(540px,42%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(680px,45%)]">
-                    <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden")}>
-                        <CardHeader className="pb-0">
-                            <CardTitle className="text-lg">任务审计中心</CardTitle>
-                            <CardDescription>展示任务类型、关联对象、状态、使用模型和执行时间。</CardDescription>
-                        </CardHeader>
-                        <CardContent className="flex min-h-0 flex-1 flex-col pt-6">
-                            {logsLoading ? (
-                                <LoadingCard label="正在加载 AI 审计日志"/>
-                            ) : (
-                                <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
-                                    <div
-                                        ref={auditListScrollRef}
-                                        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
-                                    >
-                                        <div style={{width: auditListTableWidth, minWidth: auditListTableWidth}}>
-                                            <Table className="table-fixed" style={{width: auditListTableWidth, minWidth: auditListTableWidth}}>
-                                                <TableHeader>
-                                                    <TableRow>
-                                                        <TableHead style={{width: auditListDisplayColumnWidths.taskType, minWidth: auditListDisplayColumnWidths.taskType, maxWidth: auditListDisplayColumnWidths.taskType}}
-                                                                   className="whitespace-nowrap">任务类型</TableHead>
-                                                        <TableHead style={{width: auditListDisplayColumnWidths.object, minWidth: auditListDisplayColumnWidths.object, maxWidth: auditListDisplayColumnWidths.object}}
-                                                                   className="whitespace-nowrap">关联对象</TableHead>
-                                                        <TableHead style={{width: auditListDisplayColumnWidths.status, minWidth: auditListDisplayColumnWidths.status, maxWidth: auditListDisplayColumnWidths.status}}
-                                                                   className="whitespace-nowrap">状态</TableHead>
-                                                        <TableHead style={{width: auditListDisplayColumnWidths.model, minWidth: auditListDisplayColumnWidths.model, maxWidth: auditListDisplayColumnWidths.model}}
-                                                                   className="whitespace-nowrap">模型</TableHead>
-                                                        <TableHead style={{width: auditListDisplayColumnWidths.duration, minWidth: auditListDisplayColumnWidths.duration, maxWidth: auditListDisplayColumnWidths.duration}}
-                                                                   className="whitespace-nowrap">耗时</TableHead>
-                                                        <TableHead style={{width: auditListDisplayColumnWidths.time, minWidth: auditListDisplayColumnWidths.time, maxWidth: auditListDisplayColumnWidths.time}}
-                                                                   className="whitespace-nowrap text-right">时间</TableHead>
-                                                    </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                    {aiLogs.length ? aiLogs.map((log) => (
-                                                        <TableRow
-                                                            key={log.id}
-                                                            className={cn("cursor-pointer", selectedLogId === log.id && "bg-slate-100 dark:bg-slate-900")}
-                                                            onClick={() => setSelectedLogId(log.id)}
-                                                        >
-                                                            <TableCell
-                                                                style={{width: auditListDisplayColumnWidths.taskType, minWidth: auditListDisplayColumnWidths.taskType, maxWidth: auditListDisplayColumnWidths.taskType}}>
-                                                                <HoverRevealText
-                                                                    text={labelForTaskType(log.task_type)}/>
-                                                            </TableCell>
-                                                            <TableCell
-                                                                style={{width: auditListDisplayColumnWidths.object, minWidth: auditListDisplayColumnWidths.object, maxWidth: auditListDisplayColumnWidths.object}}>
-                                                                <HoverRevealText
-                                                                    text={buildLogObjectLabel(log, positionMap, candidateMap, skillMap)}/>
-                                                            </TableCell>
-                                                            <TableCell style={{width: auditListDisplayColumnWidths.status, minWidth: auditListDisplayColumnWidths.status, maxWidth: auditListDisplayColumnWidths.status}}>
-                                                                <Badge
-                                                                    className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
-                                                                    {labelForTaskExecutionStatus(log.status)}
-                                                                </Badge>
-                                                            </TableCell>
-                                                            <TableCell
-                                                                style={{width: auditListDisplayColumnWidths.model, minWidth: auditListDisplayColumnWidths.model, maxWidth: auditListDisplayColumnWidths.model}}>
-                                                                <HoverRevealText
-                                                                    text={`${labelForProvider(log.model_provider)} · ${log.model_name || "-"}`}/>
-                                                            </TableCell>
-                                                            <TableCell style={{width: auditListDisplayColumnWidths.duration, minWidth: auditListDisplayColumnWidths.duration, maxWidth: auditListDisplayColumnWidths.duration}}
-                                                                       className="tabular-nums">
-                                                                {log.duration_ms != null ? `${(log.duration_ms / 1000).toFixed(1)}s` : "-"}
-                                                            </TableCell>
-                                                            <TableCell
-                                                                style={{width: auditListDisplayColumnWidths.time, minWidth: auditListDisplayColumnWidths.time, maxWidth: auditListDisplayColumnWidths.time}}
-                                                                className="whitespace-nowrap pr-4 text-right tabular-nums">
-                                                                {formatDateTime(log.created_at)}
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    )) : (
-                                                        <TableRow>
-                                                            <TableCell colSpan={6}>
-                                                                <EmptyState title="暂无 AI 审计记录"
-                                                                            description="当招聘模块调用模型后，这里会沉淀成可追踪的任务日志。"/>
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    )}
-                                                </TableBody>
-                                            </Table>
-                                        </div>
-                                    </div>
-                                    <div className="shrink-0 border-t border-slate-200/80 pt-2 dark:border-slate-800">
-                                        <div
-                                            ref={auditListHorizontalRailRef}
-                                            className="overflow-x-auto overflow-y-hidden [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.95)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100/80 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.98)_transparent] dark:[&::-webkit-scrollbar-track]:bg-slate-900/80 dark:[&::-webkit-scrollbar-thumb]:border-slate-900 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700"
-                                        >
-                                            <div style={{width: auditListTableWidth, height: 1}}/>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-
-                    <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
-                        {logDetailLoading ? <LoadingPanel label="正在加载日志详情"/> : selectedLogDetail ? (
-                            <div className="flex h-full min-h-0 flex-1 flex-col">
-                                <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-800">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <Badge
-                                            className={cn("rounded-full border", statusBadgeClass("task", selectedLogDetail.status))}>
-                                            {labelForTaskExecutionStatus(selectedLogDetail.status)}
-                                        </Badge>
-                                        <Badge variant="outline"
-                                               className="rounded-full">{labelForTaskType(selectedLogDetail.task_type)}</Badge>
-                                    </div>
-                                    <h3 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-                                        {buildLogObjectLabel(selectedLogDetail, positionMap, candidateMap, skillMap)}
-                                    </h3>
-                                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                                        {labelForProvider(selectedLogDetail.model_provider)} · {selectedLogDetail.model_name || "-"} · {formatLongDateTime(selectedLogDetail.created_at)}
-                                    </p>
-                                </div>
-                                <div
-                                    className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-                                    <div className="min-w-0 space-y-5 px-6 py-6">
-                                        <div className="grid gap-3 md:grid-cols-2">
-                                            <InfoTile
-                                                label="技能使用情况"
-                                                value={formatSkillSnapshotNames(selectedLogSkillSnapshots)}
-                                            />
-                                            <InfoTile label="记忆来源"
-                                                      value={labelForMemorySource(selectedLogDetail.memory_source)}/>
-                                        </div>
-                                        <InfoTile label="输入摘要" value={selectedLogDetail.input_summary || "暂无"}/>
-                                        <InfoTile label="输出摘要" value={selectedLogDetail.output_summary || "暂无"}/>
-                                        <InfoTile label="错误信息" value={selectedLogDetail.error_message || "无"}/>
-                                        <Field label="完整 Skills">
-                                            <div className="space-y-3">
-                                                {selectedLogSkillSnapshots.length ? (
-                                                    selectedLogSkillSnapshots.map((skill) => (
-                                                        <div key={`${skill.skill_code}-${skill.id}`}
-                                                             className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
-                                                            <div
-                                                                className="flex flex-wrap items-start justify-between gap-3">
-                                                                <div>
-                                                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{skill.name}</p>
-                                                                    {skill.description ?
-                                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{skill.description}</p> : null}
-                                                                </div>
-                                                                {skill.tags.length ? (
-                                                                    <div className="flex flex-wrap gap-2">
-                                                                        {skill.tags.map((tag) => (
-                                                                            <Badge key={`${skill.skill_code}-${tag}`}
-                                                                                   variant="outline"
-                                                                                   className="rounded-full">{tag}</Badge>
-                                                                        ))}
-                                                                    </div>
-                                                                ) : null}
-                                                            </div>
-                                                            <pre
-                                                                className="mt-3 whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">{skill.content || "暂无内容"}</pre>
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    <div
-                                                        className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                                                        本次未记录关联 Skills。
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </Field>
-                                        <Field label="Prompt Snapshot">
-                                            <div
-                                                className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                                <pre
-                                                    className="whitespace-pre-wrap break-words">{selectedLogDetail.prompt_snapshot || "暂无 Prompt 快照"}</pre>
-                                            </div>
-                                        </Field>
-                                        <Field label="完整模型请求">
-                                            <div
-                                                className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                                <pre
-                                                    className="whitespace-pre-wrap break-words">{selectedLogDetail.full_request_snapshot || "暂无完整模型请求"}</pre>
-                                            </div>
-                                        </Field>
-                                        <Field label="完整输出">
-                                            <div
-                                                className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                                <pre
-                                                    className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.output_snapshot, selectedLogDetail.output_summary || "暂无完整输出")}</pre>
-                                            </div>
-                                        </Field>
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <EmptyState title="请选择一条任务记录"
-                                        description="左侧点开任务后，这里会展示输入摘要、输出摘要、错误信息和 Skill 使用情况。"/>
-                        )}
-                    </Card>
-                </div>
-            </div>
+            <AuditPage
+                panelClass={panelClass}
+                auditFiltersCollapsed={auditFiltersCollapsed}
+                auditFilterSummary={auditFilterSummary}
+                logsLoading={logsLoading}
+                logTaskTypeFilter={logTaskTypeFilter}
+                logStatusFilter={logStatusFilter}
+                aiLogs={aiLogs}
+                selectedLogId={selectedLogId}
+                selectedLogDetail={selectedLogDetail}
+                logDetailLoading={logDetailLoading}
+                auditListTableWidth={auditListTableWidth}
+                auditListDisplayColumnWidths={auditListDisplayColumnWidths}
+                positionMap={positionMap}
+                candidateMap={candidateMap}
+                skillMap={skillMap}
+                refreshLogsWithFeedback={refreshLogsWithFeedback}
+                setAuditFiltersCollapsed={setAuditFiltersCollapsed}
+                setLogTaskTypeFilter={setLogTaskTypeFilter}
+                setLogStatusFilter={setLogStatusFilter}
+                setSelectedLogId={setSelectedLogId}
+                auditListScrollRef={auditListScrollRef}
+                auditListHorizontalRailRef={auditListHorizontalRailRef}
+            />
         );
     }
 
     function renderAssistantPage() {
         return (
-            <Card className={cn(panelClass, "h-full min-h-0 overflow-hidden")}>
-                {assistantOpen ? renderAssistantSuspendedState() : renderAssistantConsole("page")}
-            </Card>
+            <AssistantPage
+                panelClass={panelClass}
+                assistantOpen={assistantOpen}
+                renderAssistantSuspendedState={renderAssistantSuspendedState}
+                renderAssistantConsole={renderAssistantConsole}
+            />
         );
     }
 
     function renderSkillsPage() {
         return (
-            <div className="space-y-6">
-                <Card className={panelClass}>
-                    <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-6">
-                        <div>
-                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Skills
-                                属于管理员设置</p>
-                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">入口已收进管理设置，避免主工作台被配置项干扰。</p>
-                        </div>
-                        <Button onClick={() => openSkillEditor()}>
-                            <Plus className="h-4 w-4"/>
-                            新增 Skill
-                        </Button>
-                    </CardContent>
-                </Card>
-
-                <div className="grid gap-4 xl:grid-cols-2">
-                    {skillsLoading ? <LoadingPanel label="正在加载 Skills"/> : skills.length ? skills.map((skill) => (
-                        <Card key={skill.id} className={panelClass}>
-                            <CardHeader>
-                                <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                        <CardTitle className="text-lg">{skill.name}</CardTitle>
-                                        <CardDescription
-                                            className="mt-2">{skill.description || "未填写说明"}</CardDescription>
-                                    </div>
-                                    <Badge
-                                        className={cn("rounded-full border", skill.is_enabled ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                                        {skill.is_enabled ? "启用中" : "已停用"}
-                                    </Badge>
-                                </div>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">{shortText(skill.content, 220)}</p>
-                                <div className="flex flex-wrap gap-2">
-                                    {skill.tags.map((tag) => (
-                                        <Badge key={tag} variant="outline" className="rounded-full">{tag}</Badge>
-                                    ))}
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                    <Button size="sm" variant="outline"
-                                            onClick={() => openSkillEditor(skill)}>编辑</Button>
-                                    <Button size="sm" variant="outline"
-                                            onClick={() => void toggleSkill(skill.id, !skill.is_enabled)}>
-                                        {skill.is_enabled ? "停用" : "启用"}
-                                    </Button>
-                                    <Button size="sm" variant="outline"
-                                            onClick={() => setSkillDeleteTarget(skill)}>删除</Button>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    )) : <EmptyState title="暂无 Skills"
-                                     description="管理员可以在这里维护招聘领域 Skills，供 AI 评估和题目生成使用。"/>}
-                </div>
-            </div>
+            <SkillSettingsPage
+                panelClass={panelClass}
+                skillsLoading={skillsLoading}
+                skills={skills}
+                openSkillEditor={openSkillEditor}
+                toggleSkill={toggleSkill}
+                setSkillDeleteTarget={setSkillDeleteTarget}
+            />
         );
     }
 
     function renderModelsPage() {
-        const groupedConfigs = Array.from(
-            llmConfigs.reduce((map, item) => {
-                const current = map.get(item.task_type) || [];
-                current.push(item);
-                map.set(item.task_type, current);
-                return map;
-            }, new Map<string, RecruitmentLLMConfig[]>()).entries(),
-        );
-
         return (
-            <div className="space-y-6">
-                <Card className={panelClass}>
-                    <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-6">
-                        <div>
-                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">模型配置中心</p>
-                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">同一任务类型会按优先级数字从小到大生效。新增
-                                GLM、Gemini 或其他模型后，直接把它设为当前使用即可。</p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <Button variant="outline" onClick={() => void refreshLLMConfigsWithFeedback()}
-                                    disabled={modelsLoading}>
-                                {modelsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> :
-                                    <RefreshCw className="h-4 w-4"/>}
-                                {modelsLoading ? "刷新中..." : "刷新模型"}
-                            </Button>
-                            <Button variant="outline" onClick={() => void ensureGlmTemplateConfig()}
-                                    disabled={glmTemplateCreating}>
-                                {glmTemplateCreating ? <Loader2 className="h-4 w-4 animate-spin"/> :
-                                    <Sparkles className="h-4 w-4"/>}
-                                {existingGlmConfig ? "编辑 GLM 模板" : "新增 GLM 模板"}
-                            </Button>
-                            <Button onClick={() => openLLMEditor()}>
-                                <Plus className="h-4 w-4"/>
-                                新增模型
-                            </Button>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <InfoTile label="当前对话模型" value={assistantModelLabel}/>
-                    <InfoTile label="当前对话来源" value={assistantActiveLLMConfig?.resolved_source || "暂未识别"}/>
-                    <InfoTile label="已启用模型数" value={String(llmConfigs.filter((item) => item.is_active).length)}/>
-                    <InfoTile label="模型总数" value={String(llmConfigs.length)}/>
-                </div>
-
-                {groupedConfigs.length ? groupedConfigs.map(([taskType, configs]) => (
-                    <Card key={taskType} className={panelClass}>
-                        <CardHeader>
-                            <CardTitle className="text-lg">{labelForTaskType(taskType)}</CardTitle>
-                            <CardDescription>当前任务会优先命中标记为“当前生效”的模型；若它被停用或删除，系统会自动回退到同任务下一个可用配置。</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {configs.map((config) => {
-                                const isCurrent = preferredLLMConfigIds.has(config.id);
-                                const resolvedProvider = labelForProvider(config.resolved_provider || config.provider);
-                                const resolvedModelName = config.resolved_model_name || config.model_name || "-";
-                                return (
-                                    <div key={config.id}
-                                         className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                        <div className="flex flex-wrap items-start justify-between gap-3">
-                                            <div>
-                                                <p className="font-medium text-slate-900 dark:text-slate-100">{config.config_key}</p>
-                                                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{resolvedProvider} / {resolvedModelName}</p>
-                                            </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {isCurrent ? <Badge
-                                                    className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">当前生效</Badge> : null}
-                                                <Badge
-                                                    className={cn("rounded-full border", config.is_active ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                                                    {config.is_active ? "已启用" : "已停用"}
-                                                </Badge>
-                                                <Badge variant="outline"
-                                                       className="rounded-full">优先级 {config.priority}</Badge>
-                                            </div>
-                                        </div>
-                                        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                            <InfoTile label="Provider" value={labelForProvider(config.provider)}/>
-                                            <InfoTile label="模型名" value={config.model_name}/>
-                                            <InfoTile label="解析后来源" value={config.resolved_source || "-"}/>
-                                            <InfoTile label="Base URL"
-                                                      value={config.resolved_base_url || config.base_url || "-"}/>
-                                        </div>
-                                        <div className="mt-4 flex flex-wrap gap-2">
-                                            <Button size="sm" variant={isCurrent ? "default" : "outline"}
-                                                    onClick={() => void setPreferredLLMConfig(config)}
-                                                    disabled={isCurrent}>
-                                                {isCurrent ? "当前使用中" : "设为当前使用"}
-                                            </Button>
-                                            <Button size="sm" variant="outline"
-                                                    onClick={() => openLLMEditor(config)}>编辑</Button>
-                                            <Button size="sm" variant="outline"
-                                                    onClick={() => setLlmDeleteTarget(config)}>删除</Button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </CardContent>
-                    </Card>
-                )) : (
-                    <EmptyState title="暂无模型配置" description="先新增至少一个模型配置，系统才会按任务类型进行路由。"/>
-                )}
-            </div>
+            <ModelSettingsPage
+                panelClass={panelClass}
+                llmConfigs={llmConfigs}
+                modelsLoading={modelsLoading}
+                assistantModelLabel={assistantModelLabel}
+                assistantActiveLLMConfig={assistantActiveLLMConfig}
+                preferredLLMConfigIds={preferredLLMConfigIds}
+                existingGlmConfig={existingGlmConfig}
+                glmTemplateCreating={glmTemplateCreating}
+                openLLMEditor={openLLMEditor}
+                setPreferredLLMConfig={setPreferredLLMConfig}
+                setLlmDeleteTarget={setLlmDeleteTarget}
+                refreshLLMConfigsWithFeedback={refreshLLMConfigsWithFeedback}
+                ensureGlmTemplateConfig={ensureGlmTemplateConfig}
+            />
         );
     }
 
     function renderMailSettingsPage() {
-        const hasMailData = mailSenderConfigs.length || mailRecipients.length || resumeMailDispatches.length;
-
-        if (mailSettingsLoading && !hasMailData) {
-            return <LoadingPanel label="正在加载邮件中心"/>;
-        }
-
         return (
-            <div className="space-y-6">
-                <Card className={panelClass}>
-                    <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-6">
-                        <div>
-                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">邮件配置与投递中心</p>
-                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">统一维护发件箱、收件人和发送记录，并支持从当前候选人上下文直接发简历。</p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <Button variant="outline" onClick={() => void refreshMailSettingsWithFeedback()}
-                                    disabled={mailSettingsLoading}>
-                                {mailSettingsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> :
-                                    <RefreshCw className="h-4 w-4"/>}
-                                {mailSettingsLoading ? "刷新中..." : "刷新邮件配置"}
-                            </Button>
-                            <Button
-                                variant="outline"
-                                onClick={() => openResumeMailDialog()}
-                                disabled={!selectedCandidateIds.length && !selectedCandidateId}
-                            >
-                                <Send className="h-4 w-4"/>
-                                发送当前候选人
-                            </Button>
-                            <Button variant="outline" onClick={() => openMailRecipientEditor()}>
-                                <Plus className="h-4 w-4"/>
-                                新增收件人
-                            </Button>
-                            <Button onClick={() => openMailSenderEditor()}>
-                                <Plus className="h-4 w-4"/>
-                                新增发件箱
-                            </Button>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <div className="grid gap-6 xl:grid-cols-2">
-                    <Card className={panelClass}>
-                        <CardHeader>
-                            <CardTitle className="text-lg">发件箱</CardTitle>
-                            <CardDescription>支持个人邮箱、163、Outlook
-                                和后续企业邮箱。默认发件箱会作为简历发送时的首选。</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {mailSenderConfigs.length ? mailSenderConfigs.map((sender) => (
-                                <div key={sender.id}
-                                     className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="font-medium text-slate-900 dark:text-slate-100">{sender.name}</p>
-                                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{sender.from_name || sender.name} &lt;{sender.from_email}&gt;</p>
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {sender.is_default ? <Badge
-                                                className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">默认</Badge> : null}
-                                            <Badge
-                                                className={cn("rounded-full border", sender.is_enabled ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                                                {sender.is_enabled ? "启用中" : "已停用"}
-                                            </Badge>
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                        <InfoTile label="SMTP" value={`${sender.smtp_host}:${sender.smtp_port}`}/>
-                                        <InfoTile label="登录账号" value={sender.username}/>
-                                    </div>
-                                    <div className="mt-4 flex flex-wrap gap-2">
-                                        <Button size="sm" variant="outline"
-                                                onClick={() => openMailSenderEditor(sender)}>编辑</Button>
-                                        <Button size="sm" variant="outline"
-                                                onClick={() => setMailSenderDeleteTarget(sender)}>删除</Button>
-                                    </div>
-                                </div>
-                            )) : <EmptyState title="暂无发件箱"
-                                             description="先配置至少一个发件箱，后续才能把简历发送给招聘团队、面试官或业务负责人。"/>}
-                        </CardContent>
-                    </Card>
-
-                    <Card className={panelClass}>
-                        <CardHeader>
-                            <CardTitle className="text-lg">收件人</CardTitle>
-                            <CardDescription>统一维护公司内部可选收件人，发送时支持单选、多选，并允许临时补充外部邮箱。</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {mailRecipients.length ? mailRecipients.map((recipient) => (
-                                <div key={recipient.id}
-                                     className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div>
-                                            <p className="font-medium text-slate-900 dark:text-slate-100">{recipient.name}</p>
-                                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{recipient.email}</p>
-                                        </div>
-                                        <Badge
-                                            className={cn("rounded-full border", recipient.is_enabled ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                                            {recipient.is_enabled ? "可选择" : "已停用"}
-                                        </Badge>
-                                    </div>
-                                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                                        {recipient.department || "未设置部门"} / {recipient.role_title || "未设置岗位"}
-                                    </p>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        {recipient.tags.map((tag) => (
-                                            <Badge key={tag} variant="outline" className="rounded-full">{tag}</Badge>
-                                        ))}
-                                    </div>
-                                    {recipient.notes ?
-                                        <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{recipient.notes}</p> : null}
-                                    <div className="mt-4 flex flex-wrap gap-2">
-                                        <Button size="sm" variant="outline"
-                                                onClick={() => openMailRecipientEditor(recipient)}>编辑</Button>
-                                        <Button size="sm" variant="outline"
-                                                onClick={() => setMailRecipientDeleteTarget(recipient)}>删除</Button>
-                                    </div>
-                                </div>
-                            )) : <EmptyState title="暂无收件人"
-                                             description="先维护公司内部收件人名单，发送简历时就能直接多选。"/>}
-                        </CardContent>
-                    </Card>
-                </div>
-
-                <Card className={panelClass}>
-                    <CardHeader>
-                        <CardTitle className="text-lg">发送记录</CardTitle>
-                        <CardDescription>保留每次简历发送的发件箱、候选人、收件人、主题和状态，便于追踪是否已送达。</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {resumeMailDispatches.length ? resumeMailDispatches.map((dispatch) => {
-                            const recipientSummary = [
-                                ...dispatch.recipient_ids.map((recipientId) => mailRecipientMap.get(recipientId)?.name || `收件人 #${recipientId}`),
-                                ...dispatch.recipient_emails,
-                            ].join("、");
-                            const candidateSummary = dispatch.candidate_ids
-                                .map((candidateId) => candidateMap.get(candidateId)?.name || `候选人 #${candidateId}`)
-                                .join("、");
-                            const dispatchActionKey = `mail-dispatch-${dispatch.id}`;
-                            const isDispatchActing = mailDispatchActionKey === dispatchActionKey;
-
-                            return (
-                                <div key={dispatch.id}
-                                     className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                    <div className="flex flex-wrap items-start justify-between gap-3">
-                                        <div>
-                                            <p className="font-medium text-slate-900 dark:text-slate-100">{dispatch.subject || "未自定义标题（将使用系统默认标题）"}</p>
-                                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                                                {mailSenderMap.get(dispatch.sender_config_id || 0)?.name || dispatch.sender_name || "默认发件箱"} / {formatLongDateTime(dispatch.sent_at || dispatch.created_at)}
-                                            </p>
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            <Badge
-                                                className={cn("rounded-full border", statusBadgeClass("task", dispatch.status === "sent" ? "success" : dispatch.status))}>
-                                                {labelForResumeMailDispatchStatus(dispatch.status)}
-                                            </Badge>
-                                            {dispatch.status === "sent" ? (
-                                                <Badge variant="outline" className="rounded-full">可再次发送</Badge>
-                                            ) : null}
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                        <InfoTile label="候选人" value={shortText(candidateSummary || "未记录", 120)}/>
-                                        <InfoTile label="收件人" value={shortText(recipientSummary || "未记录", 120)}/>
-                                    </div>
-                                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{shortText(dispatch.body_text || "正文留空时，系统会使用默认邮件正文模板。", 180)}</p>
-                                    {dispatch.error_message ? (
-                                        <p className="mt-3 text-sm text-rose-600 dark:text-rose-300">{dispatch.error_message}</p>
-                                    ) : null}
-                                    <div className="mt-4 flex flex-wrap gap-2">
-                                        {dispatch.status === "failed" ? (
-                                            <Button size="sm" variant="outline"
-                                                    onClick={() => void retryResumeMailDispatch(dispatch)}
-                                                    disabled={isDispatchActing}>
-                                                {isDispatchActing ? "重试中..." : "失败重试"}
-                                            </Button>
-                                        ) : null}
-                                        <Button size="sm" variant="outline"
-                                                onClick={() => openResumeMailReplayDialog(dispatch)}>
-                                            再次发送
-                                        </Button>
-                                    </div>
-                                </div>
-                            );
-                        }) : <EmptyState title="暂无发送记录"
-                                         description="从候选人中心发送简历后，这里会沉淀完整的发送审计记录。"/>}
-                    </CardContent>
-                </Card>
-            </div>
+            <MailSettingsPage
+                panelClass={panelClass}
+                mailSenderConfigs={mailSenderConfigs}
+                mailRecipients={mailRecipients}
+                resumeMailDispatches={resumeMailDispatches}
+                mailSettingsLoading={mailSettingsLoading}
+                mailRecipientMap={mailRecipientMap}
+                mailSenderMap={mailSenderMap}
+                candidateMap={candidateMap}
+                mailDispatchActionKey={mailDispatchActionKey}
+                selectedCandidateIds={selectedCandidateIds}
+                selectedCandidateId={selectedCandidateId}
+                openMailSenderEditor={openMailSenderEditor}
+                openMailRecipientEditor={openMailRecipientEditor}
+                openResumeMailDialog={openResumeMailDialog}
+                openResumeMailReplayDialog={openResumeMailReplayDialog}
+                retryResumeMailDispatch={retryResumeMailDispatch}
+                setMailSenderDeleteTarget={setMailSenderDeleteTarget}
+                setMailRecipientDeleteTarget={setMailRecipientDeleteTarget}
+                refreshMailSettingsWithFeedback={refreshMailSettingsWithFeedback}
+            />
         );
     }
 
@@ -6653,50 +4522,68 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         </Button>
                     </div>
 
-                    <div className="min-h-0 flex-1 overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0">
+                    <div
+                        ref={primaryNavScrollRef}
+                        className="min-h-0 flex-1 overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0"
+                    >
                         <div className="space-y-2">
                             <SectionNavButton
-                                active={activePage === "workspace"}
+                                active={activePrimaryNavPage === "workspace"}
                                 icon={FolderKanban}
                                 title="招聘工作台"
                                 description="首页指标、待办、快捷操作与近期活动"
                                 count={dashboard?.cards.positions_recruiting ?? 0}
                                 collapsed={navCollapsed}
+                                buttonRef={(node) => {
+                                    primaryNavButtonRefs.current.workspace = node;
+                                }}
                                 onClick={() => navigatePrimaryPage("workspace")}
                             />
                             <SectionNavButton
-                                active={activePage === "positions"}
+                                active={activePrimaryNavPage === "positions"}
                                 icon={BriefcaseBusiness}
                                 title="岗位管理"
                                 description="岗位列表 + 详情工作区 + JD 版本"
                                 count={positions.length}
                                 collapsed={navCollapsed}
+                                buttonRef={(node) => {
+                                    primaryNavButtonRefs.current.positions = node;
+                                }}
                                 onClick={() => navigatePrimaryPage("positions")}
                             />
                             <SectionNavButton
-                                active={activePage === "candidates"}
+                                active={activePrimaryNavPage === "candidates"}
                                 icon={Users}
                                 title="候选人中心"
                                 description="ATS 列表、筛选、状态推进与档案查看"
                                 count={visibleCandidates.length}
                                 collapsed={navCollapsed}
+                                buttonRef={(node) => {
+                                    primaryNavButtonRefs.current.candidates = node;
+                                }}
                                 onClick={() => navigatePrimaryPage("candidates")}
                             />
                             <SectionNavButton
-                                active={activePage === "audit"}
+                                active={activePrimaryNavPage === "audit"}
                                 icon={History}
                                 title="AI 审计中心"
                                 description="看 AI 处理记录、模型、错误与留痕"
                                 count={aiLogs.length}
                                 collapsed={navCollapsed}
+                                buttonRef={(node) => {
+                                    primaryNavButtonRefs.current.audit = node;
+                                }}
                                 onClick={() => navigatePrimaryPage("audit")}
                             />
                             <SectionNavButton
-                                active={activePage === "assistant"}
+                                active={activePrimaryNavPage === "assistant"}
                                 icon={Bot}
                                 title="AI 招聘助手"
                                 description="自然语言驱动岗位、候选人和 Skill 上下文"
                                 collapsed={navCollapsed}
+                                buttonRef={(node) => {
+                                    primaryNavButtonRefs.current.assistant = node;
+                                }}
                                 onClick={() => navigatePrimaryPage("assistant")}
                             />
                         </div>
@@ -7628,310 +5515,4 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             </Dialog>
         </div>
     );
-}
-
-function SearchField({
-                         value,
-                         onChange,
-                         placeholder,
-                         inputClassName,
-                     }: {
-    value: string;
-    onChange: (value: string) => void;
-    placeholder: string;
-    inputClassName?: string;
-}) {
-    return (
-        <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
-            <Input className={cn("pl-9", inputClassName)} value={value} onChange={(event) => onChange(event.target.value)}
-                   placeholder={placeholder}/>
-        </div>
-    );
-}
-
-function NativeSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-    return (
-        <select
-            {...props}
-            className={cn(
-                "border-input focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm text-foreground shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-[3px]",
-                props.className,
-            )}
-        />
-    );
-}
-
-function Field({
-                   label,
-                   children,
-                   className,
-               }: {
-    label: string;
-    children: React.ReactNode;
-    className?: string;
-}) {
-    return (
-        <div className={cn("min-w-0 space-y-2", className)}>
-            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{label}</p>
-            {children}
-        </div>
-    );
-}
-
-function MetricCard({
-                        title,
-                        value,
-                        description,
-                        icon: Icon,
-                    }: {
-    title: string;
-    value: number | string;
-    description: string;
-    icon: React.ComponentType<{ className?: string }>;
-}) {
-    return (
-        <Card className={cn(panelClass, "gap-4 px-0 py-0")}>
-            <CardContent className="flex items-start justify-between gap-3 px-4 py-4">
-                <div className="min-w-0">
-                    <p className="break-words text-[13px] text-slate-500 dark:text-slate-400">{title}</p>
-                    <p className="mt-2 text-[2rem] font-semibold tracking-tight text-slate-950 dark:text-slate-50">{value}</p>
-                    <p className="mt-1.5 break-words text-[11px] leading-5 text-slate-500 dark:text-slate-400">{description}</p>
-                </div>
-                <div
-                    className="shrink-0 rounded-2xl bg-slate-100 p-2.5 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                    <Icon className="h-4.5 w-4.5"/>
-                </div>
-            </CardContent>
-        </Card>
-    );
-}
-
-function TodoCard({
-                      title,
-                      value,
-                      description,
-                  }: {
-    title: string;
-    value: number;
-    description: string;
-}) {
-    return (
-        <div
-            className="rounded-[22px] border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-            <p className="break-words text-sm font-medium text-slate-900 dark:text-slate-100">{title}</p>
-            <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">{value}</p>
-            <p className="mt-2 break-words text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
-        </div>
-    );
-}
-
-function QuickActionCard({
-                             title,
-                             description,
-                             icon: Icon,
-                             onClick,
-                         }: {
-    title: string;
-    description: string;
-    icon: React.ComponentType<{ className?: string }>;
-    onClick: () => void;
-}) {
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            className="rounded-[22px] border border-slate-200/80 bg-white px-4 py-4 text-left transition hover:-translate-y-0.5 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950"
-        >
-            <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                    <p className="break-words text-[15px] font-semibold text-slate-900 dark:text-slate-100">{title}</p>
-                    <p className="mt-1.5 break-words text-[13px] leading-5 text-slate-500 dark:text-slate-400">{description}</p>
-                </div>
-                <div
-                    className="shrink-0 rounded-2xl bg-slate-100 p-2.5 text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                    <Icon className="h-4.5 w-4.5"/>
-                </div>
-            </div>
-        </button>
-    );
-}
-
-function SectionNavButton({
-                              active,
-                              icon: Icon,
-                              title,
-                              description,
-                              count,
-                              collapsed = false,
-                              onClick,
-                          }: {
-    active: boolean;
-    icon: React.ComponentType<{ className?: string }>;
-    title: string;
-    description: string;
-    count?: number;
-    collapsed?: boolean;
-    onClick: () => void;
-}) {
-    const badgeCountText = formatNavBadgeCount(count);
-    const buttonNode = (
-        <button
-            type="button"
-            onClick={onClick}
-            title={title}
-            className={cn(
-                "w-full rounded-[22px] border transition",
-                collapsed ? "relative mx-auto flex h-11 w-11 items-center justify-center rounded-2xl p-0" : "px-3 py-3.5 text-left",
-                active
-                    ? "border-slate-900 bg-slate-900 text-white shadow-[0_14px_28px_-18px_rgba(15,23,42,0.75)] dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900 dark:shadow-[0_14px_28px_-18px_rgba(255,255,255,0.25)]"
-                    : "border-slate-200/80 bg-white/80 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/70",
-            )}
-        >
-            {collapsed ? (
-                <>
-                    <Icon className="h-4.5 w-4.5" />
-                    {badgeCountText ? (
-                        <span
-                            className={cn(
-                                "absolute -right-1 -top-1 inline-flex min-w-[20px] items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-1.5 text-[10px] font-semibold leading-4 text-slate-700 shadow-[0_6px_14px_-8px_rgba(15,23,42,0.45)] ring-2 ring-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-950",
-                            )}
-                        >
-                            {badgeCountText}
-                        </span>
-                    ) : null}
-                </>
-            ) : (
-                <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3">
-                        <div
-                            className={cn("rounded-2xl p-2", active ? "bg-white/10 dark:bg-slate-200" : "bg-slate-100 dark:bg-slate-900")}>
-                            <Icon className="h-4 w-4"/>
-                        </div>
-                        <div className="min-w-0">
-                            <p className="font-semibold">{title}</p>
-                            <p className={cn("mt-1 text-xs leading-5", active ? "text-white/75 dark:text-slate-700" : "text-slate-500 dark:text-slate-400")}>
-                                {description}
-                            </p>
-                        </div>
-                    </div>
-                    {badgeCountText ? (
-                        <Badge
-                            className={cn("rounded-full border", active ? "border-white/20 bg-white/10 text-white dark:border-slate-300 dark:bg-slate-200 dark:text-slate-900" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                            {badgeCountText}
-                        </Badge>
-                    ) : null}
-                </div>
-            )}
-        </button>
-    );
-
-    if (!collapsed) {
-        return buttonNode;
-    }
-
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>{buttonNode}</TooltipTrigger>
-            <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                {title}
-            </TooltipContent>
-        </Tooltip>
-    );
-}
-
-function SettingsEntry({
-                           title,
-                           description,
-                           onClick,
-                       }: {
-    title: string;
-    description: string;
-    onClick: () => void;
-}) {
-    return (
-        <button
-            type="button"
-            className="w-full rounded-2xl px-4 py-4 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900"
-            onClick={onClick}
-        >
-            <p className="font-medium text-slate-900 dark:text-slate-100">{title}</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{description}</p>
-        </button>
-    );
-}
-
-function MiniStat({label, value}: { label: string; value: number }) {
-    return (
-        <div className="flex items-center justify-between gap-3">
-            <span className="text-slate-500 dark:text-slate-400">{label}</span>
-            <span className="font-semibold text-slate-900 dark:text-slate-100">{value}</span>
-        </div>
-    );
-}
-
-function InfoTile({label, value}: { label: string; value: string }) {
-    return (
-        <div
-            className="min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</p>
-            <p className="mt-2 break-words text-sm leading-6 text-slate-700 [overflow-wrap:anywhere] dark:text-slate-200">{value}</p>
-        </div>
-    );
-}
-
-function LoadingCard({label}: { label: string }) {
-    return (
-        <div
-            className="flex items-center gap-2 rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            <Loader2 className="h-4 w-4 animate-spin"/>
-            {label}
-        </div>
-    );
-}
-
-function LoadingPanel({label}: { label: string }) {
-    return (
-        <div className="flex h-full min-h-[320px] items-center justify-center">
-            <div
-                className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
-                <Loader2 className="h-4 w-4 animate-spin"/>
-                {label}
-            </div>
-        </div>
-    );
-}
-
-function EmptyState({
-                        title,
-                        description,
-                    }: {
-    title: string;
-    description: string;
-}) {
-    return (
-        <div
-            className="rounded-[22px] border border-dashed border-slate-200 px-5 py-8 text-center dark:border-slate-800">
-            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</p>
-            <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{description}</p>
-        </div>
-    );
-}
-
-function buildLogObjectLabel(
-    log: AITaskLog,
-    positionMap: Map<number, PositionSummary>,
-    candidateMap: Map<number, CandidateSummary>,
-    skillMap: Map<number, RecruitmentSkill>,
-) {
-    if (log.related_candidate_id) {
-        return candidateMap.get(log.related_candidate_id)?.name || `候选人 #${log.related_candidate_id}`;
-    }
-    if (log.related_position_id) {
-        return positionMap.get(log.related_position_id)?.title || `岗位 #${log.related_position_id}`;
-    }
-    if (log.related_skill_id) {
-        return skillMap.get(log.related_skill_id)?.name || `Skill #${log.related_skill_id}`;
-    }
-    return "系统任务";
 }
