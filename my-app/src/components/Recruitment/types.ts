@@ -1,4 +1,9 @@
 import type {RecruitmentSkill} from "@/lib/recruitment-api";
+import type {
+    RecruitmentAssistantClarificationRequest,
+    RecruitmentAssistantPageInfo,
+    RecruitmentAssistantToolResultPayload,
+} from "@/lib/recruitment-assistant-protocol";
 
 export type RecruitmentPage =
     | "workspace"
@@ -118,6 +123,12 @@ export type ChatMessage = {
     usedSkills?: RecruitmentSkill[];
     usedFallback?: boolean;
     fallbackError?: string | null;
+    clarificationRequest?: RecruitmentAssistantClarificationRequest;
+    queryPageInfo?: RecruitmentAssistantPageInfo;
+    toolResults?: RecruitmentAssistantToolResultPayload[];
+    frontendDebug?: unknown;
+    streamStatus?: "streaming" | "done" | "error";
+    sourceRunType?: "legacy" | "stream";
 };
 
 export const pageMeta: Record<RecruitmentPage, { title: string; description: string }> = {

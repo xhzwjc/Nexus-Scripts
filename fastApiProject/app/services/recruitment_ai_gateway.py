@@ -1,6 +1,7 @@
 ﻿import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
@@ -32,6 +33,59 @@ def _strip_json_fences(value: str) -> str:
     if text.endswith("```"):
         text = text[:-3].strip()
     return text
+
+
+def _extract_json_candidate(value: str) -> str:
+    text = _strip_json_fences(value)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start:end + 1]
+    return text
+
+
+def _escape_control_chars_in_json_strings(value: str) -> str:
+    result: list[str] = []
+    in_string = False
+    escape = False
+    for char in value:
+        if escape:
+            result.append(char)
+            escape = False
+            continue
+        if char == "\\":
+            result.append(char)
+            escape = True
+            continue
+        if char == "\"":
+            result.append(char)
+            in_string = not in_string
+            continue
+        if in_string:
+            if char == "\n":
+                result.append("\\n")
+                continue
+            if char == "\r":
+                result.append("\\r")
+                continue
+            if char == "\t":
+                result.append("\\t")
+                continue
+            if ord(char) < 0x20:
+                result.append(f"\\u{ord(char):04x}")
+                continue
+        result.append(char)
+    return "".join(result)
+
+
+def _parse_llm_json_response(raw_text: str) -> Dict[str, Any]:
+    candidate = _extract_json_candidate(raw_text or "{}").strip() or "{}"
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        repaired = _escape_control_chars_in_json_strings(candidate)
+        repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
+        return json.loads(repaired)
 
 
 def _dump_request_snapshot(value: Dict[str, Any]) -> str:
@@ -354,7 +408,7 @@ class RecruitmentAIGateway:
         raw_text = "".join(chunks).strip()
         if response_mode == "json":
             return {
-                "content": json.loads(_strip_json_fences(raw_text or "{}")),
+                "content": _parse_llm_json_response(raw_text or "{}"),
                 "token_usage": token_usage,
             }
         return {
@@ -404,7 +458,7 @@ class RecruitmentAIGateway:
                 pass
         parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
         raw_text = "\n".join([part.get("text", "") for part in parts if part.get("text")]).strip() or "{}"
-        content = json.loads(_strip_json_fences(raw_text))
+        content = _parse_llm_json_response(raw_text)
         usage = payload.get("usageMetadata") or {}
         return {"content": content, "token_usage": {"prompt_tokens": usage.get("promptTokenCount"), "completion_tokens": usage.get("candidatesTokenCount"), "total_tokens": usage.get("totalTokenCount")}}
 
@@ -456,7 +510,7 @@ class RecruitmentAIGateway:
             except Exception:
                 pass
         raw_text = self._extract_text_from_anthropic(payload) or "{}"
-        content = json.loads(_strip_json_fences(raw_text))
+        content = _parse_llm_json_response(raw_text)
         usage = payload.get("usage") or {}
         return {"content": content, "token_usage": {"prompt_tokens": usage.get("input_tokens"), "completion_tokens": usage.get("output_tokens"), "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)}}
 

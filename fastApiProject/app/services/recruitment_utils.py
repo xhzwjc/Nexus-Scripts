@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pypdfium2 as pdfium
 
@@ -48,6 +48,113 @@ DEFAULT_RULE_CONFIGS = {
     "default_jd_template": {"sections": ["岗位概述", "岗位职责", "任职要求", "加分项"]},
     "default_interview_template": {"sections": ["技术题", "场景题", "行为题"]},
     "default_status_rules": {"pass_threshold": 75, "pool_threshold": 55},
+}
+
+IOT_INTERVIEW_CAPABILITY_DOMAINS = [
+    "智能家居生态与联动测试",
+    "IoT 通信协议测试",
+    "软件测试基础",
+    "硬件测试与系统联调",
+    "嵌入式/固件/OTA",
+    "AI 工具使用",
+    "综合匹配度与转型意愿",
+]
+
+INTERVIEW_RULE_LEAK_MARKERS = (
+    "全程铁律",
+    "强制出题",
+    "软件测试不为零",
+    "ai工具必出",
+    "规则变更原则",
+    "模块二：面试题生成",
+    "触发方式",
+    "html 输出规范",
+    "输出规范",
+    "系统强制指令",
+    "本轮 skill 关注点",
+)
+
+INTERVIEW_DOMAIN_KEYWORDS = {
+    "智能家居生态与联动测试": ["智能家居", "米家", "homekit", "鸿蒙", "涂鸦", "联动", "互联互通", "门锁", "灯具", "网关", "app", "小程序"],
+    "IoT 通信协议测试": ["iot", "wi-fi", "wifi", "ble", "蓝牙", "zigbee", "thread", "mqtt", "星闪", "配网", "组网", "协议", "uwb"],
+    "软件测试基础": ["测试用例", "功能测试", "回归测试", "接口测试", "app测试", "app 测试", "缺陷", "bug", "jira", "postman", "apifox", "charles", "测试方案", "测试指导书", "自动化测试"],
+    "硬件测试与系统联调": ["硬件", "联调", "系统联调", "设备", "整机", "稳定性", "可靠性", "电源", "串口", "问题复现", "cadence", "pads", "pcb", "buck", "boost", "ldo", "信号"],
+    "嵌入式/固件/OTA": ["嵌入式", "固件", "ota", "烧录", "升级", "bootloader", "版本回退", "日志抓取"],
+    "AI 工具使用": ["ai", "gpt", "claude", "copilot", "cursor", "prompt", "大模型", "自动生成用例"],
+    "综合匹配度与转型意愿": ["转型", "匹配度", "职业规划", "岗位理解", "稳定", "沟通", "协作", "成长"],
+}
+
+INTERVIEW_DOMAIN_GUIDANCE = {
+    "智能家居生态与联动测试": {
+        "nature": "死穴验证区",
+        "minutes": 12,
+        "focus": "真实联动链路、设备生态、观察指标、问题闭环",
+        "followups": [
+            "如果同一设备在两个生态里表现不一致，你会先比对哪几类日志或观测点？",
+            "联动偶现失败时，你如何区分是设备端、云端、协议层还是 App 编排问题？",
+        ],
+        "explain": "用于验证候选人是否真正做过智能家居生态联动测试，而不是只停留在单点功能验证。",
+    },
+    "IoT 通信协议测试": {
+        "nature": "重点验证区",
+        "minutes": 10,
+        "focus": "协议场景、抓包/日志、异常注入、消息可靠性",
+        "followups": [
+            "如果配网成功率波动，你会如何拆分协议、环境和设备状态三个排查面？",
+            "遇到消息丢失或重复上报时，你会如何设计复现步骤和验收标准？",
+        ],
+        "explain": "用于验证候选人对 IoT 协议测试的真实理解深度，而不是只会罗列协议名称。",
+    },
+    "软件测试基础": {
+        "nature": "基本功验证",
+        "minutes": 8,
+        "focus": "测试设计、边界覆盖、缺陷定位、回归闭环",
+        "followups": [
+            "如果这次回归时间被压缩一半，你会如何保留最关键的回归集合？",
+            "当研发认为问题无法复现时，你会如何组织证据推动问题闭环？",
+        ],
+        "explain": "用于验证候选人是否具备稳定的软件测试基本功，这一项不能被硬件或协议经历替代。",
+    },
+    "硬件测试与系统联调": {
+        "nature": "核心强项",
+        "minutes": 5,
+        "focus": "设备上手、系统联调、问题复现、跨团队协作",
+        "followups": [
+            "如果问题只在特定批次设备出现，你会如何缩小硬件差异与软件版本差异的范围？",
+            "联调阶段研发、硬件、测试结论不一致时，你会如何推进统一结论？",
+        ],
+        "explain": "用于验证候选人是否能在真实设备环境里推进系统联调，而不是只会看软件表象。",
+    },
+    "嵌入式/固件/OTA": {
+        "nature": "边界核实",
+        "minutes": 3,
+        "focus": "版本升级链路、异常回退、日志抓取、风险控制",
+        "followups": [
+            "如果 OTA 升级失败率突然上升，你会先排查升级包、设备状态还是网络条件？为什么？",
+            "你会如何验证一次固件升级既成功又没有引入隐性回归？",
+        ],
+        "explain": "用于验证候选人对固件和 OTA 风险的基本认知，重点看是否理解升级链路与验证闭环。",
+    },
+    "AI 工具使用": {
+        "nature": "加分项",
+        "minutes": 2,
+        "focus": "AI 工具落地场景、质量校验、提示词设计、效率收益",
+        "followups": [
+            "如果 AI 生成的用例明显不贴合设备场景，你会如何修正提示词和验收规则？",
+            "你如何确保 AI 提升效率的同时，不把错误带进测试结论？",
+        ],
+        "explain": "用于验证候选人是否真正把 AI 工具融入测试工作流，而不是停留在概念层面。",
+    },
+    "综合匹配度与转型意愿": {
+        "nature": "匹配校准",
+        "minutes": 5,
+        "focus": "岗位理解、优势短板、转型动机、稳定性预期",
+        "followups": [
+            "如果入职后前两个月发现工作重心和预期不同，你会如何调适并保证交付？",
+            "这份岗位最吸引你和最让你担心的部分分别是什么？",
+        ],
+        "explain": "用于验证候选人与岗位方向的真实匹配度，以及后续稳定投入的可能性。",
+    },
 }
 
 
@@ -191,6 +298,135 @@ def markdown_to_html(markdown: str) -> str:
     elif list_mode == "ol":
         parts.append("</ol>")
     return "".join(parts)
+
+
+def looks_like_full_html_document(value: str) -> bool:
+    text = str(value or "").lstrip().lower()
+    return text.startswith("<!doctype html") or text.startswith("<html")
+
+
+def build_single_file_html_document(title: str, body_html: str) -> str:
+    safe_title = html.escape(title or "Interview Questions")
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{safe_title}</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #dbe4f0;
+      --accent: #0f172a;
+      --soft: #eef4ff;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+      color: var(--text);
+    }}
+    main {{
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 20px 48px;
+    }}
+    article {{
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 28px 28px 12px;
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+    }}
+    h1, h2, h3 {{
+      color: var(--accent);
+      margin: 0 0 14px;
+      line-height: 1.35;
+    }}
+    h1 {{
+      font-size: 28px;
+      margin-bottom: 20px;
+    }}
+    h2 {{
+      font-size: 20px;
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+    }}
+    h3 {{
+      font-size: 16px;
+      margin-top: 20px;
+    }}
+    p, li {{
+      font-size: 14px;
+      line-height: 1.9;
+      color: var(--text);
+    }}
+    p {{
+      margin: 0 0 12px;
+    }}
+    ul, ol {{
+      margin: 0 0 14px 20px;
+      padding: 0;
+    }}
+    li + li {{
+      margin-top: 6px;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 18px;
+      font-size: 13px;
+    }}
+    th, td {{
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }}
+    th {{
+      background: var(--soft);
+      color: var(--accent);
+    }}
+    blockquote {{
+      margin: 14px 0;
+      padding: 12px 14px;
+      border-left: 4px solid #94a3b8;
+      background: #f8fafc;
+      color: var(--muted);
+    }}
+    .hint {{
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    @media (max-width: 768px) {{
+      main {{ padding: 16px 12px 32px; }}
+      article {{ padding: 18px 16px 8px; border-radius: 18px; }}
+      h1 {{ font-size: 22px; }}
+      h2 {{ font-size: 18px; }}
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      {body_html}
+    </article>
+  </main>
+</body>
+</html>"""
+
+
+def ensure_interview_html_document(title: str, html_content: str = "", markdown_content: str = "") -> str:
+    if looks_like_full_html_document(html_content):
+        return html_content
+    body_html = str(html_content or "").strip() or markdown_to_html(markdown_content or "")
+    return build_single_file_html_document(title, body_html)
 
 
 def strip_markdown(markdown: str) -> str:
@@ -675,6 +911,496 @@ def _infer_interview_topics(parsed_resume: Optional[Dict[str, Any]]) -> List[str
     return topics[:6]
 
 
+def _is_iot_interview_role(position_title: str, skills: Iterable[Any], parsed_resume: Optional[Dict[str, Any]]) -> bool:
+    searchable_parts = [str(position_title or "")]
+    searchable_parts.extend(
+        str(part or "")
+        for skill in skills or []
+        for part in (
+            skill.get("name") if isinstance(skill, dict) else skill,
+            skill.get("description") if isinstance(skill, dict) else "",
+            skill.get("content") if isinstance(skill, dict) else "",
+        )
+    )
+    searchable_parts.append(_join_resume_search_text(parsed_resume or {}))
+    searchable = " ".join(searchable_parts).lower()
+    return any(keyword in searchable for keyword in ["iot", "智能家居", "zigbee", "ble", "mqtt", "homekit", "鸿蒙", "涂鸦"]) and "测试" in searchable
+
+
+def infer_interview_capability_domains(
+    position_title: str,
+    skills: Iterable[Any],
+    parsed_resume: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    if _is_iot_interview_role(position_title, skills, parsed_resume):
+        return list(IOT_INTERVIEW_CAPABILITY_DOMAINS)
+    inferred = _infer_interview_topics(parsed_resume)
+    generic_domains = [
+        "核心项目经历与角色边界",
+        "测试设计与用例策略",
+        "问题定位与缺陷闭环",
+        "自动化与效率工具",
+        "跨团队协作与风险沟通",
+        "综合匹配度与转型意愿",
+    ]
+    merged: List[str] = []
+    for item in [*inferred, *generic_domains]:
+        label = str(item or "").strip()
+        if label and label not in merged:
+            merged.append(label)
+    return merged[:7]
+
+
+def extract_interview_generation_constraints(
+    skills: Iterable[Any],
+    custom_requirements: str = "",
+) -> List[str]:
+    picked: List[str] = []
+    seen_keys: set[str] = set()
+    meaningful_markers = (
+        "严禁虚构",
+        "强制出题",
+        "软件测试不为零",
+        "ai工具必出",
+        "规则变更",
+    )
+    ignored_markers = (
+        "触发方式",
+        "模块二",
+        "输出规范",
+        "时长分配",
+        "建议时长",
+        "用户无需重复发送",
+        "岗位 jd",
+        "html 输出规范",
+        "专业词释义规范",
+        "每道题必须包含的五个部分",
+        "判定区",
+        ".block-",
+        "css规范",
+        "视觉风格",
+        "布局",
+        "sticky",
+        "scrollintoview",
+        "js实现",
+        "skill_group",
+        "applies_to",
+        "description:",
+        "name:",
+        "岗位 jd",
+        "岗位职责",
+        "任职要求",
+        "加分项",
+        "岗位名称",
+        "专业词释义规范",
+    )
+
+    def canonical_rule_key(text: str) -> str:
+        cleaned = strip_markdown(str(text or "")).strip()
+        label = cleaned.split("：", 1)[0].split(":", 1)[0].strip().lower()
+        if 2 <= len(label) <= 20:
+            return label
+        return re.sub(r"\s+", "", cleaned.lower())[:48]
+
+    def push(line: str) -> None:
+        cleaned = strip_markdown(str(line or "")).strip()
+        cleaned = re.sub(r"^[\-\*\d\.\s•]+", "", cleaned)
+        cleaned = cleaned.strip("：: ")
+        rule_key = canonical_rule_key(cleaned)
+        if (
+            not cleaned
+            or len(cleaned) < 6
+            or rule_key in seen_keys
+            or any(marker.lower() in cleaned.lower() for marker in ignored_markers)
+        ):
+            return
+        seen_keys.add(rule_key)
+        picked.append(cleaned)
+
+    for skill in skills or []:
+        content = str(skill.get("content") or skill.get("description") or "") if isinstance(skill, dict) else str(skill or "")
+        for line in re.split(r"[\n\r]+", content):
+            plain = strip_markdown(line).strip()
+            if not plain:
+                continue
+            lowered = plain.lower()
+            if any(marker.lower() in lowered for marker in meaningful_markers):
+                push(plain)
+            elif re.match(r"^(所有|每份|必须|不得|如果简历没有直接证据)", plain):
+                push(plain)
+            if len(picked) >= 10:
+                break
+        if len(picked) >= 10:
+            break
+    if custom_requirements.strip():
+        push(f"用户附加要求：{custom_requirements.strip()}")
+    if not picked:
+        picked.extend([
+            "所有题目必须先绑定简历、岗位 JD 和初筛结论中的真实证据。",
+            "技能规则只作为生成约束，不能出现在模块标题、题干或参考答案里。",
+            "如果简历没有直接证据，只能以待核实风险点设计追问。",
+        ])
+    return picked[:10]
+
+
+def _find_resume_evidence_for_domain(lines: Iterable[str], domain: str, *, limit: int = 2) -> List[str]:
+    keywords = INTERVIEW_DOMAIN_KEYWORDS.get(domain) or _extract_focus_point_tokens(domain, limit=8)
+    results: List[str] = []
+    for line in lines:
+        lowered = str(line or "").lower()
+        if not lowered:
+            continue
+        if any(keyword.lower() in lowered for keyword in keywords):
+            candidate = strip_markdown(str(line or "")).strip()
+            if candidate and candidate not in results:
+                results.append(candidate)
+        if len(results) >= limit:
+            break
+    return results[:limit]
+
+
+def _find_domain_risk_points(domain: str, concerns: Iterable[str], *, limit: int = 2) -> List[str]:
+    keywords = INTERVIEW_DOMAIN_KEYWORDS.get(domain) or [domain]
+    results: List[str] = []
+    for concern in concerns:
+        cleaned = strip_markdown(str(concern or "")).strip()
+        lowered = cleaned.lower()
+        if cleaned and any(keyword.lower() in lowered for keyword in keywords):
+            results.append(cleaned)
+        if len(results) >= limit:
+            break
+    return results[:limit]
+
+
+def detect_interview_rule_leakage(markdown: str, html_content: str = "") -> Optional[str]:
+    searchable = "\n".join(filter(None, [str(markdown or ""), strip_markdown(str(html_content or ""))])).lower()
+    if not searchable.strip():
+        return "模型没有返回有效面试题正文。"
+    for marker in INTERVIEW_RULE_LEAK_MARKERS:
+        if marker.lower() in searchable:
+            return f"模型输出混入了 Skill 规则主题：{marker}"
+    return None
+
+
+def _normalize_string_list(value: Any, *, limit: int, min_length: int = 2) -> List[str]:
+    if isinstance(value, list):
+        source = value
+    elif isinstance(value, str):
+        source = re.split(r"[\n\r]+", value)
+    else:
+        source = []
+    result: List[str] = []
+    for item in source:
+        text = strip_markdown(str(item or "")).strip()
+        text = re.sub(r"\s+", " ", text)
+        text = text.strip("•- ")
+        if len(text) < min_length or text in result:
+            continue
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _split_summary_sentences(value: Any, *, limit: int = 4) -> List[str]:
+    parts = re.split(r"[。；;\n\r]+", strip_markdown(str(value or "")))
+    return _normalize_string_list(parts, limit=limit, min_length=6)
+
+
+def _build_interview_evidence_pool(parsed_resume: Optional[Dict[str, Any]], screening_result: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    pool: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def push(text: Any, source: str, base_score: int) -> None:
+        cleaned = strip_markdown(str(text or "")).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        if len(cleaned) < 4 or cleaned in seen:
+            return
+        seen.add(cleaned)
+        pool.append({"text": cleaned[:320], "source": source, "base_score": base_score})
+
+    parsed = parsed_resume or {}
+    score = screening_result or {}
+    for item in score.get("advantages") or []:
+        push(item, "screening_advantage", 9)
+    for item in parsed.get("projects") or []:
+        push(_resume_item_to_text(item), "project", 7)
+    for item in parsed.get("work_experiences") or []:
+        push(_resume_item_to_text(item), "work_experience", 5)
+    for item in parsed.get("skills") or []:
+        push(item, "resume_skill", 4)
+    for item in _split_summary_sentences(parsed.get("summary"), limit=6):
+        push(item, "summary", 4)
+    return pool
+
+
+def _score_interview_evidence_entry(entry: Dict[str, Any], domain: str) -> float:
+    text = str(entry.get("text") or "").strip()
+    lowered = text.lower()
+    keywords = INTERVIEW_DOMAIN_KEYWORDS.get(domain) or _extract_focus_point_tokens(domain, limit=8)
+    concrete_tokens = [
+        "uwb", "cadence", "pads", "pcb", "buck", "boost", "ldo", "测试用例", "测试方案", "测试指导书",
+        "自动化测试", "自动化", "性能测试", "功能测试", "电源", "信号", "问题定位", "项目交付", "联调",
+    ]
+    score = float(entry.get("base_score") or 0)
+    score += sum(1 for keyword in keywords if keyword and keyword.lower() in lowered) * 4.5
+    score += sum(1 for token in concrete_tokens if token.lower() in lowered) * 1.3
+    if entry.get("source") == "screening_advantage":
+        score += 2.2
+    if entry.get("source") == "project":
+        score += 1.0
+    if re.fullmatch(r"20\d{2}.*", text):
+        score -= 4
+    if any(marker in lowered for marker in ["本科", "候选人", "期望城市", "女 |", "男 |"]):
+        score -= 3
+    if re.fullmatch(r".*(有限公司|公司|科技|集团)(\s+[^\s]+工程师)?", text) and "测试" not in lowered:
+        score -= 3
+    return score
+
+
+def _domain_keyword_hit_count(text: str, domain: str) -> int:
+    lowered = str(text or "").lower()
+    keywords = INTERVIEW_DOMAIN_KEYWORDS.get(domain) or _extract_focus_point_tokens(domain, limit=8)
+    return sum(1 for keyword in keywords if keyword and keyword.lower() in lowered)
+
+
+def _select_domain_evidence(
+    domain: str,
+    parsed_resume: Optional[Dict[str, Any]],
+    screening_result: Optional[Dict[str, Any]],
+    *,
+    limit: int = 2,
+) -> List[str]:
+    pool = _build_interview_evidence_pool(parsed_resume, screening_result)
+    ranked = sorted(
+        pool,
+        key=lambda entry: (_score_interview_evidence_entry(entry, domain), len(str(entry.get("text") or ""))),
+        reverse=True,
+    )
+    results: List[str] = []
+    for entry in ranked:
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            continue
+        keyword_hits = _domain_keyword_hit_count(text, domain)
+        if _score_interview_evidence_entry(entry, domain) < 6:
+            continue
+        if domain != "综合匹配度与转型意愿" and keyword_hits == 0:
+            continue
+        if text not in results:
+            results.append(text)
+        if len(results) >= limit:
+            break
+    return results[:limit]
+
+
+def _default_domain_risk(domain: str, concerns: Sequence[str]) -> str:
+    risk_lines = _find_domain_risk_points(domain, concerns, limit=2)
+    if risk_lines:
+        return "；".join(risk_lines)
+    return f"待核实候选人在“{domain}”上是否有可复述的真实项目、测试路径和问题闭环证据。"
+
+
+def _build_interview_overview(
+    candidate_name: str,
+    position_title: str,
+    round_name: str,
+    custom_requirements: str,
+    parsed_resume: Optional[Dict[str, Any]],
+    screening_result: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    parsed = parsed_resume or {}
+    basic_info = parsed.get("basic_info") or {}
+    score = screening_result or {}
+    highlights = _normalize_string_list(score.get("advantages"), limit=4, min_length=4)
+    risks = _normalize_string_list(score.get("concerns"), limit=4, min_length=4)
+    summary_parts = [
+        str(candidate_name or basic_info.get("name") or "未命名候选人").strip(),
+        str(position_title or "当前岗位").strip(),
+        str(basic_info.get("years_of_experience") or "工作年限待核实").strip(),
+        str(basic_info.get("education") or "学历待核实").strip(),
+        str(round_name or "初试").strip(),
+    ]
+    return {
+        "candidate_summary": "｜".join([part for part in summary_parts if part]),
+        "screening_status": _screening_status_label(score),
+        "highlights": highlights or ["暂无明确亮点，建议结合简历原文继续核实。"],
+        "risks_to_verify": risks or ["暂无明确风险点，建议继续核实岗位匹配度与真实项目深度。"],
+        "custom_focus": (custom_requirements or "本轮重点关注候选人与岗位的真实匹配度、执行力与成长空间。").strip(),
+    }
+
+
+def _build_interview_domain_blueprint(
+    domain: str,
+    parsed_resume: Optional[Dict[str, Any]],
+    screening_result: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    guidance = INTERVIEW_DOMAIN_GUIDANCE.get(domain, {
+        "nature": "重点核实区",
+        "minutes": 5,
+        "focus": f"{domain} 相关真实经历、方法和风险判断",
+        "followups": [
+            f"如果让你复盘一次“{domain}”相关项目，你最想补哪一个风险场景？",
+            "这类问题你会如何区分是需求、实现、环境还是测试设计导致的？",
+        ],
+        "explain": f"用于验证候选人在“{domain}”上的真实经历深度与方法论完整性。",
+    })
+    concerns = _normalize_string_list((screening_result or {}).get("concerns"), limit=6, min_length=4)
+    evidence_basis = _select_domain_evidence(domain, parsed_resume, screening_result, limit=2)
+    evidence_type = "direct_evidence" if evidence_basis else "risk_to_verify"
+    evidence_display = evidence_basis or [_default_domain_risk(domain, concerns)]
+    if evidence_type == "direct_evidence":
+        primary_question = (
+            f"请结合你简历里提到的“{evidence_basis[0]}”，讲清你在“{domain}”场景里实际负责的测试对象、"
+            "测试设计、关键观测指标、问题定位路径以及最终闭环。"
+        )
+    else:
+        primary_question = (
+            f"简历目前没有直接体现“{domain}”的实战证据。请不要默认自己做过这类场景，而是结合你最接近的一段真实项目，"
+            f"说明哪些能力可以迁移到“{domain}”，哪些部分仍然需要在面试里继续核实。"
+        )
+    answer_points = [
+        f"先交代真实项目背景、测试对象、角色边界，以及你本人实际负责到哪一步。",
+        f"围绕“{guidance['focus']}”讲清测试路径、关键指标、缺陷定位和复盘闭环。",
+        (
+            f"把“{evidence_basis[0]}”这类已知证据落到可核实的动作、方法和结果上。"
+            if evidence_basis
+            else "明确哪些内容来自真实经历，哪些只是迁移判断或待核实风险，不能把未做过的内容说成做过。"
+        ),
+    ]
+    return {
+        "domain_title": domain,
+        "domain_nature": guidance.get("nature") or "重点核实区",
+        "recommended_minutes": int(guidance.get("minutes") or 5),
+        "evidence_basis": evidence_display,
+        "evidence_type": evidence_type,
+        "primary_question": primary_question,
+        "answer_points": answer_points,
+        "verdict_pass": "能给出真实项目证据、测试路径、关键指标、问题闭环和复盘结论，且前后细节自洽。",
+        "verdict_caution": "回答停留在原则层面，缺少测试对象、输入输出、日志/指标或缺陷闭环证据，需要继续深挖。",
+        "verdict_fail": "把未做过的内容说成做过，或核心细节明显前后矛盾，无法自证真实经历。",
+        "followups": list(guidance.get("followups") or [])[:2],
+        "interviewer_explanation": str(guidance.get("explain") or "").strip(),
+    }
+
+
+def build_interview_structured_fallback(
+    candidate_name: str,
+    position_title: str,
+    round_name: str,
+    skills: Iterable[Any],
+    custom_requirements: str,
+    parsed_resume: Optional[Dict[str, Any]] = None,
+    screening_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    domains = infer_interview_capability_domains(position_title, skills, parsed_resume)
+    structured_domains = [
+        _build_interview_domain_blueprint(domain, parsed_resume, screening_result)
+        for domain in domains
+    ]
+    return {
+        "title": f"{candidate_name} - {round_name} 面试题",
+        "candidate_name": candidate_name,
+        "position_title": position_title,
+        "round_name": round_name,
+        "overview": _build_interview_overview(
+            candidate_name,
+            position_title,
+            round_name,
+            custom_requirements,
+            parsed_resume,
+            screening_result,
+        ),
+        "domains": structured_domains,
+    }
+
+
+def _find_payload_domain(payload_domains: Sequence[Dict[str, Any]], expected_title: str) -> Optional[Dict[str, Any]]:
+    expected = str(expected_title or "").strip().lower()
+    for item in payload_domains:
+        title = str(item.get("domain_title") or item.get("title") or "").strip().lower()
+        if title == expected:
+            return item
+    for item in payload_domains:
+        title = str(item.get("domain_title") or item.get("title") or "").strip().lower()
+        if expected and expected in title:
+            return item
+    return None
+
+
+def normalize_structured_interview(
+    payload: Optional[Dict[str, Any]],
+    *,
+    candidate_name: str,
+    position_title: str,
+    round_name: str,
+    skills: Iterable[Any],
+    custom_requirements: str,
+    parsed_resume: Optional[Dict[str, Any]] = None,
+    screening_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    fallback = build_interview_structured_fallback(
+        candidate_name,
+        position_title,
+        round_name,
+        skills,
+        custom_requirements,
+        parsed_resume=parsed_resume,
+        screening_result=screening_result,
+    )
+    raw_payload = payload if isinstance(payload, dict) else {}
+    raw_overview = raw_payload.get("overview") if isinstance(raw_payload.get("overview"), dict) else {}
+    raw_domains = raw_payload.get("domains") if isinstance(raw_payload.get("domains"), list) else []
+
+    overview = {
+        "candidate_summary": str(raw_overview.get("candidate_summary") or fallback["overview"]["candidate_summary"]).strip(),
+        "screening_status": str(raw_overview.get("screening_status") or fallback["overview"]["screening_status"]).strip(),
+        "highlights": _normalize_string_list(raw_overview.get("highlights"), limit=4, min_length=4) or list(fallback["overview"]["highlights"]),
+        "risks_to_verify": _normalize_string_list(raw_overview.get("risks_to_verify"), limit=4, min_length=4) or list(fallback["overview"]["risks_to_verify"]),
+        "custom_focus": str(raw_overview.get("custom_focus") or fallback["overview"]["custom_focus"]).strip(),
+    }
+
+    normalized_domains: List[Dict[str, Any]] = []
+    for fallback_domain in fallback["domains"]:
+        raw_domain = _find_payload_domain(raw_domains, fallback_domain["domain_title"]) or {}
+        evidence_basis = _normalize_string_list(raw_domain.get("evidence_basis"), limit=3, min_length=4) or list(fallback_domain["evidence_basis"])
+        evidence_type = str(raw_domain.get("evidence_type") or fallback_domain["evidence_type"]).strip()
+        if evidence_type not in {"direct_evidence", "risk_to_verify"}:
+            evidence_type = fallback_domain["evidence_type"]
+        answer_points = _normalize_string_list(raw_domain.get("answer_points"), limit=5, min_length=6)
+        followups = _normalize_string_list(raw_domain.get("followups"), limit=4, min_length=6)
+        primary_question = str(raw_domain.get("primary_question") or "").strip()
+        if evidence_type == "risk_to_verify":
+            if not primary_question or "没有直接" not in primary_question and "未" not in primary_question and "待核实" not in primary_question:
+                primary_question = fallback_domain["primary_question"]
+        elif not primary_question or len(primary_question) < 24:
+            primary_question = fallback_domain["primary_question"]
+
+        normalized_domains.append({
+            "domain_title": fallback_domain["domain_title"],
+            "domain_nature": fallback_domain["domain_nature"],
+            "recommended_minutes": fallback_domain["recommended_minutes"],
+            "evidence_basis": evidence_basis,
+            "evidence_type": evidence_type,
+            "primary_question": primary_question,
+            "answer_points": answer_points[:5] or list(fallback_domain["answer_points"]),
+            "verdict_pass": str(raw_domain.get("verdict_pass") or fallback_domain["verdict_pass"]).strip(),
+            "verdict_caution": str(raw_domain.get("verdict_caution") or fallback_domain["verdict_caution"]).strip(),
+            "verdict_fail": str(raw_domain.get("verdict_fail") or fallback_domain["verdict_fail"]).strip(),
+            "followups": followups[:4] or list(fallback_domain["followups"]),
+            "interviewer_explanation": str(raw_domain.get("interviewer_explanation") or fallback_domain["interviewer_explanation"]).strip(),
+        })
+
+    return {
+        "title": str(raw_payload.get("title") or fallback["title"]).strip() or fallback["title"],
+        "candidate_name": candidate_name,
+        "position_title": position_title,
+        "round_name": round_name,
+        "overview": overview,
+        "domains": normalized_domains,
+    }
+
+
 def _screening_status_label(score_payload: Optional[Dict[str, Any]]) -> str:
     status = str((score_payload or {}).get("suggested_status") or "").strip()
     mapping = {
@@ -695,79 +1421,514 @@ def build_interview_fallback(
     parsed_resume: Optional[Dict[str, Any]] = None,
     screening_result: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, str]:
-    skill_meta = _extract_skill_focus_points(skills, limit=24)
-    resume_lines = _collect_resume_lines(parsed_resume, limit=28)
-    focus_points = _filter_interview_focus_points(skill_meta["points"], limit=6)
-    if not focus_points:
-        focus_points = _infer_interview_topics(parsed_resume) or ["项目经历核实", "问题定位能力", "测试设计能力", "跨团队协作"]
-    advantages = [strip_markdown(str(item or "")).strip() for item in (screening_result or {}).get("advantages") or [] if str(item or "").strip()]
-    concerns = [strip_markdown(str(item or "")).strip() for item in (screening_result or {}).get("concerns") or [] if str(item or "").strip()]
-    candidate_basic = (parsed_resume or {}).get("basic_info") or {}
-    background_lines = [
-        f"- 候选人：{candidate_name or candidate_basic.get('name') or '未命名候选人'}",
-        f"- 岗位：{position_title or '当前岗位'}",
-        f"- 工作年限：{candidate_basic.get('years_of_experience') or '简历未明确'}",
-        f"- 学历：{candidate_basic.get('education') or '简历未明确'}",
-        f"- 初筛状态：{_screening_status_label(screening_result)}",
-    ]
-    if advantages:
-        background_lines.append(f"- 已识别亮点：{'；'.join(advantages[:3])}")
-    if concerns:
-        background_lines.append(f"- 重点待核实：{'；'.join(concerns[:3])}")
+    structured = build_interview_structured_fallback(
+        candidate_name,
+        position_title,
+        round_name,
+        skills,
+        custom_requirements,
+        parsed_resume=parsed_resume,
+        screening_result=screening_result,
+    )
+    return {
+        "markdown": render_interview_markdown(structured),
+        "html": render_interview_html(structured),
+    }
 
-    module_sections: List[str] = []
-    for index, topic in enumerate(focus_points, 1):
-        evidence_lines = _find_resume_evidence(resume_lines, topic, limit=2)
-        evidence_text = "；".join(evidence_lines[:2]) or "简历中暂无直接证据，需要面试中重点核实。"
-        main_question = (
-            f"请结合你简历里提到的“{evidence_lines[0]}”，详细说明你在“{topic}”相关场景中实际负责的测试对象、测试步骤、发现的问题以及最终输出。"
-            if evidence_lines
-            else f"围绕“{topic}”，请结合真实项目说明你会如何搭建测试场景、设计用例、执行验证并定位问题。"
-        )
-        answer_points = [
-            f"- 说明 {topic} 相关的真实项目背景、测试对象和边界。",
-            "- 能讲清测试步骤、观测指标、缺陷定位方法和结果闭环。",
-            f"- 回答必须与简历原文或岗位 JD 对齐，不能泛泛而谈。{(' 需要补充解释简历未写明的部分。' if not evidence_lines else '')}",
-        ]
-        verdict_lines = [
-            "- 通过：能给出具体项目证据、测试路径、关键问题与复盘结论。",
-            "- 注意：只会讲原则，不清楚测试对象、输入输出和缺陷闭环。",
-            "- 一票否决：把未做过的内容说成做过，或核心细节前后矛盾。",
-        ]
-        followups = [
-            f"- 如果让你再做一次“{topic}”相关测试，你会优先补哪 2 个风险场景？",
-            "- 你如何判断这个问题属于需求、研发实现、协议/环境还是测试设计本身？",
-        ]
-        explain_line = f"- 这道题用于验证候选人在“{topic}”上的真实经历深度，以及是否能把简历中的项目经验转化成可复盘的测试方法。"
-        module_sections.extend([
-            f"## 模块 {index} · {topic}",
-            f"- 面试题正题：{main_question}",
-            "- 参考答案要点：",
-            *answer_points,
-            "- 通过 / 注意 / 一票否决判定：",
-            *verdict_lines,
-            "- 追问环节：",
-            *followups,
-            "- 答不出时·面试官解释：",
-            explain_line,
-            f"- 简历依据 / 待核实：{evidence_text}",
-        ])
 
-    markdown = "\n".join([
-        f"# {candidate_name} - {round_name} 面试题",
+def render_interview_markdown(structured: Dict[str, Any]) -> str:
+    overview = structured.get("overview") if isinstance(structured.get("overview"), dict) else {}
+    domains = structured.get("domains") if isinstance(structured.get("domains"), list) else []
+    lines: List[str] = [
+        f"# {structured.get('title') or '结构化面试题'}",
         "",
         "## 候选人背景",
-        *background_lines,
-        "",
-        "## 本轮 Skill 关注点",
-        *[f"- {point}" for point in focus_points],
-        "",
-        *module_sections,
-        "",
-        "## 自定义要求",
-        f"- {custom_requirements or '本轮重点关注候选人与岗位的真实匹配度、执行力与成长空间。'}",
-    ]).strip()
-    return {"markdown": markdown, "html": markdown_to_html(markdown)}
+        f"- 候选人摘要：{overview.get('candidate_summary') or '-'}",
+        f"- 初筛状态：{overview.get('screening_status') or '-'}",
+        f"- 本轮关注点：{overview.get('custom_focus') or '-'}",
+        f"- 已识别亮点：{'；'.join(_normalize_string_list(overview.get('highlights'), limit=4, min_length=2)) or '暂无'}",
+        f"- 待核实风险：{'；'.join(_normalize_string_list(overview.get('risks_to_verify'), limit=4, min_length=2)) or '暂无'}",
+    ]
+    for index, raw_domain in enumerate(domains, 1):
+        if not isinstance(raw_domain, dict):
+            continue
+        evidence_items = _normalize_string_list(raw_domain.get("evidence_basis"), limit=3, min_length=2)
+        answer_points = _normalize_string_list(raw_domain.get("answer_points"), limit=5, min_length=2)
+        followups = _normalize_string_list(raw_domain.get("followups"), limit=4, min_length=2)
+        lines.extend([
+            "",
+            f"## 模块 {index} · {raw_domain.get('domain_title') or '未命名模块'}",
+            f"- 模块性质：{raw_domain.get('domain_nature') or '重点核实区'}",
+            f"- 建议时长：{raw_domain.get('recommended_minutes') or 5} 分钟",
+            f"- 证据类型：{'直接证据' if raw_domain.get('evidence_type') == 'direct_evidence' else '待核实风险'}",
+            f"- 证据锚点：{'；'.join(evidence_items) or '暂无'}",
+            f"- 面试题正题：{raw_domain.get('primary_question') or '-'}",
+            "- 参考答案要点：",
+            *[f"  {idx}. {item}" for idx, item in enumerate(answer_points, 1)],
+            "- 通过 / 注意 / 一票否决判定：",
+            f"  - 通过：{raw_domain.get('verdict_pass') or '-'}",
+            f"  - 注意：{raw_domain.get('verdict_caution') or '-'}",
+            f"  - 一票否决：{raw_domain.get('verdict_fail') or '-'}",
+            "- 追问环节：",
+            *[f"  {idx}. {item}" for idx, item in enumerate(followups, 1)],
+            f"- 答不出时·面试官解释：{raw_domain.get('interviewer_explanation') or '-'}",
+        ])
+    return "\n".join(lines).strip()
+
+
+def render_interview_html(structured: Dict[str, Any]) -> str:
+    overview = structured.get("overview") if isinstance(structured.get("overview"), dict) else {}
+    domains = [item for item in (structured.get("domains") or []) if isinstance(item, dict)]
+
+    def esc(value: Any) -> str:
+        return html.escape(str(value or ""))
+
+    highlight_items = "".join(
+        f"<li>{esc(item)}</li>"
+        for item in _normalize_string_list(overview.get("highlights"), limit=6, min_length=2)
+    ) or "<li>暂无明确亮点，建议继续核实。</li>"
+    risk_items = "".join(
+        f"<li>{esc(item)}</li>"
+        for item in _normalize_string_list(overview.get("risks_to_verify"), limit=6, min_length=2)
+    ) or "<li>暂无明确风险点，建议继续核实。</li>"
+
+    nav_items: List[str] = []
+    question_cards: List[str] = []
+    for index, domain in enumerate(domains, 1):
+        anchor = f"domain-{index}"
+        title = str(domain.get("domain_title") or "未命名模块").strip()
+        evidence_type = "直接证据" if domain.get("evidence_type") == "direct_evidence" else "待核实风险"
+        evidence_badge_class = "pill-direct" if domain.get("evidence_type") == "direct_evidence" else "pill-risk"
+        evidence_items = "".join(
+            f"<li>{esc(item)}</li>"
+            for item in _normalize_string_list(domain.get("evidence_basis"), limit=4, min_length=2)
+        )
+        answer_items = "".join(
+            f"<li>{esc(item)}</li>"
+            for item in _normalize_string_list(domain.get("answer_points"), limit=5, min_length=2)
+        )
+        followup_items = "".join(
+            f"<li>{esc(item)}</li>"
+            for item in _normalize_string_list(domain.get("followups"), limit=4, min_length=2)
+        )
+        nav_items.append(
+            f"<a class=\"side-link\" href=\"#{anchor}\"><span>模块 {index}</span><strong>{esc(title)}</strong></a>"
+        )
+        question_cards.append(
+            f"""
+            <section id="{anchor}" class="qcard">
+              <button type="button" class="qcard-top">
+                <div class="qcard-heading">
+                  <span class="qindex">模块 {index}</span>
+                  <h2>{esc(title)}</h2>
+                  <p>{esc(domain.get("domain_nature") or "重点核实区")} · 建议 {esc(domain.get("recommended_minutes") or 5)} 分钟</p>
+                </div>
+                <div class="qcard-meta">
+                  <span class="pill {evidence_badge_class}">{evidence_type}</span>
+                  <span class="toggle-arrow">▾</span>
+                </div>
+              </button>
+              <div class="qcard-body">
+                <div class="content-block block-evidence">
+                  <h3>证据锚点</h3>
+                  <ul>{evidence_items}</ul>
+                </div>
+                <div class="content-block block-question">
+                  <h3>面试题正题</h3>
+                  <p>{esc(domain.get("primary_question"))}</p>
+                </div>
+                <div class="content-block block-answer">
+                  <h3>参考答案要点</h3>
+                  <ol>{answer_items}</ol>
+                </div>
+                <div class="content-block">
+                  <h3>判定规则</h3>
+                  <div class="block-verdict">
+                    <div class="verdict-card verdict-pass"><strong>通过</strong><p>{esc(domain.get("verdict_pass"))}</p></div>
+                    <div class="verdict-card verdict-caution"><strong>注意</strong><p>{esc(domain.get("verdict_caution"))}</p></div>
+                    <div class="verdict-card verdict-fail"><strong>一票否决</strong><p>{esc(domain.get("verdict_fail"))}</p></div>
+                  </div>
+                </div>
+                <div class="content-block block-followup">
+                  <h3>追问环节</h3>
+                  <ol>{followup_items}</ol>
+                </div>
+                <div class="content-block block-explain">
+                  <h3>答不出时·面试官解释</h3>
+                  <p>{esc(domain.get("interviewer_explanation"))}</p>
+                </div>
+              </div>
+            </section>
+            """
+        )
+
+    title = esc(structured.get("title") or "结构化面试题")
+    candidate_summary = esc(overview.get("candidate_summary") or "-")
+    screening_status = esc(overview.get("screening_status") or "-")
+    custom_focus = esc(overview.get("custom_focus") or "-")
+    domains_html = "".join(question_cards)
+    nav_html = "".join(nav_items)
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      --bg: #07111f;
+      --panel: rgba(12, 24, 42, 0.78);
+      --panel-strong: rgba(11, 20, 35, 0.94);
+      --border: rgba(148, 163, 184, 0.18);
+      --text: #e5eef9;
+      --muted: #9fb2c8;
+      --accent: #76b8ff;
+      --accent-soft: rgba(118, 184, 255, 0.16);
+      --success-bg: #064e3b;
+      --success-border: #10b981;
+      --warning-bg: #451a03;
+      --warning-border: #f59e0b;
+      --danger-bg: #7f1d1d;
+      --danger-border: #ef4444;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(59, 130, 246, 0.22), transparent 28%),
+        radial-gradient(circle at top right, rgba(59, 130, 246, 0.10), transparent 24%),
+        linear-gradient(180deg, #081223 0%, #07111f 55%, #050b16 100%);
+    }}
+    .page {{
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 32px 36px 48px;
+    }}
+    .hero {{
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(0, 1fr);
+      padding: 28px;
+      border-radius: 28px;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(10, 24, 42, 0.96), rgba(8, 18, 34, 0.88));
+      box-shadow: 0 20px 60px rgba(2, 8, 23, 0.45);
+      backdrop-filter: blur(16px);
+    }}
+    .hero h1 {{
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.25;
+    }}
+    .hero-meta {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }}
+    .pill {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      background: rgba(15, 23, 42, 0.48);
+      font-size: 12px;
+      color: var(--muted);
+    }}
+    .pill-direct {{
+      background: rgba(16, 185, 129, 0.14);
+      border-color: rgba(16, 185, 129, 0.34);
+      color: #d1fae5;
+    }}
+    .pill-risk {{
+      background: rgba(245, 158, 11, 0.12);
+      border-color: rgba(245, 158, 11, 0.30);
+      color: #fde68a;
+    }}
+    .layout {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 20px;
+      margin-top: 22px;
+      align-items: start;
+    }}
+    .main {{
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }}
+    .sidebar {{
+      position: sticky;
+      top: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }}
+    .side-card, .qcard {{
+      border: 1px solid var(--border);
+      background: var(--panel);
+      border-radius: 24px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 16px 44px rgba(2, 8, 23, 0.36);
+    }}
+    .side-card {{
+      padding: 18px;
+    }}
+    .side-card h2, .side-card h3 {{
+      margin: 0 0 12px;
+      font-size: 14px;
+      color: #f8fbff;
+    }}
+    .side-card ul {{
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.8;
+      font-size: 13px;
+    }}
+    .side-card p {{
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.8;
+      font-size: 13px;
+    }}
+    .side-link {{
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      text-decoration: none;
+      color: var(--text);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      border-radius: 18px;
+      padding: 12px 14px;
+      background: rgba(8, 15, 28, 0.52);
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }}
+    .side-link:hover {{
+      border-color: rgba(118, 184, 255, 0.42);
+      transform: translateY(-1px);
+    }}
+    .side-link span {{
+      font-size: 11px;
+      color: var(--muted);
+    }}
+    .side-link strong {{
+      font-size: 13px;
+      line-height: 1.5;
+    }}
+    .qcard {{
+      overflow: hidden;
+    }}
+    .qcard-top {{
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 22px 24px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+    }}
+    .qcard-heading h2 {{
+      margin: 6px 0 6px;
+      font-size: 22px;
+      line-height: 1.35;
+    }}
+    .qcard-heading p {{
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+    }}
+    .qindex {{
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: #cfe6ff;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }}
+    .qcard-meta {{
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }}
+    .toggle-arrow {{
+      transition: transform 0.25s ease;
+      color: var(--muted);
+      font-size: 16px;
+    }}
+    .qcard.collapsed .toggle-arrow {{
+      transform: rotate(-90deg);
+    }}
+    .qcard-body {{
+      display: grid;
+      gap: 14px;
+      padding: 0 24px 24px;
+      max-height: 2400px;
+      opacity: 1;
+      transition: max-height 0.35s ease, opacity 0.25s ease;
+    }}
+    .qcard.collapsed .qcard-body {{
+      max-height: 0;
+      opacity: 0;
+      overflow: hidden;
+      padding-bottom: 0;
+    }}
+    .content-block {{
+      border-radius: 20px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(8, 15, 28, 0.62);
+      padding: 16px 18px;
+    }}
+    .content-block h3 {{
+      margin: 0 0 10px;
+      font-size: 14px;
+      color: #f8fbff;
+    }}
+    .content-block p, .content-block li {{
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.9;
+      color: var(--muted);
+    }}
+    .content-block ul, .content-block ol {{
+      margin: 0;
+      padding-left: 20px;
+    }}
+    .block-evidence {{
+      border-left: 3px solid #60a5fa;
+    }}
+    .block-question {{
+      border-left: 3px solid #38bdf8;
+    }}
+    .block-answer {{
+      border-left: 3px solid #34d399;
+    }}
+    .block-followup {{
+      border-left: 3px solid #a78bfa;
+    }}
+    .block-explain {{
+      border-left: 3px solid #f59e0b;
+    }}
+    .block-verdict {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .verdict-card {{
+      border-radius: 16px !important;
+      padding: 12px 14px;
+      min-height: 112px;
+    }}
+    .verdict-card strong {{
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }}
+    .verdict-card p {{
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.75;
+    }}
+    .verdict-pass {{
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
+      color: #d1fae5;
+    }}
+    .verdict-caution {{
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      color: #fef3c7;
+    }}
+    .verdict-fail {{
+      background: var(--danger-bg);
+      border: 1px solid var(--danger-border);
+      color: #fee2e2;
+    }}
+    @media (max-width: 1080px) {{
+      .layout {{
+        grid-template-columns: 1fr;
+      }}
+      .sidebar {{
+        position: static;
+      }}
+    }}
+    @media (max-width: 720px) {{
+      .page {{
+        padding: 18px 12px 28px;
+      }}
+      .hero {{
+        padding: 18px;
+        border-radius: 20px;
+      }}
+      .qcard-top, .qcard-body {{
+        padding-left: 16px;
+        padding-right: 16px;
+      }}
+      .block-verdict {{
+        grid-template-columns: 1fr;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <h1>{title}</h1>
+      <div class="hero-meta">
+        <span class="pill">{candidate_summary}</span>
+        <span class="pill">初筛状态：{screening_status}</span>
+      </div>
+      <p class="hero-focus">{custom_focus}</p>
+    </section>
+    <div class="layout">
+      <main class="main">
+        {domains_html}
+      </main>
+      <aside class="sidebar">
+        <section class="side-card">
+          <h2>候选人概览</h2>
+          <p>{candidate_summary}</p>
+          <p style="margin-top:8px;">当前结论：{screening_status}</p>
+        </section>
+        <section class="side-card">
+          <h3>已识别亮点</h3>
+          <ul>{highlight_items}</ul>
+        </section>
+        <section class="side-card">
+          <h3>待核实风险</h3>
+          <ul>{risk_items}</ul>
+        </section>
+        <section class="side-card">
+          <h3>能力域导航</h3>
+          <div style="display:flex;flex-direction:column;gap:10px;">{nav_html}</div>
+        </section>
+      </aside>
+    </div>
+  </div>
+  <script>
+    document.querySelectorAll('.qcard-top').forEach(function(button) {{
+      button.addEventListener('click', function() {{
+        var card = button.closest('.qcard');
+        if (card) {{
+          card.classList.toggle('collapsed');
+        }}
+      }});
+    }});
+  </script>
+</body>
+</html>"""
 
 
 def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dict[str, float], status_rules: Dict[str, Any], skills: Optional[Iterable[Any]] = None) -> Dict[str, Any]:

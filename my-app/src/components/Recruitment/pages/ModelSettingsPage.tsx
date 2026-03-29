@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import {Loader2, Plus, RefreshCw, Sparkles} from "lucide-react";
+import {Loader2, Plus, RefreshCw} from "lucide-react";
 
 import type {RecruitmentLLMConfig} from "@/lib/recruitment-api";
 import {cn} from "@/lib/utils";
@@ -25,13 +25,10 @@ type ModelSettingsPageProps = {
     assistantModelLabel: string;
     assistantActiveLLMConfig: RecruitmentLLMConfig | null;
     preferredLLMConfigIds: Set<number>;
-    existingGlmConfig: RecruitmentLLMConfig | null;
-    glmTemplateCreating: boolean;
     openLLMEditor: (config?: RecruitmentLLMConfig) => void;
     setPreferredLLMConfig: (config: RecruitmentLLMConfig) => Promise<void>;
     setLlmDeleteTarget: (config: RecruitmentLLMConfig) => void;
     refreshLLMConfigsWithFeedback: () => Promise<void>;
-    ensureGlmTemplateConfig: () => Promise<void>;
 };
 
 export function ModelSettingsPage({
@@ -41,13 +38,10 @@ export function ModelSettingsPage({
     assistantModelLabel,
     assistantActiveLLMConfig,
     preferredLLMConfigIds,
-    existingGlmConfig,
-    glmTemplateCreating,
     openLLMEditor,
     setPreferredLLMConfig,
     setLlmDeleteTarget,
     refreshLLMConfigsWithFeedback,
-    ensureGlmTemplateConfig,
 }: ModelSettingsPageProps) {
     const groupedConfigs = Array.from(
         llmConfigs.reduce((map, item) => {
@@ -64,16 +58,12 @@ export function ModelSettingsPage({
                 <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-6">
                     <div>
                         <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">模型配置中心</p>
-                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">同一任务类型会按优先级数字从小到大生效。新增 GLM、Gemini 或其他模型后，直接把它设为当前使用即可。</p>
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">同一任务类型会按优先级数字从小到大生效。新增模型后，直接把它设为当前使用即可。</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                         <Button variant="outline" onClick={() => void refreshLLMConfigsWithFeedback()} disabled={modelsLoading}>
                             {modelsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> : <RefreshCw className="h-4 w-4"/>}
                             {modelsLoading ? "刷新中..." : "刷新模型"}
-                        </Button>
-                        <Button variant="outline" onClick={() => void ensureGlmTemplateConfig()} disabled={glmTemplateCreating}>
-                            {glmTemplateCreating ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
-                            {existingGlmConfig ? "编辑 GLM 模板" : "新增 GLM 模板"}
                         </Button>
                         <Button onClick={() => openLLMEditor()}>
                             <Plus className="h-4 w-4"/>

@@ -33,6 +33,18 @@ import {toast} from "sonner";
 
 import {authenticatedFetch, getStoredScriptHubSession} from "@/lib/auth";
 import {
+    DEFAULT_QUERY_CANDIDATES_LIMIT,
+    type RecruitmentAssistantClarificationOption,
+    type RecruitmentAssistantClarificationRequest,
+    type RecruitmentAssistantClarificationResponse,
+    type RecruitmentAssistantMessageCompletedPayload,
+    type RecruitmentAssistantPageInfo,
+    type RecruitmentAssistantRunRequest,
+    type RecruitmentAssistantStreamEvent,
+    type RecruitmentAssistantStreamEventType,
+    type RecruitmentAssistantToolResultPayload,
+} from "@/lib/recruitment-assistant-protocol";
+import {
     joinTags,
     recruitmentApi,
     splitTags,
@@ -317,7 +329,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [coreRefreshing, setCoreRefreshing] = useState(false);
     const [skillSubmitting, setSkillSubmitting] = useState(false);
     const [llmSubmitting, setLlmSubmitting] = useState(false);
-    const [glmTemplateCreating, setGlmTemplateCreating] = useState(false);
     const [resumeMailSubmitting, setResumeMailSubmitting] = useState(false);
     const [mailDispatchActionKey, setMailDispatchActionKey] = useState<string | null>(null);
     const [chatSending, setChatSending] = useState(false);
@@ -386,6 +397,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const assistantScrollAnchorRef = useRef<HTMLDivElement | null>(null);
     const assistantScrollAreaRef = useRef<HTMLDivElement | null>(null);
     const assistantInputRef = useRef<HTMLTextAreaElement | null>(null);
+    const assistantStreamAbortRef = useRef<AbortController | null>(null);
+    const chatContextRef = useRef(chatContext);
 
     const syncInterviewPreviewHeight = useCallback((iframe: HTMLIFrameElement | null) => {
         if (!iframe) {
@@ -463,9 +476,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         const defaultSender = mailSenderConfigs.find((item) => item.is_default && item.is_enabled);
         return String(defaultSender?.id || mailSenderConfigs.find((item) => item.is_enabled)?.id || "");
     }, [mailSenderConfigs]);
-    const existingGlmConfig = useMemo(() => {
-        return llmConfigs.find((item) => item.provider === "glm") || null;
-    }, [llmConfigs]);
     const effectiveLLMConfigs = useMemo(() => {
         const byTask = new Map<string, RecruitmentLLMConfig>();
         llmConfigs.filter((item) => item.is_active).forEach((item) => {
@@ -484,6 +494,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const assistantActiveLLMConfig = useMemo(() => {
         return effectiveLLMConfigs.get("chat_orchestrator") || effectiveLLMConfigs.get("default") || null;
     }, [effectiveLLMConfigs]);
+    const interviewActiveLLMConfig = useMemo(() => {
+        return effectiveLLMConfigs.get("interview_question_generation") || effectiveLLMConfigs.get("default") || null;
+    }, [effectiveLLMConfigs]);
+    const assistantModelSwitchOptions = useMemo(() => {
+        const preferredTaskType = llmConfigs.some((item) => item.task_type === "chat_orchestrator")
+            ? "chat_orchestrator"
+            : "default";
+        return llmConfigs
+            .filter((item) => item.is_active && item.task_type === preferredTaskType)
+            .sort((left, right) => {
+                if (left.priority !== right.priority) return left.priority - right.priority;
+                return left.id - right.id;
+            });
+    }, [llmConfigs]);
     const chatContextCandidateLabel = useMemo(() => {
         if (!chatContext.candidate_id) {
             return "未指定候选人";
@@ -493,6 +517,22 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const assistantModelLabel = assistantActiveLLMConfig
         ? `${labelForProvider(assistantActiveLLMConfig.resolved_provider || assistantActiveLLMConfig.provider)} / ${assistantActiveLLMConfig.resolved_model_name || assistantActiveLLMConfig.model_name}`
         : "暂未识别";
+    const buildOptimisticChatContext = useCallback((
+        nextPositionId: number | null,
+        nextSkillIds: number[],
+        nextCandidateId: number | null,
+        currentContext: ChatContext,
+    ): ChatContext => ({
+        ...currentContext,
+        position_id: nextPositionId,
+        position_title: nextPositionId ? (positionMap.get(nextPositionId)?.title || currentContext.position_title || null) : null,
+        candidate_id: nextCandidateId,
+        skill_ids: nextSkillIds,
+        skills: nextSkillIds
+            .map((skillId) => skillMap.get(skillId))
+            .filter(Boolean) as RecruitmentSkill[],
+        updated_at: new Date().toISOString(),
+    }), [positionMap, skillMap]);
     const positionScreeningSkillIds = useMemo(
         () => candidateDetail?.candidate.position_screening_skill_ids || [],
         [candidateDetail?.candidate.position_screening_skill_ids],
@@ -781,6 +821,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     useEffect(() => {
         selectedLogIdRef.current = selectedLogId;
     }, [selectedLogId]);
+
+    useEffect(() => {
+        chatContextRef.current = chatContext;
+    }, [chatContext]);
 
     useEffect(() => {
         selectedPositionIdRef.current = selectedPositionId;
@@ -1925,6 +1969,350 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         queueAssistantInputFocus(true);
     }
 
+    function shouldUseStreamingAssistant(
+        message: string,
+        clarificationResponse?: RecruitmentAssistantClarificationResponse | null,
+    ) {
+        if (clarificationResponse?.selections?.length) {
+            return true;
+        }
+        const queryPattern = /(多少|几位|几人|人数|总数|列出|列表|查看|看看|展示|有哪些|有谁|下一页|继续查看|收件人|联系人|邮箱)/;
+        const interviewPattern = /(面试题|初试题|复试题|面试问题|出几道题|来一套题|出题|生成题)/;
+        const executionPattern = /(生成|初筛|面试题|发送|发给|保存|创建|新建|覆盖|推进|更新状态|批量|写一份|起草|撰写|产出|整理)/i;
+        return interviewPattern.test(message) || (queryPattern.test(message) && !executionPattern.test(message));
+    }
+
+    function getLatestAssistantQueryCursor() {
+        for (let index = chatMessages.length - 1; index >= 0; index -= 1) {
+            const cursor = chatMessages[index]?.queryPageInfo?.next_cursor;
+            if (cursor) {
+                return cursor;
+            }
+        }
+        return null;
+    }
+
+    function buildStreamingAssistantRuntimeContext(message: string) {
+        const currentChatContext = chatContextRef.current;
+        const selectedPosition = selectedPositionIdRef.current
+            ? positionMap.get(selectedPositionIdRef.current) || null
+            : null;
+        const selectedCandidate = selectedCandidateIdRef.current
+            ? candidateMap.get(selectedCandidateIdRef.current) || null
+            : null;
+        const wantsCurrentPosition = /当前岗位|当前职位|本岗位|该岗位/.test(message);
+        const wantsCurrentCandidate = /当前候选人|当前人选|这位候选人|这个候选人|面试题|初试题|复试题|出题|生成题/.test(message);
+        const contextPositionId = currentChatContext.position_id
+            || (wantsCurrentPosition ? selectedPositionIdRef.current : null)
+            || null;
+        const resolvedPosition = contextPositionId ? positionMap.get(contextPositionId) || null : null;
+
+        return {
+            position_id: contextPositionId,
+            position_title: resolvedPosition?.title
+                || currentChatContext.position_title
+                || (wantsCurrentPosition ? selectedPosition?.title || null : null),
+            candidate_id: currentChatContext.candidate_id
+                || (wantsCurrentCandidate ? selectedCandidateIdRef.current : null)
+                || null,
+            skill_ids: currentChatContext.skill_ids,
+        };
+    }
+
+    async function runStreamingAssistant(
+        message: string,
+        options?: {
+            clarificationResponse?: RecruitmentAssistantClarificationResponse | null;
+            appendUserMessage?: boolean;
+        },
+    ) {
+        const trimmedMessage = message.trim();
+        if (!trimmedMessage) {
+            return;
+        }
+
+        if (options?.appendUserMessage !== false) {
+            setChatMessages((current) => [
+                ...current,
+                {id: `u-${Date.now()}`, role: "user", content: trimmedMessage, createdAt: new Date().toISOString()},
+            ]);
+        }
+        setChatInput("");
+        setChatSending(true);
+
+        const shouldContinuePaging = /下一页|继续查看/.test(trimmedMessage);
+        const isInterviewGenerationMessage = /(面试题|初试题|复试题|面试问题|出几道题|来一套题|出题|生成题)/.test(trimmedMessage);
+        const selectedPosition = selectedPositionIdRef.current
+            ? positionMap.get(selectedPositionIdRef.current) || null
+            : null;
+        const selectedCandidate = selectedCandidateIdRef.current
+            ? candidateMap.get(selectedCandidateIdRef.current) || null
+            : null;
+        const requestContext = buildStreamingAssistantRuntimeContext(trimmedMessage);
+        const frontendDebug = {
+            selectedPosition: selectedPosition
+                ? {
+                    id: selectedPosition.id,
+                    title: selectedPosition.title,
+                    status: selectedPosition.status,
+                }
+                : null,
+            selectedPositionId: selectedPositionIdRef.current,
+            selectedCandidate: selectedCandidate
+                ? {
+                    id: selectedCandidate.id,
+                    name: selectedCandidate.name,
+                    position_id: selectedCandidate.position_id,
+                    position_title: selectedCandidate.position_title,
+                    status: selectedCandidate.status,
+                }
+                : null,
+            selectedCandidateId: selectedCandidateIdRef.current,
+            currentChatContext: chatContextRef.current,
+            requestPayloadContext: requestContext,
+        };
+        const requestBody: RecruitmentAssistantRunRequest = {
+            message: trimmedMessage,
+            context: requestContext,
+            clarification_response: options?.clarificationResponse || null,
+            pagination: shouldContinuePaging
+                ? {
+                    cursor: getLatestAssistantQueryCursor(),
+                    limit: DEFAULT_QUERY_CANDIDATES_LIMIT,
+                }
+                : undefined,
+        };
+
+        const abortController = new AbortController();
+        assistantStreamAbortRef.current = abortController;
+        const predictedModelConfig = isInterviewGenerationMessage ? interviewActiveLLMConfig : assistantActiveLLMConfig;
+
+        console.info("[recruitment][assistant][stream][frontend]", {
+            message: trimmedMessage,
+            ...frontendDebug,
+        });
+
+        try {
+            const response = await authenticatedFetch("/api/recruitment/chat/runs", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Accept: "text/event-stream",
+                },
+                body: JSON.stringify(requestBody),
+                signal: abortController.signal,
+            });
+
+            if (!response.ok || !response.body) {
+                const errorText = await response.text().catch(() => "");
+                throw new Error(errorText || "流式助手请求失败");
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let activeAssistantMessageId: string | null = null;
+            let runCompleted = false;
+            let awaitingClarification = false;
+            let refreshInterviewCandidateId: number | null = null;
+            const pendingToolResults: RecruitmentAssistantToolResultPayload[] = [];
+
+            const ensureAssistantMessage = (messageId: string) => {
+                activeAssistantMessageId = messageId;
+                setChatMessages((current) => (
+                    current.some((item) => item.id === messageId)
+                        ? current
+                        : [
+                            ...current,
+                            {
+                                id: messageId,
+                                role: "assistant",
+                                content: "",
+                                createdAt: new Date().toISOString(),
+                                streamStatus: "streaming",
+                                sourceRunType: "stream",
+                                frontendDebug,
+                                modelProvider: predictedModelConfig?.resolved_provider || predictedModelConfig?.provider || null,
+                                modelName: predictedModelConfig?.resolved_model_name || predictedModelConfig?.model_name || null,
+                                toolResults: pendingToolResults.length ? [...pendingToolResults] : undefined,
+                            },
+                        ]
+                ));
+            };
+
+            const applyEvent = (event: RecruitmentAssistantStreamEvent) => {
+                switch (event.event) {
+                    case "message.started": {
+                        const payload = event.payload as { message_id: string };
+                        ensureAssistantMessage(payload.message_id);
+                        break;
+                    }
+                    case "message.delta": {
+                        const payload = event.payload as { message_id: string; delta: string };
+                        ensureAssistantMessage(payload.message_id);
+                        updateChatMessage(payload.message_id, (chatMessage) => ({
+                            ...chatMessage,
+                            content: `${chatMessage.content || ""}${payload.delta}`,
+                            streamStatus: "streaming",
+                            sourceRunType: "stream",
+                        }));
+                        break;
+                    }
+                    case "message.completed": {
+                        const payload = event.payload as RecruitmentAssistantMessageCompletedPayload;
+                        ensureAssistantMessage(payload.message_id);
+                        updateChatMessage(payload.message_id, (chatMessage) => ({
+                            ...chatMessage,
+                            content: payload.content,
+                            queryPageInfo: payload.page as RecruitmentAssistantPageInfo | undefined,
+                            streamStatus: "done",
+                            sourceRunType: "stream",
+                        }));
+                        break;
+                    }
+                    case "tool.result": {
+                        const payload = event.payload as RecruitmentAssistantToolResultPayload;
+                        if (!activeAssistantMessageId) {
+                            pendingToolResults.push(payload);
+                            break;
+                        }
+                        const payloadRecord = payload.result && typeof payload.result === "object"
+                            ? payload.result as Record<string, unknown>
+                            : null;
+                        const taskLog = payloadRecord?.task_log && typeof payloadRecord.task_log === "object"
+                            ? payloadRecord.task_log as Record<string, unknown>
+                            : null;
+                        const candidateRecord = payloadRecord?.candidate && typeof payloadRecord.candidate === "object"
+                            ? payloadRecord.candidate as Record<string, unknown>
+                            : null;
+                        updateChatMessage(activeAssistantMessageId, (chatMessage) => ({
+                            ...chatMessage,
+                            toolResults: [...(chatMessage.toolResults || []), payload],
+                            logId: typeof taskLog?.id === "number" ? taskLog.id : chatMessage.logId,
+                            memorySource: typeof taskLog?.memory_source === "string" ? taskLog.memory_source : chatMessage.memorySource,
+                            modelProvider: typeof taskLog?.model_provider === "string" ? taskLog.model_provider : chatMessage.modelProvider,
+                            modelName: typeof taskLog?.model_name === "string" ? taskLog.model_name : chatMessage.modelName,
+                            usedSkills: Array.isArray(taskLog?.related_skill_snapshots)
+                                ? taskLog.related_skill_snapshots as RecruitmentSkill[]
+                                : chatMessage.usedSkills,
+                            usedFallback: typeof taskLog?.status === "string"
+                                ? (taskLog.status === "fallback")
+                                : chatMessage.usedFallback,
+                            fallbackError: typeof taskLog?.error_message === "string"
+                                ? taskLog.error_message
+                                : chatMessage.fallbackError,
+                        }));
+                        if (payload.name === "generate_interview_questions" && typeof candidateRecord?.id === "number") {
+                            refreshInterviewCandidateId = candidateRecord.id;
+                        }
+                        break;
+                    }
+                    case "clarification.required": {
+                        const payload = event.payload as RecruitmentAssistantClarificationRequest;
+                        awaitingClarification = true;
+                        if (!activeAssistantMessageId) {
+                            const fallbackMessageId = `a-${Date.now()}`;
+                            ensureAssistantMessage(fallbackMessageId);
+                        }
+                        updateChatMessage(activeAssistantMessageId || `a-${Date.now()}`, (chatMessage) => ({
+                            ...chatMessage,
+                            clarificationRequest: payload,
+                            streamStatus: "done",
+                            sourceRunType: "stream",
+                        }));
+                        break;
+                    }
+                    case "run.completed": {
+                        runCompleted = true;
+                        break;
+                    }
+                    case "run.error": {
+                        const payload = event.payload as { message: string };
+                        const nextMessageId = activeAssistantMessageId || `e-${Date.now()}`;
+                        ensureAssistantMessage(nextMessageId);
+                        updateChatMessage(nextMessageId, (chatMessage) => ({
+                            ...chatMessage,
+                            content: `发送失败：${payload.message}`,
+                            streamStatus: "error",
+                            sourceRunType: "stream",
+                        }));
+                        toast.error(`发送失败：${payload.message}`);
+                        runCompleted = true;
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            };
+
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) {
+                    break;
+                }
+                buffer += decoder.decode(value, {stream: true});
+
+                let separatorIndex = buffer.indexOf("\n\n");
+                while (separatorIndex !== -1) {
+                    const rawEvent = buffer.slice(0, separatorIndex);
+                    buffer = buffer.slice(separatorIndex + 2);
+                    separatorIndex = buffer.indexOf("\n\n");
+
+                    const lines = rawEvent.split("\n");
+                    const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() as RecruitmentAssistantStreamEventType | undefined;
+                    const dataLines = lines.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
+                    if (!eventName || !dataLines) {
+                        continue;
+                    }
+                    try {
+                        applyEvent(JSON.parse(dataLines) as RecruitmentAssistantStreamEvent);
+                    } catch {
+                        // Ignore malformed chunks and continue reading the stream.
+                    }
+                }
+            }
+
+            if (!runCompleted && !awaitingClarification && activeAssistantMessageId) {
+                updateChatMessage(activeAssistantMessageId, (chatMessage) => ({
+                    ...chatMessage,
+                    streamStatus: "done",
+                    sourceRunType: "stream",
+                }));
+            }
+            if (refreshInterviewCandidateId !== null) {
+                await Promise.all([
+                    loadLogs({silent: true}),
+                    loadDashboard(),
+                    selectedCandidateIdRef.current === refreshInterviewCandidateId
+                        ? loadCandidateDetail(refreshInterviewCandidateId, {silent: true})
+                        : Promise.resolve(null),
+                ]);
+            }
+        } finally {
+            assistantStreamAbortRef.current = null;
+            setChatSending(false);
+        }
+    }
+
+    async function submitAssistantClarification(
+        originalMessage: string,
+        clarificationRequest: RecruitmentAssistantClarificationRequest,
+        option: RecruitmentAssistantClarificationOption,
+    ) {
+        await runStreamingAssistant(originalMessage, {
+            clarificationResponse: {
+                selections: [
+                    {
+                        clarification_id: clarificationRequest.clarification_id,
+                        entity_type: clarificationRequest.entity_type,
+                        selected_id: option.id,
+                    },
+                ],
+            },
+            appendUserMessage: false,
+        });
+    }
+
     async function copyPublishJDText() {
         if (!currentPublishText.trim()) {
             toast.error("当前没有可复制的发布文案");
@@ -2521,6 +2909,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         if (!message) {
             return;
         }
+        if (shouldUseStreamingAssistant(message)) {
+            await runStreamingAssistant(message);
+            return;
+        }
         const userMessageId = `u-${Date.now()}`;
         setChatMessages((current) => [
             ...current,
@@ -2651,6 +3043,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         nextCandidateId: number | null = null,
         options?: { quiet?: boolean },
     ) {
+        const previousContext = chatContext;
+        const optimisticContext = buildOptimisticChatContext(
+            nextPositionId,
+            nextSkillIds,
+            nextCandidateId,
+            previousContext,
+        );
+        chatContextRef.current = optimisticContext;
+        setChatContext(optimisticContext);
         try {
             const response = await recruitmentApi<ChatContext>("/chat/context", {
                 method: "POST",
@@ -2660,12 +3061,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     skill_ids: nextSkillIds,
                 }),
             });
+            chatContextRef.current = response;
             setChatContext(response);
             if (options?.quiet) {
                 return;
             }
             toast.success("AI 助手上下文已更新");
         } catch (error) {
+            chatContextRef.current = previousContext;
+            setChatContext(previousContext);
             if (options?.quiet) {
                 return;
             }
@@ -3133,45 +3537,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setLlmDialogOpen(true);
     }
 
-    async function ensureGlmTemplateConfig() {
-        if (glmTemplateCreating) {
-            return;
-        }
-        if (existingGlmConfig) {
-            openLLMEditor(existingGlmConfig);
-            toast.success("GLM 模型模板已存在，已为你打开编辑弹窗");
-            return;
-        }
-        setGlmTemplateCreating(true);
-        try {
-            await recruitmentApi(`/llm-configs`, {
-                method: "POST",
-                body: JSON.stringify({
-                    config_key: "glm-flash-template",
-                    task_type: "default",
-                    provider: "glm",
-                    model_name: "glm-4-flash",
-                    base_url: "https://open.bigmodel.cn/api/paas/v4",
-                    api_key_env: "GLM_API_KEY",
-                    api_key_value: "1021021902920901",
-                    priority: 99,
-                    is_active: true,
-                    extra_config: {},
-                }),
-            });
-            const configs = await loadLLMConfigs();
-            const createdConfig = configs.find((item) => item.provider === "glm") || null;
-            if (createdConfig) {
-                openLLMEditor(createdConfig);
-            }
-            toast.success("GLM 模型模板已添加，你可以直接修改 key 和模型名");
-        } catch (error) {
-            toast.error(`添加 GLM 模型失败：${formatActionError(error)}`);
-        } finally {
-            setGlmTemplateCreating(false);
-        }
-    }
-
     async function submitLLMConfig() {
         if (llmSubmitting) {
             return;
@@ -3334,6 +3699,30 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </div>
                 </Field>
 
+                <Field label="当前模型">
+                    <NativeSelect
+                        value={assistantActiveLLMConfig ? String(assistantActiveLLMConfig.id) : "none"}
+                        onChange={(event) => {
+                            const nextConfig = assistantModelSwitchOptions.find((item) => String(item.id) === event.target.value);
+                            if (nextConfig) {
+                                void setPreferredLLMConfig(nextConfig);
+                            }
+                            queueAssistantInputFocus();
+                        }}
+                        disabled={assistantModelSwitchOptions.length <= 1}
+                    >
+                        {!assistantModelSwitchOptions.length ? <option value="none">暂无可切换模型</option> : null}
+                        {assistantModelSwitchOptions.map((config) => (
+                            <option key={config.id} value={config.id}>
+                                {labelForProvider(config.resolved_provider || config.provider)} / {config.resolved_model_name || config.model_name}
+                            </option>
+                        ))}
+                    </NativeSelect>
+                    <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                        先为同一任务类型添加多个已启用模型，这里就能像 GPT / Claude 一样直接切换当前使用项。
+                    </p>
+                </Field>
+
                 <Field label="推荐问题">
                     <div className="space-y-2">
                         {workspaceSuggestionPrompts.map((prompt) => (
@@ -3472,13 +3861,38 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 ))}
                                             </div>
                                         ) : null}
-                                        {message.role === "assistant" && (message.usedSkills?.length || message.logId || message.usedFallback) ? (
+                                        {message.clarificationRequest?.options?.length ? (
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {message.clarificationRequest.options.map((option) => (
+                                                    <Button
+                                                        key={`${message.id}-${option.id}`}
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onMouseDown={preventAssistantActionFocusLoss}
+                                                        onClick={() => void submitAssistantClarification(
+                                                            message.clarificationRequest?.original_message || message.content,
+                                                            message.clarificationRequest!,
+                                                            option,
+                                                        )}
+                                                    >
+                                                        {option.label}
+                                                    </Button>
+                                                ))}
+                                            </div>
+                                        ) : null}
+                                        {message.role === "assistant" && (message.usedSkills?.length || message.logId || message.usedFallback || message.toolResults?.length || message.frontendDebug) ? (
                                             <details
                                                 className="mt-3 rounded-2xl border border-slate-200/80 bg-white/70 px-3 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300">
                                                 <summary
                                                     className="cursor-pointer select-none font-medium text-slate-700 dark:text-slate-200">查看本次上下文
                                                 </summary>
                                                 <div className="mt-3 space-y-3">
+                                                    {message.frontendDebug ? (
+                                                        <div className="space-y-2">
+                                                            <p className="font-medium text-slate-900 dark:text-slate-100">前端发送前</p>
+                                                            <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-2xl border border-slate-200/80 bg-slate-50 px-3 py-3 leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">{JSON.stringify(message.frontendDebug, null, 2)}</pre>
+                                                        </div>
+                                                    ) : null}
                                                     <p className="leading-6">
                                                         模型：{labelForProvider(message.modelProvider)} / {message.modelName || "-"}
                                                         <br/>
@@ -3503,6 +3917,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                         <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{skill.description}</p> : null}
                                                                     <pre
                                                                         className="mt-2 whitespace-pre-wrap break-words leading-6 text-slate-600 dark:text-slate-300">{skill.content || "暂无内容"}</pre>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : null}
+                                                    {message.toolResults?.length ? (
+                                                        <div className="space-y-2">
+                                                            <p className="font-medium text-slate-900 dark:text-slate-100">后端执行链路</p>
+                                                            {message.toolResults.map((toolResult, index) => (
+                                                                <div
+                                                                    key={`${message.id}-tool-result-${index}`}
+                                                                    className="rounded-2xl border border-slate-200/80 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60"
+                                                                >
+                                                                    <p className="font-medium text-slate-900 dark:text-slate-100">{toolResult.name}</p>
+                                                                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words leading-6 text-slate-600 dark:text-slate-300">{JSON.stringify(toolResult.result, null, 2)}</pre>
                                                                 </div>
                                                             ))}
                                                         </div>
@@ -3551,7 +3979,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 </p>
                                 <Button
                                     onClick={() => void sendChatMessage()}
-                                    disabled={isCurrentChatTaskCancelling || (!activeChatTaskId && !chatInput.trim())}
+                                    disabled={chatSending || isCurrentChatTaskCancelling || (!activeChatTaskId && !chatInput.trim())}
                                 >
                                     {activeChatTaskId ? <Square className="h-4 w-4"/> : <Send className="h-4 w-4"/>}
                                     {isCurrentChatTaskCancelling ? "停止中..." : activeChatTaskId ? "停止生成" : "发送"}
@@ -4328,13 +4756,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 assistantModelLabel={assistantModelLabel}
                 assistantActiveLLMConfig={assistantActiveLLMConfig}
                 preferredLLMConfigIds={preferredLLMConfigIds}
-                existingGlmConfig={existingGlmConfig}
-                glmTemplateCreating={glmTemplateCreating}
                 openLLMEditor={openLLMEditor}
                 setPreferredLLMConfig={setPreferredLLMConfig}
                 setLlmDeleteTarget={setLlmDeleteTarget}
                 refreshLLMConfigsWithFeedback={refreshLLMConfigsWithFeedback}
-                ensureGlmTemplateConfig={ensureGlmTemplateConfig}
             />
         );
     }
@@ -5177,7 +5602,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                            onChange={(event) => setLlmForm((current) => ({
                                                                ...current,
                                                                modelName: event.target.value
-                                                           }))}/></Field>
+                                                           }))}/>
+                                <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                    这里就是实际调用的大模型标识。如果你要换模型版本，直接编辑这里即可。
+                                </p>
+                            </Field>
                             <Field label="Base URL"><Input value={llmForm.baseUrl}
                                                            onChange={(event) => setLlmForm((current) => ({
                                                                ...current,

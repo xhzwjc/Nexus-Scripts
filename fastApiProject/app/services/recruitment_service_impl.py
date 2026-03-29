@@ -43,7 +43,7 @@ from .recruitment_mailer import RecruitmentMailSenderRuntime, build_resume_email
 from .recruitment_prompts import INTERVIEW_QUESTION_SYSTEM_PROMPT, JD_GENERATION_SYSTEM_PROMPT, RESUME_PARSE_SYSTEM_PROMPT, RESUME_SCORE_SYSTEM_PROMPT, RESUME_SCREENING_SYSTEM_PROMPT
 from .recruitment_publish_adapters import build_publish_adapter
 from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl, recruitment_task_registry
-from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_interview_fallback, build_jd_structured_fallback, extract_keywords, extract_resume_structured_data, extract_resume_text, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_structured_jd, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text
+from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_interview_structured_fallback, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_interview_generation_constraints, extract_keywords, extract_resume_structured_data, extract_resume_text, infer_interview_capability_domains, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text
 
 KNOWN_AI_TASK_TYPES = ["jd_generation", "resume_parse", "resume_score", "interview_question_generation", "chat_orchestrator", "resume_mail_dispatch", "publish_task"]
 LLM_TASK_TYPE_OPTIONS = [{"value": "default", "label": "默认模型"}, {"value": "jd_generation", "label": "JD 生成"}, {"value": "resume_parse", "label": "简历解析"}, {"value": "resume_score", "label": "简历评分"}, {"value": "interview_question_generation", "label": "面试题生成"}, {"value": "chat_orchestrator", "label": "AI 助手"}]
@@ -1929,15 +1929,27 @@ class RecruitmentService:
                 return memory_rows, workflow.screening_memory_source or "candidate_memory"
         return [], "none"
 
-    def _build_interview_skill_prompt_block(self, skill_snapshots: Sequence[Dict[str, Any]]) -> str:
-        if not skill_snapshots:
-            return "No active skills."
-        blocks: List[str] = []
-        for index, skill in enumerate(skill_snapshots, 1):
-            blocks.append("\n".join([f"[SKILL {index}]", f"id: {skill.get('id')}", f"name: {skill.get('name')}", f"description: {skill.get('description') or 'N/A'}", "content:", str(skill.get('content') or '')]))
-        return "\n\n".join(blocks)
+    def _build_interview_skill_prompt_block(self, skill_snapshots: Sequence[Dict[str, Any]], custom_requirements: str) -> str:
+        constraints = extract_interview_generation_constraints(skill_snapshots, custom_requirements)
+        if not constraints:
+            return "- 无额外约束"
+        return "\n".join(f"- {item}" for item in constraints)
 
     def _build_interview_question_prompt(self, *, candidate_payload: Dict[str, Any], parsed_resume_payload: Optional[Dict[str, Any]], latest_screening_result_payload: Optional[Dict[str, Any]], position_payload: Optional[Dict[str, Any]], workflow_payload: Optional[Dict[str, Any]], round_name: str, custom_requirements: str, skill_snapshots: Sequence[Dict[str, Any]], memory_source: str) -> str:
+        capability_domains = infer_interview_capability_domains(
+            str((position_payload or {}).get("title") or ""),
+            skill_snapshots,
+            parsed_resume_payload,
+        )
+        fallback_structured = build_interview_structured_fallback(
+            str(candidate_payload.get("name") or "未命名候选人"),
+            str((position_payload or {}).get("title") or "当前岗位"),
+            round_name or "初试",
+            skill_snapshots,
+            custom_requirements,
+            parsed_resume=parsed_resume_payload,
+            screening_result=latest_screening_result_payload,
+        )
         structured_payload = {
             "candidate": candidate_payload,
             "parsed_resume": parsed_resume_payload,
@@ -1948,22 +1960,38 @@ class RecruitmentService:
             "custom_requirements": custom_requirements or None,
             "memory_source": memory_source,
             "active_skill_ids": [skill.get("id") for skill in skill_snapshots],
+            "capability_domains": capability_domains,
+            "hidden_generation_constraints": extract_interview_generation_constraints(skill_snapshots, custom_requirements),
+            "domain_evidence_catalog": [
+                {
+                    "domain_title": item.get("domain_title"),
+                    "domain_nature": item.get("domain_nature"),
+                    "evidence_type": item.get("evidence_type"),
+                    "evidence_basis": item.get("evidence_basis"),
+                }
+                for item in fallback_structured.get("domains", [])
+            ],
         }
         skill_names = "、".join([str(skill.get("name") or "") for skill in skill_snapshots]) if skill_snapshots else "无"
         return "\n\n".join([
-            "TASK: 为候选人生成一套严格贴合 ACTIVE_SKILLS 的面试题。",
-            "PRIORITY_RULES:",
-            "1. ACTIVE_SKILLS 是最高优先级硬约束，必须完整覆盖。",
-            "2. custom_requirements 只能补充，不能覆盖 ACTIVE_SKILLS。",
-            "3. parsed_resume / latest_screening_result / position / workflow_memory 是事实依据，必须先读这些上下文，再出题。",
-            "4. 输出不得退化成泛化题库；每个模块都必须明显对应 ACTIVE_SKILLS。",
-            "5. 禁止把 Skill 的触发条件、系统指令、输出规范原文直接改写成面试题；题目必须围绕候选人的真实项目、技能证据和初筛风险点展开。",
+            "TASK: 为候选人生成结构化面试题 domain 对象，后端会再统一渲染 markdown/html。",
+            "OUTPUT_REQUIREMENTS:",
+            "1. 只返回 strict JSON，不要返回 markdown、html、代码块或解释文字。",
+            "2. domains 必须严格按 CAPABILITY_DOMAINS 顺序输出，domain_title 必须与提供标题完全一致。",
+            "3. 对每个 domain，必须返回：domain_title、evidence_basis[]、evidence_type、primary_question、answer_points[]、verdict_pass、verdict_caution、verdict_fail、followups[]、interviewer_explanation。",
+            "4. evidence_type 只能是 direct_evidence 或 risk_to_verify。",
+            "5. 如果 DOMAIN_EVIDENCE_CATALOG 里该模块是 risk_to_verify，primary_question 必须明确写出“简历缺少直接证据，需要结合最接近的真实项目或风险继续核实”，绝不能暗示候选人已经做过。",
+            "6. 如果 DOMAIN_EVIDENCE_CATALOG 里该模块是 direct_evidence，优先围绕 evidence_basis 里的真实证据点组织问题，不要只绑定公司名或泛化经历。",
+            "7. 不要把 Skill 规则名、系统约束名、HTML 规范、触发方式、输出规范写进题目模块、题干、参考答案或判定文案里。",
+            "8. 回答不能退化成泛化题库清单，每个模块都要体现该能力域真正要验证的能力与风险。",
             f"ROUND_NAME: {round_name or '初试'}",
             f"CUSTOM_REQUIREMENTS: {custom_requirements or '无'}",
             f"MEMORY_SOURCE: {memory_source or 'unknown'}",
             f"ACTIVE_SKILL_NAMES: {skill_names}",
-            "ACTIVE_SKILL_DETAILS:",
-            self._build_interview_skill_prompt_block(skill_snapshots),
+            "CAPABILITY_DOMAINS:",
+            "\n".join(f"- {item}" for item in capability_domains),
+            "ACTIVE_SKILL_CONSTRAINTS:",
+            self._build_interview_skill_prompt_block(skill_snapshots, custom_requirements),
             "STRUCTURED_CONTEXT_JSON:",
             json_dumps_safe(structured_payload),
         ])
@@ -1983,24 +2011,46 @@ class RecruitmentService:
         position_payload = None if not position else self._serialize_position_for_interview_prompt(position)
         workflow_payload = self._serialize_workflow_for_interview_prompt(workflow) if workflow else None
         prompt = self._build_interview_question_prompt(candidate_payload=candidate_payload, parsed_resume_payload=parsed_resume_payload, latest_screening_result_payload=latest_screening_result_payload, position_payload=position_payload, workflow_payload=workflow_payload, round_name=round_name, custom_requirements=custom_requirements, skill_snapshots=skill_snapshots, memory_source=memory_source)
+        fallback_structured = build_interview_structured_fallback(
+            candidate.name,
+            position.title if position else "当前岗位",
+            round_name,
+            skill_snapshots,
+            custom_requirements,
+            parsed_resume=parsed_resume_payload,
+            screening_result=latest_screening_result_payload,
+        )
         request_hash = self._build_request_hash("interview_question_generation", candidate.id, round_name, custom_requirements, related_skill_ids, memory_source)
         log_row = self._get_ai_task_log_row(existing_task_id) if existing_task_id else self._create_ai_task_log("interview_question_generation", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, memory_source=memory_source, request_hash=request_hash)
         try:
             self._raise_if_cancelled(cancel_control)
             self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成面试题")
-            task = self.ai_gateway.generate_json(task_type="interview_question_generation", system_prompt=INTERVIEW_QUESTION_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: build_interview_fallback(candidate.name, position.title if position else "当前岗位", round_name, skill_snapshots, custom_requirements, parsed_resume=parsed_resume_payload, screening_result=latest_screening_result_payload), cancel_control=cancel_control)
+            task = self.ai_gateway.generate_json(task_type="interview_question_generation", system_prompt=INTERVIEW_QUESTION_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: fallback_structured, cancel_control=cancel_control)
             self._raise_if_cancelled(cancel_control)
         except RecruitmentTaskCancelled:
             self.db.rollback()
             self._mark_ai_task_cancelled(log_row.id, actor_id=actor_id, reason="任务已被用户停止，面试题未继续生成。")
             raise
         content = task.get("content") or {}
-        markdown = str(content.get("markdown") or "").strip()
-        html = str(content.get("html") or "").strip()
-        if not markdown and html:
-            markdown = strip_markdown(html)
-        if not html and markdown:
-            html = markdown_to_html(markdown)
+        structured = normalize_structured_interview(
+            content if isinstance(content, dict) else {},
+            candidate_name=candidate.name,
+            position_title=position.title if position else "当前岗位",
+            round_name=round_name,
+            skills=skill_snapshots,
+            custom_requirements=custom_requirements,
+            parsed_resume=parsed_resume_payload,
+            screening_result=latest_screening_result_payload,
+        )
+        markdown = render_interview_markdown(structured)
+        html = render_interview_html(structured)
+        postprocess_reason = detect_interview_rule_leakage(markdown, html)
+        used_fallback = bool(task.get("used_fallback"))
+        if postprocess_reason:
+            structured = fallback_structured
+            markdown = render_interview_markdown(fallback_structured)
+            html = render_interview_html(fallback_structured)
+            used_fallback = True
         row = RecruitmentInterviewQuestion(candidate_id=candidate.id, position_id=candidate.position_id, skill_ids_json=json_dumps_safe([skill.id for skill in skill_rows]), round_name=round_name or "初试", custom_requirements=custom_requirements or None, html_content=html, markdown_content=markdown, status="generated", created_by=actor_id)
         self.db.add(row)
         self.db.flush()
@@ -2011,7 +2061,27 @@ class RecruitmentService:
         self.db.add(workflow_row)
         self.db.commit()
         self.db.refresh(row)
-        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot=content, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+        self._finish_ai_task_log(
+            log_row,
+            status="fallback" if used_fallback else "success",
+            provider=task.get("provider"),
+            model_name=task.get("model_name"),
+            prompt_snapshot=task.get("prompt_snapshot"),
+            full_request_snapshot=task.get("full_request_snapshot"),
+            input_summary=task.get("input_summary"),
+            output_summary=truncate_text(markdown, 600),
+            output_snapshot={
+                "raw": content,
+                "normalized": structured,
+                "rendered": {"markdown": markdown, "html": html},
+                "postprocess_reason": postprocess_reason,
+            },
+            error_message=postprocess_reason or task.get("error_message"),
+            token_usage=task.get("token_usage"),
+            memory_source=memory_source,
+            related_skill_ids=related_skill_ids,
+            related_skill_snapshots=skill_snapshots,
+        )
         return self._serialize_interview_question(row)
 
     def start_generate_interview_questions(self, candidate_id: int, round_name: str, custom_requirements: str, skill_ids: Optional[Iterable[Any]], actor_id: str, use_candidate_memory: bool = True, use_position_skills: bool = True) -> Dict[str, Any]:
@@ -2057,7 +2127,7 @@ class RecruitmentService:
             raise ValueError("鎿嶄綔澶辫触")
         candidate = self._get_candidate(row.candidate_id)
         file_name = f"interview-question-{safe_file_stem(candidate.name)}-{safe_file_stem(row.round_name)}.html".replace(" ", "-")
-        return {"file_name": file_name, "html_content": row.html_content or markdown_to_html(row.markdown_content or "")}
+        return {"file_name": file_name, "html_content": ensure_interview_html_document(file_name, html_content=row.html_content or "", markdown_content=row.markdown_content or "")}
 
     def get_resume_file_download(self, resume_file_id: int) -> Dict[str, Any]:
         resume_file = self._get_resume_file(resume_file_id)

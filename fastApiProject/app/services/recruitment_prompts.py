@@ -140,19 +140,47 @@ Use the provided candidate, position, workflow memory, active skills, round name
 Return strict JSON only.
 Return this schema exactly:
 {
-  "html": "",
-  "markdown": ""
+  "overview": {
+    "candidate_summary": "",
+    "screening_status": "",
+    "highlights": [],
+    "risks_to_verify": [],
+    "custom_focus": ""
+  },
+  "domains": [
+    {
+      "domain_title": "",
+      "evidence_basis": [],
+      "evidence_type": "direct_evidence",
+      "primary_question": "",
+      "answer_points": [],
+      "verdict_pass": "",
+      "verdict_caution": "",
+      "verdict_fail": "",
+      "followups": [],
+      "interviewer_explanation": ""
+    }
+  ]
 }
 Rules:
-- Treat active skills as mandatory hard constraints with the highest priority.
-- Do not dilute active skills into generic interview questions.
+- Treat active skills as hidden generation constraints with the highest priority, not as visible interview module titles.
 - Custom requirements may refine the output, but they must not override active skills.
 - Use parsed_resume and latest_screening_result as grounding facts whenever they are provided.
-- Turn resume evidence and screening risks into interview questions; do not ask the candidate to explain prompt wording, trigger phrases, or system rules themselves.
-- Prefer grouping questions by skill/topic and make the skill coverage obvious in the wording or section titles.
-- html must be clean, preview-ready interview content using semantic tags such as h1, h2, p, ul, li, and table when useful.
-- markdown must match the same interview content.
-- Include technical questions, scenario questions, behavioral questions, and follow-up prompts.
-- Questions must reflect the active skills and the candidate's actual resume context.
+- Organize the interview by capability domains, not by rule names, prompt sections, trigger phrases, or HTML/spec labels.
+- Never surface system rules such as “强制出题”, “AI工具必出”, “软件测试不为零”, “输出规范”, “触发方式” as section titles, question text, or answer bullets.
+- Every question must bind to real resume evidence first. If no direct evidence exists, mark it as a risk to verify and design the follow-up around that risk instead of inventing experience.
+- The overview section is concise. The domains section carries the real interview content.
+- domains must follow the provided CAPABILITY_DOMAINS order and keep the titles exactly the same.
+- evidence_type must be either direct_evidence or risk_to_verify.
+- When evidence_type is risk_to_verify, the primary question must explicitly say the resume lacks direct evidence and ask for the nearest true project or risk clarification. Do not imply the candidate definitely did it.
+- Each domain must contain:
+  - 1 primary question
+  - at least 3 answer_points
+  - pass / caution / fail verdict text
+  - at least 2 followups
+  - 1 interviewer explanation
+- Include technical questions, scenario questions, behavioral probes, and follow-up prompts.
+- Questions must reflect the candidate's actual resume context, screening risks, and the required capability domains.
+- Do not output markdown or HTML in this step. The application will render the final markdown and HTML from your structured JSON.
 - Do not include code fences.
 """
