@@ -363,6 +363,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [positionDialogMode, setPositionDialogMode] = useState<"create" | "edit">("create");
     const [positionForm, setPositionForm] = useState<PositionFormState>(emptyPositionForm);
     const [positionFormErrors, setPositionFormErrors] = useState<PositionFormErrors>({});
+    const [positionFormSubmitError, setPositionFormSubmitError] = useState<string | null>(null);
+    const [positionSubmitting, setPositionSubmitting] = useState(false);
 
     const [resumeUploadOpen, setResumeUploadOpen] = useState(false);
     const [resumeUploadFiles, setResumeUploadFiles] = useState<File[]>([]);
@@ -416,6 +418,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const assistantInputRef = useRef<HTMLTextAreaElement | null>(null);
     const assistantStreamAbortRef = useRef<AbortController | null>(null);
     const chatContextRef = useRef(chatContext);
+    const positionTitleInputRef = useRef<HTMLInputElement | null>(null);
+    const positionHeadcountInputRef = useRef<HTMLInputElement | null>(null);
 
     const syncInterviewPreviewHeight = useCallback((iframe: HTMLIFrameElement | null) => {
         if (!iframe) {
@@ -2597,6 +2601,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setPositionDialogMode("create");
         setPositionForm(emptyPositionForm());
         setPositionFormErrors({});
+        setPositionFormSubmitError(null);
         setPositionDialogOpen(true);
     }
 
@@ -2624,6 +2629,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             interviewSkillIds: positionDetail.position.interview_skill_ids || [],
         });
         setPositionFormErrors({});
+        setPositionFormSubmitError(null);
         setPositionDialogOpen(true);
     }
 
@@ -2632,6 +2638,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             ...current,
             [field]: value,
         }));
+        setPositionFormSubmitError(null);
         if (field === "title") {
             setPositionFormErrors((current) => {
                 if (!current.title) return current;
@@ -2676,9 +2683,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         const nextErrors = validatePositionForm(positionForm);
         if (Object.keys(nextErrors).length) {
             setPositionFormErrors(nextErrors);
-            toast.error("请先修正岗位表单中的错误信息");
+            setPositionFormSubmitError(null);
+            requestAnimationFrame(() => {
+                if (nextErrors.title) {
+                    positionTitleInputRef.current?.focus();
+                    return;
+                }
+                if (nextErrors.headcount) {
+                    positionHeadcountInputRef.current?.focus();
+                }
+            });
             return;
         }
+
+        setPositionFormSubmitError(null);
+        setPositionSubmitting(true);
 
         const payload = {
             title: positionForm.title.trim(),
@@ -2723,7 +2742,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             setActivePage("positions");
         } catch (error) {
-            toast.error(`保存岗位失败：${error instanceof Error ? error.message : "未知错误"}`);
+            setPositionFormSubmitError(`保存岗位失败：${error instanceof Error ? error.message : "未知错误"}`);
+        } finally {
+            setPositionSubmitting(false);
         }
     }
 
@@ -5690,6 +5711,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 setPositionDialogOpen(open);
                 if (!open) {
                     setPositionFormErrors({});
+                    setPositionFormSubmitError(null);
+                    setPositionSubmitting(false);
                 }
             }}>
                 <DialogContent className="flex h-[min(88vh,900px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-4xl">
@@ -5702,6 +5725,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <div className="grid gap-4 md:grid-cols-2">
                                 <Field label="岗位名称" error={positionFormErrors.title}>
                                     <Input
+                                        ref={positionTitleInputRef}
                                         value={positionForm.title}
                                         maxLength={200}
                                         onChange={(event) => updatePositionFormField("title", event.target.value.slice(0, 200))}
@@ -5721,6 +5745,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                onChange={(event) => updatePositionFormField("salaryRange", event.target.value.slice(0, 120))}/></Field>
                                 <Field label="招聘人数" error={positionFormErrors.headcount}>
                                     <Input
+                                        ref={positionHeadcountInputRef}
                                         type="text"
                                         inputMode="numeric"
                                         value={positionForm.headcount}
@@ -5850,9 +5875,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             </Field>
                         </div>
                     </ScrollArea>
-                    <DialogFooter className="shrink-0">
+                    <DialogFooter className="shrink-0 items-center justify-between gap-3 sm:justify-between">
+                        <div className="min-h-5 flex-1 text-sm text-red-600 dark:text-red-400">
+                            {positionFormSubmitError ?? ""}
+                        </div>
                         <Button variant="outline" onClick={() => setPositionDialogOpen(false)}>取消</Button>
-                        <Button onClick={() => void submitPosition()}>保存岗位</Button>
+                        <Button disabled={positionSubmitting} onClick={() => void submitPosition()}>
+                            {positionSubmitting ? "保存中..." : "保存岗位"}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
