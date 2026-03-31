@@ -385,6 +385,14 @@ body.app-locked [data-radix-popper-content-wrapper] {
     pointer-events: none !important;
 }
 
+[data-sonner-toaster] {
+    z-index: 2147483646 !important;
+}
+
+[data-sonner-toast] {
+    z-index: 2147483646 !important;
+}
+
 .dark .lock-screen {
     background: #0f172a;
 }

@@ -38,7 +38,6 @@ import {
 } from "@/components/ui/card";
 import {Input} from "@/components/ui/input";
 import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover";
-import {Separator} from "@/components/ui/separator";
 import {Textarea} from "@/components/ui/textarea";
 
 import {
@@ -73,6 +72,7 @@ import {
     labelForTaskExecutionStatus,
     labelForTaskType,
     looksLikeFullHtmlDocument,
+    resolveCandidateDisplayStatus,
     resolveLogSkillSnapshots,
     statusBadgeClass,
 } from "../utils";
@@ -440,21 +440,123 @@ export function CandidatesPage({
         };
     }, []);
 
+    const [candidateDetailPanel, setCandidateDetailPanel] = React.useState<"profile" | "ai" | "interview">("profile");
+
+    React.useEffect(() => {
+        setCandidateDetailPanel("profile");
+    }, [selectedCandidateId]);
+
+    const candidateOverviewStats = React.useMemo(() => {
+        const pendingScreeningCount = visibleCandidates.filter((candidate) => candidate.status === "pending_screening").length;
+        const pendingInterviewCount = visibleCandidates.filter((candidate) => candidate.status === "pending_interview").length;
+        const talentPoolCount = visibleCandidates.filter((candidate) => candidate.status === "talent_pool").length;
+        const sentResumeCount = visibleCandidates.filter((candidate) => Boolean(getCandidateResumeMailSummary(candidate.id))).length;
+
+        return [
+            {label: "当前结果", value: `${visibleCandidates.length} 人`},
+            {label: "待初筛", value: `${pendingScreeningCount} 人`},
+            {label: "待面试", value: `${pendingInterviewCount} 人`},
+            {label: "人才库 / 已发简历", value: `${talentPoolCount} / ${sentResumeCount}`},
+        ];
+    }, [getCandidateResumeMailSummary, visibleCandidates]);
+
+    const recentVisibleCandidates = React.useMemo(() => {
+        const toTimestamp = (value?: string | null) => (value ? new Date(value).getTime() : 0);
+        return [...visibleCandidates]
+            .sort((left, right) => toTimestamp(right.updated_at) - toTimestamp(left.updated_at))
+            .slice(0, 5);
+    }, [visibleCandidates]);
+
+    const selectedCandidateResumeMailSummary = candidateDetail
+        ? getCandidateResumeMailSummary(candidateDetail.candidate.id)
+        : null;
+    const selectedCandidateResumeMailCountLabel = React.useMemo(() => {
+        if (!selectedCandidateResumeMailSummary) {
+            return "0 次";
+        }
+        const match = selectedCandidateResumeMailSummary.match(/已发送\s*(\d+)\s*次/);
+        return match ? `${match[1]} 次` : "已发送";
+    }, [selectedCandidateResumeMailSummary]);
+    const candidateDetailHeadlineMeta = candidateDetail
+        ? [
+            candidateDetail.candidate.position_title,
+            candidateDetail.candidate.years_of_experience,
+            candidateDetail.candidate.education,
+        ].filter(Boolean).join(" · ")
+        : "";
+    const candidateDetailIdentityMeta = candidateDetail
+        ? [
+            candidateDetail.candidate.candidate_code,
+            candidateDetail.candidate.current_company,
+        ].filter(Boolean).join(" · ")
+        : "";
+    const primaryResumeFile = candidateDetail?.resume_files[0] ?? null;
+    const latestInterviewQuestion = candidateDetail?.interview_questions[0] ?? null;
+
     return (
-        <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-6 overflow-hidden">
-            <Card className={panelClass}>
-                <CardContent className={cn("px-6", candidateFiltersCollapsed ? "py-4" : "py-6")}>
-                    <div className="flex flex-col gap-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="min-w-0">
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">候选人筛选条</p>
-                                <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
-                                    {candidateFiltersCollapsed
-                                        ? candidateFilterSummary
-                                        : "围绕岗位、状态、匹配度和来源过滤，保持 ATS 使用效率。"}
-                                </p>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
+        <div
+            className={cn(
+                "grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden",
+                candidateFiltersCollapsed ? "gap-0" : "gap-4 2xl:gap-6",
+            )}
+        >
+            {candidateFiltersCollapsed ? (
+                <div className="relative z-20 h-0">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setCandidateFiltersCollapsed(false)}
+                        className="absolute left-1/2 top-0 h-6 w-11 -translate-x-1/2 -translate-y-1/2 rounded-full border border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
+                        title="展开筛选"
+                    >
+                        <ChevronDown className="h-3.5 w-3.5"/>
+                    </Button>
+                </div>
+            ) : (
+                <div className="relative">
+                    <Card className={panelClass}>
+                        <CardContent className="px-4 py-3.5 sm:px-5">
+                            <div className="flex flex-wrap items-center justify-center gap-2.5">
+                                <div className="grid w-full max-w-[1120px] gap-2.5 md:grid-cols-3 xl:grid-cols-[1.45fr_repeat(2,minmax(0,0.95fr))]">
+                                    <SearchField value={candidateQuery} onChange={setCandidateQuery} placeholder="搜索候选人、手机号、邮箱、公司"/>
+                                    <NativeSelect value={candidatePositionFilter} onChange={(event) => setCandidatePositionFilter(event.target.value)}>
+                                        <option value="all">全部岗位</option>
+                                        {positions.map((position) => (
+                                            <option key={position.id} value={position.id}>
+                                                {position.title}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                    <NativeSelect value={candidateStatusFilter} onChange={(event) => setCandidateStatusFilter(event.target.value)}>
+                                        <option value="all">全部状态</option>
+                                        {Object.entries(candidateStatusLabels).map(([value, label]) => (
+                                            <option key={value} value={value}>
+                                                {label}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                    <NativeSelect value={candidateMatchFilter} onChange={(event) => setCandidateMatchFilter(event.target.value)}>
+                                        <option value="all">全部匹配度</option>
+                                        <option value="80+">80% 以上</option>
+                                        <option value="60+">60% 以上</option>
+                                        <option value="40+">40% 以上</option>
+                                    </NativeSelect>
+                                    <NativeSelect value={candidateSourceFilter} onChange={(event) => setCandidateSourceFilter(event.target.value)}>
+                                        <option value="all">全部来源</option>
+                                        {sourceOptions.map((source) => (
+                                            <option key={source} value={source}>
+                                                {source}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                    <NativeSelect value={candidateTimeFilter} onChange={(event) => setCandidateTimeFilter(event.target.value)}>
+                                        <option value="all">全部时间</option>
+                                        <option value="today">今天</option>
+                                        <option value="7d">近 7 天</option>
+                                        <option value="30d">近 30 天</option>
+                                    </NativeSelect>
+                                </div>
                                 <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
                                     <Button size="sm" variant={candidateViewMode === "list" ? "default" : "ghost"} onClick={() => setCandidateViewMode("list")}>
                                         <List className="h-4 w-4"/>
@@ -465,75 +567,35 @@ export function CandidatesPage({
                                         看板
                                     </Button>
                                 </div>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setCandidateFiltersCollapsed((current) => !current)}
-                                >
-                                    {candidateFiltersCollapsed ? <ChevronDown className="h-4 w-4"/> : <ChevronUp className="h-4 w-4"/>}
-                                    {candidateFiltersCollapsed ? "展开筛选" : "收起筛选"}
-                                </Button>
                             </div>
-                        </div>
-                        {!candidateFiltersCollapsed ? (
-                            <div className="grid gap-3 xl:grid-cols-[1.4fr_repeat(5,minmax(0,1fr))]">
-                                <SearchField value={candidateQuery} onChange={setCandidateQuery} placeholder="搜索候选人、手机号、邮箱、公司"/>
-                                <NativeSelect value={candidatePositionFilter} onChange={(event) => setCandidatePositionFilter(event.target.value)}>
-                                    <option value="all">全部岗位</option>
-                                    {positions.map((position) => (
-                                        <option key={position.id} value={position.id}>
-                                            {position.title}
-                                        </option>
-                                    ))}
-                                </NativeSelect>
-                                <NativeSelect value={candidateStatusFilter} onChange={(event) => setCandidateStatusFilter(event.target.value)}>
-                                    <option value="all">全部状态</option>
-                                    {Object.entries(candidateStatusLabels).map(([value, label]) => (
-                                        <option key={value} value={value}>
-                                            {label}
-                                        </option>
-                                    ))}
-                                </NativeSelect>
-                                <NativeSelect value={candidateMatchFilter} onChange={(event) => setCandidateMatchFilter(event.target.value)}>
-                                    <option value="all">全部匹配度</option>
-                                    <option value="80+">80% 以上</option>
-                                    <option value="60+">60% 以上</option>
-                                    <option value="40+">40% 以上</option>
-                                </NativeSelect>
-                                <NativeSelect value={candidateSourceFilter} onChange={(event) => setCandidateSourceFilter(event.target.value)}>
-                                    <option value="all">全部来源</option>
-                                    {sourceOptions.map((source) => (
-                                        <option key={source} value={source}>
-                                            {source}
-                                        </option>
-                                    ))}
-                                </NativeSelect>
-                                <NativeSelect value={candidateTimeFilter} onChange={(event) => setCandidateTimeFilter(event.target.value)}>
-                                    <option value="all">全部时间</option>
-                                    <option value="today">今天</option>
-                                    <option value="7d">近 7 天</option>
-                                    <option value="30d">近 30 天</option>
-                                </NativeSelect>
-                            </div>
-                        ) : null}
-                    </div>
-                </CardContent>
-            </Card>
+                        </CardContent>
+                    </Card>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setCandidateFiltersCollapsed(true)}
+                        className="absolute left-1/2 top-0 z-20 h-6 w-11 -translate-x-1/2 -translate-y-1/2 rounded-full border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
+                        title="收起筛选"
+                    >
+                        <ChevronUp className="h-3.5 w-3.5"/>
+                    </Button>
+                </div>
+            )}
 
-            <div className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1.08fr)_minmax(520px,40%)] 2xl:grid-cols-[minmax(0,1.12fr)_minmax(660px,42%)]">
+            <div className="grid min-h-0 items-stretch gap-4 2xl:gap-6 overflow-hidden xl:grid-cols-[minmax(300px,0.74fr)_minmax(0,1.26fr)] 2xl:grid-cols-[minmax(320px,0.78fr)_minmax(0,1.22fr)]">
                 <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
                     <CardHeader className="pb-0">
                         <div className="flex items-center justify-between gap-3">
                             <div>
                                 <CardTitle className="text-lg">候选人列表</CardTitle>
-                                <CardDescription>支持列表视图与状态看板视图，选中后右侧展示完整档案。</CardDescription>
+                                <CardDescription>左侧筛选扫读，右侧处理当前候选人。</CardDescription>
                             </div>
                             <Badge variant="outline" className="rounded-full">{visibleCandidates.length} 人</Badge>
                         </div>
                     </CardHeader>
-                    <CardContent className="flex min-h-0 flex-1 flex-col pt-6">
-                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <CardContent className="flex min-h-0 flex-1 flex-col pt-3">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
                             <p className="text-sm text-slate-500 dark:text-slate-400">
                                 已选中 <span className="font-semibold text-slate-900 dark:text-slate-100">{selectedCandidateIds.length}</span> 位候选人
                             </p>
@@ -658,8 +720,8 @@ export function CandidatesPage({
                                                         }}
                                                         className="p-2 align-middle whitespace-nowrap"
                                                     >
-                                                        <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
-                                                            {labelForCandidateStatus(candidate.status)}
+                                                        <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(candidate)))}>
+                                                            {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))}
                                                         </Badge>
                                                     </td>
                                                     <td
@@ -791,28 +853,42 @@ export function CandidatesPage({
                 <Card className={cn(panelClass, "min-h-0 min-w-0 gap-0 overflow-hidden py-0")}>
                     {candidateDetailLoading ? <LoadingPanel label="正在加载候选人详情"/> : candidateDetail ? (
                         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-                            <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-800">
-                                <div className="space-y-4">
-                                    <div className="min-w-0">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidateDetail.candidate.status))}>
-                                                {labelForCandidateStatus(candidateDetail.candidate.status)}
+                            <div className="border-b border-slate-200/80 px-4 py-2.5 dark:border-slate-800">
+                                <div className="space-y-1.5">
+                                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(candidateDetail.candidate)))}>
+                                                {labelForCandidateStatus(resolveCandidateDisplayStatus(candidateDetail.candidate))}
                                             </Badge>
                                             <Badge variant="outline" className="rounded-full">
                                                 匹配度 {formatPercent(candidateDetail.candidate.match_percent)}
                                             </Badge>
-                                            {getCandidateResumeMailSummary(candidateDetail.candidate.id) ? (
+                                            <Badge variant="outline" className="rounded-full">
+                                                发送 {selectedCandidateResumeMailCountLabel}
+                                            </Badge>
+                                            <span>{candidateDetail.candidate.candidate_code}</span>
+                                            {selectedCandidateResumeMailSummary ? (
                                                 <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                    {getCandidateResumeMailSummary(candidateDetail.candidate.id)}
+                                                    {selectedCandidateResumeMailSummary}
                                                 </Badge>
                                             ) : null}
                                         </div>
-                                        <h3 className="mt-3 break-words text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{candidateDetail.candidate.name}</h3>
-                                        <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
-                                            {candidateDetail.candidate.position_title || "未分配岗位"} · {candidateDetail.candidate.phone || candidateDetail.candidate.email || "未填写联系方式"}
-                                        </p>
+                                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                                            <h3 className="break-words text-[1.25rem] font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-[1.4rem]">
+                                                {candidateDetail.candidate.name}
+                                            </h3>
+                                            {candidateDetailHeadlineMeta ? (
+                                                <p className="text-sm text-slate-500 dark:text-slate-400">{candidateDetailHeadlineMeta}</p>
+                                            ) : null}
+                                        </div>
+                                        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                                            {candidateDetailIdentityMeta ? <span>{candidateDetailIdentityMeta}</span> : null}
+                                            <span>{candidateDetail.candidate.phone || candidateDetail.candidate.email || "未填写联系方式"}</span>
+                                        </div>
                                     </div>
-                                    <div className="flex w-full flex-wrap items-center gap-2">
+                            </div>
+                            <div className="border-b border-slate-200/80 px-4 py-2.5 dark:border-slate-800">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
                                         <Button
                                             size="sm"
                                             variant="outline"
@@ -822,8 +898,8 @@ export function CandidatesPage({
                                             {isSelectedCandidateScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : selectedCandidateScreeningTaskId ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
                                             {isSelectedCandidateScreeningCancelling ? "停止中..." : selectedCandidateScreeningTaskId ? "停止初筛" : screeningSubmitting ? "启动中..." : "开始初筛"}
                                         </Button>
-                                        {candidateDetail.resume_files[0] ? (
-                                            <Button size="sm" variant="outline" onClick={() => void openResumeFile(candidateDetail.resume_files[0])}>
+                                        {primaryResumeFile ? (
+                                            <Button size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile)}>
                                                 <ExternalLink className="h-4 w-4"/>
                                                 查看简历
                                             </Button>
@@ -842,268 +918,297 @@ export function CandidatesPage({
                                             {isCurrentInterviewTaskCancelling ? "停止中..." : currentCandidateInterviewTaskId ? "停止生成" : "面试题"}
                                         </Button>
                                     </div>
+                                    <div className="flex w-full flex-wrap items-center justify-start xl:w-auto xl:justify-end">
+                                        <div className="flex flex-wrap items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
+                                            <Button size="sm" variant={candidateDetailPanel === "profile" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("profile")}>
+                                                档案
+                                            </Button>
+                                            <Button size="sm" variant={candidateDetailPanel === "ai" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("ai")}>
+                                                AI 评估
+                                            </Button>
+                                            <Button size="sm" variant={candidateDetailPanel === "interview" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("interview")}>
+                                                简历 / 面试题
+                                            </Button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-                                <div className="min-w-0 space-y-6 px-6 py-6">
-                                    <Field label="基础信息">
-                                        <div className="grid gap-3">
-                                            <Input value={candidateEditor.name} onChange={(event) => setCandidateEditor((current) => ({...current, name: event.target.value}))} placeholder="姓名"/>
-                                            <Input value={candidateEditor.phone} onChange={(event) => setCandidateEditor((current) => ({...current, phone: event.target.value}))} placeholder="手机号"/>
-                                            <Input value={candidateEditor.email} onChange={(event) => setCandidateEditor((current) => ({...current, email: event.target.value}))} placeholder="邮箱"/>
-                                            <Input value={candidateEditor.currentCompany} onChange={(event) => setCandidateEditor((current) => ({...current, currentCompany: event.target.value}))} placeholder="当前公司"/>
-                                            <Input value={candidateEditor.yearsOfExperience} onChange={(event) => setCandidateEditor((current) => ({...current, yearsOfExperience: event.target.value}))} placeholder="工作年限"/>
-                                            <Input value={candidateEditor.education} onChange={(event) => setCandidateEditor((current) => ({...current, education: event.target.value}))} placeholder="学历"/>
-                                        </div>
-                                    </Field>
-
-                                    <Field label="AI 评分与建议">
-                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                            <div className="flex flex-wrap items-start justify-between gap-3">
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
-                                                        {formatScoreValue(
-                                                            candidateDetail.score?.total_score,
-                                                            typeof candidateDetail.score?.total_score_scale === "number"
-                                                                ? candidateDetail.score.total_score_scale
-                                                                : null,
-                                                        )}
-                                                    </p>
-                                                    <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
-                                                        AI 建议：{candidateDetail.score?.recommendation || "尚未生成"} · 推荐状态 {labelForCandidateStatus(candidateDetail.score?.suggested_status || "")}
-                                                    </p>
+                            <div className="min-h-0 flex-1 p-4">
+                                <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[26px] border border-slate-200/80 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-900/50">
+                                    <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+                                        <div className="min-w-0 space-y-4 px-4 py-4">
+                                    {candidateDetailPanel === "profile" ? (
+                                        <>
+                                            <Field label="基础信息">
+                                                <div className="grid gap-3 md:grid-cols-2">
+                                                    <Input value={candidateEditor.name} onChange={(event) => setCandidateEditor((current) => ({...current, name: event.target.value}))} placeholder="姓名"/>
+                                                    <Input value={candidateEditor.phone} onChange={(event) => setCandidateEditor((current) => ({...current, phone: event.target.value}))} placeholder="手机号"/>
+                                                    <Input value={candidateEditor.email} onChange={(event) => setCandidateEditor((current) => ({...current, email: event.target.value}))} placeholder="邮箱"/>
+                                                    <Input value={candidateEditor.currentCompany} onChange={(event) => setCandidateEditor((current) => ({...current, currentCompany: event.target.value}))} placeholder="当前公司"/>
+                                                    <Input value={candidateEditor.yearsOfExperience} onChange={(event) => setCandidateEditor((current) => ({...current, yearsOfExperience: event.target.value}))} placeholder="工作年限"/>
+                                                    <Input value={candidateEditor.education} onChange={(event) => setCandidateEditor((current) => ({...current, education: event.target.value}))} placeholder="学历"/>
                                                 </div>
-                                                <Badge variant="outline" className="shrink-0 rounded-full">
-                                                    匹配度 {formatPercent(candidateDetail.score?.match_percent ?? candidateDetail.candidate.match_percent)}
-                                                </Badge>
-                                            </div>
-                                            <div className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
-                                                <p className="break-words leading-7">
-                                                    <span className="font-medium text-slate-900 dark:text-slate-100">优势：</span>
-                                                    {candidateDetail.score?.advantages_text
-                                                        || joinTags(Array.isArray(candidateDetail.score?.advantages) ? candidateDetail.score.advantages as string[] : [])
-                                                        || "暂无"}
-                                                </p>
-                                                <p className="break-words leading-7">
-                                                    <span className="font-medium text-slate-900 dark:text-slate-100">风险点：</span>
-                                                    {candidateDetail.score?.concerns_text
-                                                        || joinTags(Array.isArray(candidateDetail.score?.concerns) ? candidateDetail.score.concerns as string[] : [])
-                                                        || "暂无"}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </Field>
+                                            </Field>
 
-                                    <Field label="初筛工作记忆">
-                                        {candidateDetail.workflow_memory ? (
-                                            <div className="grid gap-3">
-                                                <InfoTile label="记忆来源" value={labelForMemorySource(candidateDetail.workflow_memory.screening_memory_source)}/>
-                                                <InfoTile label="最近初筛时间" value={formatLongDateTime(candidateDetail.workflow_memory.last_screened_at)}/>
-                                                <InfoTile label="初筛 Skills" value={formatSkillNames(candidateDetail.workflow_memory.screening_skill_ids, skillMap)}/>
-                                                <InfoTile label="面试题 Skills" value={formatSkillNames(candidateDetail.workflow_memory.interview_skill_ids, skillMap)}/>
-                                            </div>
-                                        ) : (
-                                            <EmptyState title="暂无初筛工作记忆" description="完成一次初筛后，这里会显示本次初筛使用的 Skills、来源和时间，便于后续生成面试题时复用。"/>
-                                        )}
-                                        <p className="mt-3 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
-                                            {`点击“开始初筛”时，会按“岗位绑定 Skills > 初筛工作记忆”继续执行；若均未配置，则本次不会传 Skills。当前预计来源：${effectiveScreeningSkillSourceLabel}。`}
-                                        </p>
-                                        <p className="mt-2 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
-                                            {`当前预计使用：${formatSkillNames(effectiveScreeningSkillIds, skillMap)}`}
-                                        </p>
-                                    </Field>
+                                            <Field label="标签与备注">
+                                                <div className="space-y-3">
+                                                    <Input value={candidateEditor.tagsText} onChange={(event) => setCandidateEditor((current) => ({...current, tagsText: event.target.value}))} placeholder="标签，使用英文逗号分隔"/>
+                                                    <Textarea
+                                                        value={candidateEditor.notes}
+                                                        onChange={(event) => setCandidateEditor((current) => ({...current, notes: event.target.value}))}
+                                                        rows={4}
+                                                        placeholder="例如：沟通不错，但对设备联调经验需要进一步核实"
+                                                    />
+                                                    <Button onClick={() => void saveCandidate()}>
+                                                        <Save className="h-4 w-4"/>
+                                                        保存候选人信息
+                                                    </Button>
+                                                </div>
+                                            </Field>
 
-                                    <div className="grid gap-4">
-                                        <Field label="人工修正分数">
-                                            <Input value={candidateEditor.manualOverrideScore} onChange={(event) => setCandidateEditor((current) => ({...current, manualOverrideScore: event.target.value}))} placeholder="例如 88"/>
-                                        </Field>
-                                        <Field label="修正原因">
-                                            <Input value={candidateEditor.manualOverrideReason} onChange={(event) => setCandidateEditor((current) => ({...current, manualOverrideReason: event.target.value}))} placeholder="为什么要修正这次 AI 评分"/>
-                                        </Field>
-                                    </div>
-
-                                    <Field label="标签与备注">
-                                        <div className="space-y-3">
-                                            <Input value={candidateEditor.tagsText} onChange={(event) => setCandidateEditor((current) => ({...current, tagsText: event.target.value}))} placeholder="标签，使用英文逗号分隔"/>
-                                            <Textarea
-                                                value={candidateEditor.notes}
-                                                onChange={(event) => setCandidateEditor((current) => ({...current, notes: event.target.value}))}
-                                                rows={4}
-                                                placeholder="例如：沟通不错，但对设备联调经验需要进一步核实"
-                                            />
-                                            <Button onClick={() => void saveCandidate()}>
-                                                <Save className="h-4 w-4"/>
-                                                保存候选人信息
-                                            </Button>
-                                        </div>
-                                    </Field>
-
-                                    <Field label="状态流转">
-                                        <div className="space-y-3">
-                                            <div className="flex flex-wrap gap-2">
-                                                {Object.entries(candidateStatusLabels).map(([value, label]) => {
-                                                    const isCurrent = candidateDetail.candidate.status === value;
-                                                    return (
-                                                        <Popover
-                                                            key={value}
-                                                            open={pendingStatus === value}
-                                                            onOpenChange={(open) => {
-                                                                if (!open) setPendingStatus(null);
-                                                            }}
-                                                        >
-                                                            <PopoverTrigger asChild>
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant={isCurrent ? "default" : "outline"}
-                                                                    onClick={() => {
-                                                                        if (!isCurrent) setPendingStatus(value);
+                                            <Field label="状态流转">
+                                                <div className="space-y-3">
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {Object.entries(candidateStatusLabels).map(([value, label]) => {
+                                                            const isCurrent = candidateDetail.candidate.status === value;
+                                                            return (
+                                                                <Popover
+                                                                    key={value}
+                                                                    open={pendingStatus === value}
+                                                                    onOpenChange={(open) => {
+                                                                        if (!open) setPendingStatus(null);
                                                                     }}
                                                                 >
-                                                                    {label}
-                                                                </Button>
-                                                            </PopoverTrigger>
-                                                            <PopoverContent className="w-56 p-3" side="bottom" align="start">
-                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                                    确认变更为「{label}」？
-                                                                </p>
-                                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                    当前：{labelForCandidateStatus(candidateDetail.candidate.status)}
-                                                                </p>
-                                                                <div className="mt-3 flex gap-2">
-                                                                    <Button size="sm" className="flex-1" onClick={() => void updateCandidateStatus(value)}>
-                                                                        确认
-                                                                    </Button>
-                                                                    <Button size="sm" variant="outline" className="flex-1" onClick={() => setPendingStatus(null)}>
-                                                                        取消
-                                                                    </Button>
-                                                                </div>
-                                                            </PopoverContent>
-                                                        </Popover>
-                                                    );
-                                                })}
-                                            </div>
-                                            <Textarea
-                                                value={statusUpdateReason}
-                                                onChange={(event) => setStatusUpdateReason(event.target.value)}
-                                                rows={3}
-                                                placeholder="状态变更原因，例如：AI 初筛通过，安排技术面试"
-                                            />
-                                            <div className="space-y-3">
-                                                {candidateDetail.status_history.length ? candidateDetail.status_history.map((history) => (
-                                                    <div key={history.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                                        <div className="flex items-center justify-between gap-3">
-                                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                                {labelForCandidateStatus(history.from_status || "")} → {labelForCandidateStatus(history.to_status)}
-                                                            </p>
-                                                            <p className="text-xs text-slate-500 dark:text-slate-400">{formatDateTime(history.created_at)}</p>
-                                                        </div>
-                                                        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{history.reason || "未填写原因"}</p>
+                                                                    <PopoverTrigger asChild>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant={isCurrent ? "default" : "outline"}
+                                                                            onClick={() => {
+                                                                                if (!isCurrent) setPendingStatus(value);
+                                                                            }}
+                                                                        >
+                                                                            {label}
+                                                                        </Button>
+                                                                    </PopoverTrigger>
+                                                                    <PopoverContent className="w-56 p-3" side="bottom" align="start">
+                                                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                            确认变更为「{label}」？
+                                                                        </p>
+                                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                            当前：{labelForCandidateStatus(resolveCandidateDisplayStatus(candidateDetail.candidate))}
+                                                                        </p>
+                                                                        <div className="mt-3 flex gap-2">
+                                                                            <Button size="sm" className="flex-1" onClick={() => void updateCandidateStatus(value)}>
+                                                                                确认
+                                                                            </Button>
+                                                                            <Button size="sm" variant="outline" className="flex-1" onClick={() => setPendingStatus(null)}>
+                                                                                取消
+                                                                            </Button>
+                                                                        </div>
+                                                                    </PopoverContent>
+                                                                </Popover>
+                                                            );
+                                                        })}
                                                     </div>
-                                                )) : (
-                                                    <EmptyState title="暂无状态记录" description="候选人发生流转后，这里会记录完整状态历史。"/>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </Field>
-
-                                    <Field label="AI 助手">
-                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                            <div className="flex flex-wrap items-start justify-between gap-3">
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">对话记录已收纳到独立助手面板</p>
-                                                    <p className="mt-1 break-words text-sm leading-6 text-slate-500 dark:text-slate-400">
-                                                        {candidateAssistantActivity.length
-                                                            ? `当前候选人已有 ${candidateAssistantActivity.length} 条助手对话留痕。为避免详情页被聊天卡片刷满，这里改为收纳展示。`
-                                                            : "这里不再逐条展开助手对话，避免右侧详情被聊天记录挤满。"}
-                                                    </p>
-                                                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{`面试题默认使用：${preferredInterviewSkillSourceLabel}`}</p>
-                                                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{`当前实际来源：${effectiveInterviewSkillSourceLabel}`}</p>
+                                                    <Textarea
+                                                        value={statusUpdateReason}
+                                                        onChange={(event) => setStatusUpdateReason(event.target.value)}
+                                                        rows={3}
+                                                        placeholder="状态变更原因，例如：AI 初筛通过，安排技术面试"
+                                                    />
+                                                    <div className="space-y-3">
+                                                        {candidateDetail.status_history.length ? candidateDetail.status_history.map((history) => (
+                                                            <div key={history.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
+                                                                <div className="flex items-center justify-between gap-3">
+                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                        {labelForCandidateStatus(history.from_status || "")} → {labelForCandidateStatus(history.to_status)}
+                                                                    </p>
+                                                                    <p className="text-xs text-slate-500 dark:text-slate-400">{formatDateTime(history.created_at)}</p>
+                                                                </div>
+                                                                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{history.reason || "未填写原因"}</p>
+                                                            </div>
+                                                        )) : (
+                                                            <EmptyState title="暂无状态记录" description="候选人发生流转后，这里会记录完整状态历史。"/>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <Button size="sm" variant="outline" onClick={() => openAssistantMode("drawer")}>
-                                                    <Bot className="h-4 w-4"/>
-                                                    打开 AI 助手
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </Field>
+                                            </Field>
+                                        </>
+                                    ) : null}
 
-                                    <Field label="AI 执行日志">
-                                        <div className="space-y-3">
-                                            {candidateProcessActivity.length ? (
-                                                <>
-                                                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                        <div className="min-w-0">
-                                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                                已记录 {candidateProcessActivity.length} 条流程日志
+                                    {candidateDetailPanel === "ai" ? (
+                                        <>
+                                            <Field label="AI 评分与建议">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
+                                                                {formatScoreValue(
+                                                                    candidateDetail.score?.total_score,
+                                                                    typeof candidateDetail.score?.total_score_scale === "number"
+                                                                        ? candidateDetail.score.total_score_scale
+                                                                        : null,
+                                                                )}
                                                             </p>
-                                                            <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">
-                                                                默认收起，避免右侧详情被日志卡片挤满；需要排查时再展开查看。
+                                                            <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
+                                                                AI 建议：{candidateDetail.score?.recommendation || "尚未生成"} · 推荐状态 {labelForCandidateStatus(candidateDetail.score?.suggested_status || "")}
                                                             </p>
                                                         </div>
-                                                        <Button size="sm" variant="outline" onClick={() => setCandidateProcessLogsExpanded((current) => !current)}>
-                                                            {candidateProcessLogsExpanded ? "收起日志" : "展开日志"}
+                                                        <Badge variant="outline" className="shrink-0 rounded-full">
+                                                            匹配度 {formatPercent(candidateDetail.score?.match_percent ?? candidateDetail.candidate.match_percent)}
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                                                        <p className="break-words leading-7">
+                                                            <span className="font-medium text-slate-900 dark:text-slate-100">优势：</span>
+                                                            {candidateDetail.score?.advantages_text
+                                                                || joinTags(Array.isArray(candidateDetail.score?.advantages) ? candidateDetail.score.advantages as string[] : [])
+                                                                || "暂无"}
+                                                        </p>
+                                                        <p className="break-words leading-7">
+                                                            <span className="font-medium text-slate-900 dark:text-slate-100">风险点：</span>
+                                                            {candidateDetail.score?.concerns_text
+                                                                || joinTags(Array.isArray(candidateDetail.score?.concerns) ? candidateDetail.score.concerns as string[] : [])
+                                                                || "暂无"}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </Field>
+
+                                            <Field label="初筛工作记忆">
+                                                {candidateDetail.workflow_memory ? (
+                                                    <div className="grid gap-3 md:grid-cols-2">
+                                                        <InfoTile label="记忆来源" value={labelForMemorySource(candidateDetail.workflow_memory.screening_memory_source)}/>
+                                                        <InfoTile label="最近初筛时间" value={formatLongDateTime(candidateDetail.workflow_memory.last_screened_at)}/>
+                                                        <InfoTile label="初筛 Skills" value={formatSkillNames(candidateDetail.workflow_memory.screening_skill_ids, skillMap)}/>
+                                                        <InfoTile label="面试题 Skills" value={formatSkillNames(candidateDetail.workflow_memory.interview_skill_ids, skillMap)}/>
+                                                    </div>
+                                                ) : (
+                                                    <EmptyState title="暂无初筛工作记忆" description="完成一次初筛后，这里会显示本次初筛使用的 Skills、来源和时间，便于后续生成面试题时复用。"/>
+                                                )}
+                                                <p className="mt-3 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                    {`点击“开始初筛”时，会按“岗位绑定 Skills > 初筛工作记忆”继续执行；若均未配置，则本次不会传 Skills。当前预计来源：${effectiveScreeningSkillSourceLabel}。`}
+                                                </p>
+                                                <p className="mt-2 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                    {`当前预计使用：${formatSkillNames(effectiveScreeningSkillIds, skillMap)}`}
+                                                </p>
+                                            </Field>
+
+                                            <div className="grid gap-4 md:grid-cols-2">
+                                                <Field label="人工修正分数">
+                                                    <Input value={candidateEditor.manualOverrideScore} onChange={(event) => setCandidateEditor((current) => ({...current, manualOverrideScore: event.target.value}))} placeholder="例如 88"/>
+                                                </Field>
+                                                <Field label="修正原因">
+                                                    <Input value={candidateEditor.manualOverrideReason} onChange={(event) => setCandidateEditor((current) => ({...current, manualOverrideReason: event.target.value}))} placeholder="为什么要修正这次 AI 评分"/>
+                                                </Field>
+                                            </div>
+
+                                            <Field label="AI 助手">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">对话记录已收纳到独立助手面板</p>
+                                                            <p className="mt-1 break-words text-sm leading-6 text-slate-500 dark:text-slate-400">
+                                                                {candidateAssistantActivity.length
+                                                                    ? `当前候选人已有 ${candidateAssistantActivity.length} 条助手对话留痕。为避免详情页被聊天卡片刷满，这里改为收纳展示。`
+                                                                    : "这里不再逐条展开助手对话，避免右侧详情被聊天记录挤满。"}
+                                                            </p>
+                                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{`面试题默认使用：${preferredInterviewSkillSourceLabel}`}</p>
+                                                            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{`当前实际来源：${effectiveInterviewSkillSourceLabel}`}</p>
+                                                        </div>
+                                                        <Button size="sm" variant="outline" onClick={() => openAssistantMode("drawer")}>
+                                                            <Bot className="h-4 w-4"/>
+                                                            打开 AI 助手
                                                         </Button>
                                                     </div>
-                                                    {candidateProcessLogsExpanded ? candidateProcessActivity.map((log) => {
-                                                        const logSkillSnapshots = resolveLogSkillSnapshots(log, skillMap);
-                                                        return (
-                                                            <div key={log.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                                                    <div className="min-w-0 flex-1">
-                                                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
-                                                                        <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{labelForProvider(log.model_provider)} · {log.model_name || "-"} · {formatLongDateTime(log.created_at)}</p>
-                                                                    </div>
-                                                                    <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
-                                                                        {labelForTaskExecutionStatus(log.status)}
-                                                                    </Badge>
-                                                                </div>
-                                                                <div className="mt-3 grid gap-3">
-                                                                    <InfoTile label="Skills" value={formatSkillSnapshotNames(logSkillSnapshots)}/>
-                                                                    <InfoTile label="记忆来源" value={labelForMemorySource(log.memory_source)}/>
-                                                                </div>
-                                                                {log.error_message ? <p className="mt-3 break-all text-sm text-rose-600">{log.error_message}</p> : null}
-                                                                <div className="mt-3 min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                                    <pre className="min-w-0 whitespace-pre-wrap break-all text-xs leading-6 text-slate-600 dark:text-slate-300">
-                                                                        {formatStructuredValue(log.output_snapshot, log.output_summary || "执行中，等待模型返回...")}
-                                                                    </pre>
-                                                                </div>
-                                                                <div className="mt-3 flex flex-wrap gap-2">
-                                                                    <Button size="sm" variant="outline" onClick={() => openTaskLogDetail(log.id)}>查看完整日志</Button>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    }) : null}
-                                                </>
-                                            ) : (
-                                                <EmptyState title="暂无 AI 执行日志" description="开始初筛、生成面试题后，这里会显示候选人的流程任务留痕与输出内容。"/>
-                                            )}
-                                        </div>
-                                    </Field>
+                                                </div>
+                                            </Field>
 
-                                    <Field label="简历与面试题">
+                                            <Field label="AI 执行日志">
+                                                <div className="space-y-3">
+                                                    {candidateProcessActivity.length ? (
+                                                        <>
+                                                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                                                <div className="min-w-0">
+                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                        已记录 {candidateProcessActivity.length} 条流程日志
+                                                                    </p>
+                                                                    <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">
+                                                                        默认收起，避免右侧详情被日志卡片挤满；需要排查时再展开查看。
+                                                                    </p>
+                                                                </div>
+                                                                <Button size="sm" variant="outline" onClick={() => setCandidateProcessLogsExpanded((current) => !current)}>
+                                                                    {candidateProcessLogsExpanded ? "收起日志" : "展开日志"}
+                                                                </Button>
+                                                            </div>
+                                                            {candidateProcessLogsExpanded ? candidateProcessActivity.map((log) => {
+                                                                const logSkillSnapshots = resolveLogSkillSnapshots(log, skillMap);
+                                                                return (
+                                                                    <div key={log.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
+                                                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{labelForTaskType(log.task_type)}</p>
+                                                                                <p className="mt-1 break-words text-xs text-slate-500 dark:text-slate-400">{labelForProvider(log.model_provider)} · {log.model_name || "-"} · {formatLongDateTime(log.created_at)}</p>
+                                                                            </div>
+                                                                            <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
+                                                                                {labelForTaskExecutionStatus(log.status)}
+                                                                            </Badge>
+                                                                        </div>
+                                                                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                                                            <InfoTile label="Skills" value={formatSkillSnapshotNames(logSkillSnapshots)}/>
+                                                                            <InfoTile label="记忆来源" value={labelForMemorySource(log.memory_source)}/>
+                                                                        </div>
+                                                                        {log.error_message ? <p className="mt-3 break-all text-sm text-rose-600">{log.error_message}</p> : null}
+                                                                        <div className="mt-3 min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                                                            <pre className="min-w-0 whitespace-pre-wrap break-all text-xs leading-6 text-slate-600 dark:text-slate-300">
+                                                                                {formatStructuredValue(log.output_snapshot, log.output_summary || "执行中，等待模型返回...")}
+                                                                            </pre>
+                                                                        </div>
+                                                                        <div className="mt-3 flex flex-wrap gap-2">
+                                                                            <Button size="sm" variant="outline" onClick={() => openTaskLogDetail(log.id)}>查看完整日志</Button>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            }) : null}
+                                                        </>
+                                                    ) : (
+                                                        <EmptyState title="暂无 AI 执行日志" description="开始初筛、生成面试题后，这里会显示候选人的流程任务留痕与输出内容。"/>
+                                                    )}
+                                                </div>
+                                            </Field>
+                                        </>
+                                    ) : null}
+
+                                    {candidateDetailPanel === "interview" ? (
                                         <div className="space-y-4">
-                                            <div className="space-y-3">
-                                                {candidateDetail.resume_files.length ? candidateDetail.resume_files.map((file) => (
-                                                    <div key={file.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                                        <p className="font-medium text-slate-900 dark:text-slate-100">{file.original_name}</p>
-                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                            {file.file_ext || "-"} · {file.file_size || 0} bytes · 解析状态 {file.parse_status}
+                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
+                                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                                    <div className="min-w-0 flex-1">
+                                                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                            {primaryResumeFile ? primaryResumeFile.original_name : "暂无简历文件"}
                                                         </p>
-                                                        {file.parse_error ? <p className="mt-2 break-all text-sm text-rose-600">{file.parse_error}</p> : null}
-                                                        <div className="mt-3 flex flex-wrap gap-2">
-                                                            <Button size="sm" variant="outline" onClick={() => void openResumeFile(file)}>查看原件</Button>
-                                                            <Button size="sm" variant="outline" onClick={() => void openResumeFile(file, true)}>下载简历</Button>
-                                                        </div>
+                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                            {primaryResumeFile
+                                                                ? `${primaryResumeFile.file_ext || "-"} · ${primaryResumeFile.file_size || 0} bytes · 解析状态 ${primaryResumeFile.parse_status}`
+                                                                : "上传简历后，这里会显示当前文件、类型与解析状态。"}
+                                                        </p>
                                                     </div>
-                                                )) : (
-                                                    <EmptyState title="暂无简历附件" description="这个候选人还没有已上传的简历文件。"/>
-                                                )}
+                                                    {primaryResumeFile ? (
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <Button size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile)}>查看原件</Button>
+                                                            <Button size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile, true)}>下载简历</Button>
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                                {primaryResumeFile?.parse_error ? (
+                                                    <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
+                                                        解析异常：{primaryResumeFile.parse_error}
+                                                    </div>
+                                                ) : null}
                                             </div>
 
-                                            <Separator/>
-
-                                            <div className="space-y-3">
+                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
                                                 <div className="grid gap-3">
                                                     <Input value={interviewRoundName} onChange={(event) => setInterviewRoundName(event.target.value)} placeholder="轮次，例如 初试 / 复试"/>
                                                     <Input value={joinTags(effectiveInterviewSkillIds.map((id) => skillMap.get(id)?.name || ""))} readOnly placeholder="当前使用的 Skills"/>
@@ -1155,26 +1260,29 @@ export function CandidatesPage({
                                                         </button>
                                                     ))}
                                                 </div>
-                                                {candidateDetail.interview_questions.length ? (
-                                                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                            </div>
+
+                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
+                                                {latestInterviewQuestion ? (
+                                                    <div className="space-y-3">
                                                         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                                                             <p className="font-medium text-slate-900 dark:text-slate-100">
-                                                                最近一份面试题：{candidateDetail.interview_questions[0].round_name}
+                                                                最近一份面试题：{latestInterviewQuestion.round_name}
                                                             </p>
                                                             <Button
                                                                 size="sm"
                                                                 variant="outline"
-                                                                onClick={() => void downloadInterviewQuestion(candidateDetail.interview_questions[0].id)}
+                                                                onClick={() => void downloadInterviewQuestion(latestInterviewQuestion.id)}
                                                             >
                                                                 <Download className="h-4 w-4"/>
                                                                 下载 HTML
                                                             </Button>
                                                         </div>
-                                                        {looksLikeFullHtmlDocument(candidateDetail.interview_questions[0].html_content) ? (
+                                                        {looksLikeFullHtmlDocument(latestInterviewQuestion.html_content) ? (
                                                             <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-950">
                                                                 <iframe
-                                                                    title={`${candidateDetail.interview_questions[0].round_name}-preview`}
-                                                                    srcDoc={candidateDetail.interview_questions[0].html_content}
+                                                                    title={`${latestInterviewQuestion.round_name}-preview`}
+                                                                    srcDoc={latestInterviewQuestion.html_content}
                                                                     sandbox="allow-scripts"
                                                                     onLoad={(event) => syncInterviewPreviewHeight(event.currentTarget)}
                                                                     className="w-full border-0 bg-white"
@@ -1184,7 +1292,7 @@ export function CandidatesPage({
                                                         ) : (
                                                             <div
                                                                 className="prose prose-slate max-w-none dark:prose-invert"
-                                                                dangerouslySetInnerHTML={{__html: candidateDetail.interview_questions[0].html_content}}
+                                                                dangerouslySetInnerHTML={{__html: latestInterviewQuestion.html_content}}
                                                             />
                                                         )}
                                                     </div>
@@ -1193,12 +1301,66 @@ export function CandidatesPage({
                                                 )}
                                             </div>
                                         </div>
-                                    </Field>
+                                    ) : null}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     ) : (
-                        <EmptyState title="请选择一个候选人" description="左侧列表或看板选中候选人后，右侧会打开完整档案与 AI 评估区。"/>
+                        <div className="flex h-full min-h-0 flex-1 flex-col">
+                            <div className="border-b border-slate-200/80 px-5 py-4 dark:border-slate-800">
+                                <div className="space-y-1.5">
+                                    <h3 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">候选人工作区</h3>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">未选中候选人时，先在这里查看当前筛选结果的概览、最近更新对象和推荐入口。</p>
+                                </div>
+                            </div>
+                            <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+                                <div className="space-y-5 px-5 py-5">
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        {candidateOverviewStats.map((item) => (
+                                            <InfoTile key={item.label} label={item.label} value={item.value}/>
+                                        ))}
+                                    </div>
+
+                                    <Field label="最近更新候选人">
+                                        <div className="space-y-3">
+                                            {recentVisibleCandidates.length ? recentVisibleCandidates.map((candidate) => (
+                                                <button
+                                                    key={candidate.id}
+                                                    type="button"
+                                                    className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
+                                                    onClick={() => setSelectedCandidateId(candidate.id)}
+                                                >
+                                                    <div className="min-w-0">
+                                                        <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
+                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                            {candidate.position_title || "未分配岗位"} · {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))} · 匹配度 {formatPercent(candidate.match_percent)}
+                                                        </p>
+                                                    </div>
+                                                    <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.updated_at)}</p>
+                                                </button>
+                                            )) : (
+                                                <EmptyState title="暂无候选人" description="当前筛选结果为空，调整筛选条件或先上传简历后再继续处理。"/>
+                                            )}
+                                        </div>
+                                    </Field>
+
+                                    <Field label="推荐操作">
+                                        <div className="grid gap-3 md:grid-cols-2">
+                                            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">继续筛选列表</p>
+                                                <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">保持当前筛选条件，在左侧列表中选择一位候选人后，右侧会切换到完整档案工作区。</p>
+                                            </div>
+                                            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">批量处理当前结果</p>
+                                                <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">可以先在左侧勾选需要处理的候选人，再执行批量初筛或批量发送简历。</p>
+                                            </div>
+                                        </div>
+                                    </Field>
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </Card>
             </div>

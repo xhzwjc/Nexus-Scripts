@@ -113,6 +113,8 @@ export interface CandidateSummary {
   source?: string | null;
   source_detail?: string | null;
   status: string;
+  active_screening_task_id?: number | null;
+  active_screening_task_status?: string | null;
   ai_recommended_status?: string | null;
   match_percent?: number | null;
   tags: string[];

@@ -6,7 +6,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
@@ -32,7 +32,7 @@ from ..recruitment_schemas import (
 )
 from ..schema_maintenance import ensure_recruitment_schema
 from ..script_hub_session import require_script_hub_permission
-from ..services.recruitment_service import RecruitmentConflictError, RecruitmentService, run_resume_pipeline_background
+from ..services.recruitment_service import RecruitmentConflictError, RecruitmentService
 from ..services.recruitment_task_control import RecruitmentTaskCancelled
 from ..services.script_hub_audit_service import write_audit_log
 recruitment_router = APIRouter(prefix="/recruitment", tags=["AI 招聘自动化管理"])
@@ -214,15 +214,32 @@ async def get_candidate_status_history(candidate_id: int, _session: Dict[str, An
 
 
 @recruitment_router.post("/candidates/upload-resumes")
-async def upload_resumes(background_tasks: BackgroundTasks, files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
     uploaded_files = []
     for item in files:
         uploaded_files.append({"file_name": item.filename or "resume.bin", "content_type": item.content_type, "content": await item.read()})
     try:
         data = service.upload_resume_files(uploaded_files, position_id, _session.get("id") or "unknown")
         for row in data:
+            row["auto_screen_started"] = False
+            row["auto_screen_task_id"] = None
+            row["auto_screen_task_status"] = None
+            row["auto_screen_error"] = None
             if row.get("latest_resume_file_id") and row.get("auto_screen_enabled"):
-                background_tasks.add_task(run_resume_pipeline_background, row["id"], row["latest_resume_file_id"], _session.get("id") or "unknown")
+                try:
+                    task = service.start_screen_candidate(
+                        row["id"],
+                        _session.get("id") or "unknown",
+                        skill_ids=[],
+                        use_position_skills=True,
+                        use_candidate_memory=True,
+                        custom_requirements="",
+                    )
+                    row["auto_screen_started"] = True
+                    row["auto_screen_task_id"] = task.get("task_id")
+                    row["auto_screen_task_status"] = task.get("status")
+                except Exception as exc:
+                    row["auto_screen_error"] = str(exc)
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

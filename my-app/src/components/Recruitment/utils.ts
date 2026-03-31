@@ -696,6 +696,9 @@ export function statusBadgeClass(kind: "position" | "candidate" | "task", value?
         if (value === "closed") return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
     }
     if (kind === "candidate") {
+        if (value === "screening_running") {
+            return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200";
+        }
         if (value === "screening_passed" || value === "interview_passed" || value === "offer_sent" || value === "hired") {
             return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200";
         }
@@ -715,6 +718,20 @@ export function labelForPositionStatus(status?: string | null) {
 
 export function labelForCandidateStatus(status?: string | null) {
     return candidateStatusLabels[status || ""] || status || "未知状态";
+}
+
+export function resolveCandidateDisplayStatus(candidate?: CandidateSummary | null) {
+    if (!candidate) {
+        return "";
+    }
+    if (
+        candidate.status === "pending_screening"
+        && candidate.active_screening_task_status
+        && ["pending", "queued", "running", "cancelling"].includes(candidate.active_screening_task_status)
+    ) {
+        return "screening_running";
+    }
+    return candidate.status || "";
 }
 
 export function labelForTaskType(taskType?: string | null) {

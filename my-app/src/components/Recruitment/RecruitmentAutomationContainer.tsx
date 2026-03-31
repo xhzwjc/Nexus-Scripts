@@ -6,6 +6,8 @@ import {
     Bot,
     BriefcaseBusiness,
     ChevronDown,
+    ChevronLeft,
+    ChevronRight,
     ChevronUp,
     ClipboardCheck,
     ExternalLink,
@@ -200,6 +202,8 @@ interface RecruitmentAutomationContainerProps {
 }
 
 export default function RecruitmentAutomationContainer({onBack}: RecruitmentAutomationContainerProps) {
+    type PositionFormErrors = Partial<Record<"title" | "headcount", string>>;
+
     const sessionUser = useMemo(() => getStoredScriptHubSession()?.user ?? null, []);
     const jdGenerationInFlightRef = useRef(false);
     const screeningLaunchInFlightRef = useRef(false);
@@ -260,7 +264,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [assistantOpen, setAssistantOpen] = useState(false);
     const [navCollapsed, setNavCollapsed] = useState(false);
     const [positionListCollapsed, setPositionListCollapsed] = useState(false);
-    const [positionWorkspaceHeaderCollapsed, setPositionWorkspaceHeaderCollapsed] = useState(true);
+    const [positionWorkspaceView, setPositionWorkspaceView] = useState<"jd" | "config">("jd");
+    const [positionSecondaryPanelOpen, setPositionSecondaryPanelOpen] = useState(false);
     const [candidateFiltersCollapsed, setCandidateFiltersCollapsed] = useState(true);
     const [auditFiltersCollapsed, setAuditFiltersCollapsed] = useState(true);
     const [bootstrapping, setBootstrapping] = useState(true);
@@ -359,6 +364,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [positionDialogOpen, setPositionDialogOpen] = useState(false);
     const [positionDialogMode, setPositionDialogMode] = useState<"create" | "edit">("create");
     const [positionForm, setPositionForm] = useState<PositionFormState>(emptyPositionForm);
+    const [positionFormErrors, setPositionFormErrors] = useState<PositionFormErrors>({});
 
     const [resumeUploadOpen, setResumeUploadOpen] = useState(false);
     const [resumeUploadFiles, setResumeUploadFiles] = useState<File[]>([]);
@@ -628,6 +634,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const hasLiveCandidateActivity = useMemo(() => {
         return (candidateDetail?.activity || []).some((item) => isLiveTaskStatus(item.status));
     }, [candidateDetail?.activity]);
+    const hasLiveCandidateListActivity = useMemo(() => {
+        return candidates.some((candidate) => (
+            candidate.active_screening_task_status
+            && isLiveTaskStatus(candidate.active_screening_task_status)
+        ));
+    }, [candidates]);
     const resumeMailTargetCandidates = useMemo(() => {
         return resumeMailForm.candidateIds
             .map((candidateId) => (
@@ -761,13 +773,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         };
     }, [candidates, positions]);
 
-    const positionSidebarSummary = useMemo(() => {
-        return {
-            recruiting: positions.filter((position) => position.status === "recruiting").length,
-            todayNew: positions.filter((position) => isToday(position.created_at)).length,
-        };
-    }, [positions]);
-
     const recentCandidates = dashboard?.recent_candidates || [];
     const recentLogs = aiLogs.slice(0, 6);
     const candidateFilterSummary = useMemo(() => {
@@ -846,6 +851,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     useEffect(() => {
         selectedPositionIdRef.current = selectedPositionId;
+    }, [selectedPositionId]);
+
+    useEffect(() => {
+        setPositionWorkspaceView("jd");
+        setPositionSecondaryPanelOpen(false);
     }, [selectedPositionId]);
 
     useEffect(() => {
@@ -1024,10 +1034,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }, [selectedPositionId]);
 
     useEffect(() => {
-        setPositionWorkspaceHeaderCollapsed(true);
-    }, [selectedPositionId]);
-
-    useEffect(() => {
         jdGenerationInFlightRef.current = false;
         setJdGenerationStatus("idle");
         setJdGenerationError("");
@@ -1052,10 +1058,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     useEffect(() => {
         const shouldPollLogs = activePage === "audit" || activePage === "workspace";
         const shouldPollCandidateDetail = activePage === "candidates";
+        const shouldPollCandidateList = activePage === "candidates";
         const shouldPollLogDetail = activePage === "audit";
         const hasVisibleLiveActivity = (
             (shouldPollLogs && hasLiveLogActivity)
             || (shouldPollCandidateDetail && hasLiveCandidateActivity)
+            || (shouldPollCandidateList && (hasLiveCandidateListActivity || activeScreeningTaskIds.length > 0))
         );
         if (!screeningSubmitting && !interviewGenerating && !chatSending && !resumeMailSubmitting && jdGenerationStatus === "idle" && !hasVisibleLiveActivity) {
             return undefined;
@@ -1083,6 +1091,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 const tasks: Promise<unknown>[] = [];
                 if (shouldPollLogs && !logsLoading) {
                     tasks.push(loadLogs({silent: true}));
+                }
+                if (shouldPollCandidateList && !candidatesLoading) {
+                    tasks.push(loadCandidates({silent: true}));
                 }
                 if (shouldPollCandidateDetail && selectedCandidateId && !candidateDetailLoading) {
                     tasks.push(loadCandidateDetail(selectedCandidateId, {silent: true}));
@@ -1126,10 +1137,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         jdGenerationStatus,
         hasLiveLogActivity,
         hasLiveCandidateActivity,
+        hasLiveCandidateListActivity,
+        activeScreeningTaskIds.length,
         selectedCandidateId,
         selectedLogId,
         pageVisible,
         logsLoading,
+        candidatesLoading,
         candidateDetailLoading,
         logDetailLoading,
     ]);
@@ -1523,10 +1537,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
-    async function loadCandidates() {
+    async function loadCandidates(options?: { silent?: boolean }) {
         const requestId = candidatesLoadRequestIdRef.current + 1;
         candidatesLoadRequestIdRef.current = requestId;
-        setCandidatesLoading(true);
+        if (!options?.silent) {
+            setCandidatesLoading(true);
+        }
         try {
             const query = buildQuery({
                 query: deferredCandidateQuery,
@@ -1549,10 +1565,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             });
             return data;
         } catch (error) {
-            toast.error(`加载候选人失败：${error instanceof Error ? error.message : "未知错误"}`);
+            if (!options?.silent) {
+                toast.error(`加载候选人失败：${error instanceof Error ? error.message : "未知错误"}`);
+            }
             throw error;
         } finally {
-            if (mountedRef.current && candidatesLoadRequestIdRef.current === requestId) {
+            if (!options?.silent && mountedRef.current && candidatesLoadRequestIdRef.current === requestId) {
                 setCandidatesLoading(false);
             }
         }
@@ -1832,6 +1850,64 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         taskMonitorTimersRef.current.delete(taskId);
         taskMonitorTokensRef.current.delete(taskId);
+    }
+
+    function clearActiveScreeningTask(candidateId: number, taskId: number) {
+        setActiveScreeningTaskMap((current) => {
+            const next = {...current};
+            if (next[candidateId] === taskId) {
+                delete next[candidateId];
+            }
+            return next;
+        });
+        setActiveBatchScreeningTaskIds((current) => current.filter((item) => item !== taskId));
+    }
+
+    function attachScreeningTaskMonitor(
+        candidateId: number,
+        taskId: number,
+        options?: {
+            batch?: boolean;
+            suppressFinishToast?: boolean;
+        },
+    ) {
+        setActiveScreeningTaskMap((current) => ({
+            ...current,
+            [candidateId]: taskId,
+        }));
+        if (options?.batch) {
+            setActiveBatchScreeningTaskIds((current) => Array.from(new Set([...current, taskId])));
+        }
+        startTaskMonitor(taskId, {
+            onFinish: async (log) => {
+                if (!mountedRef.current) {
+                    return;
+                }
+                clearActiveScreeningTask(candidateId, taskId);
+                await Promise.all([
+                    loadCandidates({silent: true}),
+                    loadDashboard(),
+                    loadLogs({silent: true}),
+                ]);
+                if (selectedCandidateIdRef.current === candidateId) {
+                    await loadCandidateDetail(candidateId, {silent: true});
+                }
+                if (options?.suppressFinishToast) {
+                    return;
+                }
+                if (log.status === "success" || log.status === "fallback") {
+                    toast.success(log.status === "fallback" ? "初筛已完成（兜底完成）" : "初筛已完成");
+                    return;
+                }
+                if (log.status === "cancelled") {
+                    toast.success("已停止初筛");
+                    return;
+                }
+                if (log.status === "failed") {
+                    toast.error(`初筛失败：${log.error_message || "未知错误"}`);
+                }
+            },
+        });
     }
 
     function updateChatMessage(messageId: string, updater: (message: ChatMessage) => ChatMessage) {
@@ -2522,6 +2598,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     function openCreatePosition() {
         setPositionDialogMode("create");
         setPositionForm(emptyPositionForm());
+        setPositionFormErrors({});
         setPositionDialogOpen(true);
     }
 
@@ -2548,10 +2625,63 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             screeningSkillIds: positionDetail.position.screening_skill_ids || [],
             interviewSkillIds: positionDetail.position.interview_skill_ids || [],
         });
+        setPositionFormErrors({});
         setPositionDialogOpen(true);
     }
 
+    function updatePositionFormField<K extends keyof PositionFormState>(field: K, value: PositionFormState[K]) {
+        setPositionForm((current) => ({
+            ...current,
+            [field]: value,
+        }));
+        if (field === "title") {
+            setPositionFormErrors((current) => {
+                if (!current.title) return current;
+                const next = {...current};
+                delete next.title;
+                return next;
+            });
+        } else if (field === "headcount") {
+            setPositionFormErrors((current) => {
+                if (!current.headcount) return current;
+                const next = {...current};
+                delete next.headcount;
+                return next;
+            });
+        }
+    }
+
+    function validatePositionForm(form: PositionFormState): PositionFormErrors {
+        const errors: PositionFormErrors = {};
+        const title = form.title.trim();
+        const headcountText = form.headcount.trim();
+        const headcountValue = Number(headcountText || "0");
+
+        if (!title) {
+            errors.title = "请输入岗位名称";
+        } else if (title.length > 200) {
+            errors.title = "岗位名称不能超过 200 个字符";
+        }
+
+        if (!headcountText) {
+            errors.headcount = "请输入招聘人数";
+        } else if (!/^\d+$/.test(headcountText)) {
+            errors.headcount = "招聘人数只能填写正整数";
+        } else if (!Number.isInteger(headcountValue) || headcountValue < 1 || headcountValue > 999) {
+            errors.headcount = "招聘人数需在 1 到 999 之间";
+        }
+
+        return errors;
+    }
+
     async function submitPosition() {
+        const nextErrors = validatePositionForm(positionForm);
+        if (Object.keys(nextErrors).length) {
+            setPositionFormErrors(nextErrors);
+            toast.error("请先修正岗位表单中的错误信息");
+            return;
+        }
+
         const payload = {
             title: positionForm.title.trim(),
             department: positionForm.department.trim() || null,
@@ -2789,11 +2919,31 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             position_id: resumeUploadPositionId === "all" ? null : resumeUploadPositionId,
         });
         try {
-            await recruitmentApi(`/candidates/upload-resumes${query}`, {
+            const uploaded = await recruitmentApi<Array<{
+                id: number;
+                auto_screen_enabled?: boolean;
+                auto_screen_started?: boolean;
+                auto_screen_task_id?: number | null;
+                auto_screen_task_status?: string | null;
+                auto_screen_error?: string | null;
+            }>>(`/candidates/upload-resumes${query}`, {
                 method: "POST",
                 body: formData,
             });
-            toast.success("简历已上传。若岗位已开启自动初筛，系统会继续执行初筛；否则可在候选人页手动开始初筛。");
+            const startedCount = uploaded.filter((item) => item.auto_screen_started).length;
+            const failedCount = uploaded.filter((item) => item.auto_screen_enabled && !item.auto_screen_started).length;
+            uploaded.forEach((item) => {
+                if (item.auto_screen_started && item.auto_screen_task_id) {
+                    attachScreeningTaskMonitor(item.id, item.auto_screen_task_id, {
+                        suppressFinishToast: true,
+                    });
+                }
+            });
+            if (startedCount > 0) {
+                toast.success(`已上传 ${uploaded.length} 份简历，其中 ${startedCount} 份已自动开始初筛${failedCount > 0 ? `，${failedCount} 份启动失败` : ""}。`);
+            } else {
+                toast.success("简历已上传。若岗位已开启自动初筛，系统会继续执行初筛；否则可在候选人页手动开始初筛。");
+            }
             setResumeUploadOpen(false);
             setResumeUploadFiles([]);
             await refreshCoreData();
@@ -2801,6 +2951,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         } catch (error) {
             toast.error(`上传简历失败：${error instanceof Error ? error.message : "未知错误"}`);
         }
+    }
+
+    function openResumeUploadDialog() {
+        if (activePage === "positions" && selectedPositionId) {
+            setResumeUploadPositionId(String(selectedPositionId));
+        } else {
+            setResumeUploadPositionId("all");
+        }
+        setResumeUploadOpen(true);
     }
 
     async function saveCandidate() {
@@ -2933,40 +3092,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         }),
                     });
                     startedTaskIds.push(task.task_id);
-                    setActiveScreeningTaskMap((current) => ({
-                        ...current,
-                        [candidateId]: task.task_id,
-                    }));
-                    if (isBatchRequest) {
-                        setActiveBatchScreeningTaskIds((current) => Array.from(new Set([...current, task.task_id])));
-                    }
-                    startTaskMonitor(task.task_id, {
-                        onFinish: async (log) => {
-                            if (!mountedRef.current) {
-                                return;
-                            }
-                            setActiveScreeningTaskMap((current) => {
-                                const next = {...current};
-                                if (next[candidateId] === task.task_id) {
-                                    delete next[candidateId];
-                                }
-                                return next;
-                            });
-                            setActiveBatchScreeningTaskIds((current) => current.filter((item) => item !== task.task_id));
-                            await Promise.all([loadCandidates(), loadDashboard(), loadLogs({silent: true})]);
-                            if (selectedCandidateIdRef.current === candidateId) {
-                                await loadCandidateDetail(candidateId, {silent: true});
-                            }
-                            if (!isBatchRequest) {
-                                if (log.status === "success" || log.status === "fallback") {
-                                    toast.success(log.status === "fallback" ? "初筛已完成（兜底完成）" : "初筛已完成");
-                                } else if (log.status === "cancelled") {
-                                    toast.success("已停止初筛");
-                                } else if (log.status === "failed") {
-                                    toast.error(`初筛失败：${log.error_message || "未知错误"}`);
-                                }
-                            }
-                        },
+                    attachScreeningTaskMonitor(candidateId, task.task_id, {
+                        batch: isBatchRequest,
+                        suppressFinishToast: isBatchRequest,
                     });
                 } catch (error) {
                     failures.push(`候选人 #${candidateId}: ${error instanceof Error ? error.message : "未知错误"}`);
@@ -4492,563 +4620,523 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return (
             <div
                 className={cn(
-                    "grid h-full min-h-0 items-stretch gap-6 overflow-hidden transition-all duration-300",
+                    "grid h-full min-h-0 items-stretch gap-4 2xl:gap-6 overflow-hidden transition-all duration-300",
                     positionListCollapsed
-                        ? "xl:grid-cols-[146px_minmax(0,1fr)] 2xl:grid-cols-[154px_minmax(0,1fr)]"
-                        : "xl:grid-cols-[216px_minmax(0,1fr)] 2xl:grid-cols-[226px_minmax(0,1fr)]",
+                        ? "xl:grid-cols-[104px_minmax(0,1fr)] 2xl:grid-cols-[116px_minmax(0,1fr)]"
+                        : "xl:grid-cols-[148px_minmax(0,1fr)] 2xl:grid-cols-[164px_minmax(0,1fr)]",
                 )}
             >
-                <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
-                    <CardHeader className="space-y-0 px-4 pb-0 pt-4">
-                        {positionListCollapsed ? (
-                            <div className="flex items-center justify-between gap-3">
-                                <CardTitle className="text-[16px] font-semibold tracking-tight whitespace-nowrap">岗位</CardTitle>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="icon"
-                                    onClick={() => setPositionListCollapsed(false)}
-                                    className="h-8 w-8 rounded-xl"
-                                    title="展开岗位列表"
-                                >
-                                    <PanelLeftOpen className="h-4 w-4"/>
-                                </Button>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                <div className="flex items-start justify-between gap-2">
+                <div className="relative min-h-0">
+                    <Card className={cn(panelClass, "h-full min-h-0 overflow-hidden")}>
+                        <CardHeader className="space-y-0 px-4 pb-0 pt-4">
+                            {positionListCollapsed ? (
+                                <div className="flex items-center justify-center">
+                                    <CardTitle className="text-[16px] font-semibold tracking-tight whitespace-nowrap">岗位</CardTitle>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
                                     <div className="min-w-0">
                                         <CardTitle className="text-[18px] font-semibold tracking-tight whitespace-nowrap">
                                             岗位列表 ({positions.length})
                                         </CardTitle>
-                                        <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
-                                            招聘中 {positionSidebarSummary.recruiting} · 今日新增 {positionSidebarSummary.todayNew}
-                                        </p>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex justify-start">
                                         <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="icon"
-                                            onClick={() => setPositionListCollapsed(true)}
-                                            className="h-9 w-9 rounded-xl"
-                                            title="收起岗位列表"
+                                            size="sm"
+                                            className="h-9 rounded-xl whitespace-nowrap px-4 text-sm font-medium shadow-sm"
+                                            onClick={openCreatePosition}
                                         >
-                                            <PanelLeftClose className="h-4 w-4"/>
+                                            <Plus className="h-4 w-4"/>
+                                            新增岗位
                                         </Button>
                                     </div>
                                 </div>
-                                <div className="flex justify-start">
-                                    <Button
-                                        size="sm"
-                                        className="h-9 rounded-xl whitespace-nowrap px-4 text-sm font-medium shadow-sm"
-                                        onClick={openCreatePosition}
-                                    >
-                                        <Plus className="h-4 w-4"/>
-                                        新增岗位
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
-                    </CardHeader>
-                    <CardContent className={cn("flex min-h-0 flex-1 flex-col", positionListCollapsed ? "space-y-2 pt-3" : "space-y-2 pt-3")}>
-                        {!positionListCollapsed ? (
-                            <>
-                                <SearchField value={positionQuery} onChange={setPositionQuery}
-                                             placeholder="搜索关键字"
-                                             inputClassName="h-9 rounded-xl border-slate-200/80 bg-slate-50/70 text-sm shadow-none dark:border-slate-800 dark:bg-slate-900/60"/>
-                                <NativeSelect value={positionStatusFilter}
-                                              className="h-9 rounded-xl border-slate-200/80 bg-slate-50/70 text-sm shadow-none dark:border-slate-800 dark:bg-slate-900/60"
-                                              onChange={(event) => setPositionStatusFilter(event.target.value)}>
-                                    <option value="all">全部状态</option>
-                                    {Object.entries(positionStatusLabels).map(([value, label]) => (
-                                        <option key={value} value={value}>
-                                            {label}
-                                        </option>
-                                    ))}
-                                </NativeSelect>
-                            </>
-                        ) : null}
-                        <div
-                            className={cn(
-                                "min-h-0 flex-1 overflow-y-auto",
-                                positionListCollapsed ? "" : "-mx-2 px-2",
                             )}
-                        >
-                            <div className={cn(positionListCollapsed ? "space-y-2" : "space-y-2.5")}>
-                                {positionsLoading ? (
-                                    <LoadingCard label="正在加载岗位列表"/>
-                                ) : positions.length ? positions.map((position) => (
-                                    <button
-                                        key={position.id}
-                                        type="button"
-                                        onClick={() => setSelectedPositionId(position.id)}
-                                        className={cn(
-                                            "w-full border text-left transition",
-                                            selectedPositionId === position.id
-                                                ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                : "border-slate-200/80 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950",
-                                            positionListCollapsed ? "rounded-[18px] px-2.5 py-2.5" : "rounded-2xl px-3.5 py-3.5",
-                                        )}
+                        </CardHeader>
+                        <CardContent className="flex min-h-0 flex-1 flex-col space-y-2 pt-3">
+                            {!positionListCollapsed ? (
+                                <>
+                                    <SearchField
+                                        value={positionQuery}
+                                        onChange={setPositionQuery}
+                                        placeholder="筛选"
+                                        inputClassName="h-9 rounded-xl border-slate-200/80 bg-slate-50/70 text-sm shadow-none dark:border-slate-800 dark:bg-slate-900/60"
+                                    />
+                                    <NativeSelect
+                                        value={positionStatusFilter}
+                                        className="h-9 rounded-xl border-slate-200/80 bg-slate-50/70 text-sm shadow-none dark:border-slate-800 dark:bg-slate-900/60"
+                                        onChange={(event) => setPositionStatusFilter(event.target.value)}
                                     >
-                                        {positionListCollapsed ? (
-                                            <div className="space-y-1">
-                                                <p className="truncate text-[12px] font-semibold leading-5">{position.title}</p>
-                                                <div className="flex items-center gap-1.5 text-[10px] opacity-75">
-                                                    <span className="truncate">{position.location || position.department || "岗位"}</span>
-                                                    <span className="h-1 w-1 shrink-0 rounded-full bg-current/45"/>
-                                                    <span className="shrink-0">{labelForPositionStatus(position.status)}</span>
+                                        <option value="all">全部状态</option>
+                                        {Object.entries(positionStatusLabels).map(([value, label]) => (
+                                            <option key={value} value={value}>
+                                                {label}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                </>
+                            ) : null}
+                            <div className={cn(
+                                "min-h-0 flex-1 overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0",
+                                positionListCollapsed ? "" : "-mx-2 px-2",
+                            )}>
+                                <div className={cn(positionListCollapsed ? "space-y-2" : "space-y-2.5")}>
+                                    {positionsLoading ? (
+                                        <LoadingCard label="正在加载岗位列表"/>
+                                    ) : positions.length ? positions.map((position) => (
+                                        <button
+                                            key={position.id}
+                                            type="button"
+                                            onClick={() => setSelectedPositionId(position.id)}
+                                            className={cn(
+                                                "w-full border text-left transition",
+                                                selectedPositionId === position.id
+                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                    : "border-slate-200/80 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950",
+                                                positionListCollapsed ? "rounded-[18px] px-2.5 py-2.5" : "rounded-2xl px-3 py-3",
+                                            )}
+                                        >
+                                            {positionListCollapsed ? (
+                                                <div className="space-y-1">
+                                                    <p className="truncate text-[12px] font-semibold leading-5">{position.title}</p>
+                                                    <div className="flex items-center gap-1.5 text-[10px] opacity-75">
+                                                        <span className="truncate">{position.location || position.department || "岗位"}</span>
+                                                        <span className="h-1 w-1 shrink-0 rounded-full bg-current/45"/>
+                                                        <span className="shrink-0">{labelForPositionStatus(position.status)}</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                <div className="space-y-2">
+                                            ) : (
+                                                <div className="space-y-1.5">
+                                                    <p className="line-clamp-2 text-[13px] font-semibold leading-5">{position.title}</p>
                                                     <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
                                                         <Badge
                                                             className={cn("rounded-full border px-2 py-0 text-[10px]", selectedPositionId === position.id ? "border-white/20 bg-white/10 text-white dark:border-slate-300 dark:bg-slate-200 dark:text-slate-900" : statusBadgeClass("position", position.status))}>
                                                             {labelForPositionStatus(position.status)}
                                                         </Badge>
-                                                        <span className="truncate">{position.department || "未设置部门"} · {position.location || "未设置地点"}</span>
+                                                        <span className="text-[11px] font-medium leading-none">
+                                                            候选人 {position.candidate_count}
+                                                        </span>
                                                     </div>
-                                                    <div className="min-w-0">
-                                                        <p className="line-clamp-2 text-[13px] font-semibold leading-5">{position.title}</p>
-                                                    </div>
+                                                    <p
+                                                        className="truncate text-[11px] leading-5 text-slate-500 dark:text-slate-400"
+                                                        title={`${position.department || "未设置部门"} · ${position.location || "未设置地点"}`}
+                                                    >
+                                                        {position.department || "未设置部门"} · {position.location || "未设置地点"}
+                                                    </p>
                                                 </div>
-                                                <div className="mt-3 flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400">
-                                                    <span>JD 版本 {position.jd_version_count}</span>
-                                                    <span>候选人 {position.candidate_count}</span>
-                                                    <span>{formatDateTime(position.updated_at)}</span>
-                                                </div>
-                                            </>
-                                        )}
-                                    </button>
-                                )) : (
-                                    <EmptyState title="暂无岗位"
-                                                description="先新建一个岗位，再由 AI 生成 JD 并进入招聘流程。"/>
-                                )}
+                                            )}
+                                        </button>
+                                    )) : (
+                                        <EmptyState title="暂无岗位" description="先新建一个岗位，再由 AI 生成 JD 并进入招聘流程。"/>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                        <div className="shrink-0 pt-2 text-center text-[11px] text-slate-500 dark:text-slate-400">
-                            招聘中 {positionSidebarSummary.recruiting} · 今日新增 {positionSidebarSummary.todayNew}
-                        </div>
-                    </CardContent>
-                </Card>
+                        </CardContent>
+                    </Card>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setPositionListCollapsed((current) => !current)}
+                        className="absolute right-0 top-1/2 z-20 h-10 w-5 -translate-y-1/2 translate-x-1/2 rounded-full border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
+                        title={positionListCollapsed ? "展开岗位列表" : "收起岗位列表"}
+                    >
+                        {positionListCollapsed ? <ChevronRight className="h-3.5 w-3.5"/> : <ChevronLeft className="h-3.5 w-3.5"/>}
+                    </Button>
+                </div>
 
-                <div className="min-h-0 overflow-y-auto [scrollbar-gutter:stable] pr-1 xl:overflow-hidden xl:pr-0">
+                <div className="min-h-0 overflow-hidden">
                     {positionDetailLoading ? <LoadingPanel label="正在加载岗位详情"/> : positionDetail ? (
-                        <div className="space-y-6 xl:flex xl:h-full xl:flex-col xl:space-y-0 xl:gap-6">
-                            <Card className={cn(panelClass, "overflow-hidden")}>
-                                <CardContent className={cn("px-6 transition-all", positionWorkspaceHeaderCollapsed ? "py-4" : "py-5")}>
-                                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                                        <div className={cn("min-w-0", positionWorkspaceHeaderCollapsed ? "space-y-2" : "space-y-3")}>
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <Badge
-                                                    className={cn("rounded-full border", statusBadgeClass("position", positionDetail.position.status))}>
-                                                    {labelForPositionStatus(positionDetail.position.status)}
-                                                </Badge>
-                                                <Badge variant="outline"
-                                                       className="rounded-full">代码 {positionDetail.position.position_code}</Badge>
-                                                <Badge variant="outline"
-                                                       className="rounded-full">{positionDetail.position.department || "未设置部门"}</Badge>
+                        <div className="flex h-full min-h-0 flex-col gap-4 2xl:gap-6">
+                            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-2.5 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
+                                <Badge className={cn("rounded-full border", statusBadgeClass("position", positionDetail.position.status))}>
+                                    {labelForPositionStatus(positionDetail.position.status)}
+                                </Badge>
+                                <h2 className="text-[1.15rem] font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+                                    {positionDetail.position.title}
+                                </h2>
+                                <span className="text-xs text-slate-500 dark:text-slate-400">
+                                    {positionDetail.position.location || "未设置地点"} · {positionDetail.position.employment_type || "未设置用工类型"} · {positionDetail.position.salary_range || "未设置薪资"}
+                                </span>
+                            </div>
+
+                            <div
+                                className={cn(
+                                    "grid min-h-0 gap-4 2xl:gap-6 xl:flex-1",
+                                    positionSecondaryPanelOpen
+                                        ? "xl:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_336px]"
+                                        : "grid-cols-1",
+                                )}
+                            >
+                                <div className="min-h-0 space-y-4 overflow-y-auto xl:pr-2 xl:[scrollbar-gutter:stable] 2xl:space-y-6">
+                                    <div className="space-y-2">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            <div className="flex flex-wrap gap-2">
+                                                <Button size="sm" variant={positionWorkspaceView === "jd" ? "default" : "outline"} onClick={() => setPositionWorkspaceView("jd")}>
+                                                    当前 JD
+                                                </Button>
+                                                <Button size="sm" variant={positionWorkspaceView === "config" ? "default" : "outline"} onClick={() => setPositionWorkspaceView("config")}>
+                                                    岗位配置
+                                                </Button>
                                             </div>
-                                            {positionWorkspaceHeaderCollapsed ? (
-                                                <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                                                    <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-                                                        {positionDetail.position.title}
-                                                    </h2>
-                                                    <p className="min-w-0 text-sm text-slate-500 dark:text-slate-400">
-                                                        {positionDetail.position.location || "未设置地点"} · {positionDetail.position.employment_type || "未设置用工类型"} · {positionDetail.position.salary_range || "未设置薪资"}
-                                                    </p>
-                                                </div>
-                                            ) : (
-                                                <div>
-                                                    <h2 className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">{positionDetail.position.title}</h2>
-                                                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                                                        {positionDetail.position.location || "未设置地点"} · {positionDetail.position.employment_type || "未设置用工类型"} · {positionDetail.position.salary_range || "未设置薪资"}
-                                                    </p>
-                                                </div>
-                                            )}
-                                            {!positionWorkspaceHeaderCollapsed ? (
-                                                <p className="max-w-4xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-                                                    {positionDetail.position.summary || "这个岗位还没有补充摘要，建议先由招聘同事或 AI 完善岗位背景和关键目标。"}
-                                                </p>
-                                            ) : null}
+                                            <Button size="sm" variant="outline" onClick={() => setPositionSecondaryPanelOpen((current) => !current)}>
+                                                {positionSecondaryPanelOpen ? "收起次级区" : "版本与关联"}
+                                            </Button>
                                         </div>
-                                        <div
-                                            className={cn(
-                                                "flex flex-wrap gap-2 xl:justify-end",
-                                                positionWorkspaceHeaderCollapsed ? "xl:max-w-[760px]" : "xl:max-w-[520px]",
-                                            )}
-                                        >
-                                            <Button
-                                                onClick={() => void generateJD()}
-                                                disabled={isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"}
-                                            >
-                                                {currentPositionJDTaskId ? <Square className="h-4 w-4"/> : <Wand2 className="h-4 w-4"/>}
-                                                {isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"
-                                                    ? "停止中..."
-                                                    : currentPositionJDTaskId
-                                                        ? "停止生成"
-                                                        : "AI 生成 JD"}
-                                            </Button>
-                                            <Button variant="outline" onClick={openEditPosition}>
-                                                <FilePlus2 className="h-4 w-4"/>
-                                                编辑岗位
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                onClick={() => {
-                                                    setCandidatePositionFilter(String(positionDetail.position.id));
-                                                    setActivePage("candidates");
-                                                }}
-                                            >
-                                                <Users className="h-4 w-4"/>
-                                                查看候选人
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                onClick={() => {
-                                                    if (positionDetail.candidates[0]) {
-                                                        setSelectedCandidateId(positionDetail.candidates[0].id);
-                                                        setActivePage("candidates");
-                                                    } else {
-                                                        toast.error("这个岗位还没有候选人，暂时无法直接生成面试题");
-                                                    }
-                                                }}
-                                            >
-                                                <NotebookText className="h-4 w-4"/>
-                                                生成面试题模板
-                                            </Button>
-                                            {!positionWorkspaceHeaderCollapsed ? (
-                                                <>
-                                                    <Button variant="outline" onClick={() => setPublishDialogOpen(true)}>
-                                                        <Rocket className="h-4 w-4"/>
-                                                        发布岗位
-                                                    </Button>
-                                                    <Button variant="outline" onClick={() => setPositionDeleteConfirmOpen(true)}
-                                                            disabled={positionDeleting}>
-                                                        <Trash2 className="h-4 w-4"/>
-                                                        {positionDeleting ? "删除中..." : "删除岗位"}
-                                                    </Button>
-                                                </>
-                                            ) : null}
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                onClick={() => setPositionWorkspaceHeaderCollapsed((current) => !current)}
-                                            >
-                                                {positionWorkspaceHeaderCollapsed ? <ChevronDown className="h-4 w-4"/> : <ChevronUp className="h-4 w-4"/>}
-                                                {positionWorkspaceHeaderCollapsed ? "展开" : "收起"}
-                                            </Button>
+                                        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                            <span>招聘人数 {positionDetail.position.headcount}</span>
+                                            <span>JD 版本 {positionDetail.jd_versions.length}</span>
+                                            <span>候选人 {positionDetail.candidates.length}</span>
+                                            <span>最近更新 {formatDateTime(positionDetail.position.updated_at)}</span>
                                         </div>
                                     </div>
-                                </CardContent>
-                            </Card>
 
-                            <div className="grid gap-6 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1.2fr)_360px]">
-                                <div className="space-y-6 xl:min-h-0 xl:overflow-y-auto xl:pr-2 xl:[scrollbar-gutter:stable]">
-                                    <Card className={panelClass}>
-                                    <CardHeader className="space-y-4">
-                                        <div className="flex flex-wrap items-start justify-between gap-3">
-                                            <div>
-                                                <CardTitle className="text-lg">当前 JD</CardTitle>
-                                                <CardDescription>默认展示可直接复制发布的岗位文案，Markdown
-                                                    源文本和预览版放在次级视图。</CardDescription>
-                                            </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                <Badge
-                                                    className={cn("rounded-full border", statusBadgeClass("task", currentJDGenerationStatus === "syncing" ? "running" : currentJDGenerationStatus))}>
-                                                    {labelForJDGenerationStatus(currentJDGenerationStatus)}
-                                                </Badge>
-                                                <Badge variant="outline" className="rounded-full">
-                                                    当前版本 {currentJDVersion ? `V${currentJDVersion.version_no}` : "未生成"}
-                                                </Badge>
-                                            </div>
-                                        </div>
-                                        <div className="grid gap-3 md:grid-cols-3">
-                                            <InfoTile label="最近生成时间"
-                                                      value={formatLongDateTime(positionDetail.jd_generation?.last_generated_at || currentJDVersion?.created_at)}/>
-                                            <InfoTile label="当前生效版本"
-                                                      value={currentJDVersion ? `${currentJDVersion.title} · V${currentJDVersion.version_no}` : "暂无生效版本"}/>
-                                            <InfoTile label="最近使用模型"
-                                                      value={positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider || "暂未记录"}/>
-                                        </div>
-                                    </CardHeader>
-                                    <CardContent className="space-y-4">
-                                        <Field label="岗位信息速览">
-                                            <div className="grid gap-3 md:grid-cols-2">
-                                                <InfoTile label="招聘人数"
-                                                          value={`${positionDetail.position.headcount} 人`}/>
-                                                <InfoTile label="标签"
-                                                          value={joinTags(positionDetail.position.tags) || "未设置"}/>
-                                                <InfoTile label="关键要求"
-                                                          value={shortText(positionDetail.position.key_requirements, 100)}/>
-                                                <InfoTile label="加分项"
-                                                          value={shortText(positionDetail.position.bonus_points, 100)}/>
-                                                <InfoTile label="JD 生成 Skill"
-                                                          value={formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap)}/>
-                                                <InfoTile label="上传自动初筛"
-                                                          value={positionDetail.position.auto_screen_on_upload ? "已开启" : "未开启"}/>
-                                                <InfoTile label="初筛绑定 Skills"
-                                                          value={formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap)}/>
-                                                <InfoTile label="面试题 Skill"
-                                                          value={formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap)}/>
-                                                <InfoTile label="通过后自动推进"
-                                                          value={positionDetail.position.auto_advance_on_screening === false ? "关闭" : "开启"}/>
-                                            </div>
-                                        </Field>
-
-                                        <Field label="AI 生成附加要求">
-                                            <Textarea value={jdExtraPrompt}
-                                                      onChange={(event) => setJdExtraPrompt(event.target.value)}
-                                                      rows={3}
-                                                      placeholder="补充本次 JD 生成时的个性化要求，例如强调 IoT 场景、自动化测试、设备联调经验等。"/>
-                                        </Field>
-
-                                        <div className="grid gap-4 xl:grid-cols-2">
-                                            <Field label="版本标题">
-                                                <Input value={jdDraft.title}
-                                                       onChange={(event) => setJdDraft((current) => ({
-                                                           ...current,
-                                                           title: event.target.value
-                                                       }))}/>
-                                            </Field>
-                                            <Field label="版本备注">
-                                                <Input value={jdDraft.notes}
-                                                       onChange={(event) => setJdDraft((current) => ({
-                                                           ...current,
-                                                           notes: event.target.value
-                                                       }))} placeholder="例如：偏向 IoT 自动化测试"/>
-                                            </Field>
-                                        </div>
-
-                                        {latestJDGenerationError ? (
-                                            <div
-                                                className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
-                                                最近一次生成失败：{latestJDGenerationError}
-                                            </div>
-                                        ) : null}
-
-                                        {isJDGenerating ? (
-                                            <div
-                                                className="rounded-[22px] border border-sky-200 bg-sky-50/80 px-5 py-5 dark:border-sky-900 dark:bg-sky-950/30">
-                                                <div
-                                                    className="flex items-center gap-2 text-sm font-medium text-sky-700 dark:text-sky-200">
-                                                    <Loader2 className="h-4 w-4 animate-spin"/>
-                                                    {jdGenerationStatus === "syncing"
-                                                        ? "正在同步最新 JD 到页面..."
-                                                        : currentJDGenerationStatus === "cancelling"
-                                                            ? "正在停止 JD 生成..."
-                                                            : "正在生成 JD，请稍候..."}
-                                                </div>
-                                                <div className="mt-4 grid gap-3">
-                                                    <div className="h-4 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
-                                                    <div
-                                                        className="h-4 w-11/12 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
-                                                    <div
-                                                        className="h-24 rounded-[18px] bg-white/80 dark:bg-slate-900/70"/>
-                                                </div>
-                                            </div>
-                                        ) : null}
-
-                                        <div className="flex flex-wrap items-center justify-between gap-3">
-                                            <div className="flex flex-wrap gap-2">
-                                                <Button variant={jdViewMode === "publish" ? "default" : "outline"}
-                                                        size="sm" onClick={() => setJdViewMode("publish")}>
-                                                    可直接发布版
-                                                </Button>
-                                                <Button variant={jdViewMode === "markdown" ? "default" : "outline"}
-                                                        size="sm" onClick={() => setJdViewMode("markdown")}>
-                                                    Markdown 源文本
-                                                </Button>
-                                                <Button variant={jdViewMode === "preview" ? "default" : "outline"}
-                                                        size="sm" onClick={() => setJdViewMode("preview")}>
-                                                    预览版
-                                                </Button>
-                                            </div>
-                                            <Button variant="outline" size="sm" onClick={() => void copyPublishJDText()}
-                                                    disabled={!currentPublishText.trim()}>
-                                                <ClipboardCheck className="h-4 w-4"/>
-                                                一键复制发布文案
-                                            </Button>
-                                        </div>
-
-                                        {jdViewMode === "publish" ? (
-                                            <div
-                                                className="min-h-[240px] whitespace-pre-wrap rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                                                {currentPublishText || "当前还没有可直接发布的 JD 文案，点击“AI 生成 JD”后会在这里展示。"}
-                                            </div>
-                                        ) : null}
-
-                                        {jdViewMode === "markdown" ? (
-                                            <Field label="JD Markdown 源文本">
-                                                <Textarea value={jdDraft.jdMarkdown}
-                                                          onChange={(event) => setJdDraft((current) => ({
-                                                              ...current,
-                                                              jdMarkdown: event.target.value
-                                                          }))} rows={18}/>
-                                            </Field>
-                                        ) : null}
-
-                                        {jdViewMode === "preview" ? (
-                                            <Field label="预览版">
-                                                <div
-                                                    className="min-h-[240px] rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-                                                    dangerouslySetInnerHTML={{
-                                                        __html: currentPreviewHtml,
-                                                    }}
-                                                />
-                                            </Field>
-                                        ) : null}
-
-                                        <div className="flex flex-wrap items-center justify-between gap-3">
-                                            <label
-                                                className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                                                <input type="checkbox" checked={jdDraft.autoActivate}
-                                                       onChange={(event) => setJdDraft((current) => ({
-                                                           ...current,
-                                                           autoActivate: event.target.checked
-                                                       }))}/>
-                                                保存后设为生效版本
-                                            </label>
-                                            <div className="flex flex-wrap gap-2">
-                                                <Button
-                                                    variant="outline"
-                                                    onClick={() => void generateJD()}
-                                                    disabled={isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"}
-                                                >
-                                                    {currentPositionJDTaskId ? <Square className="h-4 w-4"/> : <Sparkles className="h-4 w-4"/>}
-                                                    {isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"
-                                                        ? "停止中..."
-                                                        : currentPositionJDTaskId
-                                                            ? "停止生成"
-                                                            : "重新生成"}
-                                                </Button>
-                                                <Button onClick={() => void saveJDVersion()}>
-                                                    <Save className="h-4 w-4"/>
-                                                    保存新版本
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </CardContent>
-                                    </Card>
-                                </div>
-
-                                <div className="space-y-6 xl:min-h-0 xl:overflow-y-auto xl:pr-1 xl:[scrollbar-gutter:stable]">
-                                    <Card className={panelClass}>
-                                        <CardHeader>
-                                            <CardTitle className="text-lg">JD 历史版本</CardTitle>
-                                            <CardDescription>保留版本轨迹，并支持随时切换当前生效版本。</CardDescription>
-                                        </CardHeader>
-                                        <CardContent className="space-y-3">
-                                            {positionDetail.jd_versions.length ? positionDetail.jd_versions.map((version) => (
-                                                <div key={version.id}
-                                                     className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                                    <div className="flex items-start justify-between gap-3">
-                                                        <div>
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">{version.title}</p>
-                                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                版本
-                                                                V{version.version_no} · {formatDateTime(version.created_at)}
-                                                            </p>
+                                    {positionWorkspaceView === "jd" ? (
+                                        <Card className={panelClass}>
+                                            <CardHeader className="space-y-3">
+                                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                                    <div className="space-y-2">
+                                                        <CardTitle className="text-lg">当前 JD</CardTitle>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <Badge className={cn("rounded-full border", statusBadgeClass("task", currentJDGenerationStatus === "syncing" ? "running" : currentJDGenerationStatus))}>
+                                                                {labelForJDGenerationStatus(currentJDGenerationStatus)}
+                                                            </Badge>
+                                                            <Badge variant="outline" className="rounded-full">
+                                                                当前版本 {currentJDVersion ? `V${currentJDVersion.version_no}` : "未生成"}
+                                                            </Badge>
                                                         </div>
-                                                        <Badge
-                                                            className={cn("rounded-full border", version.is_active ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                                                            {version.is_active ? "当前生效" : "历史版本"}
-                                                        </Badge>
                                                     </div>
-                                                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{shortText(version.notes || version.prompt_snapshot || version.jd_markdown, 110)}</p>
-                                                    {!version.is_active ? (
-                                                        <Button size="sm" variant="outline" className="mt-3"
-                                                                onClick={() => void activateJDVersion(version.id)}>
-                                                            切换为当前版本
+                                                    <div className="flex flex-wrap gap-2">
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={() => void generateJD()}
+                                                            disabled={isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"}
+                                                        >
+                                                            {currentPositionJDTaskId ? <Square className="h-4 w-4"/> : <Wand2 className="h-4 w-4"/>}
+                                                            {isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"
+                                                                ? "停止中..."
+                                                                : currentPositionJDTaskId
+                                                                    ? "停止生成"
+                                                                    : "AI 生成 JD"}
                                                         </Button>
-                                                    ) : null}
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={() => {
+                                                                setCandidatePositionFilter(String(positionDetail.position.id));
+                                                                setActivePage("candidates");
+                                                            }}
+                                                        >
+                                                            <Users className="h-4 w-4"/>
+                                                            查看候选人
+                                                        </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            onClick={() => {
+                                                                if (positionDetail.candidates[0]) {
+                                                                    setSelectedCandidateId(positionDetail.candidates[0].id);
+                                                                    setActivePage("candidates");
+                                                                } else {
+                                                                    toast.error("这个岗位还没有候选人，暂时无法直接生成面试题");
+                                                                }
+                                                            }}
+                                                        >
+                                                            <NotebookText className="h-4 w-4"/>
+                                                            生成面试题模板
+                                                        </Button>
+                                                    </div>
                                                 </div>
-                                            )) : (
-                                                <EmptyState title="暂无 JD 版本"
-                                                            description="点击 AI 生成 JD 或保存新版本后，这里会形成完整版本轨迹。"/>
-                                            )}
-                                        </CardContent>
-                                    </Card>
+                                                <div className="grid gap-3 md:grid-cols-3">
+                                                    <InfoTile label="最近生成时间" value={formatLongDateTime(positionDetail.jd_generation?.last_generated_at || currentJDVersion?.created_at)}/>
+                                                    <InfoTile label="当前生效版本" value={currentJDVersion ? `${currentJDVersion.title} · V${currentJDVersion.version_no}` : "暂无生效版本"}/>
+                                                    <InfoTile label="最近使用模型" value={positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider || "暂未记录"}/>
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent className="space-y-4">
+                                                <Field label="AI 生成附加要求">
+                                                    <Textarea
+                                                        value={jdExtraPrompt}
+                                                        onChange={(event) => setJdExtraPrompt(event.target.value)}
+                                                        rows={3}
+                                                        placeholder="补充本次 JD 生成时的个性化要求，例如强调 IoT 场景、自动化测试、设备联调经验等。"
+                                                    />
+                                                </Field>
 
-                                    <Card className={panelClass}>
-                                        <CardHeader>
-                                            <CardTitle className="text-lg">发布状态</CardTitle>
-                                            <CardDescription>发布能力已解耦成任务轨迹和适配层接口。</CardDescription>
-                                        </CardHeader>
-                                        <CardContent className="space-y-3">
-                                            {positionDetail.publish_tasks.length ? positionDetail.publish_tasks.map((task) => (
-                                                <div key={task.id}
-                                                     className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
-                                                    <div className="flex items-center justify-between gap-3">
-                                                        <div>
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">
-                                                                {task.target_platform.toUpperCase()} · {task.mode.toUpperCase()}
-                                                            </p>
-                                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(task.created_at)}</p>
+                                                <div className="grid gap-4 lg:grid-cols-2">
+                                                    <Field label="版本标题">
+                                                        <Input
+                                                            value={jdDraft.title}
+                                                            onChange={(event) => setJdDraft((current) => ({
+                                                                ...current,
+                                                                title: event.target.value,
+                                                            }))}
+                                                        />
+                                                    </Field>
+                                                    <Field label="版本备注">
+                                                        <Input
+                                                            value={jdDraft.notes}
+                                                            onChange={(event) => setJdDraft((current) => ({
+                                                                ...current,
+                                                                notes: event.target.value,
+                                                            }))}
+                                                            placeholder="例如：偏向 IoT 自动化测试"
+                                                        />
+                                                    </Field>
+                                                </div>
+
+                                                {latestJDGenerationError ? (
+                                                    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
+                                                        最近一次生成失败：{latestJDGenerationError}
+                                                    </div>
+                                                ) : null}
+
+                                                {isJDGenerating ? (
+                                                    <div className="rounded-[22px] border border-sky-200 bg-sky-50/80 px-5 py-5 dark:border-sky-900 dark:bg-sky-950/30">
+                                                        <div className="flex items-center gap-2 text-sm font-medium text-sky-700 dark:text-sky-200">
+                                                            <Loader2 className="h-4 w-4 animate-spin"/>
+                                                            {jdGenerationStatus === "syncing"
+                                                                ? "正在同步最新 JD 到页面..."
+                                                                : currentJDGenerationStatus === "cancelling"
+                                                                    ? "正在停止 JD 生成..."
+                                                                    : "正在生成 JD，请稍候..."}
                                                         </div>
-                                                        <Badge
-                                                            className={cn("rounded-full border", statusBadgeClass("task", task.status))}>
-                                                            {labelForTaskExecutionStatus(task.status)}
-                                                        </Badge>
+                                                        <div className="mt-4 grid gap-3">
+                                                            <div className="h-4 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
+                                                            <div className="h-4 w-11/12 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
+                                                            <div className="h-24 rounded-[18px] bg-white/80 dark:bg-slate-900/70"/>
+                                                        </div>
                                                     </div>
-                                                    {task.published_url ? (
-                                                        <a className="mt-3 inline-flex items-center gap-1 text-sm text-sky-600 hover:underline"
-                                                           href={task.published_url} target="_blank" rel="noreferrer">
-                                                            查看发布链接
-                                                            <ExternalLink className="h-4 w-4"/>
-                                                        </a>
-                                                    ) : null}
-                                                    {task.error_message ?
-                                                        <p className="mt-3 text-sm text-rose-600">{task.error_message}</p> : null}
-                                                </div>
-                                            )) : (
-                                                <EmptyState title="暂无发布任务"
-                                                            description="先完成 JD，再创建发布任务，后续可接入真实 BOSS / 智联适配器。"/>
-                                            )}
-                                        </CardContent>
-                                    </Card>
+                                                ) : null}
 
-                                    <Card className={panelClass}>
-                                        <CardHeader>
-                                            <CardTitle className="text-lg">关联候选人</CardTitle>
-                                            <CardDescription>按岗位直接看到候选人进度，避免来回跳页找人。</CardDescription>
-                                        </CardHeader>
-                                        <CardContent className="space-y-3">
-                                            {positionDetail.candidates.length ? positionDetail.candidates.map((candidate) => (
-                                                <button
-                                                    key={candidate.id}
-                                                    type="button"
-                                                    className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
-                                                    onClick={() => {
-                                                        setSelectedCandidateId(candidate.id);
-                                                        setActivePage("candidates");
-                                                    }}
-                                                >
-                                                    <div>
-                                                        <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                            匹配度 {formatPercent(candidate.match_percent)} · {candidate.phone || "未填写手机号"}
-                                                        </p>
+                                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                                    <div className="flex flex-wrap gap-2">
+                                                        <Button variant={jdViewMode === "publish" ? "default" : "outline"} size="sm" onClick={() => setJdViewMode("publish")}>
+                                                            可直接发布版
+                                                        </Button>
+                                                        <Button variant={jdViewMode === "markdown" ? "default" : "outline"} size="sm" onClick={() => setJdViewMode("markdown")}>
+                                                            Markdown 源文本
+                                                        </Button>
+                                                        <Button variant={jdViewMode === "preview" ? "default" : "outline"} size="sm" onClick={() => setJdViewMode("preview")}>
+                                                            预览版
+                                                        </Button>
                                                     </div>
-                                                    <Badge
-                                                        className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
-                                                        {labelForCandidateStatus(candidate.status)}
-                                                    </Badge>
-                                                </button>
-                                            )) : (
-                                                <EmptyState title="暂无候选人"
-                                                            description="上传简历并关联到这个岗位后，这里会出现最新候选人列表。"/>
-                                            )}
-                                        </CardContent>
-                                    </Card>
+                                                    <Button variant="outline" size="sm" onClick={() => void copyPublishJDText()} disabled={!currentPublishText.trim()}>
+                                                        <ClipboardCheck className="h-4 w-4"/>
+                                                        一键复制发布文案
+                                                    </Button>
+                                                </div>
+
+                                                {jdViewMode === "publish" ? (
+                                                    <div className="min-h-[360px] whitespace-pre-wrap rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                                                        {currentPublishText || "当前还没有可直接发布的 JD 文案，点击“AI 生成 JD”后会在这里展示。"}
+                                                    </div>
+                                                ) : null}
+
+                                                {jdViewMode === "markdown" ? (
+                                                    <Field label="JD Markdown 源文本">
+                                                        <Textarea
+                                                            value={jdDraft.jdMarkdown}
+                                                            onChange={(event) => setJdDraft((current) => ({
+                                                                ...current,
+                                                                jdMarkdown: event.target.value,
+                                                            }))}
+                                                            rows={20}
+                                                        />
+                                                    </Field>
+                                                ) : null}
+
+                                                {jdViewMode === "preview" ? (
+                                                    <Field label="预览版">
+                                                        <div
+                                                            className="min-h-[360px] rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                                                            dangerouslySetInnerHTML={{__html: currentPreviewHtml}}
+                                                        />
+                                                    </Field>
+                                                ) : null}
+
+                                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                                    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={jdDraft.autoActivate}
+                                                            onChange={(event) => setJdDraft((current) => ({
+                                                                ...current,
+                                                                autoActivate: event.target.checked,
+                                                            }))}
+                                                        />
+                                                        保存后设为生效版本
+                                                    </label>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        <Button variant="outline" onClick={() => void generateJD()} disabled={isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"}>
+                                                            {currentPositionJDTaskId ? <Square className="h-4 w-4"/> : <Sparkles className="h-4 w-4"/>}
+                                                            {isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"
+                                                                ? "停止中..."
+                                                                : currentPositionJDTaskId
+                                                                    ? "停止生成"
+                                                                    : "重新生成"}
+                                                        </Button>
+                                                        <Button onClick={() => void saveJDVersion()}>
+                                                            <Save className="h-4 w-4"/>
+                                                            保存新版本
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    ) : (
+                                        <Card className={panelClass}>
+                                            <CardHeader className="space-y-3">
+                                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                                    <CardTitle className="text-lg">岗位配置</CardTitle>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        <Button variant="outline" size="sm" onClick={openEditPosition}>
+                                                            <FilePlus2 className="h-4 w-4"/>
+                                                            编辑岗位
+                                                        </Button>
+                                                        <Button variant="outline" size="sm" onClick={() => setPublishDialogOpen(true)}>
+                                                            <Rocket className="h-4 w-4"/>
+                                                            发布岗位
+                                                        </Button>
+                                                        <Button variant="outline" size="sm" onClick={() => setPositionDeleteConfirmOpen(true)} disabled={positionDeleting}>
+                                                            <Trash2 className="h-4 w-4"/>
+                                                            {positionDeleting ? "删除中..." : "删除岗位"}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent className="space-y-5">
+                                                <Field label="岗位基础信息">
+                                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                                                        <InfoTile label="部门" value={positionDetail.position.department || "未设置部门"}/>
+                                                        <InfoTile label="地点 / 用工类型" value={`${positionDetail.position.location || "未设置地点"} · ${positionDetail.position.employment_type || "未设置用工类型"}`}/>
+                                                        <InfoTile label="薪资 / 招聘人数" value={`${positionDetail.position.salary_range || "未设置薪资"} · ${positionDetail.position.headcount} 人`}/>
+                                                        <InfoTile label="标签" value={joinTags(positionDetail.position.tags) || "未设置"}/>
+                                                        <InfoTile label="关键要求" value={shortText(positionDetail.position.key_requirements, 120)}/>
+                                                        <InfoTile label="加分项" value={shortText(positionDetail.position.bonus_points, 120)}/>
+                                                    </div>
+                                                </Field>
+
+                                                <Field label="Skill 与自动化配置">
+                                                    <div className="grid gap-3 md:grid-cols-2">
+                                                        <InfoTile label="JD 生成 Skill" value={formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap)}/>
+                                                        <InfoTile label="初筛绑定 Skills" value={formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap)}/>
+                                                        <InfoTile label="面试题 Skill" value={formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap)}/>
+                                                        <InfoTile label="自动流程" value={`${positionDetail.position.auto_screen_on_upload ? "上传自动初筛已开启" : "上传自动初筛未开启"} · ${positionDetail.position.auto_advance_on_screening === false ? "通过后自动推进关闭" : "通过后自动推进开启"}`}/>
+                                                    </div>
+                                                </Field>
+
+                                                <Field label="岗位摘要">
+                                                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 text-sm leading-7 text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+                                                        {positionDetail.position.summary || "这个岗位还没有补充摘要，建议先由招聘同事或 AI 完善岗位背景和关键目标。"}
+                                                    </div>
+                                                </Field>
+                                            </CardContent>
+                                        </Card>
+                                    )}
                                 </div>
+
+                                {positionSecondaryPanelOpen ? (
+                                    <div className="min-h-0 space-y-4 overflow-y-auto xl:pr-1 xl:[scrollbar-gutter:stable] 2xl:space-y-6">
+                                        <Card className={panelClass}>
+                                            <CardHeader className="space-y-2">
+                                                <CardTitle className="text-lg">JD 历史版本</CardTitle>
+                                            </CardHeader>
+                                            <CardContent className="space-y-3">
+                                                {positionDetail.jd_versions.length ? positionDetail.jd_versions.map((version) => (
+                                                    <div key={version.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <div>
+                                                                <p className="font-medium text-slate-900 dark:text-slate-100">{version.title}</p>
+                                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                    V{version.version_no} · {formatDateTime(version.created_at)}
+                                                                </p>
+                                                            </div>
+                                                            <Badge className={cn("rounded-full border", version.is_active ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
+                                                                {version.is_active ? "当前生效" : "历史版本"}
+                                                            </Badge>
+                                                        </div>
+                                                        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{shortText(version.notes || version.prompt_snapshot || version.jd_markdown, 110)}</p>
+                                                        {!version.is_active ? (
+                                                            <Button size="sm" variant="outline" className="mt-3" onClick={() => void activateJDVersion(version.id)}>
+                                                                切换为当前版本
+                                                            </Button>
+                                                        ) : null}
+                                                    </div>
+                                                )) : (
+                                                    <EmptyState title="暂无 JD 版本" description="点击 AI 生成 JD 或保存新版本后，这里会形成完整版本轨迹。"/>
+                                                )}
+                                            </CardContent>
+                                        </Card>
+
+                                        <Card className={panelClass}>
+                                            <CardHeader className="space-y-2">
+                                                <CardTitle className="text-lg">关联候选人</CardTitle>
+                                            </CardHeader>
+                                            <CardContent className="space-y-3">
+                                                {positionDetail.candidates.length ? positionDetail.candidates.map((candidate) => (
+                                                    <button
+                                                        key={candidate.id}
+                                                        type="button"
+                                                        className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
+                                                        onClick={() => {
+                                                            setSelectedCandidateId(candidate.id);
+                                                            setActivePage("candidates");
+                                                        }}
+                                                    >
+                                                        <div>
+                                                            <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
+                                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                匹配度 {formatPercent(candidate.match_percent)} · {candidate.phone || "未填写手机号"}
+                                                            </p>
+                                                        </div>
+                                                        <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
+                                                            {labelForCandidateStatus(candidate.status)}
+                                                        </Badge>
+                                                    </button>
+                                                )) : (
+                                                    <EmptyState title="暂无候选人" description="上传简历并关联到这个岗位后，这里会出现最新候选人列表。"/>
+                                                )}
+                                            </CardContent>
+                                        </Card>
+
+                                        <Card className={panelClass}>
+                                            <CardHeader className="space-y-2">
+                                                <CardTitle className="text-lg">发布状态</CardTitle>
+                                            </CardHeader>
+                                            <CardContent className="space-y-3">
+                                                {positionDetail.publish_tasks.length ? positionDetail.publish_tasks.map((task) => (
+                                                    <div key={task.id} className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
+                                                        <div className="flex items-center justify-between gap-3">
+                                                            <div>
+                                                                <p className="font-medium text-slate-900 dark:text-slate-100">
+                                                                    {task.target_platform.toUpperCase()} · {task.mode.toUpperCase()}
+                                                                </p>
+                                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(task.created_at)}</p>
+                                                            </div>
+                                                            <Badge className={cn("rounded-full border", statusBadgeClass("task", task.status))}>
+                                                                {labelForTaskExecutionStatus(task.status)}
+                                                            </Badge>
+                                                        </div>
+                                                        {task.published_url ? (
+                                                            <a className="mt-3 inline-flex items-center gap-1 text-sm text-sky-600 hover:underline" href={task.published_url} target="_blank" rel="noreferrer">
+                                                                查看发布链接
+                                                                <ExternalLink className="h-4 w-4"/>
+                                                            </a>
+                                                        ) : null}
+                                                        {task.error_message ? <p className="mt-3 text-sm text-rose-600">{task.error_message}</p> : null}
+                                                    </div>
+                                                )) : (
+                                                    <EmptyState title="暂无发布任务" description="先完成 JD，再创建发布任务，后续可接入真实 BOSS / 智联适配器。"/>
+                                                )}
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
                     ) : (
-                        <EmptyState title="请选择一个岗位"
-                                    description="左侧选择岗位后，右侧会进入完整的岗位详情工作区。"/>
+                        <EmptyState title="请选择一个岗位" description="左侧选择岗位后，右侧会进入完整的岗位详情工作区。"/>
                     )}
                 </div>
             </div>
@@ -5278,7 +5366,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.10),_transparent_35%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)] text-slate-700 dark:bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.12),_transparent_28%),linear-gradient(180deg,#020617_0%,#0f172a_100%)] dark:text-slate-300">
             <div
                 className="border-b border-slate-200/80 bg-white/85 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
-                <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5 lg:px-5 2xl:px-6">
                     <div className="flex min-w-0 items-center gap-3">
                         <Button variant="outline" size="sm" onClick={onBack} className="rounded-xl px-3">
                             <ArrowLeft className="h-4 w-4"/>
@@ -5288,7 +5376,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <h1 className="shrink-0 text-xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
                                 {pageMeta[activePage].title}
                             </h1>
-                            <p className="hidden min-w-0 truncate text-sm text-slate-500 dark:text-slate-400 xl:block">
+                            <p className="hidden min-w-0 truncate text-sm text-slate-500 dark:text-slate-400 2xl:block">
                                 {pageMeta[activePage].description}
                             </p>
                             <span className="sr-only">{pageMeta[activePage].title}：{pageMeta[activePage].description}</span>
@@ -5302,7 +5390,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 <RefreshCw className="h-4 w-4"/>}
                             {coreRefreshing ? "刷新中..." : "刷新"}
                         </Button>
-                        <Button variant="outline" onClick={() => setResumeUploadOpen(true)} className="rounded-xl">
+                        <Button variant="outline" onClick={openResumeUploadDialog} className="rounded-xl">
                             <Upload className="h-4 w-4"/>
                             上传简历
                         </Button>
@@ -5350,16 +5438,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </div>
             </div>
 
-            <div
-                className={cn(
-                    "grid min-h-0 flex-1 transition-all duration-300",
-                    navCollapsed ? "lg:grid-cols-[72px_minmax(0,1fr)]" : "lg:grid-cols-[260px_minmax(0,1fr)]",
+                <div
+                    className={cn(
+                        "grid min-h-0 flex-1 transition-all duration-300",
+                    navCollapsed ? "lg:grid-cols-[56px_minmax(0,1fr)]" : "lg:grid-cols-[176px_minmax(0,1fr)] 2xl:grid-cols-[188px_minmax(0,1fr)]",
                 )}
             >
                 <aside
                     className={cn(
-                        "flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white/70 px-3 py-5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50",
-                        navCollapsed ? "lg:px-1.5" : "lg:px-4",
+                        "flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white/70 px-2 py-3.5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50",
+                        navCollapsed ? "lg:px-1" : "lg:px-2.5",
                     )}
                 >
                     <div
@@ -5371,25 +5459,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         {!navCollapsed ? (
                             <div>
                                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">工作分区</p>
-                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">支持手动收起，默认展开。</p>
                             </div>
                         ) : null}
 
                         <Button
                             type="button"
                             variant="outline"
-                            size={navCollapsed ? "icon" : "sm"}
+                            size="icon"
                             className="shrink-0 rounded-xl border-slate-200 bg-white/90 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950/90 dark:text-slate-200 dark:hover:bg-slate-900"
                             onClick={() => setNavCollapsed((current) => !current)}
                             title={navCollapsed ? "展开左侧菜单" : "收起左侧菜单"}
                         >
-                        {navCollapsed ? (
-                            <PanelLeftOpen className="h-4 w-4" />
-                        ) : (
-                            <>
+                            {navCollapsed ? (
+                                <PanelLeftOpen className="h-4 w-4" />
+                            ) : (
                                 <PanelLeftClose className="h-4 w-4" />
-                                    <span className="ml-1">收起菜单</span>
-                                </>
                             )}
                         </Button>
                     </div>
@@ -5398,7 +5482,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         ref={primaryNavScrollRef}
                         className="min-h-0 flex-1 overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0"
                     >
-                        <div className="space-y-2">
+                        <div className="space-y-1.5">
                             <SectionNavButton
                                 active={activePrimaryNavPage === "workspace"}
                                 icon={FolderKanban}
@@ -5438,7 +5522,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <SectionNavButton
                                 active={activePrimaryNavPage === "audit"}
                                 icon={History}
-                                title="AI 审计中心"
+                                title="审计中心"
                                 description="看 AI 处理记录、模型、错误与留痕"
                                 count={aiLogs.length}
                                 collapsed={navCollapsed}
@@ -5461,7 +5545,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         </div>
                     </div>
 
-                    <div className="shrink-0 pt-5">
+                    <div className="shrink-0 pt-4">
                         {navCollapsed ? (
                             <div className="space-y-2">
                                 <Tooltip>
@@ -5484,7 +5568,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     <TooltipTrigger asChild>
                                         <button
                                             type="button"
-                                            onClick={() => setResumeUploadOpen(true)}
+                                            onClick={openResumeUploadDialog}
                                             className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
                                             title="上传简历"
                                         >
@@ -5528,41 +5612,38 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             </div>
                         ) : (
                             <>
-                                <Separator className="mb-5" />
+                                <Separator className="mb-3" />
 
                                 <div
-                                    className="rounded-[24px] border border-slate-200/80 bg-white/85 px-3 py-2 shadow-sm dark:border-slate-800 dark:bg-slate-950/80 2xl:px-4 2xl:py-2.5"
+                                    className="rounded-[18px] border border-slate-200/80 bg-white/85 px-2 py-1.5 shadow-sm dark:border-slate-800 dark:bg-slate-950/80 2xl:px-2.5 2xl:py-2"
                                 >
-                                    <div className="space-y-1.5 2xl:space-y-2">
+                                    <div className="space-y-1.5">
                                         <div>
-                                            <p className="text-[13px] font-semibold text-slate-900 dark:text-slate-100 2xl:text-sm">今日待办</p>
-                                            <p className="mt-1 hidden text-xs leading-5 text-slate-500 dark:text-slate-400 2xl:block">
-                                                把高频待处理项收在导航下方，切页时也能快速感知当前压力。
-                                            </p>
+                                            <p className="text-[12px] font-semibold text-slate-900 dark:text-slate-100 2xl:text-[13px]">今日待办</p>
                                         </div>
 
-                                        <div className="grid grid-cols-2 gap-1.5 2xl:gap-2">
-                                            <div className="rounded-2xl bg-slate-100/80 px-2.5 py-1.5 dark:bg-slate-900/80 2xl:px-3 2xl:py-2">
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">待发布</p>
-                                                <p className="mt-0.5 text-[20px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:mt-1 2xl:text-[24px]">
+                                        <div className="grid grid-cols-2 gap-1.5">
+                                            <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">待发布</p>
+                                                <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
                                                     {todoSummary.pendingPublish}
                                                 </p>
                                             </div>
-                                            <div className="rounded-2xl bg-slate-100/80 px-2.5 py-1.5 dark:bg-slate-900/80 2xl:px-3 2xl:py-2">
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">待初筛</p>
-                                                <p className="mt-0.5 text-[20px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:mt-1 2xl:text-[24px]">
+                                            <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">待初筛</p>
+                                                <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
                                                     {todoSummary.pendingScreening}
                                                 </p>
                                             </div>
-                                            <div className="rounded-2xl bg-slate-100/80 px-2.5 py-1.5 dark:bg-slate-900/80 2xl:px-3 2xl:py-2">
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">待面试</p>
-                                                <p className="mt-0.5 text-[20px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:mt-1 2xl:text-[24px]">
+                                            <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">待面试</p>
+                                                <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
                                                     {todoSummary.pendingInterview}
                                                 </p>
                                             </div>
-                                            <div className="rounded-2xl bg-slate-100/80 px-2.5 py-1.5 dark:bg-slate-900/80 2xl:px-3 2xl:py-2">
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">待决策</p>
-                                                <p className="mt-0.5 text-[20px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:mt-1 2xl:text-[24px]">
+                                            <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">待决策</p>
+                                                <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
                                                     {todoSummary.pendingDecision}
                                                 </p>
                                             </div>
@@ -5576,12 +5657,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     {activePage === "candidates" || activePage === "audit" || activePage === "positions" || activePage === "assistant" ? (
-                        <div className="h-full min-h-0 p-6">
+                        <div className="h-full min-h-0 p-4 lg:p-5 2xl:p-6">
                             {renderPage()}
                         </div>
                     ) : (
                         <ScrollArea className="h-full">
-                            <div className="p-6">{renderPage()}</div>
+                            <div className="p-4 lg:p-5 2xl:p-6">{renderPage()}</div>
                         </ScrollArea>
                     )}
                 </div>
@@ -5617,7 +5698,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={positionDialogOpen} onOpenChange={setPositionDialogOpen}>
+            <Dialog open={positionDialogOpen} onOpenChange={(open) => {
+                setPositionDialogOpen(open);
+                if (!open) {
+                    setPositionFormErrors({});
+                }
+            }}>
                 <DialogContent className="flex h-[min(88vh,900px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-4xl">
                     <DialogHeader>
                         <DialogTitle>{positionDialogMode === "create" ? "新建岗位" : "编辑岗位"}</DialogTitle>
@@ -5626,62 +5712,51 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     <ScrollArea className="min-h-0 flex-1">
                         <div className="space-y-4 px-1 py-1">
                             <div className="grid gap-4 md:grid-cols-2">
-                                <Field label="岗位名称"><Input value={positionForm.title}
-                                                               onChange={(event) => setPositionForm((current) => ({
-                                                                   ...current,
-                                                                   title: event.target.value
-                                                               }))}/></Field>
+                                <Field label="岗位名称" error={positionFormErrors.title}>
+                                    <Input
+                                        value={positionForm.title}
+                                        maxLength={200}
+                                        onChange={(event) => updatePositionFormField("title", event.target.value.slice(0, 200))}
+                                    />
+                                </Field>
                                 <Field label="部门"><Input value={positionForm.department}
-                                                           onChange={(event) => setPositionForm((current) => ({
-                                                               ...current,
-                                                               department: event.target.value
-                                                           }))}/></Field>
+                                                           maxLength={120}
+                                                           onChange={(event) => updatePositionFormField("department", event.target.value.slice(0, 120))}/></Field>
                                 <Field label="地点"><Input value={positionForm.location}
-                                                           onChange={(event) => setPositionForm((current) => ({
-                                                               ...current,
-                                                               location: event.target.value
-                                                           }))}/></Field>
+                                                           maxLength={120}
+                                                           onChange={(event) => updatePositionFormField("location", event.target.value.slice(0, 120))}/></Field>
                                 <Field label="用工类型"><Input value={positionForm.employmentType}
-                                                               onChange={(event) => setPositionForm((current) => ({
-                                                                   ...current,
-                                                                   employmentType: event.target.value
-                                                               }))}/></Field>
+                                                               maxLength={120}
+                                                               onChange={(event) => updatePositionFormField("employmentType", event.target.value.slice(0, 120))}/></Field>
                                 <Field label="薪资范围"><Input value={positionForm.salaryRange}
-                                                               onChange={(event) => setPositionForm((current) => ({
-                                                                   ...current,
-                                                                   salaryRange: event.target.value
-                                                               }))}/></Field>
-                                <Field label="招聘人数"><Input type="number" value={positionForm.headcount}
-                                                               onChange={(event) => setPositionForm((current) => ({
-                                                                   ...current,
-                                                                   headcount: event.target.value
-                                                               }))}/></Field>
+                                                               maxLength={120}
+                                                               onChange={(event) => updatePositionFormField("salaryRange", event.target.value.slice(0, 120))}/></Field>
+                                <Field label="招聘人数" error={positionFormErrors.headcount}>
+                                    <Input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={positionForm.headcount}
+                                        onChange={(event) => updatePositionFormField("headcount", event.target.value.replace(/[^\d]/g, "").slice(0, 3))}
+                                        placeholder="1 - 999"
+                                    />
+                                </Field>
                                 <Field label="岗位状态">
                                     <NativeSelect value={positionForm.status}
-                                                  onChange={(event) => setPositionForm((current) => ({
-                                                      ...current,
-                                                      status: event.target.value
-                                                  }))}>
+                                                  onChange={(event) => updatePositionFormField("status", event.target.value)}>
                                         {Object.entries(positionStatusLabels).map(([value, label]) => (
                                             <option key={value} value={value}>{label}</option>
                                         ))}
                                     </NativeSelect>
                                 </Field>
                                 <Field label="标签"><Input value={positionForm.tagsText}
-                                                           onChange={(event) => setPositionForm((current) => ({
-                                                               ...current,
-                                                               tagsText: event.target.value
-                                                           }))} placeholder="标签，使用英文逗号分隔"/></Field>
+                                                           maxLength={240}
+                                                           onChange={(event) => updatePositionFormField("tagsText", event.target.value.slice(0, 240))} placeholder="标签，使用英文逗号分隔"/></Field>
                                 <Field label="关键要求"><Textarea value={positionForm.keyRequirements}
-                                                                  onChange={(event) => setPositionForm((current) => ({
-                                                                      ...current,
-                                                                      keyRequirements: event.target.value
-                                                                  }))} rows={4}/></Field>
+                                                                  maxLength={2000}
+                                                                  onChange={(event) => updatePositionFormField("keyRequirements", event.target.value.slice(0, 2000))} rows={4}/></Field>
                                 <Field label="加分项"><Textarea value={positionForm.bonusPoints}
-                                                                onChange={(event) => setPositionForm((current) => ({
-                                                                    ...current,
-                                                                    bonusPoints: event.target.value
-                                                                }))} rows={4}/></Field>
+                                                                maxLength={2000}
+                                                                onChange={(event) => updatePositionFormField("bonusPoints", event.target.value.slice(0, 2000))} rows={4}/></Field>
                                 <Field label="初筛配置" className="md:col-span-2">
                                     <div
                                         className="space-y-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
@@ -5690,10 +5765,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             <input
                                                 type="checkbox"
                                                 checked={positionForm.autoScreenOnUpload}
-                                                onChange={(event) => setPositionForm((current) => ({
-                                                    ...current,
-                                                    autoScreenOnUpload: event.target.checked
-                                                }))}
+                                                onChange={(event) => updatePositionFormField("autoScreenOnUpload", event.target.checked)}
                                             />
                                             上传简历后自动进入初筛
                                         </label>
@@ -5702,10 +5774,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             <input
                                                 type="checkbox"
                                                 checked={positionForm.autoAdvanceOnScreening}
-                                                onChange={(event) => setPositionForm((current) => ({
-                                                    ...current,
-                                                    autoAdvanceOnScreening: event.target.checked
-                                                }))}
+                                                onChange={(event) => updatePositionFormField("autoAdvanceOnScreening", event.target.checked)}
                                             />
                                             初筛通过后自动推进候选人状态
                                         </label>
@@ -5788,10 +5857,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             </div>
                             <Field label="岗位摘要">
                                 <Textarea value={positionForm.summary}
-                                          onChange={(event) => setPositionForm((current) => ({
-                                              ...current,
-                                              summary: event.target.value
-                                          }))} rows={5}/>
+                                          maxLength={4000}
+                                          onChange={(event) => updatePositionFormField("summary", event.target.value.slice(0, 4000))} rows={5}/>
                             </Field>
                         </div>
                     </ScrollArea>

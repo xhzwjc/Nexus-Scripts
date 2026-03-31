@@ -34,6 +34,7 @@ import {
     labelForCandidateStatus,
     labelForTaskExecutionStatus,
     labelForTaskType,
+    resolveCandidateDisplayStatus,
     statusBadgeClass,
 } from "../utils";
 
@@ -219,8 +220,8 @@ export function WorkspacePage({
                                     </div>
                                     <div className="shrink-0 text-left sm:text-right">
                                         <Badge
-                                            className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
-                                            {labelForCandidateStatus(candidate.status)}
+                                            className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(candidate)))}>
+                                            {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))}
                                         </Badge>
                                         <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.created_at)}</p>
                                     </div>
