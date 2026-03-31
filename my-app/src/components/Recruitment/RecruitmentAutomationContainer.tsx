@@ -14,8 +14,6 @@ import {
     FilePlus2,
     FolderKanban,
     History,
-    PanelLeftClose,
-    PanelLeftOpen,
     Loader2,
     NotebookText,
     Plus,
@@ -5444,45 +5442,24 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     navCollapsed ? "lg:grid-cols-[56px_minmax(0,1fr)]" : "lg:grid-cols-[176px_minmax(0,1fr)] 2xl:grid-cols-[188px_minmax(0,1fr)]",
                 )}
             >
-                <aside
-                    className={cn(
-                        "flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white/70 px-2 py-3.5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50",
-                        navCollapsed ? "lg:px-1" : "lg:px-2.5",
-                    )}
-                >
-                    <div
+                <div className="relative min-h-0">
+                    <aside
                         className={cn(
-                            "mb-4 flex items-center gap-2",
-                            navCollapsed ? "justify-center" : "justify-between",
+                            "flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white/70 px-2 py-3.5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50",
+                            navCollapsed ? "lg:px-1" : "lg:px-2.5",
                         )}
                     >
                         {!navCollapsed ? (
-                            <div>
+                            <div className="mb-3 flex items-center justify-center">
                                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">工作分区</p>
                             </div>
                         ) : null}
 
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            className="shrink-0 rounded-xl border-slate-200 bg-white/90 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950/90 dark:text-slate-200 dark:hover:bg-slate-900"
-                            onClick={() => setNavCollapsed((current) => !current)}
-                            title={navCollapsed ? "展开左侧菜单" : "收起左侧菜单"}
+                        <div
+                            ref={primaryNavScrollRef}
+                            className="min-h-0 flex-1 overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0"
                         >
-                            {navCollapsed ? (
-                                <PanelLeftOpen className="h-4 w-4" />
-                            ) : (
-                                <PanelLeftClose className="h-4 w-4" />
-                            )}
-                        </Button>
-                    </div>
-
-                    <div
-                        ref={primaryNavScrollRef}
-                        className="min-h-0 flex-1 overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0"
-                    >
-                        <div className="space-y-1.5">
+                            <div className="space-y-1.5">
                             <SectionNavButton
                                 active={activePrimaryNavPage === "workspace"}
                                 icon={FolderKanban}
@@ -5542,12 +5519,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 }}
                                 onClick={() => navigatePrimaryPage("assistant")}
                             />
+                            </div>
                         </div>
-                    </div>
 
-                    <div className="shrink-0 pt-4">
-                        {navCollapsed ? (
-                            <div className="space-y-2">
+                        <div className="shrink-0 pt-4">
+                            {navCollapsed ? (
+                                <div className="space-y-2">
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <button
@@ -5609,51 +5586,62 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         待安排面试 {todoSummary.pendingInterview}
                                     </TooltipContent>
                                 </Tooltip>
-                            </div>
-                        ) : (
-                            <>
-                                <Separator className="mb-3" />
+                                </div>
+                            ) : (
+                                <>
+                                    <Separator className="mb-3" />
 
-                                <div
-                                    className="rounded-[18px] border border-slate-200/80 bg-white/85 px-2 py-1.5 shadow-sm dark:border-slate-800 dark:bg-slate-950/80 2xl:px-2.5 2xl:py-2"
-                                >
-                                    <div className="space-y-1.5">
-                                        <div>
-                                            <p className="text-[12px] font-semibold text-slate-900 dark:text-slate-100 2xl:text-[13px]">今日待办</p>
-                                        </div>
+                                    <div
+                                        className="rounded-[18px] border border-slate-200/80 bg-white/85 px-2 py-1.5 shadow-sm dark:border-slate-800 dark:bg-slate-950/80 2xl:px-2.5 2xl:py-2"
+                                    >
+                                        <div className="space-y-1.5">
+                                            <div>
+                                                <p className="text-[12px] font-semibold text-slate-900 dark:text-slate-100 2xl:text-[13px]">今日待办</p>
+                                            </div>
 
-                                        <div className="grid grid-cols-2 gap-1.5">
-                                            <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">待发布</p>
-                                                <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
-                                                    {todoSummary.pendingPublish}
-                                                </p>
-                                            </div>
-                                            <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">待初筛</p>
-                                                <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
-                                                    {todoSummary.pendingScreening}
-                                                </p>
-                                            </div>
-                                            <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">待面试</p>
-                                                <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
-                                                    {todoSummary.pendingInterview}
-                                                </p>
-                                            </div>
-                                            <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                <p className="text-[11px] text-slate-500 dark:text-slate-400">待决策</p>
-                                                <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
-                                                    {todoSummary.pendingDecision}
-                                                </p>
+                                            <div className="grid grid-cols-2 gap-1.5">
+                                                <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待发布</p>
+                                                    <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
+                                                        {todoSummary.pendingPublish}
+                                                    </p>
+                                                </div>
+                                                <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待初筛</p>
+                                                    <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
+                                                        {todoSummary.pendingScreening}
+                                                    </p>
+                                                </div>
+                                                <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待面试</p>
+                                                    <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
+                                                        {todoSummary.pendingInterview}
+                                                    </p>
+                                                </div>
+                                                <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待决策</p>
+                                                    <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
+                                                        {todoSummary.pendingDecision}
+                                                    </p>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </aside>
+                                </>
+                            )}
+                        </div>
+                    </aside>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setNavCollapsed((current) => !current)}
+                        className="absolute right-0 top-1/2 z-20 h-10 w-5 -translate-y-1/2 translate-x-1/2 rounded-full border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
+                        title={navCollapsed ? "展开左侧菜单" : "收起左侧菜单"}
+                    >
+                        {navCollapsed ? <ChevronRight className="h-3.5 w-3.5"/> : <ChevronLeft className="h-3.5 w-3.5"/>}
+                    </Button>
+                </div>
 
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     {activePage === "candidates" || activePage === "audit" || activePage === "positions" || activePage === "assistant" ? (
