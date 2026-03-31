@@ -345,6 +345,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [activeChatMessageId, setActiveChatMessageId] = useState<string | null>(null);
     const [currentAssistantRunId, setCurrentAssistantRunId] = useState<string | null>(null);
     const [assistantStreamStopping, setAssistantStreamStopping] = useState(false);
+    const [assistantContextExpanded, setAssistantContextExpanded] = useState(false);
+    const [assistantQuickActionsExpanded, setAssistantQuickActionsExpanded] = useState(false);
     const [autoFollowStream, setAutoFollowStream] = useState(true);
     const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
     const [assistantMailActionState, setAssistantMailActionState] = useState<Record<string, {
@@ -1978,6 +1980,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     function openAssistantMode(mode: AssistantDisplayMode) {
+        setAssistantContextExpanded(false);
+        setAssistantQuickActionsExpanded(false);
         if (mode === "page") {
             setAssistantOpen(false);
             setAssistantDisplayMode("page");
@@ -3947,17 +3951,54 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             "给当前候选人生成初试题，重点考察硬件联调",
             "说明这次对话用了哪些 Skills 和模型",
         ];
+        const quickActionPrompts = isWorkspace ? workspaceSuggestionPrompts : suggestionPrompts;
+        const collapsedQuickActionPrompts = quickActionPrompts.slice(0, Math.min(3, quickActionPrompts.length));
+        const visibleQuickActionPrompts = assistantQuickActionsExpanded ? quickActionPrompts : collapsedQuickActionPrompts;
+        const hasMoreQuickActions = quickActionPrompts.length > collapsedQuickActionPrompts.length;
+        const summaryChips = [
+            {key: "position", label: shortText(chatContext.position_title || "未指定岗位", 18), dotClassName: "bg-sky-500"},
+            {key: "candidate", label: shortText(chatContextCandidateLabel, 18), dotClassName: "bg-amber-500"},
+            {key: "skills", label: `${chatContext.skills?.length || 0} Skills`, dotClassName: "bg-emerald-500"},
+            {key: "model", label: shortText(assistantActiveLLMConfig?.resolved_model_name || assistantActiveLLMConfig?.model_name || "未识别模型", 18), dotClassName: "bg-violet-500"},
+        ];
         const assistantContextPanel = (
-            <div className="space-y-5">
-                {isWorkspace ? (
-                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
-                        当前岗位：{chatContext.position_title || "未指定"}
-                        <br/>
-                        当前候选人：{chatContextCandidateLabel}
-                        <br/>
-                        激活 Skills：{chatContext.skills?.length || 0} · 当前模型：{assistantModelLabel}
+                <div className="flex h-full min-h-0 flex-col space-y-5">
+                    <div className="flex items-start justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">上下文</p>
+                            <p className="mt-1 hidden text-xs leading-5 text-slate-500 dark:text-slate-400 2xl:block">
+                                按需展开岗位、Skills 和模型配置，不再长期挤压主聊天区。
+                            </p>
+                        </div>
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 rounded-full"
+                        onMouseDown={preventAssistantActionFocusLoss}
+                        onClick={() => {
+                            setAssistantContextExpanded(false);
+                            queueAssistantInputFocus();
+                        }}
+                    >
+                        <ChevronUp className="h-4 w-4"/>
+                    </Button>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
+                        <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">当前岗位</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{chatContext.position_title || "未指定岗位"}</p>
                     </div>
-                ) : null}
+                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
+                        <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">激活 Skills</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{chatContext.skills?.length || 0} 项</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
+                        <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">当前模型</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{assistantActiveLLMConfig?.resolved_model_name || assistantActiveLLMConfig?.model_name || "暂未识别"}</p>
+                    </div>
+                </div>
+
                 <Field label="岗位上下文">
                     <NativeSelect
                         value={chatContext.position_id ? String(chatContext.position_id) : "none"}
@@ -4020,55 +4061,85 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         先为同一任务类型添加多个已启用模型，这里就能像 GPT / Claude 一样直接切换当前使用项。
                     </p>
                 </Field>
-
-                <Field label="推荐问题">
-                    <div className="space-y-2">
-                        {workspaceSuggestionPrompts.map((prompt) => (
-                            <button
-                                key={prompt}
-                                type="button"
-                                onMouseDown={preventAssistantActionFocusLoss}
-                                onClick={() => applyAssistantPrompt(prompt, {openMode: "drawer"})}
-                                className="w-full rounded-2xl border border-dashed border-slate-200 px-3 py-3 text-left text-xs text-slate-600 transition hover:border-slate-400 dark:border-slate-800 dark:text-slate-300"
-                            >
-                                {prompt}
-                            </button>
-                        ))}
-                    </div>
-                </Field>
-                {isWorkspace ? (
-                    <div className="flex flex-wrap gap-2">
-                        <Button size="sm" onClick={() => openAssistantMode("drawer")}>
-                            <Bot className="h-4 w-4"/>
-                            打开完整助手
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => openAssistantMode("page")}>
-                            页内展开
-                        </Button>
-                    </div>
-                ) : null}
             </div>
         );
 
         if (isWorkspace) {
             return (
                 <div className="flex h-full min-h-0 flex-col">
-                    <div className="flex items-start justify-between gap-3 border-b border-slate-200/80 px-4 py-3 dark:border-slate-800">
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <Bot className="h-4 w-4 text-sky-600"/>
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI 招聘助手</p>
+                    <div className="border-b border-slate-200/80 px-4 py-3 dark:border-slate-800">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <Bot className="h-4 w-4 text-sky-600"/>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI 招聘助手</p>
+                                </div>
+                                <p className="mt-1 hidden text-xs text-slate-500 dark:text-slate-400 2xl:block">
+                                    在工作台里快速切上下文、带着推荐问题打开完整助手。
+                                </p>
                             </div>
-                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                在工作台里快速切上下文、挑 Skills、直接带着推荐问题打开完整助手。
-                            </p>
+                            <Button size="sm" variant="outline" onClick={() => openAssistantMode("drawer")}>
+                                打开
+                            </Button>
                         </div>
-                        <Button size="sm" variant="outline" onClick={() => openAssistantMode("drawer")}>
-                            打开
-                        </Button>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            {summaryChips.map((chip) => (
+                                <button
+                                    key={chip.key}
+                                    type="button"
+                                    onMouseDown={preventAssistantActionFocusLoss}
+                                    onClick={() => openAssistantMode("drawer")}
+                                    className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+                                >
+                                    <span className={cn("h-2 w-2 rounded-full", chip.dotClassName)}/>
+                                    <span>{chip.label}</span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 [scrollbar-gutter:stable]">
-                        {assistantContextPanel}
+                        <div className="space-y-4">
+                            <div className="flex flex-wrap gap-2">
+                                {visibleQuickActionPrompts.map((prompt) => (
+                                    <button
+                                        key={prompt}
+                                        type="button"
+                                        onMouseDown={preventAssistantActionFocusLoss}
+                                        onClick={() => applyAssistantPrompt(prompt, {openMode: "drawer"})}
+                                        className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:text-slate-100"
+                                    >
+                                        {prompt}
+                                    </button>
+                                ))}
+                                {hasMoreQuickActions ? (
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onMouseDown={preventAssistantActionFocusLoss}
+                                        onClick={() => setAssistantQuickActionsExpanded((current) => !current)}
+                                    >
+                                        {assistantQuickActionsExpanded ? "收起" : "更多"}
+                                        {assistantQuickActionsExpanded ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>}
+                                    </Button>
+                                ) : null}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <Button size="sm" onClick={() => openAssistantMode("drawer")}>
+                                    <Bot className="h-4 w-4"/>
+                                    打开完整助手
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                        setAssistantContextExpanded(true);
+                                        openAssistantMode("drawer");
+                                    }}
+                                >
+                                    上下文
+                                </Button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             );
@@ -4076,318 +4147,298 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
         return (
             <div className="flex h-full min-h-0 flex-col">
-                <div
-                    className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 px-5 py-4 dark:border-slate-800">
-                    <div>
-                        <div className="flex items-center gap-2">
+                <div className="border-b border-slate-200/80 px-4 py-2.5 dark:border-slate-800 sm:px-5">
+                    <div className="flex items-center gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        <div className="flex shrink-0 items-center gap-2">
                             <Bot className="h-4 w-4 text-sky-600"/>
                             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI 招聘助手</p>
                         </div>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                            当前岗位：{chatContext.position_title || "未指定"} · 当前候选人：{chatContextCandidateLabel} ·
-                            激活 Skills：{chatContext.skills?.length || 0} · 当前模型：{assistantModelLabel}
-                        </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                        <Button variant={isPage ? "default" : "outline"} size="sm"
-                                onClick={() => openAssistantMode("page")}>
-                            侧栏模式
-                        </Button>
-                        <Button variant={mode === "drawer" ? "default" : "outline"} size="sm"
-                                onClick={() => openAssistantMode("drawer")}>
-                            宽抽屉模式
-                        </Button>
-                        <Button variant={isFullscreen ? "default" : "outline"} size="sm"
-                                onClick={() => openAssistantMode("fullscreen")}>
-                            全屏模式
+                        <div className="flex shrink-0 items-center gap-1">
+                            <Button variant={isPage ? "default" : "ghost"} size="sm" className="h-7 rounded-full px-2.5 text-xs"
+                                    onClick={() => openAssistantMode("page")}>
+                                页内
+                            </Button>
+                            <Button variant={mode === "drawer" ? "default" : "ghost"} size="sm" className="h-7 rounded-full px-2.5 text-xs"
+                                    onClick={() => openAssistantMode("drawer")}>
+                                浮层
+                            </Button>
+                            <Button variant={isFullscreen ? "default" : "ghost"} size="sm" className="h-7 rounded-full px-2.5 text-xs"
+                                    onClick={() => openAssistantMode("fullscreen")}>
+                                全屏
+                            </Button>
+                        </div>
+                        <div className="flex min-w-max items-center gap-2">
+                            {summaryChips.map((chip) => (
+                                <button
+                                    key={chip.key}
+                                    type="button"
+                                    onMouseDown={preventAssistantActionFocusLoss}
+                                    onClick={() => setAssistantContextExpanded(true)}
+                                    className="inline-flex shrink-0 items-center gap-2 rounded-full border border-slate-200/80 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 transition hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+                                >
+                                    <span className={cn("h-2 w-2 rounded-full", chip.dotClassName)}/>
+                                    <span>{chip.label}</span>
+                                </button>
+                            ))}
+                        </div>
+                        <Button
+                            size="sm"
+                            variant={assistantContextExpanded ? "default" : "outline"}
+                            className="h-7 shrink-0 rounded-full px-2.5 text-xs"
+                            onMouseDown={preventAssistantActionFocusLoss}
+                            onClick={() => setAssistantContextExpanded((current) => !current)}
+                        >
+                            上下文
+                            {assistantContextExpanded ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>}
                         </Button>
                     </div>
                 </div>
 
-                <div
-                    className={cn(
-                        "grid min-h-0 flex-1",
-                        isWorkspace
-                            ? "grid-cols-1"
-                            : isFullscreen
-                                ? "grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_360px]"
-                                : isPage
-                                    ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px]"
-                                    : "grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_320px]",
-                    )}
-                >
-                    <div className="flex min-h-0 flex-col">
-                        <div
-                            className="shrink-0 overflow-x-auto border-b border-slate-200/80 px-5 py-3 dark:border-slate-800">
-                            <div className="flex min-w-max gap-2">
-                            {suggestionPrompts.map((prompt) => (
-                                <button
-                                    key={prompt}
-                                    type="button"
-                                    onMouseDown={preventAssistantActionFocusLoss}
-                                onClick={() => applyAssistantPrompt(prompt, {openMode: "drawer"})}
-                                    className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:text-slate-100"
+                <div className="relative min-h-0 flex-1">
+                    <div
+                        className={cn(
+                            "grid h-full min-h-0",
+                            assistantContextExpanded
+                                ? (isFullscreen
+                                    ? "grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_360px]"
+                                    : "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px]")
+                                : "grid-cols-1",
+                        )}
+                    >
+                        <div className="flex min-h-0 flex-col">
+                            <div className="relative min-h-0 flex-1">
+                                <div
+                                    ref={assistantScrollAreaRef}
+                                    onScroll={handleAssistantScroll}
+                                    className="min-h-0 h-full flex-1 overflow-y-auto [scrollbar-gutter:stable]"
                                 >
-                                    {prompt}
-                                </button>
-                            ))}
-                            </div>
-                        </div>
-
-                        <div className="relative min-h-0 flex-1">
-                        <div
-                            ref={assistantScrollAreaRef}
-                            onScroll={handleAssistantScroll}
-                            className="min-h-0 h-full flex-1 overflow-y-auto [scrollbar-gutter:stable]"
-                        >
-                            <div className="space-y-4 px-5 py-5">
-                                {chatMessages.map((message) => (
-                                    <div
-                                        key={message.id}
-                                        className={cn(
-                                            "max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-7 shadow-sm",
-                                            message.role === "assistant"
-                                                ? "border border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-                                                : "ml-auto bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900",
-                                        )}
-                                    >
-                                        <p className="whitespace-pre-wrap">{message.content}</p>
-                                        {message.actions?.length ? (
-                                            <div className="mt-3 flex flex-wrap gap-2">
-                                                {message.actions.map((action) => (
-                                                    <Badge key={action} variant="outline" className="rounded-full">
-                                                        {action}
-                                                    </Badge>
-                                                ))}
-                                            </div>
-                                        ) : null}
-                                        {message.clarificationRequest?.options?.length ? (
-                                            <div className="mt-3 flex flex-wrap gap-2">
-                                                {message.clarificationRequest.options.map((option) => (
-                                                    <Button
-                                                        key={`${message.id}-${option.id}`}
-                                                        size="sm"
-                                                        variant="outline"
-                                                        onMouseDown={preventAssistantActionFocusLoss}
-                                                        onClick={() => void submitAssistantClarification(
-                                                            message.clarificationRequest?.original_message || message.content,
-                                                            message.clarificationRequest!,
-                                                            option,
-                                                        )}
-                                                    >
-                                                        {option.label}
-                                                    </Button>
-                                                ))}
-                                            </div>
-                                        ) : null}
-                                        {message.mailConfirmationRequest ? (
-                                            <div className="mt-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950/70 dark:text-slate-300">
-                                                <div className="space-y-3">
-                                                    <div>
-                                                        <p className="font-medium text-slate-900 dark:text-slate-100">邮件发送预览</p>
-                                                        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                                                            先确认发送，再真正触发邮件发送。
-                                                        </p>
+                                    <div className="space-y-4 px-4 py-4 sm:px-5 sm:py-5">
+                                        {chatMessages.map((message) => (
+                                            <div
+                                                key={message.id}
+                                                className={cn(
+                                                    "max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-7 shadow-sm",
+                                                    message.role === "assistant"
+                                                        ? "border border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                                                        : "ml-auto bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900",
+                                                )}
+                                            >
+                                                <p className="whitespace-pre-wrap">{message.content}</p>
+                                                {message.actions?.length ? (
+                                                    <div className="mt-3 flex flex-wrap gap-2">
+                                                        {message.actions.map((action) => (
+                                                            <Badge key={action} variant="outline" className="rounded-full">
+                                                                {action}
+                                                            </Badge>
+                                                        ))}
                                                     </div>
-                                                    <div className="space-y-1">
-                                                        <p><span className="font-medium text-slate-900 dark:text-slate-100">候选人：</span>{message.mailConfirmationRequest.candidates.map((item) => item.name).join("、")}</p>
-                                                        <p><span className="font-medium text-slate-900 dark:text-slate-100">发件箱：</span>{message.mailConfirmationRequest.sender ? `${message.mailConfirmationRequest.sender.name} <${message.mailConfirmationRequest.sender.from_email}>` : "未配置"}</p>
-                                                        <p><span className="font-medium text-slate-900 dark:text-slate-100">收件人：</span>{message.mailConfirmationRequest.recipients.map((item) => item.name ? `${item.name} <${item.email}>` : item.email).join("、")}</p>
-                                                        <p><span className="font-medium text-slate-900 dark:text-slate-100">附件：</span>{message.mailConfirmationRequest.attachment_count} 份简历</p>
-                                                    </div>
-                                                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                                                        <p className="font-medium text-slate-900 dark:text-slate-100">邮件主题</p>
-                                                        <p className="mt-1 whitespace-pre-wrap break-words">{message.mailConfirmationRequest.subject}</p>
-                                                    </div>
-                                                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                                                        <p className="font-medium text-slate-900 dark:text-slate-100">邮件正文</p>
-                                                        <p className="mt-1 whitespace-pre-wrap break-words">{message.mailConfirmationRequest.body_text}</p>
-                                                    </div>
-                                                    {message.mailConfirmationRequest.blocking_reason ? (
-                                                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-                                                            {message.mailConfirmationRequest.blocking_reason}
-                                                        </div>
-                                                    ) : null}
-                                                    {assistantMailActionState[message.id]?.status === "error" && assistantMailActionState[message.id]?.error ? (
-                                                        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
-                                                            {assistantMailActionState[message.id]?.error}
-                                                        </div>
-                                                    ) : null}
-                                                    {assistantMailActionState[message.id]?.editing ? (
-                                                        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                            已进入编辑。你可以在弹窗里修改收件人、标题和正文后再发送。
-                                                        </div>
-                                                    ) : null}
-                                                    {assistantMailActionState[message.id]?.status === "sent" ? (
-                                                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
-                                                            已发送成功{assistantMailActionState[message.id]?.dispatchId ? `，发送记录 #${assistantMailActionState[message.id]?.dispatchId}` : ""}。
-                                                        </div>
-                                                    ) : null}
-                                                    <div className="flex flex-wrap gap-2">
-                                                        <Button
-                                                            size="sm"
-                                                            onMouseDown={preventAssistantActionFocusLoss}
-                                                            onClick={() => void confirmAssistantPreparedResumeMail(message.id, message.mailConfirmationRequest!)}
-                                                            disabled={!message.mailConfirmationRequest.can_confirm || assistantMailActionState[message.id]?.status === "sending" || assistantMailActionState[message.id]?.status === "sent"}
-                                                        >
-                                                            {assistantMailActionState[message.id]?.status === "sending" ? <Loader2 className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4"/>}
-                                                            {assistantMailActionState[message.id]?.status === "sent" ? "已发送" : assistantMailActionState[message.id]?.status === "sending" ? "发送中..." : "确认发送"}
-                                                        </Button>
-                                                        {assistantMailActionState[message.id]?.status === "sent" ? (
+                                                ) : null}
+                                                {message.clarificationRequest?.options?.length ? (
+                                                    <div className="mt-3 flex flex-wrap gap-2">
+                                                        {message.clarificationRequest.options.map((option) => (
                                                             <Button
+                                                                key={`${message.id}-${option.id}`}
                                                                 size="sm"
                                                                 variant="outline"
                                                                 onMouseDown={preventAssistantActionFocusLoss}
-                                                                onClick={() => openAssistantPreparedResumeMailDialog(message.id, message.mailConfirmationRequest!, "resend")}
+                                                                onClick={() => void submitAssistantClarification(
+                                                                    message.clarificationRequest?.original_message || message.content,
+                                                                    message.clarificationRequest!,
+                                                                    option,
+                                                                )}
                                                             >
-                                                                <Send className="h-4 w-4"/>
-                                                                再次发送
+                                                                {option.label}
                                                             </Button>
-                                                        ) : (
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onMouseDown={preventAssistantActionFocusLoss}
-                                                                onClick={() => openAssistantPreparedResumeMailDialog(message.id, message.mailConfirmationRequest!)}
-                                                                disabled={assistantMailActionState[message.id]?.status === "sending"}
-                                                            >
-                                                                <ExternalLink className="h-4 w-4"/>
-                                                                编辑后发送
-                                                            </Button>
-                                                        )}
+                                                        ))}
                                                     </div>
-                                                </div>
-                                            </div>
-                                        ) : null}
-                                        {message.role === "assistant" && (message.usedSkills?.length || message.logId || message.usedFallback || message.toolResults?.length || message.frontendDebug) ? (
-                                            <details
-                                                className="mt-3 rounded-2xl border border-slate-200/80 bg-white/70 px-3 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300">
-                                                <summary
-                                                    className="cursor-pointer select-none font-medium text-slate-700 dark:text-slate-200">查看本次上下文
-                                                </summary>
-                                                <div className="mt-3 space-y-3">
-                                                    {message.frontendDebug ? (
-                                                        <div className="space-y-2">
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">前端发送前</p>
-                                                            <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-2xl border border-slate-200/80 bg-slate-50 px-3 py-3 leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">{JSON.stringify(message.frontendDebug, null, 2)}</pre>
-                                                        </div>
-                                                    ) : null}
-                                                    <p className="leading-6">
-                                                        模型：{labelForProvider(message.modelProvider)} / {message.modelName || "-"}
-                                                        <br/>
-                                                        规则来源：{labelForMemorySource(message.memorySource)}
-                                                    </p>
-                                                    {message.usedFallback ? (
-                                                        <div
-                                                            className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-                                                            <p className="font-medium">本次结果来自 fallback
-                                                                兜底</p>
-                                                            {message.fallbackError ?
-                                                                <p className="mt-1 whitespace-pre-wrap break-words leading-6">{message.fallbackError}</p> : null}
-                                                        </div>
-                                                    ) : null}
-                                                    {message.usedSkills?.length ? (
-                                                        <div className="space-y-2">
-                                                            {message.usedSkills.map((skill) => (
-                                                                <div key={skill.id}
-                                                                     className="rounded-2xl border border-slate-200/80 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                                                                    <p className="font-medium text-slate-900 dark:text-slate-100">{skill.name}</p>
-                                                                    {skill.description ?
-                                                                        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{skill.description}</p> : null}
-                                                                    <pre
-                                                                        className="mt-2 whitespace-pre-wrap break-words leading-6 text-slate-600 dark:text-slate-300">{skill.content || "暂无内容"}</pre>
+                                                ) : null}
+                                                {message.mailConfirmationRequest ? (
+                                                    <div className="mt-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950/70 dark:text-slate-300">
+                                                        <div className="space-y-3">
+                                                            <div>
+                                                                <p className="font-medium text-slate-900 dark:text-slate-100">邮件发送预览</p>
+                                                                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                                    先确认发送，再真正触发邮件发送。
+                                                                </p>
+                                                            </div>
+                                                            <div className="space-y-1">
+                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">候选人：</span>{message.mailConfirmationRequest.candidates.map((item) => item.name).join("、")}</p>
+                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">发件箱：</span>{message.mailConfirmationRequest.sender ? `${message.mailConfirmationRequest.sender.name} <${message.mailConfirmationRequest.sender.from_email}>` : "未配置"}</p>
+                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">收件人：</span>{message.mailConfirmationRequest.recipients.map((item) => item.name ? `${item.name} <${item.email}>` : item.email).join("、")}</p>
+                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">附件：</span>{message.mailConfirmationRequest.attachment_count} 份简历</p>
+                                                            </div>
+                                                            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
+                                                                <p className="font-medium text-slate-900 dark:text-slate-100">邮件主题</p>
+                                                                <p className="mt-1 whitespace-pre-wrap break-words">{message.mailConfirmationRequest.subject}</p>
+                                                            </div>
+                                                            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
+                                                                <p className="font-medium text-slate-900 dark:text-slate-100">邮件正文</p>
+                                                                <p className="mt-1 whitespace-pre-wrap break-words">{message.mailConfirmationRequest.body_text}</p>
+                                                            </div>
+                                                            {message.mailConfirmationRequest.blocking_reason ? (
+                                                                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                                                                    {message.mailConfirmationRequest.blocking_reason}
                                                                 </div>
-                                                            ))}
-                                                        </div>
-                                                    ) : null}
-                                                    {message.toolResults?.length ? (
-                                                        <div className="space-y-2">
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">后端执行链路</p>
-                                                            {message.toolResults.map((toolResult, index) => (
-                                                                <div
-                                                                    key={`${message.id}-tool-result-${index}`}
-                                                                    className="rounded-2xl border border-slate-200/80 bg-slate-50 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60"
+                                                            ) : null}
+                                                            {assistantMailActionState[message.id]?.status === "error" && assistantMailActionState[message.id]?.error ? (
+                                                                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
+                                                                    {assistantMailActionState[message.id]?.error}
+                                                                </div>
+                                                            ) : null}
+                                                            {assistantMailActionState[message.id]?.editing ? (
+                                                                <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                                    已进入编辑。你可以在弹窗里修改收件人、标题和正文后再发送。
+                                                                </div>
+                                                            ) : null}
+                                                            {assistantMailActionState[message.id]?.status === "sent" ? (
+                                                                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                                                                    已发送成功{assistantMailActionState[message.id]?.dispatchId ? `，发送记录 #${assistantMailActionState[message.id]?.dispatchId}` : ""}。
+                                                                </div>
+                                                            ) : null}
+                                                            <div className="flex flex-wrap gap-2">
+                                                                <Button
+                                                                    size="sm"
+                                                                    onMouseDown={preventAssistantActionFocusLoss}
+                                                                    onClick={() => void confirmAssistantPreparedResumeMail(message.id, message.mailConfirmationRequest!)}
+                                                                    disabled={!message.mailConfirmationRequest.can_confirm || assistantMailActionState[message.id]?.status === "sending" || assistantMailActionState[message.id]?.status === "sent"}
                                                                 >
-                                                                    <p className="font-medium text-slate-900 dark:text-slate-100">{toolResult.name}</p>
-                                                                    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words leading-6 text-slate-600 dark:text-slate-300">{JSON.stringify(toolResult.result, null, 2)}</pre>
-                                                                </div>
-                                                            ))}
+                                                                    {assistantMailActionState[message.id]?.status === "sending" ? <Loader2 className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4"/>}
+                                                                    {assistantMailActionState[message.id]?.status === "sent" ? "已发送" : assistantMailActionState[message.id]?.status === "sending" ? "发送中..." : "确认发送"}
+                                                                </Button>
+                                                                {assistantMailActionState[message.id]?.status === "sent" ? (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        onMouseDown={preventAssistantActionFocusLoss}
+                                                                        onClick={() => openAssistantPreparedResumeMailDialog(message.id, message.mailConfirmationRequest!, "resend")}
+                                                                    >
+                                                                        <Send className="h-4 w-4"/>
+                                                                        再次发送
+                                                                    </Button>
+                                                                ) : (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        onMouseDown={preventAssistantActionFocusLoss}
+                                                                        onClick={() => openAssistantPreparedResumeMailDialog(message.id, message.mailConfirmationRequest!)}
+                                                                        disabled={assistantMailActionState[message.id]?.status === "sending"}
+                                                                    >
+                                                                        <ExternalLink className="h-4 w-4"/>
+                                                                        编辑后发送
+                                                                    </Button>
+                                                                )}
+                                                            </div>
                                                         </div>
-                                                    ) : null}
-                                                    {message.logId ? (
-                                                        <div className="flex justify-end">
-                                                            <Button size="sm" variant="outline"
-                                                                    onClick={() => openTaskLogDetail(message.logId)}>查看完整日志</Button>
-                                                        </div>
-                                                    ) : null}
-                                                </div>
-                                            </details>
+                                                    </div>
+                                                ) : null}
+                                                <p className="mt-2 text-[11px] opacity-70">{formatDateTime(message.createdAt)}</p>
+                                            </div>
+                                        ))}
+                                        {chatSending ? (
+                                            <div className="flex items-center gap-2 text-sm text-slate-500">
+                                                <Loader2 className="h-4 w-4 animate-spin"/>
+                                                助手正在思考...
+                                            </div>
                                         ) : null}
-                                        <p className="mt-2 text-[11px] opacity-70">{formatDateTime(message.createdAt)}</p>
+                                        <div ref={assistantScrollAnchorRef}/>
                                     </div>
-                                ))}
-                                {chatSending ? (
-                                    <div className="flex items-center gap-2 text-sm text-slate-500">
-                                        <Loader2 className="h-4 w-4 animate-spin"/>
-                                        助手正在思考...
+                                </div>
+                                {showScrollToBottomButton ? (
+                                    <div className="pointer-events-none absolute bottom-4 right-4 z-10">
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="pointer-events-auto rounded-full border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-950/90"
+                                            onMouseDown={preventAssistantActionFocusLoss}
+                                            onClick={() => scrollAssistantToBottom("smooth")}
+                                        >
+                                            <ChevronDown className="h-4 w-4"/>
+                                            回到底部
+                                        </Button>
                                     </div>
                                 ) : null}
-                                <div ref={assistantScrollAnchorRef}/>
                             </div>
-                        </div>
-                            {showScrollToBottomButton ? (
-                                <div className="pointer-events-none absolute bottom-4 right-4 z-10">
+
+                            <div className="shrink-0 border-t border-slate-200/80 px-4 py-4 dark:border-slate-800 sm:px-5 sm:py-5">
+                                <div className="mb-3 flex flex-wrap gap-2">
+                                    {visibleQuickActionPrompts.map((prompt) => (
+                                        <button
+                                            key={prompt}
+                                            type="button"
+                                            onMouseDown={preventAssistantActionFocusLoss}
+                                            onClick={() => applyAssistantPrompt(prompt, {openMode: "drawer"})}
+                                            className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:text-slate-100"
+                                        >
+                                            {prompt}
+                                        </button>
+                                    ))}
+                                    {hasMoreQuickActions ? (
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="rounded-full"
+                                            onMouseDown={preventAssistantActionFocusLoss}
+                                            onClick={() => setAssistantQuickActionsExpanded((current) => !current)}
+                                        >
+                                            {assistantQuickActionsExpanded ? "收起" : "更多"}
+                                            {assistantQuickActionsExpanded ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>}
+                                        </Button>
+                                    ) : null}
+                                </div>
+                                <Textarea
+                                    ref={assistantInputRef}
+                                    autoFocus={assistantOpen || activePage === "assistant"}
+                                    value={chatInput}
+                                    onChange={(event) => setChatInput(event.target.value)}
+                                    onKeyDown={(event) => {
+                                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                                            event.preventDefault();
+                                            void sendChatMessage();
+                                        }
+                                    }}
+                                    rows={isFullscreen ? 7 : isPage ? 4 : 5}
+                                    placeholder="例如：重新对当前候选人初筛，硬性要求加强硬件测试经验；或说明这次用了哪些 Skills"
+                                />
+                                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                                    <p className="hidden text-xs text-slate-500 dark:text-slate-400 2xl:block">
+                                        助手会自动携带当前岗位与启用 Skill 上下文，适合连续执行筛选、生成和查询操作。按
+                                        Ctrl/Cmd + Enter 可直接发送。
+                                    </p>
                                     <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="outline"
-                                        className="pointer-events-auto rounded-full border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-950/90"
-                                        onMouseDown={preventAssistantActionFocusLoss}
-                                        onClick={() => scrollAssistantToBottom("smooth")}
+                                        onClick={() => void sendChatMessage()}
+                                        variant={canStopCurrentRun ? "outline" : "default"}
+                                        disabled={isCurrentRunStopping || (!canStopCurrentRun && !chatInput.trim())}
                                     >
-                                        <ChevronDown className="h-4 w-4"/>
-                                        回到底部
+                                        {canStopCurrentRun ? <Square className="h-4 w-4"/> : <Send className="h-4 w-4"/>}
+                                        {isCurrentRunStopping ? "停止中..." : canStopCurrentRun ? "停止生成" : "发送"}
                                     </Button>
                                 </div>
-                            ) : null}
-                        </div>
-
-                        <div className="shrink-0 border-t border-slate-200/80 px-5 py-5 dark:border-slate-800">
-                            <Textarea
-                                ref={assistantInputRef}
-                                autoFocus={assistantOpen || activePage === "assistant"}
-                                value={chatInput}
-                                onChange={(event) => setChatInput(event.target.value)}
-                                onKeyDown={(event) => {
-                                    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-                                        event.preventDefault();
-                                        void sendChatMessage();
-                                    }
-                                }}
-                                rows={isFullscreen ? 7 : isWorkspace ? 4 : isPage ? 4 : 5}
-                                placeholder="例如：重新对当前候选人初筛，硬性要求加强硬件测试经验；或说明这次用了哪些 Skills"
-                            />
-                            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                    助手会自动携带当前岗位与启用 Skill 上下文，适合连续执行筛选、生成和查询操作。按
-                                    Ctrl/Cmd + Enter 可直接发送。
-                                </p>
-                                <Button
-                                    onClick={() => void sendChatMessage()}
-                                    variant={canStopCurrentRun ? "outline" : "default"}
-                                    disabled={isCurrentRunStopping || (!canStopCurrentRun && !chatInput.trim())}
-                                >
-                                    {canStopCurrentRun ? <Square className="h-4 w-4"/> : <Send className="h-4 w-4"/>}
-                                    {isCurrentRunStopping ? "停止中..." : canStopCurrentRun ? "停止生成" : "发送"}
-                                </Button>
                             </div>
                         </div>
+
+                        {assistantContextExpanded ? (
+                            <div
+                                className={cn(
+                                    "hidden min-h-0 overflow-y-auto border-l border-slate-200/80 px-4 py-4 dark:border-slate-800 sm:px-5 sm:py-5",
+                                    isFullscreen ? "2xl:block" : "xl:block",
+                                )}
+                            >
+                                {assistantContextPanel}
+                            </div>
+                        ) : null}
                     </div>
 
-                    <div
-                        className={cn("min-h-0 overflow-y-auto border-slate-200/80 px-5 py-5 dark:border-slate-800", isWorkspace ? "border-t" : "border-t 2xl:border-t-0 2xl:border-l")}>
-                        {assistantContextPanel}
-                    </div>
+                    {assistantContextExpanded ? (
+                        <div
+                            className={cn(
+                                "absolute inset-y-0 right-0 z-20 w-full max-w-[320px] overflow-y-auto border-l border-slate-200/80 bg-white/95 px-4 py-4 shadow-[-16px_0_40px_-24px_rgba(15,23,42,0.4)] backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 sm:px-5 sm:py-5",
+                                isFullscreen ? "2xl:hidden max-w-[360px]" : "xl:hidden",
+                            )}
+                        >
+                            {assistantContextPanel}
+                        </div>
+                    ) : null}
                 </div>
             </div>
         );
@@ -5550,7 +5601,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         "left-auto top-0 h-screen max-w-none translate-y-0 rounded-none p-0 sm:max-w-none",
                         assistantDisplayMode === "fullscreen"
                             ? "right-0 w-screen translate-x-0 border-0"
-                            : "right-0 w-[min(1040px,100vw)] translate-x-0 border-l",
+                            : "right-0 w-[min(1360px,100vw)] translate-x-0 border-l",
                     )}
                     onOpenAutoFocus={(event) => {
                         event.preventDefault();
