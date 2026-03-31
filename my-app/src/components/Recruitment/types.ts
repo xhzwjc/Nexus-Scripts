@@ -2,6 +2,7 @@ import type {RecruitmentSkill} from "@/lib/recruitment-api";
 import type {
     RecruitmentAssistantClarificationRequest,
     RecruitmentAssistantPageInfo,
+    RecruitmentAssistantPreparedResumeMail,
     RecruitmentAssistantToolResultPayload,
 } from "@/lib/recruitment-assistant-protocol";
 
@@ -126,6 +127,7 @@ export type ChatMessage = {
     clarificationRequest?: RecruitmentAssistantClarificationRequest;
     queryPageInfo?: RecruitmentAssistantPageInfo;
     toolResults?: RecruitmentAssistantToolResultPayload[];
+    mailConfirmationRequest?: RecruitmentAssistantPreparedResumeMail | null;
     frontendDebug?: unknown;
     streamStatus?: "streaming" | "done" | "error";
     sourceRunType?: "legacy" | "stream";

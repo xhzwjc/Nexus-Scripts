@@ -339,6 +339,7 @@ class RecruitmentAIGateway:
         system_prompt: str,
         user_prompt: str,
         response_mode: str,
+        on_delta: Optional[Callable[[str], None]] = None,
         cancel_control: Optional[RecruitmentTaskControl] = None,
     ) -> Dict[str, Any]:
         if not config.api_key:
@@ -390,10 +391,15 @@ class RecruitmentAIGateway:
                         delta_content = delta.get("content")
                         if isinstance(delta_content, str) and delta_content:
                             chunks.append(delta_content)
+                            if on_delta:
+                                on_delta(delta_content)
                         elif isinstance(delta_content, list):
                             for item in delta_content:
                                 if isinstance(item, dict) and item.get("text"):
-                                    chunks.append(str(item.get("text")))
+                                    text_value = str(item.get("text"))
+                                    chunks.append(text_value)
+                                    if on_delta:
+                                        on_delta(text_value)
             if cancel_control:
                 cancel_control.raise_if_cancelled()
         except Exception as exc:
@@ -433,6 +439,77 @@ class RecruitmentAIGateway:
             response_mode="text",
             cancel_control=cancel_control,
         )
+
+    def stream_text(
+        self,
+        *,
+        task_type: str,
+        system_prompt: str,
+        user_prompt: str,
+        on_delta: Callable[[str], None],
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+    ) -> Dict[str, Any]:
+        config = self.resolve_config(task_type)
+        prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
+        full_request_snapshot = _build_request_snapshot(config, response_mode="text", system_prompt=system_prompt, user_prompt=user_prompt)
+        max_retries = max(0, int(config.extra_config.get("max_retries") or 1))
+        retry_delay = float(config.extra_config.get("retry_delay_seconds") or 1.0)
+        last_error: Exception | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                if config.runtime_provider == "openai-compatible":
+                    response_payload = self._stream_openai_compatible_completion(
+                        config,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        response_mode="text",
+                        on_delta=on_delta,
+                        cancel_control=cancel_control,
+                    )
+                elif config.runtime_provider == "gemini":
+                    response_payload = self._call_gemini_text(config, system_prompt, user_prompt, cancel_control=cancel_control)
+                    content = response_payload.get("content") or {}
+                    markdown = str(content.get("markdown") or "")
+                    for index in range(0, len(markdown), 24):
+                        on_delta(markdown[index:index + 24])
+                else:
+                    response_payload = self._call_anthropic_text(config, system_prompt, user_prompt, cancel_control=cancel_control)
+                    content = response_payload.get("content") or {}
+                    markdown = str(content.get("markdown") or "")
+                    for index in range(0, len(markdown), 24):
+                        on_delta(markdown[index:index + 24])
+                content = response_payload["content"]
+                output_summary = content.get("markdown") if isinstance(content, dict) else content
+                return {
+                    "content": content,
+                    "provider": config.provider,
+                    "model_name": config.model_name,
+                    "source": config.source,
+                    "used_fallback": False,
+                    "prompt_snapshot": prompt_snapshot,
+                    "full_request_snapshot": full_request_snapshot,
+                    "input_summary": _truncate(user_prompt, 600),
+                    "output_summary": _truncate(output_summary, 600),
+                    "token_usage": response_payload.get("token_usage"),
+                    "error_message": None,
+                }
+            except RecruitmentTaskCancelled:
+                raise
+            except Exception as exc:
+                last_error = exc
+                if cancel_control and cancel_control.is_cancelled():
+                    raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+                if attempt < max_retries and _is_retryable_error(exc):
+                    sleep_seconds = retry_delay * (attempt + 1)
+                    logger.warning("Recruitment stream text task %s hit retryable error, retrying in %.1fs: %s", task_type, sleep_seconds, exc)
+                    if cancel_control:
+                        if cancel_control.wait(sleep_seconds):
+                            raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+                    else:
+                        time.sleep(sleep_seconds)
+                    continue
+                raise
+        raise RuntimeError(_format_http_error(last_error or RuntimeError("Unknown AI stream task failure")))
 
     def _call_gemini_json(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         if not config.api_key:

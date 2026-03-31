@@ -363,7 +363,7 @@
 .lock-screen {
     position: fixed;
     inset: 0;
-    z-index: 1000;
+    z-index: 2147483647;
     background: #e3e5e7;
     /* Requested base color */
     display: flex;
@@ -372,6 +372,17 @@
     justify-content: center;
     gap: 32px;
     transition: background 0.5s ease;
+}
+
+body.app-locked [data-slot='dialog-portal'],
+body.app-locked [data-slot='dialog-overlay'],
+body.app-locked [data-slot='dialog-content'],
+body.app-locked [data-slot='popover-content'],
+body.app-locked [data-slot='select-content'],
+body.app-locked [data-slot='tooltip-content'],
+body.app-locked [data-radix-popper-content-wrapper] {
+    visibility: hidden !important;
+    pointer-events: none !important;
 }
 
 .dark .lock-screen {

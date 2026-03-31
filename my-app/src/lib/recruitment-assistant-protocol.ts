@@ -5,9 +5,12 @@ export type RecruitmentAssistantToolName =
     | "resolve_entities"
     | "count_candidates"
     | "query_candidates"
+    | "query_candidate_screening_status"
     | "query_positions"
     | "query_mail_recipients"
-    | "generate_interview_questions";
+    | "prepare_resume_mail"
+    | "generate_interview_questions"
+    | "chat_orchestrator";
 
 export type RecruitmentAssistantResolutionStatus = "unique" | "ambiguous" | "none";
 export type RecruitmentAssistantEntityType = "position" | "candidate" | "skill" | "recipient";
@@ -84,6 +87,7 @@ export interface RecruitmentAssistantCountCandidatesArgs {
     status_not_in?: string[];
     keyword?: string;
     group_by?: "status" | "position" | "source";
+    unsent_only?: boolean;
     resolved_skill_filter?: RecruitmentAssistantSkillFilter;
 }
 
@@ -100,6 +104,7 @@ export interface RecruitmentAssistantQueryCandidatesArgs {
     status_in?: string[];
     status_not_in?: string[];
     keyword?: string;
+    unsent_only?: boolean;
     fields: Array<"id" | "name" | "position_title" | "status" | "match_percent" | "updated_at">;
     sort?: { field: "updated_at" | "match_percent" | "created_at"; order: "asc" | "desc" };
     pagination?: RecruitmentAssistantPaginationInput;
@@ -124,6 +129,61 @@ export interface RecruitmentAssistantQueryMailRecipientsArgs {
     keyword?: string;
     fields: Array<"id" | "name" | "email" | "department" | "role_title">;
     limit?: number;
+}
+
+export interface RecruitmentAssistantPrepareResumeMailArgs {
+    candidate_id?: number | null;
+    candidate_ids?: number[];
+    candidate_scope?: "auto" | "current_candidate" | "named_candidates" | "talent_pool_all" | "current_position_all" | "global_filtered_all";
+    status_in?: string[];
+    unsent_only?: boolean;
+    recipient_id?: number | null;
+    recipient_ids?: number[];
+    recipient_emails: string[];
+}
+
+export interface RecruitmentAssistantPreparedResumeMailCandidate {
+    id: number;
+    name: string;
+    position_id?: number | null;
+    position_title?: string | null;
+    email?: string | null;
+    latest_resume_file_id?: number | null;
+}
+
+export interface RecruitmentAssistantPreparedResumeMailRecipient {
+    id?: number | null;
+    name?: string | null;
+    email: string;
+    department?: string | null;
+    role_title?: string | null;
+    source: "internal_recipient" | "direct_email";
+}
+
+export interface RecruitmentAssistantPreparedResumeMailSender {
+    id: number;
+    name: string;
+    from_name?: string | null;
+    from_email: string;
+    is_default: boolean;
+}
+
+export interface RecruitmentAssistantPreparedResumeMail {
+    sender_config_id: number | null;
+    sender: RecruitmentAssistantPreparedResumeMailSender | null;
+    candidate_ids: number[];
+    candidates: RecruitmentAssistantPreparedResumeMailCandidate[];
+    recipient_ids: number[];
+    recipients: RecruitmentAssistantPreparedResumeMailRecipient[];
+    recipient_emails: string[];
+    subject: string;
+    body_text: string;
+    body_html?: string | null;
+    attachment_count: number;
+    missing_resume_candidate_ids: number[];
+    requires_confirmation: boolean;
+    can_confirm: boolean;
+    blocking_reason?: string | null;
 }
 
 export interface RecruitmentAssistantRuntimeContext {

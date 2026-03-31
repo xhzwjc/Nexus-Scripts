@@ -25,7 +25,7 @@ export function LockScreenOverlay({
     const { t } = useI18n();
 
     return (
-        <div className="lock-screen z-50 animate-sunlight-reveal">
+        <div className="lock-screen z-[2147483647] animate-sunlight-reveal" aria-modal="true" role="dialog">
             <div className="lock-avatar">
                 {currentUserName?.charAt(0) || 'U'}
             </div>

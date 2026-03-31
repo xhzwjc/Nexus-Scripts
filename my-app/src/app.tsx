@@ -205,6 +205,16 @@ function AppContent() {
         },
     });
 
+    useEffect(() => {
+        if (typeof document === 'undefined') {
+            return;
+        }
+        document.body.classList.toggle('app-locked', isLocked);
+        return () => {
+            document.body.classList.remove('app-locked');
+        };
+    }, [isLocked]);
+
     const {
         now,
         weather,

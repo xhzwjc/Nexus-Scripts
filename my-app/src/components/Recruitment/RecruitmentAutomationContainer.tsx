@@ -39,6 +39,7 @@ import {
     type RecruitmentAssistantClarificationResponse,
     type RecruitmentAssistantMessageCompletedPayload,
     type RecruitmentAssistantPageInfo,
+    type RecruitmentAssistantPreparedResumeMail,
     type RecruitmentAssistantRunRequest,
     type RecruitmentAssistantStreamEvent,
     type RecruitmentAssistantStreamEventType,
@@ -342,6 +343,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [activeInterviewCandidateId, setActiveInterviewCandidateId] = useState<number | null>(null);
     const [activeChatTaskId, setActiveChatTaskId] = useState<number | null>(null);
     const [activeChatMessageId, setActiveChatMessageId] = useState<string | null>(null);
+    const [currentAssistantRunId, setCurrentAssistantRunId] = useState<string | null>(null);
+    const [assistantStreamStopping, setAssistantStreamStopping] = useState(false);
+    const [autoFollowStream, setAutoFollowStream] = useState(true);
+    const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+    const [assistantMailActionState, setAssistantMailActionState] = useState<Record<string, {
+        status: "idle" | "sending" | "sent" | "error";
+        editing?: boolean;
+        error?: string | null;
+        dispatchId?: number | null;
+    }>>({});
 
     const [positionDialogOpen, setPositionDialogOpen] = useState(false);
     const [positionDialogMode, setPositionDialogMode] = useState<"create" | "edit">("create");
@@ -442,6 +453,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [resumeMailDialogOpen, setResumeMailDialogOpen] = useState(false);
     const [resumeMailDialogMode, setResumeMailDialogMode] = useState<ResumeMailDialogMode>("send");
     const [resumeMailSourceDispatchId, setResumeMailSourceDispatchId] = useState<number | null>(null);
+    const [resumeMailSourceAssistantMessageId, setResumeMailSourceAssistantMessageId] = useState<string | null>(null);
     const [resumeMailForm, setResumeMailForm] = useState<ResumeMailFormState>(emptyResumeMailForm);
     const [interviewSkillSelectionDirty, setInterviewSkillSelectionDirty] = useState(false);
     const [candidateProcessLogsExpanded, setCandidateProcessLogsExpanded] = useState(false);
@@ -602,6 +614,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const isSelectedCandidateScreeningCancelling = isTaskCancelling(selectedCandidateScreeningTaskId);
     const isCurrentInterviewTaskCancelling = isTaskCancelling(currentCandidateInterviewTaskId);
     const isCurrentChatTaskCancelling = isTaskCancelling(activeChatTaskId);
+    const isStreaming = chatSending;
+    const canStopCurrentRun = Boolean(activeChatTaskId || currentAssistantRunId || assistantStreamAbortRef.current);
+    const isCurrentRunStopping = isCurrentChatTaskCancelling || assistantStreamStopping;
+    const showScrollToBottomButton = isUserScrolledUp && chatMessages.length > 0;
     const isBatchScreeningCancelling = activeBatchScreeningTaskIds.length > 0
         && activeBatchScreeningTaskIds.every((taskId) => cancellingTaskIds.includes(taskId));
     const hasLiveLogActivity = useMemo(() => {
@@ -904,7 +920,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     useEffect(() => {
         const viewport = assistantScrollAreaRef.current;
         if (!viewport || !assistantScrollAnchorRef.current) {
-            return;
+            return undefined;
+        }
+        if (!autoFollowStream) {
+            return undefined;
         }
         const frameId = window.requestAnimationFrame(() => {
             viewport.scrollTo({
@@ -913,7 +932,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             });
         });
         return () => window.cancelAnimationFrame(frameId);
-    }, [assistantDisplayMode, assistantOpen, chatMessages, chatSending]);
+    }, [assistantDisplayMode, assistantOpen, autoFollowStream, chatMessages, chatSending]);
 
     useEffect(() => {
         const shouldFocusAssistantInput = assistantOpen || activePage === "assistant";
@@ -1819,6 +1838,36 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         )));
     }
 
+    function isAssistantViewportNearBottom(viewport: HTMLDivElement, threshold = 96) {
+        const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+        return distanceFromBottom <= threshold;
+    }
+
+    const scrollAssistantToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+        const viewport = assistantScrollAreaRef.current;
+        if (!viewport) {
+            return;
+        }
+        setAutoFollowStream(true);
+        setIsUserScrolledUp(false);
+        window.requestAnimationFrame(() => {
+            viewport.scrollTo({
+                top: viewport.scrollHeight,
+                behavior,
+            });
+        });
+    }, []);
+
+    const handleAssistantScroll = useCallback(() => {
+        const viewport = assistantScrollAreaRef.current;
+        if (!viewport) {
+            return;
+        }
+        const nearBottom = isAssistantViewportNearBottom(viewport);
+        setAutoFollowStream((current) => (current === nearBottom ? current : nearBottom));
+        setIsUserScrolledUp((current) => (current === !nearBottom ? current : !nearBottom));
+    }, []);
+
     function extractChatReplyFromLog(log: AITaskLog) {
         const parsed = parseStructuredLogOutput(log.output_snapshot);
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -1973,13 +2022,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         message: string,
         clarificationResponse?: RecruitmentAssistantClarificationResponse | null,
     ) {
-        if (clarificationResponse?.selections?.length) {
-            return true;
-        }
-        const queryPattern = /(多少|几位|几人|人数|总数|列出|列表|查看|看看|展示|有哪些|有谁|下一页|继续查看|收件人|联系人|邮箱)/;
-        const interviewPattern = /(面试题|初试题|复试题|面试问题|出几道题|来一套题|出题|生成题)/;
-        const executionPattern = /(生成|初筛|面试题|发送|发给|保存|创建|新建|覆盖|推进|更新状态|批量|写一份|起草|撰写|产出|整理)/i;
-        return interviewPattern.test(message) || (queryPattern.test(message) && !executionPattern.test(message));
+        return Boolean(clarificationResponse?.selections?.length || message.trim());
     }
 
     function getLatestAssistantQueryCursor() {
@@ -2019,6 +2062,50 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         };
     }
 
+    function extractPreparedResumeMail(
+        payload: RecruitmentAssistantToolResultPayload,
+    ): RecruitmentAssistantPreparedResumeMail | null {
+        if (payload.name !== "prepare_resume_mail") {
+            return null;
+        }
+        const payloadRecord = payload.result && typeof payload.result === "object"
+            ? payload.result as Record<string, unknown>
+            : null;
+        const preparedMail = payloadRecord?.prepared_mail;
+        if (!preparedMail || typeof preparedMail !== "object") {
+            return null;
+        }
+        return preparedMail as RecruitmentAssistantPreparedResumeMail;
+    }
+
+    function openAssistantPreparedResumeMailDialog(
+        messageId: string,
+        preparedMail: RecruitmentAssistantPreparedResumeMail,
+        mode: ResumeMailDialogMode = "send",
+    ) {
+        setAssistantMailActionState((current) => ({
+            ...current,
+            [messageId]: {
+                status: current[messageId]?.status === "sent" ? "sent" : "idle",
+                editing: true,
+                error: current[messageId]?.error ?? null,
+                dispatchId: current[messageId]?.dispatchId ?? null,
+            },
+        }));
+        setResumeMailSourceAssistantMessageId(messageId);
+        openResumeMailDialog(preparedMail.candidate_ids, {
+            mode,
+            senderConfigId: preparedMail.sender_config_id ? String(preparedMail.sender_config_id) : defaultMailSenderId,
+            recipientIds: preparedMail.recipient_ids,
+            extraRecipientEmails: preparedMail.recipients
+                .filter((item) => item.source === "direct_email")
+                .map((item) => item.email)
+                .join(", "),
+            subject: preparedMail.subject,
+            bodyText: preparedMail.body_text,
+        });
+    }
+
     async function runStreamingAssistant(
         message: string,
         options?: {
@@ -2039,6 +2126,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         setChatInput("");
         setChatSending(true);
+        setAssistantStreamStopping(false);
+        setCurrentAssistantRunId(null);
+        setAutoFollowStream(true);
+        setIsUserScrolledUp(false);
 
         const shouldContinuePaging = /下一页|继续查看/.test(trimmedMessage);
         const isInterviewGenerationMessage = /(面试题|初试题|复试题|面试问题|出几道题|来一套题|出题|生成题)/.test(trimmedMessage);
@@ -2049,7 +2140,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             ? candidateMap.get(selectedCandidateIdRef.current) || null
             : null;
         const requestContext = buildStreamingAssistantRuntimeContext(trimmedMessage);
-        const frontendDebug = {
+        const frontendDebugBase = {
             selectedPosition: selectedPosition
                 ? {
                     id: selectedPosition.id,
@@ -2071,6 +2162,24 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             currentChatContext: chatContextRef.current,
             requestPayloadContext: requestContext,
         };
+        const streamMetrics = {
+            requestStartedAtMs: performance.now(),
+            requestStartedAtIso: new Date().toISOString(),
+            responseHeadersAtMs: null as number | null,
+            firstReaderChunkAtMs: null as number | null,
+            firstStateWriteAtMs: null as number | null,
+            firstVisiblePaintAtMs: null as number | null,
+            completedAtMs: null as number | null,
+            responseContentType: null as string | null,
+            readerChunks: [] as Array<{index: number; byteLength: number; receivedAtMs: number}>,
+        };
+        const buildFrontendDebugPayload = () => ({
+            ...frontendDebugBase,
+            streamMetrics: {
+                ...streamMetrics,
+                readerChunks: [...streamMetrics.readerChunks],
+            },
+        });
         const requestBody: RecruitmentAssistantRunRequest = {
             message: trimmedMessage,
             context: requestContext,
@@ -2086,10 +2195,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         const abortController = new AbortController();
         assistantStreamAbortRef.current = abortController;
         const predictedModelConfig = isInterviewGenerationMessage ? interviewActiveLLMConfig : assistantActiveLLMConfig;
+        let activeAssistantMessageId: string | null = null;
 
         console.info("[recruitment][assistant][stream][frontend]", {
             message: trimmedMessage,
-            ...frontendDebug,
+            ...frontendDebugBase,
+            streamMetrics: buildFrontendDebugPayload().streamMetrics,
         });
 
         try {
@@ -2108,17 +2219,24 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 throw new Error(errorText || "流式助手请求失败");
             }
 
+            streamMetrics.responseHeadersAtMs = performance.now();
+            streamMetrics.responseContentType = response.headers.get("content-type");
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = "";
-            let activeAssistantMessageId: string | null = null;
             let runCompleted = false;
             let awaitingClarification = false;
             let refreshInterviewCandidateId: number | null = null;
             const pendingToolResults: RecruitmentAssistantToolResultPayload[] = [];
+            let readerChunkIndex = 0;
+            let firstVisiblePaintScheduled = false;
 
             const ensureAssistantMessage = (messageId: string) => {
                 activeAssistantMessageId = messageId;
+                const pendingPreparedMail = pendingToolResults
+                    .map((item) => extractPreparedResumeMail(item))
+                    .find((item) => Boolean(item)) || null;
+                setActiveChatMessageId((current) => (current === messageId ? current : messageId));
                 setChatMessages((current) => (
                     current.some((item) => item.id === messageId)
                         ? current
@@ -2131,17 +2249,29 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 createdAt: new Date().toISOString(),
                                 streamStatus: "streaming",
                                 sourceRunType: "stream",
-                                frontendDebug,
+                                frontendDebug: buildFrontendDebugPayload(),
                                 modelProvider: predictedModelConfig?.resolved_provider || predictedModelConfig?.provider || null,
                                 modelName: predictedModelConfig?.resolved_model_name || predictedModelConfig?.model_name || null,
                                 toolResults: pendingToolResults.length ? [...pendingToolResults] : undefined,
+                                mailConfirmationRequest: pendingPreparedMail,
                             },
                         ]
                 ));
             };
 
+            const syncFrontendDebug = (messageId: string) => {
+                updateChatMessage(messageId, (chatMessage) => ({
+                    ...chatMessage,
+                    frontendDebug: buildFrontendDebugPayload(),
+                }));
+            };
+
             const applyEvent = (event: RecruitmentAssistantStreamEvent) => {
                 switch (event.event) {
+                    case "run.started": {
+                        setCurrentAssistantRunId(event.run_id);
+                        break;
+                    }
                     case "message.started": {
                         const payload = event.payload as { message_id: string };
                         ensureAssistantMessage(payload.message_id);
@@ -2150,12 +2280,23 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     case "message.delta": {
                         const payload = event.payload as { message_id: string; delta: string };
                         ensureAssistantMessage(payload.message_id);
+                        if (streamMetrics.firstStateWriteAtMs === null) {
+                            streamMetrics.firstStateWriteAtMs = performance.now();
+                        }
                         updateChatMessage(payload.message_id, (chatMessage) => ({
                             ...chatMessage,
                             content: `${chatMessage.content || ""}${payload.delta}`,
                             streamStatus: "streaming",
                             sourceRunType: "stream",
+                            frontendDebug: buildFrontendDebugPayload(),
                         }));
+                        if (!firstVisiblePaintScheduled) {
+                            firstVisiblePaintScheduled = true;
+                            requestAnimationFrame(() => {
+                                streamMetrics.firstVisiblePaintAtMs = performance.now();
+                                syncFrontendDebug(payload.message_id);
+                            });
+                        }
                         break;
                     }
                     case "message.completed": {
@@ -2167,6 +2308,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             queryPageInfo: payload.page as RecruitmentAssistantPageInfo | undefined,
                             streamStatus: "done",
                             sourceRunType: "stream",
+                            frontendDebug: buildFrontendDebugPayload(),
                         }));
                         break;
                     }
@@ -2185,9 +2327,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         const candidateRecord = payloadRecord?.candidate && typeof payloadRecord.candidate === "object"
                             ? payloadRecord.candidate as Record<string, unknown>
                             : null;
+                        const preparedMail = extractPreparedResumeMail(payload);
                         updateChatMessage(activeAssistantMessageId, (chatMessage) => ({
                             ...chatMessage,
                             toolResults: [...(chatMessage.toolResults || []), payload],
+                            mailConfirmationRequest: preparedMail || chatMessage.mailConfirmationRequest || null,
                             logId: typeof taskLog?.id === "number" ? taskLog.id : chatMessage.logId,
                             memorySource: typeof taskLog?.memory_source === "string" ? taskLog.memory_source : chatMessage.memorySource,
                             modelProvider: typeof taskLog?.model_provider === "string" ? taskLog.model_provider : chatMessage.modelProvider,
@@ -2201,6 +2345,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             fallbackError: typeof taskLog?.error_message === "string"
                                 ? taskLog.error_message
                                 : chatMessage.fallbackError,
+                            frontendDebug: buildFrontendDebugPayload(),
                         }));
                         if (payload.name === "generate_interview_questions" && typeof candidateRecord?.id === "number") {
                             refreshInterviewCandidateId = candidateRecord.id;
@@ -2219,10 +2364,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             clarificationRequest: payload,
                             streamStatus: "done",
                             sourceRunType: "stream",
+                            frontendDebug: buildFrontendDebugPayload(),
                         }));
                         break;
                     }
                     case "run.completed": {
+                        streamMetrics.completedAtMs = performance.now();
+                        setCurrentAssistantRunId(null);
+                        setAssistantStreamStopping(false);
+                        if (activeAssistantMessageId) {
+                            syncFrontendDebug(activeAssistantMessageId);
+                        }
                         runCompleted = true;
                         break;
                     }
@@ -2235,8 +2387,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             content: `发送失败：${payload.message}`,
                             streamStatus: "error",
                             sourceRunType: "stream",
+                            frontendDebug: buildFrontendDebugPayload(),
                         }));
                         toast.error(`发送失败：${payload.message}`);
+                        setCurrentAssistantRunId(null);
+                        setAssistantStreamStopping(false);
                         runCompleted = true;
                         break;
                     }
@@ -2249,6 +2404,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 const {done, value} = await reader.read();
                 if (done) {
                     break;
+                }
+                const chunkReceivedAtMs = performance.now();
+                if (streamMetrics.firstReaderChunkAtMs === null) {
+                    streamMetrics.firstReaderChunkAtMs = chunkReceivedAtMs;
+                }
+                if (streamMetrics.readerChunks.length < 20) {
+                    streamMetrics.readerChunks.push({
+                        index: readerChunkIndex += 1,
+                        byteLength: value.byteLength,
+                        receivedAtMs: chunkReceivedAtMs,
+                    });
                 }
                 buffer += decoder.decode(value, {stream: true});
 
@@ -2273,10 +2439,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
 
             if (!runCompleted && !awaitingClarification && activeAssistantMessageId) {
+                streamMetrics.completedAtMs = performance.now();
                 updateChatMessage(activeAssistantMessageId, (chatMessage) => ({
                     ...chatMessage,
                     streamStatus: "done",
                     sourceRunType: "stream",
+                    frontendDebug: buildFrontendDebugPayload(),
                 }));
             }
             if (refreshInterviewCandidateId !== null) {
@@ -2288,8 +2456,29 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         : Promise.resolve(null),
                 ]);
             }
+        } catch (error) {
+            const wasAborted = abortController.signal.aborted
+                || (error instanceof DOMException && error.name === "AbortError")
+                || (error instanceof Error && /abort/i.test(`${error.name}:${error.message}`));
+            if (!wasAborted) {
+                throw error;
+            }
+            if (activeAssistantMessageId) {
+                updateChatMessage(activeAssistantMessageId, (chatMessage) => ({
+                    ...chatMessage,
+                    streamStatus: "done",
+                    sourceRunType: "stream",
+                    frontendDebug: buildFrontendDebugPayload(),
+                }));
+            }
+            if (mountedRef.current) {
+                toast.success("已停止助手生成");
+            }
         } finally {
             assistantStreamAbortRef.current = null;
+            setCurrentAssistantRunId(null);
+            setAssistantStreamStopping(false);
+            setActiveChatMessageId((current) => (current === activeAssistantMessageId ? null : current));
             setChatSending(false);
         }
     }
@@ -2871,35 +3060,36 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     async function sendChatMessage() {
-        if (activeChatTaskId) {
-            if (isCurrentChatTaskCancelling) {
+        if (canStopCurrentRun) {
+            if (activeChatTaskId) {
+                if (isCurrentChatTaskCancelling) {
+                    return;
+                }
+                try {
+                    const log = await cancelTaskGeneration(activeChatTaskId, "AI 助手");
+                    if (log?.status === "cancelled") {
+                        stopTaskMonitor(activeChatTaskId);
+                        if (activeChatMessageId) {
+                            updateChatMessage(activeChatMessageId, (message) => ({
+                                ...message,
+                                pending: false,
+                                taskId: null,
+                                logId: log.id,
+                            }));
+                        }
+                        setActiveChatTaskId((current) => (current === activeChatTaskId ? null : current));
+                        setActiveChatMessageId((current) => (current === activeChatMessageId ? null : current));
+                    }
+                } catch (error) {
+                    toast.error(`停止助手生成失败：${formatActionError(error)}`);
+                }
                 return;
             }
-            try {
-                if (activeChatMessageId) {
-                    updateChatMessage(activeChatMessageId, (message) => ({
-                        ...message,
-                        content: "正在停止生成...",
-                    }));
-                }
-                const log = await cancelTaskGeneration(activeChatTaskId, "AI 助手");
-                if (log?.status === "cancelled") {
-                    stopTaskMonitor(activeChatTaskId);
-                    if (activeChatMessageId) {
-                        updateChatMessage(activeChatMessageId, (message) => ({
-                            ...message,
-                            content: "已停止生成。",
-                            pending: false,
-                            taskId: null,
-                            logId: log.id,
-                        }));
-                    }
-                    setActiveChatTaskId((current) => (current === activeChatTaskId ? null : current));
-                    setActiveChatMessageId((current) => (current === activeChatMessageId ? null : current));
-                }
-            } catch (error) {
-                toast.error(`停止助手生成失败：${formatActionError(error)}`);
+            if (assistantStreamStopping) {
+                return;
             }
+            setAssistantStreamStopping(true);
+            assistantStreamAbortRef.current?.abort();
             return;
         }
         if (chatSending) {
@@ -2909,6 +3099,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         if (!message) {
             return;
         }
+        setAutoFollowStream(true);
+        setIsUserScrolledUp(false);
         if (shouldUseStreamingAssistant(message)) {
             await runStreamingAssistant(message);
             return;
@@ -3315,7 +3507,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         options?: { successMessage?: string; closeDialog?: boolean },
     ) {
         try {
-            await recruitmentApi(`/resume-mail-dispatches/send`, {
+            const dispatch = await recruitmentApi<RecruitmentResumeMailDispatch>(`/resume-mail-dispatches/send`, {
                 method: "POST",
                 body: JSON.stringify(payload),
             });
@@ -3328,10 +3520,75 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             } catch (refreshError) {
                 toast.error(`\u7b80\u5386\u90ae\u4ef6\u5df2\u53d1\u9001\uff0c\u4f46\u90ae\u4ef6\u4e2d\u5fc3\u5237\u65b0\u5931\u8d25\uff1a${formatActionError(refreshError)}`);
             }
-            return true;
+            return dispatch;
         } catch (error) {
             toast.error(`\u53d1\u9001\u7b80\u5386\u90ae\u4ef6\u5931\u8d25\uff1a${formatActionError(error)}`);
-            return false;
+            return null;
+        }
+    }
+
+    async function confirmAssistantPreparedResumeMail(messageId: string, preparedMail: RecruitmentAssistantPreparedResumeMail) {
+        if (!preparedMail.can_confirm) {
+            toast.error(preparedMail.blocking_reason || "当前邮件预览还不能直接发送");
+            return;
+        }
+        setResumeMailSourceAssistantMessageId(null);
+        setAssistantMailActionState((current) => ({
+            ...current,
+            [messageId]: {
+                status: "sending",
+                editing: false,
+                error: null,
+                dispatchId: current[messageId]?.dispatchId ?? null,
+            },
+        }));
+        try {
+            const dispatch = await sendResumeMailRequest(
+                {
+                    sender_config_id: preparedMail.sender_config_id,
+                    candidate_ids: preparedMail.candidate_ids,
+                    recipient_ids: preparedMail.recipient_ids,
+                    recipient_emails: preparedMail.recipients
+                        .filter((item) => item.source === "direct_email")
+                        .map((item) => item.email),
+                    subject: preparedMail.subject.trim() || null,
+                    body_text: preparedMail.body_text.trim() || null,
+                },
+                {successMessage: "简历邮件已发送", closeDialog: false},
+            );
+            if (!dispatch) {
+                throw new Error("邮件发送失败");
+            }
+            setAssistantMailActionState((current) => ({
+                ...current,
+                [messageId]: {
+                    status: "sent",
+                    editing: false,
+                    error: null,
+                    dispatchId: dispatch.id,
+                },
+            }));
+            setChatMessages((current) => [
+                ...current,
+                {
+                    id: `a-mail-sent-${Date.now()}`,
+                    role: "assistant",
+                    content: `已发送简历邮件。\n- 发送记录：#${dispatch.id}\n- 收件人：${dispatch.recipient_emails.join("、")}\n- 附件：${dispatch.attachment_count} 份简历`,
+                    createdAt: new Date().toISOString(),
+                    sourceRunType: "stream",
+                },
+            ]);
+        } catch (error) {
+            const message = formatActionError(error);
+            setAssistantMailActionState((current) => ({
+                ...current,
+                [messageId]: {
+                    status: "error",
+                    editing: false,
+                    error: message,
+                    dispatchId: current[messageId]?.dispatchId ?? null,
+                },
+            }));
         }
     }
 
@@ -3347,7 +3604,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         setResumeMailSubmitting(true);
         try {
-            await sendResumeMailRequest(
+            const sourceAssistantMessageId = resumeMailSourceAssistantMessageId;
+            if (sourceAssistantMessageId) {
+                setAssistantMailActionState((current) => ({
+                    ...current,
+                    [sourceAssistantMessageId]: {
+                        status: "sending",
+                        editing: false,
+                        error: null,
+                        dispatchId: current[sourceAssistantMessageId]?.dispatchId ?? null,
+                    },
+                }));
+            }
+            const dispatch = await sendResumeMailRequest(
                 {
                     sender_config_id: resumeMailForm.senderConfigId ? Number(resumeMailForm.senderConfigId) : null,
                     candidate_ids: resumeMailForm.candidateIds,
@@ -3358,8 +3627,37 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 },
                 {successMessage: resumeMailDialogMode === "resend" ? "简历邮件已再次发送" : "简历邮件已发送"},
             );
+            if (sourceAssistantMessageId) {
+                setAssistantMailActionState((current) => ({
+                    ...current,
+                    [sourceAssistantMessageId]: dispatch ? {
+                        status: "sent",
+                        editing: false,
+                        error: null,
+                        dispatchId: dispatch.id,
+                    } : {
+                        status: "error",
+                        editing: false,
+                        error: "邮件发送失败",
+                        dispatchId: current[sourceAssistantMessageId]?.dispatchId ?? null,
+                    },
+                }));
+                if (dispatch) {
+                    setChatMessages((current) => [
+                        ...current,
+                        {
+                            id: `a-mail-dialog-sent-${Date.now()}`,
+                            role: "assistant",
+                            content: `${resumeMailDialogMode === "resend" ? "已再次发送简历邮件。" : "已发送简历邮件。"}\n- 发送记录：#${dispatch.id}\n- 收件人：${dispatch.recipient_emails.join("、")}\n- 附件：${dispatch.attachment_count} 份简历`,
+                            createdAt: new Date().toISOString(),
+                            sourceRunType: "stream",
+                        },
+                    ]);
+                }
+            }
         } finally {
             setResumeMailSubmitting(false);
+            setResumeMailSourceAssistantMessageId(null);
         }
     }
 
@@ -3836,9 +4134,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             </div>
                         </div>
 
+                        <div className="relative min-h-0 flex-1">
                         <div
                             ref={assistantScrollAreaRef}
-                            className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+                            onScroll={handleAssistantScroll}
+                            className="min-h-0 h-full flex-1 overflow-y-auto [scrollbar-gutter:stable]"
                         >
                             <div className="space-y-4 px-5 py-5">
                                 {chatMessages.map((message) => (
@@ -3878,6 +4178,85 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         {option.label}
                                                     </Button>
                                                 ))}
+                                            </div>
+                                        ) : null}
+                                        {message.mailConfirmationRequest ? (
+                                            <div className="mt-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950/70 dark:text-slate-300">
+                                                <div className="space-y-3">
+                                                    <div>
+                                                        <p className="font-medium text-slate-900 dark:text-slate-100">邮件发送预览</p>
+                                                        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                            先确认发送，再真正触发邮件发送。
+                                                        </p>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                        <p><span className="font-medium text-slate-900 dark:text-slate-100">候选人：</span>{message.mailConfirmationRequest.candidates.map((item) => item.name).join("、")}</p>
+                                                        <p><span className="font-medium text-slate-900 dark:text-slate-100">发件箱：</span>{message.mailConfirmationRequest.sender ? `${message.mailConfirmationRequest.sender.name} <${message.mailConfirmationRequest.sender.from_email}>` : "未配置"}</p>
+                                                        <p><span className="font-medium text-slate-900 dark:text-slate-100">收件人：</span>{message.mailConfirmationRequest.recipients.map((item) => item.name ? `${item.name} <${item.email}>` : item.email).join("、")}</p>
+                                                        <p><span className="font-medium text-slate-900 dark:text-slate-100">附件：</span>{message.mailConfirmationRequest.attachment_count} 份简历</p>
+                                                    </div>
+                                                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
+                                                        <p className="font-medium text-slate-900 dark:text-slate-100">邮件主题</p>
+                                                        <p className="mt-1 whitespace-pre-wrap break-words">{message.mailConfirmationRequest.subject}</p>
+                                                    </div>
+                                                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
+                                                        <p className="font-medium text-slate-900 dark:text-slate-100">邮件正文</p>
+                                                        <p className="mt-1 whitespace-pre-wrap break-words">{message.mailConfirmationRequest.body_text}</p>
+                                                    </div>
+                                                    {message.mailConfirmationRequest.blocking_reason ? (
+                                                        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                                                            {message.mailConfirmationRequest.blocking_reason}
+                                                        </div>
+                                                    ) : null}
+                                                    {assistantMailActionState[message.id]?.status === "error" && assistantMailActionState[message.id]?.error ? (
+                                                        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
+                                                            {assistantMailActionState[message.id]?.error}
+                                                        </div>
+                                                    ) : null}
+                                                    {assistantMailActionState[message.id]?.editing ? (
+                                                        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                            已进入编辑。你可以在弹窗里修改收件人、标题和正文后再发送。
+                                                        </div>
+                                                    ) : null}
+                                                    {assistantMailActionState[message.id]?.status === "sent" ? (
+                                                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                                                            已发送成功{assistantMailActionState[message.id]?.dispatchId ? `，发送记录 #${assistantMailActionState[message.id]?.dispatchId}` : ""}。
+                                                        </div>
+                                                    ) : null}
+                                                    <div className="flex flex-wrap gap-2">
+                                                        <Button
+                                                            size="sm"
+                                                            onMouseDown={preventAssistantActionFocusLoss}
+                                                            onClick={() => void confirmAssistantPreparedResumeMail(message.id, message.mailConfirmationRequest!)}
+                                                            disabled={!message.mailConfirmationRequest.can_confirm || assistantMailActionState[message.id]?.status === "sending" || assistantMailActionState[message.id]?.status === "sent"}
+                                                        >
+                                                            {assistantMailActionState[message.id]?.status === "sending" ? <Loader2 className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4"/>}
+                                                            {assistantMailActionState[message.id]?.status === "sent" ? "已发送" : assistantMailActionState[message.id]?.status === "sending" ? "发送中..." : "确认发送"}
+                                                        </Button>
+                                                        {assistantMailActionState[message.id]?.status === "sent" ? (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                onMouseDown={preventAssistantActionFocusLoss}
+                                                                onClick={() => openAssistantPreparedResumeMailDialog(message.id, message.mailConfirmationRequest!, "resend")}
+                                                            >
+                                                                <Send className="h-4 w-4"/>
+                                                                再次发送
+                                                            </Button>
+                                                        ) : (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                onMouseDown={preventAssistantActionFocusLoss}
+                                                                onClick={() => openAssistantPreparedResumeMailDialog(message.id, message.mailConfirmationRequest!)}
+                                                                disabled={assistantMailActionState[message.id]?.status === "sending"}
+                                                            >
+                                                                <ExternalLink className="h-4 w-4"/>
+                                                                编辑后发送
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
                                         ) : null}
                                         {message.role === "assistant" && (message.usedSkills?.length || message.logId || message.usedFallback || message.toolResults?.length || message.frontendDebug) ? (
@@ -3956,6 +4335,22 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 <div ref={assistantScrollAnchorRef}/>
                             </div>
                         </div>
+                            {showScrollToBottomButton ? (
+                                <div className="pointer-events-none absolute bottom-4 right-4 z-10">
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="pointer-events-auto rounded-full border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-950/90"
+                                        onMouseDown={preventAssistantActionFocusLoss}
+                                        onClick={() => scrollAssistantToBottom("smooth")}
+                                    >
+                                        <ChevronDown className="h-4 w-4"/>
+                                        回到底部
+                                    </Button>
+                                </div>
+                            ) : null}
+                        </div>
 
                         <div className="shrink-0 border-t border-slate-200/80 px-5 py-5 dark:border-slate-800">
                             <Textarea
@@ -3979,10 +4374,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 </p>
                                 <Button
                                     onClick={() => void sendChatMessage()}
-                                    disabled={chatSending || isCurrentChatTaskCancelling || (!activeChatTaskId && !chatInput.trim())}
+                                    variant={canStopCurrentRun ? "outline" : "default"}
+                                    disabled={isCurrentRunStopping || (!canStopCurrentRun && !chatInput.trim())}
                                 >
-                                    {activeChatTaskId ? <Square className="h-4 w-4"/> : <Send className="h-4 w-4"/>}
-                                    {isCurrentChatTaskCancelling ? "停止中..." : activeChatTaskId ? "停止生成" : "发送"}
+                                    {canStopCurrentRun ? <Square className="h-4 w-4"/> : <Send className="h-4 w-4"/>}
+                                    {isCurrentRunStopping ? "停止中..." : canStopCurrentRun ? "停止生成" : "发送"}
                                 </Button>
                             </div>
                         </div>
@@ -5817,8 +6213,24 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 onOpenChange={(open) => {
                     setResumeMailDialogOpen(open);
                     if (!open) {
+                        if (resumeMailSourceAssistantMessageId) {
+                            setAssistantMailActionState((current) => {
+                                const currentState = current[resumeMailSourceAssistantMessageId];
+                                if (!currentState?.editing) {
+                                    return current;
+                                }
+                                return {
+                                    ...current,
+                                    [resumeMailSourceAssistantMessageId]: {
+                                        ...currentState,
+                                        editing: false,
+                                    },
+                                };
+                            });
+                        }
                         setResumeMailDialogMode("send");
                         setResumeMailSourceDispatchId(null);
+                        setResumeMailSourceAssistantMessageId(null);
                     }
                 }}
             >
