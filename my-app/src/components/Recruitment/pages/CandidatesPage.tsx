@@ -12,7 +12,9 @@ import {
     Loader2,
     Mail,
     NotebookText,
+    RotateCcw,
     Save,
+    SlidersHorizontal,
     Sparkles,
     Square,
 } from "lucide-react";
@@ -226,12 +228,230 @@ function InterviewQuestionCard({
     );
 }
 
-type CandidatesPageProps = {
-    panelClass?: string;
-    candidateFiltersCollapsed: boolean;
+function CandidateFilterBar({
+    candidateFilterSummary,
+    candidateViewMode,
+    setCandidateViewMode,
+    candidateQuery,
+    setCandidateQuery,
+    candidatePositionFilter,
+    setCandidatePositionFilter,
+    candidateStatusFilter,
+    setCandidateStatusFilter,
+    candidateMatchFilter,
+    setCandidateMatchFilter,
+    candidateSourceFilter,
+    setCandidateSourceFilter,
+    candidateTimeFilter,
+    setCandidateTimeFilter,
+    positions,
+    sourceOptions,
+    visibleCandidateCount,
+    onCollapse,
+}: {
+    candidateFilterSummary: string;
     candidateViewMode: CandidateViewMode;
     setCandidateViewMode: React.Dispatch<React.SetStateAction<CandidateViewMode>>;
-    setCandidateFiltersCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
+    candidateQuery: string;
+    setCandidateQuery: (value: string) => void;
+    candidatePositionFilter: string;
+    setCandidatePositionFilter: React.Dispatch<React.SetStateAction<string>>;
+    candidateStatusFilter: string;
+    setCandidateStatusFilter: React.Dispatch<React.SetStateAction<string>>;
+    candidateMatchFilter: string;
+    setCandidateMatchFilter: React.Dispatch<React.SetStateAction<string>>;
+    candidateSourceFilter: string;
+    setCandidateSourceFilter: React.Dispatch<React.SetStateAction<string>>;
+    candidateTimeFilter: string;
+    setCandidateTimeFilter: React.Dispatch<React.SetStateAction<string>>;
+    positions: PositionSummary[];
+    sourceOptions: string[];
+    visibleCandidateCount: number;
+    onCollapse: () => void;
+}) {
+    const summaryChips = React.useMemo(() => (
+        candidateFilterSummary
+            .split("·")
+            .map((item) => item.trim())
+            .filter(Boolean)
+    ), [candidateFilterSummary]);
+
+    const hasActiveFilters = React.useMemo(() => (
+        candidateQuery.trim().length > 0
+        || candidatePositionFilter !== "all"
+        || candidateStatusFilter !== "all"
+        || candidateMatchFilter !== "all"
+        || candidateSourceFilter !== "all"
+        || candidateTimeFilter !== "all"
+    ), [
+        candidateMatchFilter,
+        candidatePositionFilter,
+        candidateQuery,
+        candidateSourceFilter,
+        candidateStatusFilter,
+        candidateTimeFilter,
+    ]);
+
+    const resetFilters = React.useCallback(() => {
+        setCandidateQuery("");
+        setCandidatePositionFilter("all");
+        setCandidateStatusFilter("all");
+        setCandidateMatchFilter("all");
+        setCandidateSourceFilter("all");
+        setCandidateTimeFilter("all");
+    }, [
+        setCandidateMatchFilter,
+        setCandidatePositionFilter,
+        setCandidateQuery,
+        setCandidateSourceFilter,
+        setCandidateStatusFilter,
+        setCandidateTimeFilter,
+    ]);
+
+    const isChipActive = React.useCallback((chip: string) => (
+        chip.startsWith("关键词：")
+        || (!chip.startsWith("全部") && chip !== "无关键词")
+    ), []);
+
+    const fieldLabelClassName = "mb-1 block text-[10px] font-medium tracking-wide text-slate-500 dark:text-slate-400";
+
+    return (
+        <Card className={cn(defaultPanelClass, "gap-0 py-0")}>
+            <CardContent className="px-4 py-2.5 sm:px-5">
+                <div className="flex flex-wrap items-center gap-2.5">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200/80 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                            <SlidersHorizontal className="h-3.5 w-3.5"/>
+                        </div>
+                        <span className="shrink-0 text-sm font-medium text-slate-900 dark:text-slate-100">筛选</span>
+                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                            {summaryChips.map((chip) => (
+                                <span
+                                    key={chip}
+                                    className={cn(
+                                        "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 text-[11px] transition",
+                                        isChipActive(chip)
+                                            ? "border-slate-400 bg-slate-100/95 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                                            : "border-slate-200/80 bg-white/80 text-slate-500 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-400",
+                                    )}
+                                >
+                                    <span className="truncate">{chip}</span>
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                        <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
+                            <Button size="sm" variant={candidateViewMode === "list" ? "default" : "ghost"} onClick={() => setCandidateViewMode("list")}>
+                                <List className="h-4 w-4"/>
+                                列表
+                            </Button>
+                            <Button size="sm" variant={candidateViewMode === "board" ? "default" : "ghost"} onClick={() => setCandidateViewMode("board")}>
+                                <LayoutGrid className="h-4 w-4"/>
+                                看板
+                            </Button>
+                        </div>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={onCollapse}
+                            className="h-8 rounded-full border-slate-200/80 bg-white/90 px-3 dark:border-slate-800 dark:bg-slate-950/90"
+                            title="收起筛选"
+                        >
+                            <ChevronUp className="h-4 w-4"/>
+                            收起筛选
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="mt-2 border-t border-slate-200/80 pt-2 dark:border-slate-800">
+                    <div className="grid gap-2.5 xl:grid-cols-[minmax(0,1.45fr)_repeat(5,minmax(0,0.88fr))]">
+                        <div className="space-y-1">
+                            <label className={fieldLabelClassName}>搜索</label>
+                            <SearchField value={candidateQuery} onChange={setCandidateQuery} placeholder="搜索候选人、手机号、邮箱、公司"/>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={fieldLabelClassName}>岗位</label>
+                            <NativeSelect value={candidatePositionFilter} onChange={(event) => setCandidatePositionFilter(event.target.value)}>
+                                <option value="all">全部岗位</option>
+                                {positions.map((position) => (
+                                    <option key={position.id} value={position.id}>
+                                        {position.title}
+                                    </option>
+                                ))}
+                            </NativeSelect>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={fieldLabelClassName}>状态</label>
+                            <NativeSelect value={candidateStatusFilter} onChange={(event) => setCandidateStatusFilter(event.target.value)}>
+                                <option value="all">全部状态</option>
+                                {Object.entries(candidateStatusLabels).map(([value, label]) => (
+                                    <option key={value} value={value}>
+                                        {label}
+                                    </option>
+                                ))}
+                            </NativeSelect>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={fieldLabelClassName}>匹配度</label>
+                            <NativeSelect value={candidateMatchFilter} onChange={(event) => setCandidateMatchFilter(event.target.value)}>
+                                <option value="all">全部匹配度</option>
+                                <option value="80+">80% 以上</option>
+                                <option value="60+">60% 以上</option>
+                                <option value="40+">40% 以上</option>
+                            </NativeSelect>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={fieldLabelClassName}>来源</label>
+                            <NativeSelect value={candidateSourceFilter} onChange={(event) => setCandidateSourceFilter(event.target.value)}>
+                                <option value="all">全部来源</option>
+                                {sourceOptions.map((source) => (
+                                    <option key={source} value={source}>
+                                        {source}
+                                    </option>
+                                ))}
+                            </NativeSelect>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={fieldLabelClassName}>时间</label>
+                            <NativeSelect value={candidateTimeFilter} onChange={(event) => setCandidateTimeFilter(event.target.value)}>
+                                <option value="all">全部时间</option>
+                                <option value="today">今天</option>
+                                <option value="7d">近 7 天</option>
+                                <option value="30d">近 30 天</option>
+                            </NativeSelect>
+                        </div>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-2 dark:border-slate-800">
+                        <div className="flex items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400">
+                            <span>共匹配到 <span className="font-medium text-slate-900 dark:text-slate-100">{visibleCandidateCount}</span> 位候选人</span>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-auto px-0 py-0 text-xs text-slate-500 hover:bg-transparent hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                                onClick={resetFilters}
+                                disabled={!hasActiveFilters}
+                            >
+                                <RotateCcw className="h-3.5 w-3.5"/>
+                                重置
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
+
+type CandidatesPageProps = {
+    panelClass?: string;
+    candidateFilterSummary: string;
+    candidateViewMode: CandidateViewMode;
+    setCandidateViewMode: React.Dispatch<React.SetStateAction<CandidateViewMode>>;
     candidateQuery: string;
     setCandidateQuery: (value: string) => void;
     candidatePositionFilter: string;
@@ -306,10 +526,9 @@ type CandidatesPageProps = {
 
 export function CandidatesPage({
     panelClass = defaultPanelClass,
-    candidateFiltersCollapsed,
+    candidateFilterSummary,
     candidateViewMode,
     setCandidateViewMode,
-    setCandidateFiltersCollapsed,
     candidateQuery,
     setCandidateQuery,
     candidatePositionFilter,
@@ -386,6 +605,7 @@ export function CandidatesPage({
     const [candidateListViewportHeight, setCandidateListViewportHeight] = React.useState(0);
     const [candidateListMeasuredRowHeights, setCandidateListMeasuredRowHeights] = React.useState<Record<number, number>>({});
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
+    const [candidateFilterBarExpanded, setCandidateFilterBarExpanded] = React.useState(false);
     const candidateListMetricsFrameRef = React.useRef<number | null>(null);
     const candidateListRowObserversRef = React.useRef<Map<number, ResizeObserver>>(new Map());
 
@@ -632,134 +852,85 @@ export function CandidatesPage({
             candidateDetail.candidate.position_title,
             candidateDetail.candidate.years_of_experience,
             candidateDetail.candidate.education,
+            candidateDetail.candidate.phone || candidateDetail.candidate.email,
         ].filter(Boolean).join(" · ")
         : "";
-    const candidateDetailIdentityMeta = candidateDetail
-        ? [
-            candidateDetail.candidate.candidate_code,
-            candidateDetail.candidate.current_company,
-        ].filter(Boolean).join(" · ")
-        : "";
+    const candidateDetailIdentityMeta = candidateDetail?.candidate.current_company || "";
     const primaryResumeFile = candidateDetail?.resume_files[0] ?? null;
     const latestInterviewQuestion = candidateDetail?.interview_questions[0] ?? null;
 
     return (
         <div
             className={cn(
-                "grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden",
-                candidateFiltersCollapsed ? "gap-0" : "gap-4 2xl:gap-6",
+                "grid h-full min-h-0 overflow-hidden",
+                candidateFilterBarExpanded
+                    ? "grid-rows-[auto_minmax(0,1fr)] gap-4 2xl:gap-6"
+                    : "grid-rows-[minmax(0,1fr)] gap-0",
             )}
         >
-            {candidateFiltersCollapsed ? (
-                <div className="relative z-20 h-0">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => setCandidateFiltersCollapsed(false)}
-                        className="absolute left-1/2 top-0 h-6 w-11 -translate-x-1/2 -translate-y-1/2 rounded-full border border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
-                        title="展开筛选"
-                    >
-                        <ChevronDown className="h-3.5 w-3.5"/>
-                    </Button>
-                </div>
-            ) : (
-                <div className="relative">
-                    <Card className={panelClass}>
-                        <CardContent className="px-4 py-3.5 sm:px-5">
-                            <div className="flex flex-wrap items-center justify-center gap-2.5">
-                                <div className="grid w-full max-w-[1120px] gap-2.5 md:grid-cols-3 xl:grid-cols-[1.45fr_repeat(2,minmax(0,0.95fr))]">
-                                    <SearchField value={candidateQuery} onChange={setCandidateQuery} placeholder="搜索候选人、手机号、邮箱、公司"/>
-                                    <NativeSelect value={candidatePositionFilter} onChange={(event) => setCandidatePositionFilter(event.target.value)}>
-                                        <option value="all">全部岗位</option>
-                                        {positions.map((position) => (
-                                            <option key={position.id} value={position.id}>
-                                                {position.title}
-                                            </option>
-                                        ))}
-                                    </NativeSelect>
-                                    <NativeSelect value={candidateStatusFilter} onChange={(event) => setCandidateStatusFilter(event.target.value)}>
-                                        <option value="all">全部状态</option>
-                                        {Object.entries(candidateStatusLabels).map(([value, label]) => (
-                                            <option key={value} value={value}>
-                                                {label}
-                                            </option>
-                                        ))}
-                                    </NativeSelect>
-                                    <NativeSelect value={candidateMatchFilter} onChange={(event) => setCandidateMatchFilter(event.target.value)}>
-                                        <option value="all">全部匹配度</option>
-                                        <option value="80+">80% 以上</option>
-                                        <option value="60+">60% 以上</option>
-                                        <option value="40+">40% 以上</option>
-                                    </NativeSelect>
-                                    <NativeSelect value={candidateSourceFilter} onChange={(event) => setCandidateSourceFilter(event.target.value)}>
-                                        <option value="all">全部来源</option>
-                                        {sourceOptions.map((source) => (
-                                            <option key={source} value={source}>
-                                                {source}
-                                            </option>
-                                        ))}
-                                    </NativeSelect>
-                                    <NativeSelect value={candidateTimeFilter} onChange={(event) => setCandidateTimeFilter(event.target.value)}>
-                                        <option value="all">全部时间</option>
-                                        <option value="today">今天</option>
-                                        <option value="7d">近 7 天</option>
-                                        <option value="30d">近 30 天</option>
-                                    </NativeSelect>
-                                </div>
-                                <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
-                                    <Button size="sm" variant={candidateViewMode === "list" ? "default" : "ghost"} onClick={() => setCandidateViewMode("list")}>
-                                        <List className="h-4 w-4"/>
-                                        列表
-                                    </Button>
-                                    <Button size="sm" variant={candidateViewMode === "board" ? "default" : "ghost"} onClick={() => setCandidateViewMode("board")}>
-                                        <LayoutGrid className="h-4 w-4"/>
-                                        看板
-                                    </Button>
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => setCandidateFiltersCollapsed(true)}
-                        className="absolute left-1/2 top-0 z-20 h-6 w-11 -translate-x-1/2 -translate-y-1/2 rounded-full border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
-                        title="收起筛选"
-                    >
-                        <ChevronUp className="h-3.5 w-3.5"/>
-                    </Button>
-                </div>
-            )}
+            {candidateFilterBarExpanded ? (
+                <CandidateFilterBar
+                    candidateFilterSummary={candidateFilterSummary}
+                    candidateViewMode={candidateViewMode}
+                    setCandidateViewMode={setCandidateViewMode}
+                    candidateQuery={candidateQuery}
+                    setCandidateQuery={setCandidateQuery}
+                    candidatePositionFilter={candidatePositionFilter}
+                    setCandidatePositionFilter={setCandidatePositionFilter}
+                    candidateStatusFilter={candidateStatusFilter}
+                    setCandidateStatusFilter={setCandidateStatusFilter}
+                    candidateMatchFilter={candidateMatchFilter}
+                    setCandidateMatchFilter={setCandidateMatchFilter}
+                    candidateSourceFilter={candidateSourceFilter}
+                    setCandidateSourceFilter={setCandidateSourceFilter}
+                    candidateTimeFilter={candidateTimeFilter}
+                    setCandidateTimeFilter={setCandidateTimeFilter}
+                    positions={positions}
+                    sourceOptions={sourceOptions}
+                    visibleCandidateCount={visibleCandidates.length}
+                    onCollapse={() => setCandidateFilterBarExpanded(false)}
+                />
+            ) : null}
 
-            <div className="grid min-h-0 items-stretch gap-4 2xl:gap-6 overflow-hidden xl:grid-cols-[minmax(280px,0.62fr)_minmax(0,1.38fr)] 2xl:grid-cols-[minmax(300px,0.65fr)_minmax(0,1.35fr)]">
-                <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
-                    <CardHeader className="py-3 pb-0">
+            <div className="grid min-h-0 items-stretch gap-4 overflow-hidden 2xl:gap-6 xl:grid-cols-[minmax(300px,0.44fr)_minmax(0,0.56fr)] 2xl:grid-cols-[minmax(320px,0.44fr)_minmax(0,0.56fr)]">
+                <Card className={cn(panelClass, "min-h-0 !gap-0 overflow-hidden !py-0")}>
+                    <CardHeader className="px-4 py-2 pb-0 sm:px-5">
                         <div className="flex items-center justify-between gap-3">
                             <CardTitle className="text-base">候选人列表</CardTitle>
-                            <Badge variant="outline" className="rounded-full">{visibleCandidates.length} 人</Badge>
+                            <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="rounded-full">{visibleCandidates.length} 人</Badge>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 rounded-md px-2.5 text-xs"
+                                    onClick={() => setCandidateFilterBarExpanded((current) => !current)}
+                                >
+                                    <SlidersHorizontal className="h-4 w-4"/>
+                                    {candidateFilterBarExpanded ? "收起筛选" : "筛选"}
+                                </Button>
+                            </div>
                         </div>
                     </CardHeader>
-                    <CardContent className="flex min-h-0 flex-1 flex-col pt-3">
-                        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                    <CardContent className="flex min-h-0 flex-1 flex-col px-4 pt-1.5 pb-3 sm:px-5">
+                        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
                                 已选中 <span className="font-semibold text-slate-900 dark:text-slate-100">{selectedCandidateIds.length}</span> 位候选人
                             </p>
                             <div className="flex flex-wrap gap-2">
-                                <Button size="sm" variant="outline" onClick={() => setSelectedCandidateIds([])} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-8 rounded-md px-2.5 text-xs" onClick={() => setSelectedCandidateIds([])} disabled={!selectedCandidateIds.length}>
                                     清空选择
                                 </Button>
                                 <Button
                                     size="sm"
                                     variant="outline"
+                                    className="h-8 rounded-md px-2.5 text-xs"
                                     onClick={() => void triggerScreening(selectedCandidateIds)}
                                     disabled={isBatchScreeningCancelling || (screeningSubmitting && !isBatchScreeningRunning) || (!isBatchScreeningRunning && !selectedCandidateIds.length)}
                                 >
                                     {isBatchScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : isBatchScreeningRunning ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
                                     {isBatchScreeningCancelling ? "停止中..." : isBatchScreeningRunning ? "停止批量初筛" : screeningSubmitting ? "启动中..." : "批量开始初筛"}
                                 </Button>
-                                <Button size="sm" variant="outline" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-8 rounded-md px-2.5 text-xs" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Mail className="h-4 w-4"/>
                                     批量发送简历
                                 </Button>
@@ -959,7 +1130,7 @@ export function CandidatesPage({
                             </div>
                         ) : (
                             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
-                                <div className="grid gap-4 xl:grid-cols-3">
+                                <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
                                     {groupedCandidates.map((group) => (
                                         <div key={group.status} className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/60">
                                             <div className="mb-4 flex items-center justify-between gap-2">
@@ -984,14 +1155,18 @@ export function CandidatesPage({
                                                                 className="min-w-0 flex-1 text-left"
                                                             >
                                                                 <div className="flex flex-wrap items-center gap-2">
-                                                                    <p className="font-medium">{candidate.name}</p>
+                                                                    <p className="line-clamp-2 break-words text-sm font-medium leading-6">
+                                                                        {candidate.name}
+                                                                    </p>
                                                                     {getCandidateResumeMailSummary(candidate.id) ? (
                                                                         <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
                                                                             已发简历
                                                                         </Badge>
                                                                     ) : null}
                                                                 </div>
-                                                                <p className="mt-1 text-xs opacity-80">{candidate.position_title || "未分配岗位"}</p>
+                                                                <p className="mt-1 line-clamp-2 break-words text-xs leading-5 opacity-80">
+                                                                    {candidate.position_title || "未分配岗位"}
+                                                                </p>
                                                                 {getCandidateResumeMailSummary(candidate.id) ? (
                                                                     <p className="mt-2 text-[11px] opacity-80">{getCandidateResumeMailSummary(candidate.id)}</p>
                                                                 ) : null}
@@ -1054,7 +1229,6 @@ export function CandidatesPage({
                                         </div>
                                         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                                             {candidateDetailIdentityMeta ? <span>{candidateDetailIdentityMeta}</span> : null}
-                                            <span>{candidateDetail.candidate.phone || candidateDetail.candidate.email || "未填写联系方式"}</span>
                                         </div>
                                     </div>
                             </div>

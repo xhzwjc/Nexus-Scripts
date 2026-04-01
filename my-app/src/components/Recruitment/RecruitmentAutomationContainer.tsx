@@ -264,7 +264,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [positionListCollapsed, setPositionListCollapsed] = useState(false);
     const [positionWorkspaceView, setPositionWorkspaceView] = useState<"jd" | "config">("jd");
     const [positionSecondaryPanelOpen, setPositionSecondaryPanelOpen] = useState(false);
-    const [candidateFiltersCollapsed, setCandidateFiltersCollapsed] = useState(true);
     const [auditFiltersCollapsed, setAuditFiltersCollapsed] = useState(true);
     const [bootstrapping, setBootstrapping] = useState(true);
     const activePrimaryNavPage = assistantOpen ? "assistant" : activePage;
@@ -746,6 +745,37 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     const recentCandidates = dashboard?.recent_candidates || [];
     const recentLogs = aiLogs.slice(0, 6);
+    const candidateFilterSummary = useMemo(() => {
+        const positionLabel = candidatePositionFilter === "all"
+            ? "全部岗位"
+            : (positions.find((position) => String(position.id) === candidatePositionFilter)?.title || "指定岗位");
+        const statusLabel = candidateStatusFilter === "all"
+            ? "全部状态"
+            : (candidateStatusLabels[candidateStatusFilter] || candidateStatusFilter);
+        const matchLabel = ({
+            all: "全部匹配度",
+            "80+": "80% 以上",
+            "60+": "60% 以上",
+            "40+": "40% 以上",
+        } as Record<string, string>)[candidateMatchFilter] || candidateMatchFilter;
+        const sourceLabel = candidateSourceFilter === "all" ? "全部来源" : candidateSourceFilter;
+        const timeLabel = ({
+            all: "全部时间",
+            today: "今天",
+            "7d": "近 7 天",
+            "30d": "近 30 天",
+        } as Record<string, string>)[candidateTimeFilter] || candidateTimeFilter;
+        const keywordLabel = candidateQuery.trim() ? `关键词：${candidateQuery.trim()}` : "无关键词";
+        return [positionLabel, statusLabel, matchLabel, sourceLabel, timeLabel, keywordLabel].join(" · ");
+    }, [
+        candidateMatchFilter,
+        candidatePositionFilter,
+        candidateQuery,
+        candidateSourceFilter,
+        candidateStatusFilter,
+        candidateTimeFilter,
+        positions,
+    ]);
     const auditFilterSummary = useMemo(() => {
         const taskTypeLabel = logTaskTypeFilter === "all"
             ? "全部任务类型"
@@ -4691,19 +4721,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                 <div className="min-h-0 overflow-hidden">
                     {positionDetailLoading ? <LoadingPanel label="正在加载岗位详情"/> : positionDetail ? (
-                        <div className="flex h-full min-h-0 flex-col gap-4 2xl:gap-6">
-                            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-2.5 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
-                                <Badge className={cn("rounded-full border", statusBadgeClass("position", positionDetail.position.status))}>
-                                    {labelForPositionStatus(positionDetail.position.status)}
-                                </Badge>
-                                <h2 className="text-[1.15rem] font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-                                    {positionDetail.position.title}
-                                </h2>
-                                <span className="text-xs text-slate-500 dark:text-slate-400">
-                                    {positionDetail.position.location || "未设置地点"} · {positionDetail.position.employment_type || "未设置用工类型"} · {positionDetail.position.salary_range || "未设置薪资"}
-                                </span>
-                            </div>
-
+                        <div className="flex h-full min-h-0 flex-col gap-3 2xl:gap-5">
                             <div
                                 className={cn(
                                     "grid min-h-0 gap-4 2xl:gap-6 xl:flex-1",
@@ -4713,26 +4731,44 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 )}
                             >
                                 <div className="min-h-0 space-y-4 overflow-y-auto xl:pr-2 xl:[scrollbar-gutter:stable] 2xl:space-y-6">
-                                    <div className="space-y-2">
-                                        <div className="flex flex-wrap items-center justify-between gap-3">
-                                            <div className="flex flex-wrap gap-2">
-                                                <Button size="sm" variant={positionWorkspaceView === "jd" ? "default" : "outline"} onClick={() => setPositionWorkspaceView("jd")}>
-                                                    当前 JD
-                                                </Button>
-                                                <Button size="sm" variant={positionWorkspaceView === "config" ? "default" : "outline"} onClick={() => setPositionWorkspaceView("config")}>
-                                                    岗位配置
-                                                </Button>
-                                            </div>
-                                            <Button size="sm" variant="outline" onClick={() => setPositionSecondaryPanelOpen((current) => !current)}>
-                                                {positionSecondaryPanelOpen ? "收起次级区" : "版本与关联"}
+                                    <div
+                                        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white/70 px-3 py-2 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/60"
+                                    >
+                                        <div className="flex min-w-0 shrink flex-wrap items-center gap-2">
+                                            <Button
+                                                size="sm"
+                                                className="h-8 rounded-xl px-3 text-xs"
+                                                variant={positionWorkspaceView === "jd" ? "default" : "outline"}
+                                                onClick={() => setPositionWorkspaceView("jd")}
+                                            >
+                                                当前 JD
                                             </Button>
+                                            <Button
+                                                size="sm"
+                                                className="h-8 rounded-xl px-3 text-xs"
+                                                variant={positionWorkspaceView === "config" ? "default" : "outline"}
+                                                onClick={() => setPositionWorkspaceView("config")}
+                                            >
+                                                岗位配置
+                                            </Button>
+                                            <span className="min-w-0 truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                {positionDetail.position.title}
+                                            </span>
                                         </div>
-                                        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
-                                            <span>招聘人数 {positionDetail.position.headcount}</span>
-                                            <span>JD 版本 {positionDetail.jd_versions.length}</span>
-                                            <span>候选人 {positionDetail.candidates.length}</span>
-                                            <span>最近更新 {formatDateTime(positionDetail.position.updated_at)}</span>
+                                        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] leading-none text-slate-500 dark:text-slate-400">
+                                            <span className="whitespace-nowrap">招聘人数 {positionDetail.position.headcount}</span>
+                                            <span className="whitespace-nowrap">JD 版本 {positionDetail.jd_versions.length}</span>
+                                            <span className="whitespace-nowrap">候选人 {positionDetail.candidates.length}</span>
+                                            <span className="whitespace-nowrap">最近更新 {formatDateTime(positionDetail.position.updated_at)}</span>
                                         </div>
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-8 shrink-0 rounded-xl px-3 text-xs"
+                                            onClick={() => setPositionSecondaryPanelOpen((current) => !current)}
+                                        >
+                                            {positionSecondaryPanelOpen ? "收起次级区" : "版本与关联"}
+                                        </Button>
                                     </div>
 
                                     {positionWorkspaceView === "jd" ? (
@@ -5091,10 +5127,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return (
             <CandidatesPage
                 panelClass={panelClass}
-                candidateFiltersCollapsed={candidateFiltersCollapsed}
+                candidateFilterSummary={candidateFilterSummary}
                 candidateViewMode={candidateViewMode}
                 setCandidateViewMode={setCandidateViewMode}
-                setCandidateFiltersCollapsed={setCandidateFiltersCollapsed}
                 candidateQuery={candidateQuery}
                 setCandidateQuery={setCandidateQuery}
                 candidatePositionFilter={candidatePositionFilter}
