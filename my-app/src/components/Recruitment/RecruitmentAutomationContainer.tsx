@@ -408,7 +408,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         {
             id: "intro",
             role: "assistant",
-            content: "我是 AI 招聘工作台助手。你可以直接让我生成 JD、查看岗位候选人、重新初筛某位候选人并追加硬性条件，或者说明这次对话实际使用了哪些 Skills。",
+            content: "我是招聘助手。你可以直接让我生成 JD、查看岗位候选人、重新初筛某位候选人并追加硬性条件，或者说明这次对话实际使用了哪些 Skills。",
             createdAt: new Date().toISOString(),
         },
     ]);
@@ -4219,7 +4219,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <div>
                                 <div className="flex items-center gap-2">
                                     <Bot className="h-4 w-4 text-sky-600"/>
-                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI 招聘助手</p>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">招聘助手</p>
                                 </div>
                                 <p className="mt-1 hidden text-xs text-slate-500 dark:text-slate-400 2xl:block">
                                     在工作台里快速切上下文、带着推荐问题打开完整助手。
@@ -4298,7 +4298,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     <div className="flex items-center gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                         <div className="flex shrink-0 items-center gap-2">
                             <Bot className="h-4 w-4 text-sky-600"/>
-                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI 招聘助手</p>
+                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">招聘助手</p>
                         </div>
                         <div className="flex shrink-0 items-center gap-1">
                             <Button variant={isPage ? "default" : "ghost"} size="sm" className="h-7 rounded-full px-2.5 text-xs"
@@ -5374,7 +5374,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 <div
                     className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
                     <Loader2 className="h-4 w-4 animate-spin"/>
-                    正在加载 AI 招聘工作台...
+                    正在加载招聘工作台...
                 </div>
             </div>
         );
@@ -5484,7 +5484,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <SectionNavButton
                                 active={activePrimaryNavPage === "workspace"}
                                 icon={FolderKanban}
-                                title="招聘工作台"
+                                title="工作台"
                                 description="首页指标、待办、快捷操作与近期活动"
                                 count={dashboard?.cards.positions_recruiting ?? 0}
                                 collapsed={navCollapsed}
@@ -5508,7 +5508,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <SectionNavButton
                                 active={activePrimaryNavPage === "candidates"}
                                 icon={Users}
-                                title="候选人中心"
+                                title="候选人"
                                 description="ATS 列表、筛选、状态推进与档案查看"
                                 count={visibleCandidates.length}
                                 collapsed={navCollapsed}
@@ -5532,7 +5532,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <SectionNavButton
                                 active={activePrimaryNavPage === "assistant"}
                                 icon={Bot}
-                                title="AI 招聘助手"
+                                title="招聘助手"
                                 description="自然语言驱动岗位、候选人和 Skill 上下文"
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
@@ -5699,7 +5699,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     }}
                 >
                     <DialogHeader className="sr-only">
-                        <DialogTitle>AI 招聘助手</DialogTitle>
+                        <DialogTitle>招聘助手</DialogTitle>
                         <DialogDescription>用于生成
                             JD、查看岗位候选人、筛选简历和生成面试题的招聘助手对话面板。</DialogDescription>
                     </DialogHeader>

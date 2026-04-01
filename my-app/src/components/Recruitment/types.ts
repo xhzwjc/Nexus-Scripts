@@ -135,7 +135,7 @@ export type ChatMessage = {
 
 export const pageMeta: Record<RecruitmentPage, { title: string; description: string }> = {
     workspace: {
-        title: "招聘工作台",
+        title: "工作台",
         description: "聚合指标、待办、快捷动作和近期进展，一眼看清招聘推进状态。",
     },
     positions: {
@@ -143,7 +143,7 @@ export const pageMeta: Record<RecruitmentPage, { title: string; description: str
         description: "以岗位为主线查看基本信息、当前 JD、历史版本、发布状态和关联候选人。",
     },
     candidates: {
-        title: "候选人中心",
+        title: "候选人",
         description: "按 ATS 视角筛选、推进和查看候选人，右侧详情区承接 AI 评估和状态流转。",
     },
     audit: {
@@ -151,7 +151,7 @@ export const pageMeta: Record<RecruitmentPage, { title: string; description: str
         description: "追踪 JD 生成、初筛评分和面试题生成，兼容展示历史简历解析记录，支持失败排查与留痕复盘。",
     },
     assistant: {
-        title: "AI 招聘助手",
+        title: "招聘助手",
         description: "把岗位上下文、启用 Skill 和自然语言操作收拢到显眼且高频可用的工作区。",
     },
     "settings-skills": {

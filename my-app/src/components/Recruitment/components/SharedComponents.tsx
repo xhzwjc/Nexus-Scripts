@@ -28,7 +28,12 @@ export function HoverRevealText({
             <TooltipTrigger asChild>
                 <span className={cn("block min-w-0 truncate", className)}>{value}</span>
             </TooltipTrigger>
-            <TooltipContent className={cn("max-w-md whitespace-pre-wrap break-all text-white", tooltipClassName)}>
+            <TooltipContent
+                className={cn(
+                    "max-w-md whitespace-pre-wrap break-all rounded-xl border border-slate-200/80 bg-slate-950 px-3 py-2 text-slate-50 shadow-xl dark:border-slate-700 dark:bg-slate-100 dark:text-slate-900",
+                    tooltipClassName,
+                )}
+            >
                 {value}
             </TooltipContent>
         </Tooltip>
