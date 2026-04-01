@@ -195,6 +195,41 @@ async def update_candidate(candidate_id: int, payload: CandidateUpdateRequest, _
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+@recruitment_router.delete("/candidates/{candidate_id}")
+async def delete_candidate(
+    http_request: Request,
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.delete_candidate(candidate_id, session.get("id") or "unknown")
+        try:
+            write_audit_log(
+                db,
+                actor=session,
+                request=http_request,
+                action="recruitment.candidate.delete",
+                target_type="recruitment-candidate",
+                target_code=str(data.get("candidate_code") or candidate_id),
+                details={
+                    "candidate_id": data.get("candidate_id"),
+                    "candidate_name": data.get("candidate_name"),
+                    "position_id": data.get("position_id"),
+                    "removed_resume_count": data.get("removed_resume_count"),
+                    "removed_parse_result_count": data.get("removed_parse_result_count"),
+                },
+            )
+        except Exception:
+            pass
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except RecruitmentConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
 @recruitment_router.post("/candidates/{candidate_id}/status")
 async def update_candidate_status(candidate_id: int, payload: CandidateStatusUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
@@ -507,6 +542,39 @@ async def download_resume_file(resume_file_id: int, _session: Dict[str, Any] = D
         quoted_name = quote(file_name)
         headers = {"Content-Disposition": f"inline; filename=\"resume{file_extension}\"; filename*=UTF-8''{quoted_name}"}
         return Response(content=payload["content"], media_type=payload["media_type"], headers=headers)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.delete("/resume-files/{resume_file_id}")
+async def delete_resume_file(
+    http_request: Request,
+    resume_file_id: int,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.delete_resume_file(resume_file_id, session.get("id") or "unknown")
+        try:
+            write_audit_log(
+                db,
+                actor=session,
+                request=http_request,
+                action="recruitment.resume-file.delete",
+                target_type="recruitment-resume-file",
+                target_code=str(resume_file_id),
+                details={
+                    "resume_file_id": resume_file_id,
+                    "candidate_id": data.get("candidate_id"),
+                    "remaining_resume_count": data.get("remaining_resume_count"),
+                },
+            )
+        except Exception:
+            pass
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except RecruitmentConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 

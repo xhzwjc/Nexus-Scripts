@@ -1,10 +1,13 @@
 "use client";
 
 import React from "react";
+import ReactMarkdown from "react-markdown";
 import {
     Bot,
+    Check,
     ChevronDown,
     ChevronUp,
+    Copy,
     Download,
     ExternalLink,
     LayoutGrid,
@@ -17,6 +20,7 @@ import {
     SlidersHorizontal,
     Sparkles,
     Square,
+    Trash2,
 } from "lucide-react";
 
 import {
@@ -37,6 +41,12 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import {Input} from "@/components/ui/input";
 import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover";
 import {Textarea} from "@/components/ui/textarea";
@@ -72,6 +82,7 @@ import {
     labelForProvider,
     labelForTaskExecutionStatus,
     labelForTaskType,
+    parseStructuredLogOutput,
     resolveCandidateDisplayStatus,
     resolveLogSkillSnapshots,
     statusBadgeClass,
@@ -225,6 +236,247 @@ function InterviewQuestionCard({
                 </Button>
             </div>
         </div>
+    );
+}
+
+function buildCandidateScoreFallbackMarkdown(score?: CandidateDetail["score"] | null) {
+    if (!score) {
+        return "暂无 AI 评分输出。";
+    }
+    const embeddedReportMarkdown = String((score as Record<string, unknown>).report_markdown || "").trim();
+    if (embeddedReportMarkdown) {
+        return embeddedReportMarkdown;
+    }
+    const rawDimensions = Array.isArray((score as Record<string, unknown>).dimensions)
+        ? ((score as Record<string, unknown>).dimensions as Array<Record<string, unknown>>)
+        : [];
+    const dimensionLines = rawDimensions
+        .map((item) => {
+            const label = String(item.label || item.key || "").trim();
+            if (!label) {
+                return "";
+            }
+            const scoreValue = typeof item.score === "number" ? item.score : item.score != null ? String(item.score) : "-";
+            const maxScore = typeof item.max_score === "number" ? item.max_score : item.max_score != null ? String(item.max_score) : "-";
+            const noteParts = [
+                item.weight_text ? String(item.weight_text).trim() : "",
+                item.is_core ? "核心" : "",
+            ].filter(Boolean);
+            const reason = item.reason ? String(item.reason).trim() : "";
+            const evidence = Array.isArray(item.evidence)
+                ? item.evidence.map((entry) => String(entry || "").trim()).filter(Boolean).slice(0, 2)
+                : [];
+            const suffix = noteParts.length > 0 ? `（${noteParts.join(" · ")}）` : "";
+            const extra = [reason, evidence.length > 0 ? `证据：${evidence.join("；")}` : ""].filter(Boolean).join("；");
+            return `- ${label}：${scoreValue} / ${maxScore}${suffix}${extra ? ` — ${extra}` : ""}`;
+        })
+        .filter(Boolean);
+    const sections = [
+        "# AI 初筛结果",
+        `- 总分：${formatScoreValue(
+            score.total_score,
+            typeof score.total_score_scale === "number" ? score.total_score_scale : null,
+        )}`,
+        `- 匹配度：${formatPercent(score.match_percent)}`,
+        `- 推荐状态：${labelForCandidateStatus(score.suggested_status || "") || "未记录"}`,
+        "",
+        "## AI 建议",
+        score.recommendation || "暂无建议",
+        "",
+        ...(dimensionLines.length > 0
+            ? [
+                "## 逐维度评分",
+                ...dimensionLines,
+                "",
+            ]
+            : []),
+        "## 优势",
+        score.advantages_text || joinTags(Array.isArray(score.advantages) ? score.advantages as string[] : []) || "暂无",
+        "",
+        "## 风险点",
+        score.concerns_text || joinTags(Array.isArray(score.concerns) ? score.concerns as string[] : []) || "暂无",
+    ];
+    return sections.join("\n");
+}
+
+function buildStructuredAiOutputMarkdown(payload: Record<string, unknown>) {
+    const scoreValue = payload.total_score;
+    const matchPercent = payload.match_percent;
+    const recommendation = String(payload.recommendation || "").trim();
+    const suggestedStatus = String(payload.suggested_status || "").trim();
+    const advantages = Array.isArray(payload.advantages)
+        ? payload.advantages.map((item) => String(item || "").trim()).filter(Boolean)
+        : [];
+    const concerns = Array.isArray(payload.concerns)
+        ? payload.concerns.map((item) => String(item || "").trim()).filter(Boolean)
+        : [];
+    const dimensions = Array.isArray(payload.dimensions)
+        ? payload.dimensions as Array<Record<string, unknown>>
+        : [];
+    const dimensionLines = dimensions
+        .map((item) => {
+            const label = String(item.label || item.key || "").trim();
+            if (!label) {
+                return "";
+            }
+            const parts = [
+                item.weight_text ? String(item.weight_text).trim() : "",
+                item.is_core ? "核心" : "",
+            ].filter(Boolean);
+            const reason = item.reason ? String(item.reason).trim() : "";
+            const evidence = Array.isArray(item.evidence)
+                ? item.evidence.map((entry) => String(entry || "").trim()).filter(Boolean).slice(0, 2)
+                : [];
+            const suffix = parts.length > 0 ? `（${parts.join(" · ")}）` : "";
+            const extra = [reason, evidence.length > 0 ? `证据：${evidence.join("；")}` : ""].filter(Boolean).join("；");
+            return `- ${label}：${String(item.score ?? "-")} / ${String(item.max_score ?? "-")}${suffix}${extra ? ` — ${extra}` : ""}`;
+        })
+        .filter(Boolean);
+
+    return [
+        "# AI 初筛结果",
+        `- 总分：${typeof scoreValue === "number" ? scoreValue : String(scoreValue ?? "-")}`,
+        `- 匹配度：${typeof matchPercent === "number" ? `${matchPercent}%` : String(matchPercent ?? "-")}`,
+        `- 推荐状态：${labelForCandidateStatus(suggestedStatus) || suggestedStatus || "未记录"}`,
+        "",
+        "## AI 建议",
+        recommendation || "暂无建议",
+        "",
+        ...(dimensionLines.length > 0 ? ["## 逐维度评分", ...dimensionLines, ""] : []),
+        "## 优势",
+        ...(advantages.length > 0 ? advantages.map((item, index) => `${index + 1}. ${item}`) : ["暂无"]),
+        "",
+        "## 风险点",
+        ...(concerns.length > 0 ? concerns.map((item, index) => `${index + 1}. ${item}`) : ["暂无"]),
+    ].join("\n");
+}
+
+function resolveCandidateAiOutputPayload(
+    log?: AITaskLog | null,
+    score?: CandidateDetail["score"] | null,
+) {
+    const parsed = parseStructuredLogOutput(log?.output_snapshot);
+    let markdown = "";
+    let raw = "";
+    const scoreRecord = score && typeof score === "object" ? score as Record<string, unknown> : null;
+    const scoreReportMarkdown = String(scoreRecord?.report_markdown || "").trim();
+
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const payload = parsed as Record<string, unknown>;
+        const scorePayload = payload.score;
+        const scoreEnhancements = payload.score_enhancements;
+        if (scorePayload && typeof scorePayload === "object" && !Array.isArray(scorePayload)) {
+            const mergedScorePayload: Record<string, unknown> = {
+                ...(scorePayload as Record<string, unknown>),
+                ...(scoreEnhancements && typeof scoreEnhancements === "object" && !Array.isArray(scoreEnhancements)
+                    ? scoreEnhancements as Record<string, unknown>
+                    : {}),
+            };
+            const reportMarkdown = mergedScorePayload.report_markdown;
+            if (typeof reportMarkdown === "string" && reportMarkdown.trim()) {
+                markdown = reportMarkdown.trim();
+            } else {
+                markdown = buildStructuredAiOutputMarkdown(mergedScorePayload);
+            }
+        } else if ("total_score" in payload || "match_percent" in payload || "advantages" in payload || "concerns" in payload) {
+            markdown = buildStructuredAiOutputMarkdown(payload);
+        }
+        raw = formatStructuredValue(parsed, log?.output_summary || "");
+    } else if (typeof parsed === "string" && parsed.trim()) {
+        markdown = parsed.trim();
+        raw = parsed.trim();
+    }
+
+    if (scoreReportMarkdown && (!markdown || scoreReportMarkdown.length > markdown.length)) {
+        markdown = scoreReportMarkdown;
+    }
+
+    if (!markdown) {
+        markdown = buildCandidateScoreFallbackMarkdown(score);
+    }
+    if (!raw) {
+        raw = formatStructuredValue(parsed ?? scoreRecord ?? log?.output_snapshot, log?.output_summary || markdown);
+    }
+
+    return {markdown, raw};
+}
+
+function CandidateAiOutputDialog({
+    open,
+    onOpenChange,
+    markdown,
+    raw,
+    modelLabel,
+    generatedAt,
+}: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    markdown: string;
+    raw?: string | null;
+    modelLabel?: string | null;
+    generatedAt?: string | null;
+}) {
+    const [copied, setCopied] = React.useState(false);
+
+    React.useEffect(() => {
+        if (!open) {
+            setCopied(false);
+        }
+    }, [open]);
+
+    const copyContent = React.useCallback(async () => {
+        const content = (markdown || raw || "").trim();
+        if (!content) {
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(content);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+        } catch {
+            setCopied(false);
+        }
+    }, [markdown, raw]);
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="flex h-[min(88vh,900px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-5xl">
+                <DialogHeader>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                            <DialogTitle>完整 AI 输出</DialogTitle>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                                {modelLabel ? <span>模型：{modelLabel}</span> : null}
+                                {generatedAt ? <span>时间：{formatLongDateTime(generatedAt)}</span> : null}
+                            </div>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => void copyContent()} disabled={!(markdown || raw)?.trim()}>
+                            {copied ? <Check className="h-4 w-4"/> : <Copy className="h-4 w-4"/>}
+                            {copied ? "已复制" : "复制全文"}
+                        </Button>
+                    </div>
+                </DialogHeader>
+                <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+                    <div className="space-y-4 px-1 pb-2">
+                        <div className="rounded-[22px] border border-slate-200/80 bg-white/90 px-5 py-5 dark:border-slate-800 dark:bg-slate-950/70">
+                            <div className="prose prose-slate max-w-none text-sm leading-7 dark:prose-invert prose-headings:mb-3 prose-headings:mt-5 prose-headings:font-semibold prose-p:my-3 prose-ul:my-3 prose-ol:my-3 prose-li:my-1 prose-pre:rounded-2xl prose-pre:border prose-pre:border-slate-200/80 prose-pre:bg-slate-950 prose-pre:p-4 dark:prose-pre:border-slate-800">
+                                <ReactMarkdown>{markdown}</ReactMarkdown>
+                            </div>
+                        </div>
+                        {raw && raw.trim() && raw.trim() !== markdown.trim() ? (
+                            <details className="rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-5 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                <summary className="cursor-pointer text-sm font-medium text-slate-900 dark:text-slate-100">
+                                    查看结构化原始输出
+                                </summary>
+                                <pre className="mt-4 whitespace-pre-wrap break-all rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-4 text-xs leading-6 text-slate-700 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-300">
+                                    {raw}
+                                </pre>
+                            </details>
+                        ) : null}
+                    </div>
+                </div>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -489,6 +741,8 @@ type CandidatesPageProps = {
     isSelectedCandidateScreeningCancelling: boolean;
     selectedCandidateScreeningTaskId: number | null;
     openResumeFile: (file: ResumeFile, download?: boolean) => Promise<void>;
+    requestDeleteResumeFile: (file: ResumeFile) => void;
+    requestDeleteCandidate: (candidate: CandidateSummary) => void;
     generateInterviewQuestions: () => Promise<void>;
     isCurrentInterviewTaskCancelling: boolean;
     currentCandidateInterviewTaskId: number | null;
@@ -566,6 +820,8 @@ export function CandidatesPage({
     isSelectedCandidateScreeningCancelling,
     selectedCandidateScreeningTaskId,
     openResumeFile,
+    requestDeleteResumeFile,
+    requestDeleteCandidate,
     generateInterviewQuestions,
     isCurrentInterviewTaskCancelling,
     currentCandidateInterviewTaskId,
@@ -606,8 +862,73 @@ export function CandidatesPage({
     const [candidateListMeasuredRowHeights, setCandidateListMeasuredRowHeights] = React.useState<Record<number, number>>({});
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
     const [candidateFilterBarExpanded, setCandidateFilterBarExpanded] = React.useState(false);
+    const [candidateAiOutputDialogOpen, setCandidateAiOutputDialogOpen] = React.useState(false);
     const candidateListMetricsFrameRef = React.useRef<number | null>(null);
     const candidateListRowObserversRef = React.useRef<Map<number, ResizeObserver>>(new Map());
+    const candidateDetailToolbarScrollRef = React.useRef<HTMLDivElement | null>(null);
+    const candidateDetailToolbarRailRef = React.useRef<HTMLDivElement | null>(null);
+    const candidateDetailToolbarSyncSourceRef = React.useRef<"viewport" | "rail" | null>(null);
+    const [candidateDetailToolbarRailWidth, setCandidateDetailToolbarRailWidth] = React.useState(0);
+    const [candidateDetailToolbarHasOverflow, setCandidateDetailToolbarHasOverflow] = React.useState(false);
+
+    const updateCandidateDetailToolbarMetrics = React.useCallback(() => {
+        const node = candidateDetailToolbarScrollRef.current;
+        if (!node) {
+            setCandidateDetailToolbarRailWidth(0);
+            setCandidateDetailToolbarHasOverflow(false);
+            return;
+        }
+        setCandidateDetailToolbarRailWidth(node.scrollWidth);
+        setCandidateDetailToolbarHasOverflow(node.scrollWidth > node.clientWidth + 1);
+    }, []);
+
+    const syncCandidateDetailToolbarScroll = React.useCallback((left: number, source: "viewport" | "rail") => {
+        const viewport = candidateDetailToolbarScrollRef.current;
+        const rail = candidateDetailToolbarRailRef.current;
+
+        if (source !== "viewport" && viewport && Math.abs(viewport.scrollLeft - left) > 1) {
+            candidateDetailToolbarSyncSourceRef.current = "rail";
+            viewport.scrollLeft = left;
+        }
+        if (source !== "rail" && rail && Math.abs(rail.scrollLeft - left) > 1) {
+            candidateDetailToolbarSyncSourceRef.current = "viewport";
+            rail.scrollLeft = left;
+        }
+    }, []);
+
+    const handleCandidateDetailToolbarScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
+        if (candidateDetailToolbarSyncSourceRef.current === "rail") {
+            candidateDetailToolbarSyncSourceRef.current = null;
+            return;
+        }
+        syncCandidateDetailToolbarScroll(event.currentTarget.scrollLeft, "viewport");
+    }, [syncCandidateDetailToolbarScroll]);
+
+    const handleCandidateDetailToolbarRailScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
+        if (candidateDetailToolbarSyncSourceRef.current === "viewport") {
+            candidateDetailToolbarSyncSourceRef.current = null;
+            return;
+        }
+        syncCandidateDetailToolbarScroll(event.currentTarget.scrollLeft, "rail");
+    }, [syncCandidateDetailToolbarScroll]);
+
+    const handleCandidateDetailToolbarWheel = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+        const node = event.currentTarget;
+        if (node.scrollWidth <= node.clientWidth + 1) {
+            return;
+        }
+        if (!event.shiftKey && Math.abs(event.deltaX) <= 0) {
+            return;
+        }
+        const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
+        if (!delta) {
+            return;
+        }
+        event.preventDefault();
+        const nextLeft = node.scrollLeft + delta;
+        node.scrollLeft = nextLeft;
+        syncCandidateDetailToolbarScroll(nextLeft, "viewport");
+    }, [syncCandidateDetailToolbarScroll]);
 
     React.useEffect(() => {
         if (!candidateListViewportEl) {
@@ -814,7 +1135,25 @@ export function CandidatesPage({
 
     React.useEffect(() => {
         setCandidateDetailPanel("profile");
+        setCandidateAiOutputDialogOpen(false);
     }, [selectedCandidateId]);
+
+    React.useEffect(() => {
+        updateCandidateDetailToolbarMetrics();
+
+        const node = candidateDetailToolbarScrollRef.current;
+        if (!node || typeof ResizeObserver === "undefined") {
+            return;
+        }
+
+        const observer = new ResizeObserver(() => updateCandidateDetailToolbarMetrics());
+        observer.observe(node);
+        if (node.firstElementChild instanceof HTMLElement) {
+            observer.observe(node.firstElementChild);
+        }
+
+        return () => observer.disconnect();
+    }, [candidateDetail, candidateDetailPanel, updateCandidateDetailToolbarMetrics]);
 
     const candidateOverviewStats = React.useMemo(() => {
         const pendingScreeningCount = visibleCandidates.filter((candidate) => candidate.status === "pending_screening").length;
@@ -858,51 +1197,70 @@ export function CandidatesPage({
     const candidateDetailIdentityMeta = candidateDetail?.candidate.current_company || "";
     const primaryResumeFile = candidateDetail?.resume_files[0] ?? null;
     const latestInterviewQuestion = candidateDetail?.interview_questions[0] ?? null;
+    const latestResumeScoreLog = React.useMemo(
+        () => candidateProcessActivity.find((log) => log.task_type === "resume_score") || null,
+        [candidateProcessActivity],
+    );
+    const candidateAiOutputPayload = React.useMemo(
+        () => resolveCandidateAiOutputPayload(latestResumeScoreLog, candidateDetail?.score),
+        [candidateDetail?.score, latestResumeScoreLog],
+    );
+    const candidateAiOutputAvailable = Boolean(
+        candidateAiOutputPayload.markdown.trim()
+        || candidateAiOutputPayload.raw.trim(),
+    );
+    const candidateDetailDisplayStatus = resolveCandidateDisplayStatus(candidateDetail?.candidate);
+    const candidateDetailHasRuntimeOverride = Boolean(
+        candidateDetail?.candidate
+        && candidateDetailDisplayStatus
+        && candidateDetailDisplayStatus !== candidateDetail.candidate.status,
+    );
 
     return (
-        <div
-            className={cn(
-                "grid h-full min-h-0 overflow-hidden",
-                candidateFilterBarExpanded
-                    ? "grid-rows-[auto_minmax(0,1fr)] gap-4 2xl:gap-6"
-                    : "grid-rows-[minmax(0,1fr)] gap-0",
-            )}
-        >
-            {candidateFilterBarExpanded ? (
-                <CandidateFilterBar
-                    candidateFilterSummary={candidateFilterSummary}
-                    candidateViewMode={candidateViewMode}
-                    setCandidateViewMode={setCandidateViewMode}
-                    candidateQuery={candidateQuery}
-                    setCandidateQuery={setCandidateQuery}
-                    candidatePositionFilter={candidatePositionFilter}
-                    setCandidatePositionFilter={setCandidatePositionFilter}
-                    candidateStatusFilter={candidateStatusFilter}
-                    setCandidateStatusFilter={setCandidateStatusFilter}
-                    candidateMatchFilter={candidateMatchFilter}
-                    setCandidateMatchFilter={setCandidateMatchFilter}
-                    candidateSourceFilter={candidateSourceFilter}
-                    setCandidateSourceFilter={setCandidateSourceFilter}
-                    candidateTimeFilter={candidateTimeFilter}
-                    setCandidateTimeFilter={setCandidateTimeFilter}
-                    positions={positions}
-                    sourceOptions={sourceOptions}
-                    visibleCandidateCount={visibleCandidates.length}
-                    onCollapse={() => setCandidateFilterBarExpanded(false)}
-                />
-            ) : null}
+        <>
+            <div
+                className={cn(
+                    "grid h-full min-h-0 overflow-hidden",
+                    candidateFilterBarExpanded
+                        ? "grid-rows-[auto_minmax(0,1fr)] gap-4 2xl:gap-6"
+                        : "grid-rows-[minmax(0,1fr)] gap-0",
+                )}
+            >
+                {candidateFilterBarExpanded ? (
+                    <CandidateFilterBar
+                        candidateFilterSummary={candidateFilterSummary}
+                        candidateViewMode={candidateViewMode}
+                        setCandidateViewMode={setCandidateViewMode}
+                        candidateQuery={candidateQuery}
+                        setCandidateQuery={setCandidateQuery}
+                        candidatePositionFilter={candidatePositionFilter}
+                        setCandidatePositionFilter={setCandidatePositionFilter}
+                        candidateStatusFilter={candidateStatusFilter}
+                        setCandidateStatusFilter={setCandidateStatusFilter}
+                        candidateMatchFilter={candidateMatchFilter}
+                        setCandidateMatchFilter={setCandidateMatchFilter}
+                        candidateSourceFilter={candidateSourceFilter}
+                        setCandidateSourceFilter={setCandidateSourceFilter}
+                        candidateTimeFilter={candidateTimeFilter}
+                        setCandidateTimeFilter={setCandidateTimeFilter}
+                        positions={positions}
+                        sourceOptions={sourceOptions}
+                        visibleCandidateCount={visibleCandidates.length}
+                        onCollapse={() => setCandidateFilterBarExpanded(false)}
+                    />
+                ) : null}
 
-            <div className="grid min-h-0 items-stretch gap-4 overflow-hidden 2xl:gap-6 xl:grid-cols-[minmax(300px,0.44fr)_minmax(0,0.56fr)] 2xl:grid-cols-[minmax(320px,0.44fr)_minmax(0,0.56fr)]">
+                <div className="grid min-h-0 items-stretch gap-4 overflow-hidden 2xl:gap-6 xl:grid-cols-[minmax(300px,0.44fr)_minmax(0,0.56fr)] 2xl:grid-cols-[minmax(320px,0.44fr)_minmax(0,0.56fr)]">
                 <Card className={cn(panelClass, "min-h-0 !gap-0 overflow-hidden !py-0")}>
-                    <CardHeader className="px-4 py-2 pb-0 sm:px-5">
+                    <CardHeader className="px-4 pt-2 pb-0 sm:px-5">
                         <div className="flex items-center justify-between gap-3">
-                            <CardTitle className="text-base">候选人列表</CardTitle>
+                            <CardTitle className="text-[15px] leading-none">候选人列表</CardTitle>
                             <div className="flex items-center gap-2">
                                 <Badge variant="outline" className="rounded-full">{visibleCandidates.length} 人</Badge>
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-8 rounded-md px-2.5 text-xs"
+                                    className="h-7 rounded-md px-2.5 text-xs"
                                     onClick={() => setCandidateFilterBarExpanded((current) => !current)}
                                 >
                                     <SlidersHorizontal className="h-4 w-4"/>
@@ -911,26 +1269,26 @@ export function CandidatesPage({
                             </div>
                         </div>
                     </CardHeader>
-                    <CardContent className="flex min-h-0 flex-1 flex-col px-4 pt-1.5 pb-3 sm:px-5">
-                        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                    <CardContent className="flex min-h-0 flex-1 flex-col px-4 pt-1 pb-2.5 sm:px-5">
+                        <div className="mb-0.5 flex flex-wrap items-center justify-between gap-2">
                             <p className="text-xs text-slate-500 dark:text-slate-400">
                                 已选中 <span className="font-semibold text-slate-900 dark:text-slate-100">{selectedCandidateIds.length}</span> 位候选人
                             </p>
                             <div className="flex flex-wrap gap-2">
-                                <Button size="sm" variant="outline" className="h-8 rounded-md px-2.5 text-xs" onClick={() => setSelectedCandidateIds([])} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => setSelectedCandidateIds([])} disabled={!selectedCandidateIds.length}>
                                     清空选择
                                 </Button>
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-8 rounded-md px-2.5 text-xs"
+                                    className="h-7 rounded-md px-2.5 text-xs"
                                     onClick={() => void triggerScreening(selectedCandidateIds)}
                                     disabled={isBatchScreeningCancelling || (screeningSubmitting && !isBatchScreeningRunning) || (!isBatchScreeningRunning && !selectedCandidateIds.length)}
                                 >
                                     {isBatchScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : isBatchScreeningRunning ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
                                     {isBatchScreeningCancelling ? "停止中..." : isBatchScreeningRunning ? "停止批量初筛" : screeningSubmitting ? "启动中..." : "批量开始初筛"}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-8 rounded-md px-2.5 text-xs" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Mail className="h-4 w-4"/>
                                     批量发送简历
                                 </Button>
@@ -1202,80 +1560,117 @@ export function CandidatesPage({
                         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
                             <div className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
                                 <div className="space-y-1">
-                                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-                                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(candidateDetail.candidate)))}>
-                                                {labelForCandidateStatus(resolveCandidateDisplayStatus(candidateDetail.candidate))}
-                                            </Badge>
-                                            <Badge variant="outline" className="rounded-full">
-                                                匹配度 {formatPercent(candidateDetail.candidate.match_percent)}
-                                            </Badge>
-                                            <Badge variant="outline" className="rounded-full">
-                                                发送 {selectedCandidateResumeMailCountLabel}
-                                            </Badge>
-                                            <span>{candidateDetail.candidate.candidate_code}</span>
-                                            {selectedCandidateResumeMailSummary ? (
-                                                <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                    {selectedCandidateResumeMailSummary}
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0 flex-1 space-y-1">
+                                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                                <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidateDetailDisplayStatus))}>
+                                                    {labelForCandidateStatus(candidateDetailDisplayStatus)}
                                                 </Badge>
-                                            ) : null}
+                                                {candidateDetailHasRuntimeOverride ? (
+                                                    <Badge variant="outline" className="rounded-full">
+                                                        原状态 {labelForCandidateStatus(candidateDetail.candidate.status)}
+                                                    </Badge>
+                                                ) : null}
+                                                <Badge variant="outline" className="rounded-full">
+                                                    匹配度 {formatPercent(candidateDetail.candidate.match_percent)}
+                                                </Badge>
+                                                <Badge variant="outline" className="rounded-full">
+                                                    发送 {selectedCandidateResumeMailCountLabel}
+                                                </Badge>
+                                                <span>{candidateDetail.candidate.candidate_code}</span>
+                                                {selectedCandidateResumeMailSummary ? (
+                                                    <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                        {selectedCandidateResumeMailSummary}
+                                                    </Badge>
+                                                ) : null}
+                                            </div>
+                                            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+                                                <h3 className="break-words text-[1.12rem] font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-[1.2rem]">
+                                                    {candidateDetail.candidate.name}
+                                                </h3>
+                                                {candidateDetailHeadlineMeta ? (
+                                                    <p className="text-sm text-slate-500 dark:text-slate-400">{candidateDetailHeadlineMeta}</p>
+                                                ) : null}
+                                            </div>
+                                            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                                                {candidateDetailIdentityMeta ? <span>{candidateDetailIdentityMeta}</span> : null}
+                                            </div>
                                         </div>
-                                        <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-                                            <h3 className="break-words text-[1.12rem] font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-[1.2rem]">
-                                                {candidateDetail.candidate.name}
-                                            </h3>
-                                            {candidateDetailHeadlineMeta ? (
-                                                <p className="text-sm text-slate-500 dark:text-slate-400">{candidateDetailHeadlineMeta}</p>
-                                            ) : null}
-                                        </div>
-                                        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-                                            {candidateDetailIdentityMeta ? <span>{candidateDetailIdentityMeta}</span> : null}
+                                        <div className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
+                                            <Button size="sm" variant={candidateDetailPanel === "profile" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("profile")}>
+                                                档案
+                                            </Button>
+                                            <Button size="sm" variant={candidateDetailPanel === "ai" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("ai")}>
+                                                AI 评估
+                                            </Button>
+                                            <Button size="sm" variant={candidateDetailPanel === "interview" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("interview")}>
+                                                面试准备
+                                            </Button>
                                         </div>
                                     </div>
+                                </div>
                             </div>
                             <div className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
-                                <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                                    <div className="flex shrink-0 items-center gap-2">
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => void triggerScreening()}
-                                            disabled={isSelectedCandidateScreeningCancelling || (screeningSubmitting && !selectedCandidateScreeningTaskId)}
-                                        >
-                                            {isSelectedCandidateScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : selectedCandidateScreeningTaskId ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
-                                            {isSelectedCandidateScreeningCancelling ? "停止中..." : selectedCandidateScreeningTaskId ? "停止初筛" : screeningSubmitting ? "启动中..." : "开始初筛"}
-                                        </Button>
-                                        {primaryResumeFile ? (
-                                            <Button size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile)}>
-                                                <ExternalLink className="h-4 w-4"/>
-                                                查看简历
+                                <div className="min-w-0">
+                                    <div
+                                        ref={candidateDetailToolbarScrollRef}
+                                        onScroll={handleCandidateDetailToolbarScroll}
+                                        onWheel={handleCandidateDetailToolbarWheel}
+                                        className="min-w-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                                    >
+                                        <div className="flex w-max items-center gap-2 pr-1">
+                                            <Button
+                                                className="shrink-0"
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => void triggerScreening()}
+                                                disabled={isSelectedCandidateScreeningCancelling || (screeningSubmitting && !selectedCandidateScreeningTaskId)}
+                                            >
+                                                {isSelectedCandidateScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : selectedCandidateScreeningTaskId ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
+                                                {isSelectedCandidateScreeningCancelling ? "停止中..." : selectedCandidateScreeningTaskId ? "停止初筛" : screeningSubmitting ? "启动中..." : "开始初筛"}
                                             </Button>
-                                        ) : null}
-                                        <Button size="sm" variant="outline" onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}>
-                                            <Mail className="h-4 w-4"/>
-                                            发送简历
-                                        </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={() => void generateInterviewQuestions()}
-                                            disabled={isCurrentInterviewTaskCancelling}
-                                        >
-                                            {currentCandidateInterviewTaskId ? <Square className="h-4 w-4"/> : <NotebookText className="h-4 w-4"/>}
-                                            {isCurrentInterviewTaskCancelling ? "停止中..." : currentCandidateInterviewTaskId ? "停止生成" : "面试题"}
-                                        </Button>
+                                            {primaryResumeFile ? (
+                                                <Button className="shrink-0" size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile)}>
+                                                    <ExternalLink className="h-4 w-4"/>
+                                                    查看简历
+                                                </Button>
+                                            ) : null}
+                                            <Button className="shrink-0" size="sm" variant="outline" onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}>
+                                                <Mail className="h-4 w-4"/>
+                                                发送简历
+                                            </Button>
+                                            <Button
+                                                className="shrink-0"
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => void generateInterviewQuestions()}
+                                                disabled={isCurrentInterviewTaskCancelling}
+                                            >
+                                                {currentCandidateInterviewTaskId ? <Square className="h-4 w-4"/> : <NotebookText className="h-4 w-4"/>}
+                                                {isCurrentInterviewTaskCancelling ? "停止中..." : currentCandidateInterviewTaskId ? "停止生成" : "面试题"}
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="shrink-0 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 dark:border-rose-900 dark:text-rose-200 dark:hover:bg-rose-950/40"
+                                                onClick={() => requestDeleteCandidate(candidateDetail.candidate)}
+                                            >
+                                                <Trash2 className="h-4 w-4"/>
+                                                删除候选人
+                                            </Button>
+                                        </div>
                                     </div>
-                                    <div className="mx-1 h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-800"/>
-                                    <div className="ml-auto flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
-                                        <Button size="sm" variant={candidateDetailPanel === "profile" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("profile")}>
-                                            档案
-                                        </Button>
-                                        <Button size="sm" variant={candidateDetailPanel === "ai" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("ai")}>
-                                            AI 评估
-                                        </Button>
-                                        <Button size="sm" variant={candidateDetailPanel === "interview" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("interview")}>
-                                            面试准备
-                                        </Button>
-                                    </div>
+                                    {candidateDetailToolbarHasOverflow ? (
+                                        <div className="mt-1">
+                                            <div
+                                                ref={candidateDetailToolbarRailRef}
+                                                onScroll={handleCandidateDetailToolbarRailScroll}
+                                                className="overflow-x-auto overflow-y-hidden [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.95)_transparent] [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100/80 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.98)_transparent] dark:[&::-webkit-scrollbar-track]:bg-slate-900/80 dark:[&::-webkit-scrollbar-thumb]:border-slate-900 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700"
+                                            >
+                                                <div style={{width: candidateDetailToolbarRailWidth, height: 1}}/>
+                                            </div>
+                                        </div>
+                                    ) : null}
                                 </div>
                             </div>
 
@@ -1384,7 +1779,19 @@ export function CandidatesPage({
 
                                     {candidateDetailPanel === "ai" ? (
                                         <>
-                                            <Field label="AI 评分与建议">
+                                            <div className="min-w-0 space-y-2">
+                                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">AI 评分与建议</p>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => setCandidateAiOutputDialogOpen(true)}
+                                                        disabled={!candidateAiOutputAvailable}
+                                                    >
+                                                        <Bot className="h-4 w-4"/>
+                                                        查看完整 AI 输出
+                                                    </Button>
+                                                </div>
                                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
                                                     <div className="flex flex-wrap items-start justify-between gap-3">
                                                         <div className="min-w-0 flex-1">
@@ -1419,7 +1826,7 @@ export function CandidatesPage({
                                                         </p>
                                                     </div>
                                                 </div>
-                                            </Field>
+                                            </div>
 
                                             <Field label="初筛工作记忆">
                                                 {candidateDetail.workflow_memory ? (
@@ -1539,6 +1946,15 @@ export function CandidatesPage({
                                                         <div className="flex flex-wrap gap-2">
                                                             <Button size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile)}>查看原件</Button>
                                                             <Button size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile, true)}>下载简历</Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="border-rose-200 text-rose-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-900/80 dark:text-rose-200 dark:hover:bg-rose-950/30"
+                                                                onClick={() => requestDeleteResumeFile(primaryResumeFile)}
+                                                            >
+                                                                <Trash2 className="h-4 w-4"/>
+                                                                删除简历
+                                                            </Button>
                                                         </div>
                                                     ) : null}
                                                 </div>
@@ -1682,7 +2098,16 @@ export function CandidatesPage({
                         </div>
                     )}
                 </Card>
+                </div>
             </div>
-        </div>
+            <CandidateAiOutputDialog
+                open={candidateAiOutputDialogOpen}
+                onOpenChange={setCandidateAiOutputDialogOpen}
+                markdown={candidateAiOutputPayload.markdown}
+                raw={candidateAiOutputPayload.raw}
+                modelLabel={latestResumeScoreLog ? `${labelForProvider(latestResumeScoreLog.model_provider)} / ${latestResumeScoreLog.model_name || "未记录"}` : null}
+                generatedAt={latestResumeScoreLog?.created_at || candidateDetail?.score?.updated_at || candidateDetail?.score?.created_at}
+            />
+        </>
     );
 }

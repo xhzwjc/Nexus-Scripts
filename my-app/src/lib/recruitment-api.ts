@@ -171,6 +171,12 @@ export interface CandidateScore {
   concerns_text?: string | null;
   recommendation?: string | null;
   suggested_status?: string | null;
+  dimensions?: Array<Record<string, unknown>>;
+  dimensions_mode?: string | null;
+  missing_core_labels?: string[];
+  score_cap_reason?: string | null;
+  repair_reason?: string | null;
+  report_markdown?: string | null;
   manual_override_score?: number | null;
   manual_override_reason?: string | null;
   created_at?: string | null;

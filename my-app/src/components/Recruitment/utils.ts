@@ -725,8 +725,7 @@ export function resolveCandidateDisplayStatus(candidate?: CandidateSummary | nul
         return "";
     }
     if (
-        candidate.status === "pending_screening"
-        && candidate.active_screening_task_status
+        candidate.active_screening_task_status
         && ["pending", "queued", "running", "cancelling"].includes(candidate.active_screening_task_status)
     ) {
         return "screening_running";

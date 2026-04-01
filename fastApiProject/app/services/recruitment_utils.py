@@ -76,7 +76,7 @@ INTERVIEW_RULE_LEAK_MARKERS = (
 
 INTERVIEW_DOMAIN_KEYWORDS = {
     "智能家居生态与联动测试": ["智能家居", "米家", "homekit", "鸿蒙", "涂鸦", "联动", "互联互通", "门锁", "灯具", "网关", "app", "小程序"],
-    "IoT 通信协议测试": ["iot", "wi-fi", "wifi", "ble", "蓝牙", "zigbee", "thread", "mqtt", "星闪", "配网", "组网", "协议", "uwb"],
+    "IoT 通信协议测试": ["iot", "wi-fi", "wifi", "ble", "蓝牙", "zigbee", "thread", "mqtt", "星闪", "配网", "组网", "协议"],
     "软件测试基础": ["测试用例", "功能测试", "回归测试", "接口测试", "app测试", "app 测试", "缺陷", "bug", "jira", "postman", "apifox", "charles", "测试方案", "测试指导书", "自动化测试"],
     "硬件测试与系统联调": ["硬件", "联调", "系统联调", "设备", "整机", "稳定性", "可靠性", "电源", "串口", "问题复现", "cadence", "pads", "pcb", "buck", "boost", "ldo", "信号"],
     "嵌入式/固件/OTA": ["嵌入式", "固件", "ota", "烧录", "升级", "bootloader", "版本回退", "日志抓取"],
@@ -205,6 +205,41 @@ KNOWN_SKILLS = [
     "硬件", "硬件测试", "软硬件", "电子", "固件", "驱动", "设备", "可靠性", "稳定性",
 ]
 
+SCREENING_DIMENSION_KEYWORDS = {
+    "智能家居生态": ["智能家居", "米家", "homekit", "鸿蒙", "涂鸦", "联动", "互联互通", "门锁", "灯具", "网关", "app", "小程序"],
+    "IoT通信协议": ["iot", "wi-fi", "wifi", "ble", "蓝牙", "zigbee", "thread", "mqtt", "星闪", "配网", "组网", "协议"],
+    "软件测试基础": ["测试用例", "功能测试", "回归测试", "接口测试", "app测试", "缺陷", "bug", "jira", "测试计划", "测试方案", "测试报告", "缺陷报告"],
+    "嵌入式/固件经验": ["嵌入式", "固件", "烧录", "固件更新", "程序固件", "ota", "bootloader", "升级", "串口", "log"],
+    "硬件测试经验": ["硬件", "硬件测试", "软硬件", "pcb", "原理图", "元器件", "电源", "时钟", "复位", "信号", "示波器", "万用表", "功耗", "温升", "可靠性", "整机"],
+    "自动化测试": ["自动化", "脚本", "python", "appium", "selenium", "uiautomator", "espresso", "自动化测试", "自动化高低温"],
+    "学历/专业匹配": ["本科", "硕士", "博士", "计算机", "软件工程", "自动化", "电子信息", "通信工程", "电子工程"],
+    "文档输出能力": ["测试报告", "缺陷报告", "用例", "测试用例", "编写完整报告", "填写报告", "提交缺陷", "跟踪缺陷", "总结"],
+    "加分项": ["linux", "shell", "ai", "小米", "华为", "美的", "海尔", "功耗", "射频", "ci/cd", "ci", "cd", "认证"],
+}
+
+SCREENING_RULE_IGNORE_MARKERS = (
+    "name:",
+    "description:",
+    "skill_group",
+    "applies_to",
+    "触发方式",
+    "收到简历自动进入初筛模式",
+    "用户上传pdf简历",
+    "模块一：简历初筛",
+    "岗位 jd",
+    "岗位职责",
+    "任职要求",
+    "加分项",
+    "初筛结论三档",
+    "输出要求",
+    "初筛报告输出格式",
+    "return strict json",
+    "schema",
+    "json",
+    "system:",
+    "user:",
+)
+
 
 def json_loads_safe(value: Optional[str], default: Any) -> Any:
     if not value:
@@ -225,6 +260,26 @@ def isoformat_or_none(value: Any) -> Optional[str]:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
+
+
+def _parse_score_number(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if numeric != numeric:
+            return None
+        return numeric
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = re.search(r"-?\d+(?:\.\d+)?", text)
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
 
 
 def truncate_text(value: Any, limit: int = 500) -> str:
@@ -429,8 +484,29 @@ def ensure_interview_html_document(title: str, html_content: str = "", markdown_
     return build_single_file_html_document(title, body_html)
 
 
+def normalize_extracted_text_symbols(value: Any) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    bullet_map = {
+        "\uf0b7": "- ",
+        "\uf0d8": "- ",
+        "": "- ",
+        "": "- ",
+        "": "- ",
+        "◦": "- ",
+    }
+    for source, target in bullet_map.items():
+        text = text.replace(source, target)
+    text = re.sub(r"[\u200b-\u200f\u2060\ufeff]", "", text)
+    text = re.sub(r"[ \t]*-[ \t]*", "- ", text)
+    text = re.sub(r"\n[ \t]*-[ \t]*", "\n- ", text)
+    text = re.sub(r"�+", "", text)
+    return text
+
+
 def strip_markdown(markdown: str) -> str:
-    text = (markdown or "").replace("\r\n", "\n")
+    text = normalize_extracted_text_symbols(markdown).replace("\r\n", "\n")
     text = re.sub(r"^\s*---+\s*$", "", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*#{1,6}\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*[-*+]\s*", "", text, flags=re.MULTILINE)
@@ -643,10 +719,10 @@ def extract_text_from_pdf(file_path: Path) -> str:
 def extract_resume_text(file_path: Path, file_ext: str) -> str:
     ext = (file_ext or file_path.suffix or "").lower()
     if ext == ".pdf":
-        return extract_text_from_pdf(file_path)
+        return normalize_extracted_text_symbols(extract_text_from_pdf(file_path))
     if ext == ".docx":
-        return extract_text_from_docx(file_path)
-    return file_path.read_text(encoding="utf-8", errors="ignore")
+        return normalize_extracted_text_symbols(extract_text_from_docx(file_path))
+    return normalize_extracted_text_symbols(file_path.read_text(encoding="utf-8", errors="ignore"))
 
 
 def extract_keywords(text: str) -> List[str]:
@@ -659,6 +735,22 @@ def extract_keywords(text: str) -> List[str]:
     return result[:20]
 
 
+def normalize_resume_fallback_name(fallback_name: str) -> str:
+    text = Path(str(fallback_name or "").strip()).stem.strip()
+    if not text:
+        return ""
+    if "】" in text:
+        text = text.split("】")[-1].strip() or text
+    text = re.sub(r"\b\d+\s*(?:k|K)\b", " ", text)
+    text = re.sub(r"\d+\s*[-~到]\s*\d+\s*(?:k|K)", " ", text)
+    text = re.sub(r"\d+\s*(?:年|年以上)$", "", text).strip()
+    text = re.sub(r"\s+", " ", text).strip(" -_·|")
+    chinese_names = re.findall(r"[\u4e00-\u9fff]{2,4}", text)
+    if chinese_names:
+        return chinese_names[-1]
+    return text[:32]
+
+
 def extract_basic_info(raw_text: str, fallback_name: str) -> Dict[str, Any]:
     phone_match = re.search(r"(?<!\d)1[3-9]\d{9}(?!\d)", raw_text)
     email_match = re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", raw_text)
@@ -669,8 +761,9 @@ def extract_basic_info(raw_text: str, fallback_name: str) -> Dict[str, Any]:
         if keyword in raw_text:
             education = keyword
             break
+    normalized_fallback_name = normalize_resume_fallback_name(fallback_name)
     return {
-        "name": (name_match.group(1).strip() if name_match else "") or fallback_name,
+        "name": (name_match.group(1).strip() if name_match else "") or normalized_fallback_name,
         "phone": phone_match.group(0) if phone_match else "",
         "email": email_match.group(0) if email_match else "",
         "years_of_experience": years_match.group(1) + "年" if years_match else "",
@@ -679,6 +772,7 @@ def extract_basic_info(raw_text: str, fallback_name: str) -> Dict[str, Any]:
 
 
 def extract_resume_structured_data(raw_text: str, fallback_name: str) -> Dict[str, Any]:
+    normalized_fallback_name = normalize_resume_fallback_name(fallback_name)
     lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
     education_markers = ["大学", "学院", "本科", "硕士", "博士", "专业"]
     work_experiences = [line for line in lines if re.search(r"20\d{2}|有限公司|公司|科技|集团|Inc|Ltd", line) and not any(keyword in line for keyword in education_markers)][:8]
@@ -686,7 +780,7 @@ def extract_resume_structured_data(raw_text: str, fallback_name: str) -> Dict[st
     project_items = [line for line in lines if "项目" in line or "Project" in line][:6]
     discovered_skills = [skill for skill in KNOWN_SKILLS if skill.lower() in raw_text.lower()]
     return {
-        "basic_info": extract_basic_info(raw_text, fallback_name),
+        "basic_info": extract_basic_info(raw_text, normalized_fallback_name),
         "work_experiences": work_experiences,
         "education_experiences": education_items,
         "skills": discovered_skills[:20],
@@ -748,6 +842,68 @@ def _extract_skill_focus_points(skills: Iterable[Any], limit: int = 6) -> Dict[s
     return {"names": names, "points": focus_points}
 
 
+def extract_screening_hard_requirements(skills: Optional[Iterable[Any]], limit: int = 8) -> Dict[str, List[str]]:
+    hard_markers = ("核心第一优先", "硬性要求", "必须", "不得", "一票否决")
+    points: List[str] = []
+
+    def push(text: str) -> None:
+        cleaned = strip_markdown(str(text or "")).strip()
+        cleaned = re.sub(r"^[\-\*\d\.\s•]+", "", cleaned).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = cleaned.replace("*", "")
+        if (
+            not cleaned
+            or cleaned in points
+            or len(cleaned) < 4
+            or any(marker.lower() in cleaned.lower() for marker in SCREENING_RULE_IGNORE_MARKERS)
+        ):
+            return
+        points.append(cleaned[:80])
+
+    for skill in skills or []:
+        content = str(skill.get("content") or skill.get("description") or "") if isinstance(skill, dict) else str(skill or "")
+        body = _strip_skill_frontmatter_text(content)
+        for raw_line in re.split(r"[\n\r]+", body):
+            plain = strip_markdown(raw_line).strip()
+            if not plain:
+                continue
+            if any(marker.lower() in plain.lower() for marker in SCREENING_RULE_IGNORE_MARKERS):
+                continue
+            if "|" in raw_line and any(marker in plain for marker in hard_markers):
+                cells = [strip_markdown(cell).strip() for cell in raw_line.split("|") if strip_markdown(cell).strip()]
+                if cells:
+                    if len(cells) >= 4:
+                        push(f"{cells[0]}：{cells[-1]}")
+                    else:
+                        push(cells[-1])
+                continue
+            if any(marker in plain for marker in hard_markers):
+                push(plain)
+            if len(points) >= limit:
+                break
+        if len(points) >= limit:
+            break
+        for raw_line in re.split(r"[\n\r]+", body):
+            plain = strip_markdown(raw_line).strip()
+            if (
+                not plain
+                or any(marker.lower() in plain.lower() for marker in SCREENING_RULE_IGNORE_MARKERS)
+                or "打分维度与权重" in plain
+            ):
+                continue
+            if any(marker in plain for marker in hard_markers):
+                push(plain)
+            if len(points) >= limit:
+                break
+    tokens: List[str] = []
+    for point in points:
+        for token in _extract_focus_point_tokens(point, limit=8):
+            normalized = str(token or "").strip().lower()
+            if normalized and normalized not in tokens:
+                tokens.append(normalized)
+    return {"points": points[:limit], "tokens": tokens[:16]}
+
+
 def _extract_focus_point_tokens(point: Any, *, limit: int = 12) -> List[str]:
     text = strip_markdown(str(point or "")).strip()
     if not text:
@@ -787,6 +943,177 @@ def _extract_focus_point_tokens(point: Any, *, limit: int = 12) -> List[str]:
         if len(result) >= limit:
             break
     return result[:limit]
+
+
+def _strip_skill_frontmatter_text(content: Any) -> str:
+    text = str(content or "")
+    match = re.match(r"^\s*---\s*\r?\n(.*?)\r?\n---\s*(.*)$", text, re.DOTALL)
+    return (match.group(2) if match else text).strip()
+
+
+def _normalize_screening_dimension_label(value: Any) -> str:
+    label = strip_markdown(str(value or "")).strip()
+    label = re.sub(r"\s+", "", label)
+    aliases = {
+        "IoT通信协议": "IoT通信协议",
+        "IOT通信协议": "IoT通信协议",
+        "智能家居生态": "智能家居生态",
+        "软件测试基础": "软件测试基础",
+        "嵌入式/固件经验": "嵌入式/固件经验",
+        "硬件测试经验": "硬件测试经验",
+        "自动化测试": "自动化测试",
+        "学历/专业匹配": "学历/专业匹配",
+        "文档输出能力": "文档输出能力",
+        "加分项": "加分项",
+    }
+    return aliases.get(label, label)
+
+
+def _build_screening_evidence_lines(parsed: Optional[Dict[str, Any]], *, limit: int = 240) -> List[str]:
+    payload = parsed or {}
+    lines: List[str] = []
+    seen: set[str] = set()
+    max_line_length = 1200
+
+    def normalize_pool_text(text: Any) -> str:
+        cleaned = strip_markdown(str(text or "")).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        if len(cleaned) > max_line_length:
+            punctuation_indexes = [index for index, char in enumerate(cleaned[:max_line_length]) if char in "。！？；;：:"]
+            if punctuation_indexes:
+                cleaned = cleaned[: punctuation_indexes[-1] + 1]
+            else:
+                cleaned = cleaned[:max_line_length].rstrip()
+        return cleaned
+
+    def looks_like_new_resume_block(text: str) -> bool:
+        return bool(
+            re.match(
+                r"^(项目名称|项目描述|职责描述|工作经历|教育背景|技能特长|基本信息|荣誉证书|自我评价|项目经验|专业技能|求职意向|测试工具与技术技能|人员管理&项目管理|[0-9]{4}\s*[-~]|[•\-]\s*|\d+[、.)）])",
+                text,
+            )
+        )
+
+    def merge_wrapped_resume_lines(raw_text: str) -> List[str]:
+        merged: List[str] = []
+        buffer = ""
+        for raw_line in re.split(r"[\r\n]+", raw_text or ""):
+            line = normalize_pool_text(raw_line)
+            if not line:
+                if buffer:
+                    merged.append(buffer)
+                    buffer = ""
+                continue
+            if not buffer:
+                buffer = line
+                continue
+            if len(buffer) < max_line_length and not re.search(r"[。！？；;：:]$", buffer) and not looks_like_new_resume_block(line):
+                buffer = f"{buffer}{line}"
+                continue
+            merged.append(buffer)
+            buffer = line
+        if buffer:
+            merged.append(buffer)
+        return merged
+
+    def push(text: Any) -> None:
+        cleaned = normalize_pool_text(text)
+        if (
+            len(cleaned) < 4
+            or cleaned in seen
+            or re.fullmatch(r"[A-Za-z0-9]{18,}", cleaned)
+        ):
+            return
+        seen.add(cleaned)
+        lines.append(cleaned)
+
+    raw_text = str(payload.get("raw_text") or "")
+    for raw_line in merge_wrapped_resume_lines(raw_text):
+        push(raw_line)
+        if len(lines) >= limit:
+            return lines[:limit]
+    for key in ["work_experiences", "projects", "education_experiences", "skills"]:
+        for item in payload.get(key) or []:
+            push(_resume_item_to_text(item))
+            if len(lines) >= limit:
+                return lines[:limit]
+    for item in _split_summary_sentences(payload.get("summary"), limit=6):
+        push(item)
+        if len(lines) >= limit:
+            return lines[:limit]
+    return lines[:limit]
+
+
+def _is_dimension_table_header(cells: List[str]) -> bool:
+    if len(cells) < 4:
+        return False
+    normalized = [strip_markdown(cell).strip().lower() for cell in cells[:4]]
+    first, second, third, fourth = normalized[:4]
+    first_ok = any(token in first for token in ["维度", "能力", "模块", "dimension", "category"])
+    second_ok = any(token in second for token in ["权重", "占比", "weight", "比例"])
+    third_ok = any(token in third for token in ["满分", "分值", "score", "max"])
+    fourth_ok = any(token in fourth for token in ["说明", "要求", "定义", "依据", "rule", "note"])
+    return first_ok and second_ok and third_ok and fourth_ok
+
+
+def extract_screening_dimension_rules(skills: Optional[Iterable[Any]], limit: int = 12) -> List[Dict[str, Any]]:
+    rules: List[Dict[str, Any]] = []
+    seen_labels: set[str] = set()
+    for skill in skills or []:
+        content = ""
+        if isinstance(skill, dict):
+            content = str(skill.get("content") or skill.get("description") or "")
+        else:
+            content = str(skill or "")
+        body = _strip_skill_frontmatter_text(content)
+        in_table = False
+        header_matched = False
+        for raw_line in body.splitlines():
+            line = raw_line.strip()
+            if not line:
+                if rules:
+                    break
+                continue
+            if not line.startswith("|"):
+                if rules:
+                    break
+                in_table = False
+                header_matched = False
+                continue
+            cells = [strip_markdown(cell).strip() for cell in line.split("|")[1:-1]]
+            if len(cells) < 4:
+                continue
+            if _is_dimension_table_header(cells):
+                in_table = True
+                header_matched = True
+                continue
+            if not header_matched or not in_table:
+                continue
+            label = _normalize_screening_dimension_label(cells[0])
+            if label in {"维度", "------", "---"} or set(label) == {"-"}:
+                continue
+            max_score = _parse_score_number(cells[2])
+            if max_score is None:
+                continue
+            note = re.sub(r"\s+", " ", cells[3]).strip()
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
+            rules.append(
+                {
+                    "label": label,
+                    "weight_text": cells[1],
+                    "max_score": round(float(max_score), 1),
+                    "note": note,
+                    "is_core": "核心第一优先" in note,
+                    "keywords": SCREENING_DIMENSION_KEYWORDS.get(label, []),
+                }
+            )
+            if len(rules) >= limit:
+                return rules[:limit]
+        if rules:
+            break
+    return rules[:limit]
 
 
 def _join_resume_search_text(parsed: Dict[str, Any]) -> str:
@@ -1139,7 +1466,7 @@ def _score_interview_evidence_entry(entry: Dict[str, Any], domain: str) -> float
     lowered = text.lower()
     keywords = INTERVIEW_DOMAIN_KEYWORDS.get(domain) or _extract_focus_point_tokens(domain, limit=8)
     concrete_tokens = [
-        "uwb", "cadence", "pads", "pcb", "buck", "boost", "ldo", "测试用例", "测试方案", "测试指导书",
+        "cadence", "pads", "pcb", "buck", "boost", "ldo", "测试用例", "测试方案", "测试指导书",
         "自动化测试", "自动化", "性能测试", "功能测试", "电源", "信号", "问题定位", "项目交付", "联调",
     ]
     score = float(entry.get("base_score") or 0)
@@ -1981,13 +2308,25 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
         return "；".join(item[:18] for item in items[:2]) or "暂无"
 
     basic_info = parsed.get("basic_info") or {}
+    education_text = " ".join(
+        filter(
+            None,
+            [
+                str(basic_info.get("education") or ""),
+                " ".join(str(item or "") for item in parsed.get("education_experiences") or []),
+            ],
+        )
+    ).lower()
     raw_skills = parsed.get("skills") or []
     work_experiences = parsed.get("work_experiences") or []
     searchable_resume_text = _join_resume_search_text(parsed)
+    evidence_lines = _build_screening_evidence_lines(parsed, limit=240)
     requirement_text = " ".join(filter(None, [position.title, getattr(position, "key_requirements", "") or "", getattr(position, "bonus_points", "") or ""]))
     requirement_keywords = filter_keywords(extract_keywords(requirement_text), limit=12)
     matched_keywords = [keyword for keyword in requirement_keywords if keyword and keyword in searchable_resume_text]
     skill_meta = _extract_skill_focus_points(skills or [], limit=8)
+    hard_requirement_meta = extract_screening_hard_requirements(skills or [], limit=8)
+    skill_dimension_rules = extract_screening_dimension_rules(skills or [], limit=12)
     skill_text = " ".join(
         str(part or "")
         for skill in skills or []
@@ -2006,6 +2345,200 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
     missing_skill_keywords = [keyword for keyword in required_skill_keywords if keyword not in searchable_resume_text]
     focus_point_hits = [point for point in skill_meta["points"] if is_focus_point_hit(point)]
     focus_point_misses = [point for point in skill_meta["points"] if point not in focus_point_hits]
+    hard_requirement_hits = [point for point in hard_requirement_meta["points"] if is_focus_point_hit(point)]
+    hard_requirement_misses = [point for point in hard_requirement_meta["points"] if point not in hard_requirement_hits]
+
+    if skill_dimension_rules:
+        def find_dimension_evidence(label: str, keywords: Iterable[str], *, limit: int = 2) -> List[str]:
+            lowered_keywords = [str(keyword or "").strip().lower() for keyword in keywords if str(keyword or "").strip()]
+            results: List[str] = []
+            for line in evidence_lines:
+                lowered = str(line or "").lower()
+                if not lowered:
+                    continue
+                if any(keyword in lowered for keyword in lowered_keywords):
+                    candidate = re.sub(r"\s+", " ", strip_markdown(str(line or ""))).strip()
+                    if candidate and candidate not in results:
+                        results.append(candidate)
+                if len(results) >= limit:
+                    break
+            return results[:limit]
+
+        def preview_evidence(evidence: Iterable[str]) -> str:
+            items = [re.sub(r"\s+", " ", strip_markdown(str(item or ""))).strip() for item in evidence if str(item or "").strip()]
+            return "；".join(items[:2]) or "简历未提及"
+
+        def score_from_hits(max_score: float, hit_count: int, evidence_count: int, *, scale: Sequence[Tuple[int, float]]) -> float:
+            if hit_count <= 0 and evidence_count <= 0:
+                return 0.0
+            best_ratio = 0.0
+            for threshold, ratio in scale:
+                if hit_count >= threshold:
+                    best_ratio = max(best_ratio, ratio)
+            if best_ratio <= 0 and evidence_count > 0:
+                best_ratio = 0.35
+            if evidence_count >= 2:
+                best_ratio = max(best_ratio, 0.75)
+            return round(min(max_score, max_score * best_ratio), 1)
+
+        def build_dimension_result(rule: Dict[str, Any]) -> Dict[str, Any]:
+            label = str(rule.get("label") or "").strip()
+            note = str(rule.get("note") or "").strip()
+            max_score = float(rule.get("max_score") or 0.0)
+            is_core = bool(rule.get("is_core"))
+            keywords = list(rule.get("keywords") or [])
+            if not keywords:
+                keywords = _extract_focus_point_tokens(f"{label} {note}", limit=12)
+            matched_tokens = [keyword for keyword in keywords if keyword and keyword.lower() in searchable_resume_text]
+            evidence = find_dimension_evidence(label, keywords, limit=2)
+            hit_count = len(matched_tokens)
+            reason = "简历未提及"
+            score = 0.0
+
+            if label == "学历/专业匹配":
+                degree_hit = any(item in education_text for item in ["本科", "硕士", "博士"])
+                major_hit = any(item in education_text for item in ["电子信息", "自动化", "软件工程", "计算机", "通信", "电子工程"])
+                if degree_hit and major_hit:
+                    score = round(max_score, 1)
+                elif degree_hit:
+                    score = round(min(max_score, max_score * 0.8), 1)
+                if score > 0:
+                    reason = f"学历信息：{preview_evidence(parsed.get('education_experiences') or [basic_info.get('education')])}"
+            elif label == "文档输出能力":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(3, 1.0), (2, 0.8), (1, 0.6)])
+                if score > 0:
+                    reason = f"文档与缺陷闭环：{preview_evidence(evidence)}"
+            elif label == "加分项":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(3, 1.0), (2, 0.8), (1, 0.5)])
+                if score > 0:
+                    reason = f"加分项命中：{preview_evidence(evidence)}"
+            elif label == "自动化测试":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(3, 1.0), (2, 0.75), (1, 0.45)])
+                if score > 0:
+                    reason = f"自动化/脚本相关：{preview_evidence(evidence)}"
+            elif label == "软件测试基础":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(5, 1.0), (4, 0.9), (3, 0.8), (2, 0.65), (1, 0.5)])
+                if score > 0:
+                    reason = f"测试设计与缺陷闭环：{preview_evidence(evidence)}"
+            elif label == "嵌入式/固件经验":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(4, 1.0), (3, 0.8), (2, 0.65), (1, 0.45)])
+                if score > 0:
+                    reason = f"固件/烧录相关：{preview_evidence(evidence)}"
+            elif label == "硬件测试经验":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(6, 1.0), (4, 0.9), (3, 0.8), (2, 0.65), (1, 0.5)])
+                if score > 0:
+                    reason = f"硬件测试证据：{preview_evidence(evidence)}"
+            elif label in {"智能家居生态", "IoT通信协议"}:
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(5, 1.0), (4, 0.85), (3, 0.7), (2, 0.5), (1, 0.35)])
+                if score > 0:
+                    reason = f"相关证据：{preview_evidence(evidence)}"
+            else:
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(3, 1.0), (2, 0.75), (1, 0.45)])
+                if score > 0:
+                    reason = f"命中证据：{preview_evidence(evidence)}"
+
+            if score <= 0:
+                if label == "智能家居生态":
+                    reason = "简历未提及米家/鸿蒙/HomeKit/涂鸦等生态联动测试经历"
+                elif label == "IoT通信协议":
+                    reason = "简历未提及 Wi-Fi/BLE/ZigBee/Thread/MQTT/星闪等协议测试经验"
+                elif label == "自动化测试":
+                    reason = "简历未明确提及 Appium/Python/Selenium 等自动化工具"
+                else:
+                    reason = "简历未提及"
+
+            return {
+                "label": label,
+                "weight_text": rule.get("weight_text"),
+                "max_score": round(max_score, 1),
+                "score": round(score, 1),
+                "is_core": is_core,
+                "matched_keywords": matched_tokens[:6],
+                "evidence": evidence,
+                "reason": reason,
+            }
+
+        dimensions = [build_dimension_result(rule) for rule in skill_dimension_rules]
+        total_score = round(sum(float(item.get("score") or 0.0) for item in dimensions), 1)
+        missing_core_labels = [
+            str(item.get("label") or "")
+            for item in dimensions
+            if item.get("is_core") and float(item.get("score") or 0.0) <= 0
+        ]
+        both_primary_cores_missing = all(
+            core in missing_core_labels for core in ["智能家居生态", "IoT通信协议"]
+        )
+        score_cap_reason: Optional[str] = None
+        if both_primary_cores_missing and total_score > 5.0:
+            total_score = 5.0
+            score_cap_reason = "智能家居生态与 IoT通信协议两个核心维度均缺失，按 Skill 规则总分上限压至 5 分"
+        match_percent = int(round(max(0.0, min(10.0, total_score)) * 10))
+
+        pass_threshold = int(status_rules.get("pass_threshold", 75))
+        pool_threshold = int(status_rules.get("pool_threshold", 55))
+        if missing_core_labels:
+            match_percent = min(match_percent, max(pass_threshold - 1, 0))
+        if match_percent >= pass_threshold and not missing_core_labels:
+            recommendation = "建议安排首面"
+            suggested_status = "screening_passed"
+        elif match_percent >= pool_threshold:
+            recommendation = "建议安排面试进一步评估" if missing_core_labels else "建议保留观察"
+            suggested_status = "talent_pool"
+        else:
+            recommendation = "建议本次不安排面试"
+            suggested_status = "screening_rejected"
+
+        scored_dimensions = [item for item in dimensions if float(item.get("score") or 0.0) > 0]
+        scored_dimensions.sort(key=lambda item: (float(item.get("score") or 0.0), float(item.get("max_score") or 0.0)), reverse=True)
+        advantages: List[str] = []
+        for item in scored_dimensions:
+            label = str(item.get("label") or "")
+            reason = str(item.get("reason") or "有相关证据")
+            advantages.append(f"{label}：{reason}")
+            if len(advantages) >= 5:
+                break
+        concerns: List[str] = []
+        for item in dimensions:
+            label = str(item.get("label") or "")
+            reason = str(item.get("reason") or "简历未提及")
+            score = float(item.get("score") or 0.0)
+            max_score = float(item.get("max_score") or 0.0)
+            if score <= 0:
+                concerns.append(f"{label}：{reason}")
+            elif max_score > 0 and score / max_score < 0.5:
+                concerns.append(f"{label}：证据较弱，需面试重点核实（{reason}）")
+            if len(concerns) >= 5:
+                break
+        if score_cap_reason and score_cap_reason not in concerns:
+            concerns.insert(0, score_cap_reason)
+            concerns = concerns[:5]
+        if not advantages:
+            advantages.append("简历基础信息完整，建议结合面试继续核实关键维度。")
+        if not concerns:
+            concerns.append("暂未发现明显一票否决项，建议面试继续核实。")
+        return {
+            "dimensions": dimensions,
+            "dimensions_mode": "skill_rubric",
+            "matched_keywords": matched_keywords,
+            "matched_skill_keywords": matched_skill_keywords,
+            "missing_skill_keywords": missing_skill_keywords,
+            "focus_point_hits": focus_point_hits,
+            "focus_point_misses": focus_point_misses,
+            "hard_requirement_hits": hard_requirement_hits,
+            "hard_requirement_misses": hard_requirement_misses,
+            "hard_requirement_points": hard_requirement_meta["points"],
+            "skill_focus_points": skill_meta["points"],
+            "missing_core_labels": missing_core_labels,
+            "core_dimensions_missing": both_primary_cores_missing,
+            "score_cap_reason": score_cap_reason,
+            "advantages": advantages,
+            "concerns": concerns,
+            "recommendation": recommendation,
+            "suggested_status": suggested_status,
+            "match_percent": match_percent,
+            "total_score": round(total_score, 1),
+            "weights": weights,
+        }
 
     years = 0
     years_match = re.search(r"(\d{1,2})", str(basic_info.get("years_of_experience") or ""))
@@ -2038,13 +2571,21 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
         hard_penalty += max(0.0, (1 - coverage_ratio) * 18.0)
     if focus_point_misses:
         hard_penalty += min(20.0, len(focus_point_misses) * 4.0)
+    if hard_requirement_misses:
+        hard_penalty += min(28.0, len(hard_requirement_misses) * 8.0)
     total_score = max(0.0, total_score - hard_penalty)
     match_percent = round(total_score)
+    hard_block_pass = bool(hard_requirement_misses)
+    if hard_block_pass:
+        match_percent = min(match_percent, max(int(status_rules.get("pass_threshold", 75)) - 1, 0))
+    ten_point_score = round(match_percent / 10, 1)
     advantages = []
     if matched_keywords:
         advantages.append(f"命中岗位关键词：{', '.join(matched_keywords[:6])}")
     if matched_skill_keywords:
         advantages.append(f"命中 Skills 硬性要求：{', '.join(matched_skill_keywords[:6])}")
+    if hard_requirement_hits:
+        advantages.append(f"命中核心要求：{summarize_points(hard_requirement_hits[:2])}")
     if focus_point_hits:
         advantages.append(f"命中 Skills 重点：{summarize_points(focus_point_hits[:2])}")
     if years >= 3:
@@ -2062,6 +2603,8 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
         concerns.append(f"部分 Skills 关注点证据不足：{', '.join(missing_skill_keywords[:4])}")
     if focus_point_misses:
         concerns.append(f"未充分覆盖关键 Skills 场景：{summarize_points(focus_point_misses[:2])}")
+    if hard_requirement_misses:
+        concerns.append(f"核心要求证据不足：{summarize_points(hard_requirement_misses[:2])}")
     if years < 2:
         concerns.append("相关经验年限偏少")
     if not basic_info.get("phone"):
@@ -2070,28 +2613,32 @@ def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dic
         concerns.append("暂未发现明显一票否决项，建议结合人工面试判断")
     pass_threshold = int(status_rules.get("pass_threshold", 75))
     pool_threshold = int(status_rules.get("pool_threshold", 55))
-    if match_percent >= pass_threshold:
+    if match_percent >= pass_threshold and not hard_block_pass:
         recommendation = "进入下一轮"
         suggested_status = "screening_passed"
     elif match_percent >= pool_threshold:
-        recommendation = "保留观察"
+        recommendation = "保留观察" if not hard_block_pass else "保留观察（核心要求待核实）"
         suggested_status = "talent_pool"
     else:
         recommendation = "淘汰"
         suggested_status = "screening_rejected"
     return {
         "dimensions": dimensions,
+        "dimensions_mode": "generic",
         "matched_keywords": matched_keywords,
         "matched_skill_keywords": matched_skill_keywords,
         "missing_skill_keywords": missing_skill_keywords,
         "focus_point_hits": focus_point_hits,
         "focus_point_misses": focus_point_misses,
+        "hard_requirement_hits": hard_requirement_hits,
+        "hard_requirement_misses": hard_requirement_misses,
+        "hard_requirement_points": hard_requirement_meta["points"],
         "skill_focus_points": skill_meta["points"],
         "advantages": advantages,
         "concerns": concerns,
         "recommendation": recommendation,
         "suggested_status": suggested_status,
         "match_percent": match_percent,
-        "total_score": round(total_score, 1),
+        "total_score": ten_point_score,
         "weights": weights,
     }

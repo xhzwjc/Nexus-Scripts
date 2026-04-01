@@ -100,6 +100,7 @@ Return this schema exactly:
 }
 Rules:
 - Parse the resume from raw text first, then score the candidate against the provided position, scoring weights, status rules, screening skills, and any custom hard requirements.
+- All textual output fields must be written in Simplified Chinese unless you are quoting an English proper noun from the resume.
 - Base every judgment on resume evidence, position requirements, and screening skills.
 - Treat screening skills and custom hard requirements as mandatory hard constraints with the highest priority.
 - Review every provided screening skill dimension one by one before finalizing the score.
@@ -118,6 +119,8 @@ Rules:
 - suggested_status must be one of: screening_passed, talent_pool, screening_rejected.
 - recommendation must be a short HR-facing decision phrase, ideally within 30 Chinese characters or 80 English characters.
 - match_percent must be in the 0-100 range.
+- Keep the top-level object limited to parsed_resume and score only.
+- Keep the score object limited to total_score, match_percent, advantages, concerns, recommendation, and suggested_status.
 """
 
 RESUME_SCORE_SYSTEM_PROMPT = """You are an ATS screening engine for recruitment.
@@ -133,6 +136,7 @@ Return this schema exactly:
   "suggested_status": ""
 }
 Rules:
+- All textual output fields must be written in Simplified Chinese unless you are quoting an English proper noun from the resume.
 - Base every judgment on resume evidence, position requirements, and screening skills.
 - Treat screening skills and custom hard requirements as mandatory hard constraints with the highest priority.
 - Review every provided screening skill dimension one by one before finalizing the score.
@@ -150,6 +154,8 @@ Rules:
 - suggested_status must be one of: screening_passed, talent_pool, screening_rejected.
 - recommendation must be a short HR-facing decision phrase, ideally within 30 Chinese characters or 80 English characters.
 - match_percent must be in the 0-100 range.
+- Do not wrap the result under an extra score field or any other top-level wrapper.
+- Do not return any fields beyond total_score, match_percent, advantages, concerns, recommendation, and suggested_status.
 """
 
 INTERVIEW_QUESTION_SYSTEM_PROMPT = """You are an interview question generation engine for recruitment.

@@ -380,6 +380,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [interviewGenerating, setInterviewGenerating] = useState(false);
     const [positionDeleting, setPositionDeleting] = useState(false);
     const [positionDeleteConfirmOpen, setPositionDeleteConfirmOpen] = useState(false);
+    const [candidateDeleteTarget, setCandidateDeleteTarget] = useState<CandidateSummary | null>(null);
+    const [candidateDeleting, setCandidateDeleting] = useState(false);
+    const [candidateDeleteError, setCandidateDeleteError] = useState<string | null>(null);
+    const [resumeDeleteTarget, setResumeDeleteTarget] = useState<ResumeFile | null>(null);
+    const [resumeDeleting, setResumeDeleting] = useState(false);
     const [skillDeleteTarget, setSkillDeleteTarget] = useState<RecruitmentSkill | null>(null);
     const [llmDeleteTarget, setLlmDeleteTarget] = useState<RecruitmentLLMConfig | null>(null);
     const [mailSenderDeleteTarget, setMailSenderDeleteTarget] = useState<RecruitmentMailSenderConfig | null>(null);
@@ -444,6 +449,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const candidateMap = useMemo(() => new Map(candidates.map((item) => [item.id, item])), [candidates]);
     const skillMap = useMemo(() => new Map(skills.map((item) => [item.id, item])), [skills]);
     const enabledSkills = useMemo(() => skills.filter((skill) => skill.is_enabled !== false), [skills]);
+    const enabledSkillMap = useMemo(() => new Map(enabledSkills.map((item) => [item.id, item])), [enabledSkills]);
     const jdAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "jd"), [enabledSkills]);
     const screeningAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "screening"), [enabledSkills]);
     const interviewAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "interview"), [enabledSkills]);
@@ -523,10 +529,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         candidate_id: nextCandidateId,
         skill_ids: nextSkillIds,
         skills: nextSkillIds
-            .map((skillId) => skillMap.get(skillId))
+            .map((skillId) => enabledSkillMap.get(skillId))
             .filter(Boolean) as RecruitmentSkill[],
         updated_at: new Date().toISOString(),
-    }), [positionMap, skillMap]);
+    }), [enabledSkillMap, positionMap]);
+    const assistantContextSkillIds = useMemo(
+        () => chatContext.skill_ids.filter((skillId) => enabledSkillMap.has(skillId)),
+        [chatContext.skill_ids, enabledSkillMap],
+    );
+    const assistantContextSkills = useMemo(
+        () => assistantContextSkillIds
+            .map((skillId) => enabledSkillMap.get(skillId))
+            .filter(Boolean) as RecruitmentSkill[],
+        [assistantContextSkillIds, enabledSkillMap],
+    );
     const positionScreeningSkillIds = useMemo(
         () => candidateDetail?.candidate.position_screening_skill_ids || [],
         [candidateDetail?.candidate.position_screening_skill_ids],
@@ -582,6 +598,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             : "未配置 Skills";
     const effectiveInterviewSkillIds = interviewSkillSelectionDirty ? selectedInterviewSkillIds : autoInterviewSkillIds;
     const effectiveInterviewSkillSourceLabel = interviewSkillSelectionDirty ? "手动选择 Skills" : autoInterviewSkillSourceLabel;
+    useEffect(() => {
+        if (assistantContextSkillIds.length === chatContext.skill_ids.length) {
+            return;
+        }
+        void saveChatContext(
+            chatContext.position_id || null,
+            assistantContextSkillIds,
+            chatContext.candidate_id || null,
+            {quiet: true},
+        );
+    }, [assistantContextSkillIds, chatContext.candidate_id, chatContext.position_id, chatContext.skill_ids.length]);
     const activeScreeningTaskIds = useMemo(() => Object.values(activeScreeningTaskMap), [activeScreeningTaskMap]);
     const selectedCandidateScreeningTaskId = selectedCandidateId ? (activeScreeningTaskMap[selectedCandidateId] || null) : null;
     const isBatchScreeningRunning = activeBatchScreeningTaskIds.length > 0;
@@ -877,10 +904,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             inflightRequests.clear();
         };
     }, []);
-
-    useEffect(() => {
-        setScreeningSubmitting(activeScreeningTaskIds.length > 0);
-    }, [activeScreeningTaskIds.length]);
 
     useEffect(() => {
         setInterviewGenerating(Boolean(activeInterviewTaskId));
@@ -3083,9 +3106,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
         } finally {
             screeningLaunchInFlightRef.current = false;
-            if (!startedTaskIds.length) {
-                setScreeningSubmitting(false);
-            }
+            setScreeningSubmitting(false);
         }
     }
 
@@ -3376,9 +3397,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     function toggleSkillInAssistant(skillId: number) {
-        const nextSkillIds = chatContext.skill_ids.includes(skillId)
-            ? chatContext.skill_ids.filter((item) => item !== skillId)
-            : [...chatContext.skill_ids, skillId];
+        if (!enabledSkillMap.has(skillId)) {
+            return;
+        }
+        const nextSkillIds = assistantContextSkillIds.includes(skillId)
+            ? assistantContextSkillIds.filter((item) => item !== skillId)
+            : [...assistantContextSkillIds, skillId];
         void saveChatContext(chatContext.position_id || null, nextSkillIds, chatContext.candidate_id || null);
         queueAssistantInputFocus();
     }
@@ -3814,6 +3838,87 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
+    function requestDeleteResumeFile(file: ResumeFile) {
+        setResumeDeleteTarget(file);
+    }
+
+    function requestDeleteCandidate(candidate: CandidateSummary) {
+        setCandidateDeleteError(null);
+        setCandidateDeleteTarget(candidate);
+    }
+
+    async function deleteCandidate() {
+        if (!candidateDeleteTarget || candidateDeleting) {
+            return;
+        }
+        const deletedCandidateId = candidateDeleteTarget.id;
+        setCandidateDeleteError(null);
+        setCandidateDeleting(true);
+        try {
+            await recruitmentApi(`/candidates/${deletedCandidateId}`, {
+                method: "DELETE",
+            });
+            toast.success("候选人已删除");
+            setCandidateDeleteTarget(null);
+            setSelectedCandidateIds((current) => current.filter((item) => item !== deletedCandidateId));
+            setCandidateDetail(null);
+            const nextCandidates = await loadCandidates({silent: true});
+            await Promise.all([loadDashboard(), loadLogs({silent: true})]);
+            const nextCandidateId = nextCandidates[0]?.id ?? null;
+            setSelectedCandidateId(nextCandidateId);
+            selectedCandidateIdRef.current = nextCandidateId;
+            if (nextCandidateId) {
+                await loadCandidateDetail(nextCandidateId, {silent: true});
+            } else {
+                setCandidateDetail(null);
+            }
+            if ((chatContextRef.current.candidate_id ?? null) === deletedCandidateId) {
+                void saveChatContext(chatContextRef.current.position_id ?? null, chatContextRef.current.skill_ids, nextCandidateId, {quiet: true});
+            }
+        } catch (error) {
+            setCandidateDeleteError(formatActionError(error) || "删除候选人失败，请稍后重试");
+        } finally {
+            setCandidateDeleting(false);
+        }
+    }
+
+    async function deleteResumeFile() {
+        if (!resumeDeleteTarget || resumeDeleting) {
+            return;
+        }
+        setResumeDeleting(true);
+        try {
+            const result = await recruitmentApi<{
+                candidate_id: number;
+                deleted_resume_file_id: number;
+                remaining_resume_count: number;
+                latest_resume_file_id?: number | null;
+                latest_parse_result_id?: number | null;
+                latest_score_id?: number | null;
+            }>(`/resume-files/${resumeDeleteTarget.id}`, {
+                method: "DELETE",
+            });
+            toast.success(
+                result.remaining_resume_count > 0
+                    ? "简历已删除，候选人已自动切换到剩余简历"
+                    : "简历已删除",
+            );
+            setResumeDeleteTarget(null);
+            await Promise.all([
+                loadCandidates({silent: true}),
+                loadDashboard(),
+                loadLogs({silent: true}),
+                selectedCandidateIdRef.current === result.candidate_id
+                    ? loadCandidateDetail(result.candidate_id, {silent: true})
+                    : Promise.resolve(null),
+            ]);
+        } catch (error) {
+            toast.error(`删除简历失败：${formatActionError(error)}`);
+        } finally {
+            setResumeDeleting(false);
+        }
+    }
+
     async function downloadInterviewQuestion(questionId: number) {
         try {
             const response = await authenticatedFetch(`/api/recruitment/interview-questions/${questionId}/download`, {
@@ -4093,7 +4198,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </div>
                     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
                         <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">激活 Skills</p>
-                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{chatContext.skills?.length || 0} 项</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{assistantContextSkills.length} 项</p>
                     </div>
                     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
                         <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">当前模型</p>
@@ -4121,7 +4226,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                 <Field label="激活 Skills">
                     <div className="flex flex-wrap gap-2">
-                        {skills.map((skill) => (
+                        {enabledSkills.map((skill) => (
                             <button
                                 key={skill.id}
                                 type="button"
@@ -4129,7 +4234,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 onClick={() => toggleSkillInAssistant(skill.id)}
                                 className={cn(
                                     "rounded-full border px-3 py-2 text-xs font-medium transition",
-                                    chatContext.skill_ids.includes(skill.id)
+                                    assistantContextSkillIds.includes(skill.id)
                                         ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                                         : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
                                 )}
@@ -5173,6 +5278,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 candidateEditor={candidateEditor}
                 setCandidateEditor={setCandidateEditor}
                 saveCandidate={saveCandidate}
+                requestDeleteResumeFile={requestDeleteResumeFile}
+                requestDeleteCandidate={requestDeleteCandidate}
                 effectiveScreeningSkillSourceLabel={effectiveScreeningSkillSourceLabel}
                 effectiveScreeningSkillIds={effectiveScreeningSkillIds}
                 skillMap={skillMap}
@@ -5886,6 +5993,79 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         <Button variant="outline" onClick={() => setPositionDeleteConfirmOpen(false)}>取消</Button>
                         <Button variant="destructive" onClick={() => void deletePosition()} disabled={positionDeleting}>
                             {positionDeleting ? "删除中..." : "确认删除"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={Boolean(candidateDeleteTarget)} onOpenChange={(open) => {
+                if (!open && !candidateDeleting) {
+                    setCandidateDeleteError(null);
+                    setCandidateDeleteTarget(null);
+                }
+            }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>确认删除候选人</DialogTitle>
+                        <DialogDescription>
+                            删除后会同步清理该候选人的简历文件、解析结果、初筛评分、面试题、状态流转记录和工作记忆。正在执行中的候选人任务需要先结束后才能删除。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+                        <p className="font-medium text-slate-900 dark:text-slate-100">{candidateDeleteTarget?.name || "当前候选人"}</p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            删除后不可恢复；历史删除审计会保留，但该候选人不会再出现在候选人列表和详情区中。
+                        </p>
+                    </div>
+                    <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
+                        <span className="min-h-[20px] flex-1 text-sm text-rose-600 dark:text-rose-300">
+                            {candidateDeleteError ?? ""}
+                        </span>
+                        <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setCandidateDeleteError(null);
+                                setCandidateDeleteTarget(null);
+                            }}
+                            disabled={candidateDeleting}
+                        >
+                            取消
+                        </Button>
+                        <Button variant="destructive" onClick={() => void deleteCandidate()} disabled={candidateDeleting}>
+                            {candidateDeleting ? "删除中..." : "确认删除"}
+                        </Button>
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={Boolean(resumeDeleteTarget)} onOpenChange={(open) => {
+                if (!open && !resumeDeleting) {
+                    setResumeDeleteTarget(null);
+                }
+            }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>确认删除简历</DialogTitle>
+                        <DialogDescription>
+                            删除后会同步清理这份简历对应的解析结果和初筛评分；如果该候选人还有其他简历，系统会自动切换到下一份可用简历。正在解析或初筛中的简历暂时不能删除。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+                        <p className="font-medium text-slate-900 dark:text-slate-100">{resumeDeleteTarget?.original_name || "当前简历"}</p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">删除后不可恢复，请确认当前候选人不再需要这份原始文件。</p>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setResumeDeleteTarget(null)}
+                            disabled={resumeDeleting}
+                        >
+                            取消
+                        </Button>
+                        <Button variant="destructive" onClick={() => void deleteResumeFile()} disabled={resumeDeleting}>
+                            {resumeDeleting ? "删除中..." : "确认删除"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
