@@ -32,7 +32,6 @@ import {Button} from "@/components/ui/button";
 import {
     Card,
     CardContent,
-    CardDescription,
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
@@ -71,7 +70,6 @@ import {
     labelForProvider,
     labelForTaskExecutionStatus,
     labelForTaskType,
-    looksLikeFullHtmlDocument,
     resolveCandidateDisplayStatus,
     resolveLogSkillSnapshots,
     statusBadgeClass,
@@ -90,6 +88,8 @@ type VirtualCandidateRowMetric = {
     start: number;
     size: number;
 };
+
+type CandidateInterviewQuestion = CandidateDetail["interview_questions"][number];
 
 const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 84;
 const CANDIDATE_LIST_OVERSCAN = 6;
@@ -112,10 +112,123 @@ function findVirtualRowStartIndex(metrics: VirtualCandidateRowMetric[], scrollTo
     return Math.max(0, Math.min(metrics.length - 1, low));
 }
 
+function OutputSnippet({content}: { content: string }) {
+    const [expanded, setExpanded] = React.useState(false);
+    const lines = React.useMemo(() => content.split("\n"), [content]);
+    const preview = React.useMemo(() => lines.slice(0, 3).join("\n"), [lines]);
+    const hasMore = lines.length > 3;
+
+    return (
+        <div className="mt-3 min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+            <pre className="min-w-0 whitespace-pre-wrap break-all text-xs leading-6 text-slate-600 dark:text-slate-300">
+                {expanded ? content : preview}
+            </pre>
+            {hasMore ? (
+                <button
+                    type="button"
+                    className="mt-2 text-xs text-slate-400 transition hover:text-slate-600 dark:hover:text-slate-300"
+                    onClick={() => setExpanded((current) => !current)}
+                >
+                    {expanded ? "收起" : `展开全部（${lines.length} 行）`}
+                </button>
+            ) : null}
+        </div>
+    );
+}
+
+function InterviewQuestionCard({
+    question,
+    onDownload,
+    onPreview,
+}: {
+    question: CandidateInterviewQuestion;
+    onDownload: () => void;
+    onPreview: () => void;
+}) {
+    const modules = React.useMemo(() => {
+        if (!question.html_content) return [];
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(question.html_content, "text/html");
+        const headings = Array.from(doc.querySelectorAll("h2, h3"));
+        return headings
+            .map((heading) => heading.textContent?.trim() || "")
+            .filter(Boolean)
+            .slice(0, 6);
+    }, [question.html_content]);
+
+    const questionCount = React.useMemo(() => {
+        if (!question.html_content) return null;
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(question.html_content, "text/html");
+        const listCount = doc.querySelectorAll("li").length;
+        return listCount || null;
+    }, [question.html_content]);
+
+    return (
+        <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/85 dark:border-slate-800 dark:bg-slate-950/70">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200/80 px-4 py-3 dark:border-slate-800">
+                <div className="min-w-0">
+                    <p className="font-medium text-slate-900 dark:text-slate-100">{question.round_name}</p>
+                    {question.created_at ? (
+                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                            生成于 {formatDateTime(question.created_at)}
+                        </p>
+                    ) : null}
+                </div>
+                <Badge className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                    已生成
+                </Badge>
+            </div>
+
+            <div className="grid grid-cols-2 gap-px border-b border-slate-200/80 bg-slate-200/80 dark:border-slate-800 dark:bg-slate-800">
+                <div className="bg-white px-4 py-2.5 dark:bg-slate-950">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">模块数</p>
+                    <p className="mt-0.5 text-sm font-medium text-slate-900 dark:text-slate-100">
+                        {modules.length > 0 ? `${modules.length} 个` : "解析中"}
+                    </p>
+                </div>
+                <div className="bg-white px-4 py-2.5 dark:bg-slate-950">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">题目数（估）</p>
+                    <p className="mt-0.5 text-sm font-medium text-slate-900 dark:text-slate-100">
+                        {questionCount != null ? `${questionCount} 题` : "-"}
+                    </p>
+                </div>
+            </div>
+
+            {modules.length > 0 ? (
+                <div className="space-y-1.5 border-b border-slate-200/80 px-4 py-3 dark:border-slate-800">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">模块目录</p>
+                    {modules.slice(0, 5).map((moduleName, index) => (
+                        <div key={`${moduleName}-${index}`} className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] text-slate-500 dark:bg-slate-800">
+                                {index + 1}
+                            </span>
+                            <span className="truncate">{moduleName}</span>
+                        </div>
+                    ))}
+                    {modules.length > 5 ? (
+                        <p className="text-xs text-slate-400 dark:text-slate-500">+ {modules.length - 5} 个模块</p>
+                    ) : null}
+                </div>
+            ) : null}
+
+            <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+                <Button size="sm" onClick={onDownload}>
+                    <Download className="h-4 w-4"/>
+                    下载 HTML
+                </Button>
+                <Button size="sm" variant="outline" onClick={onPreview}>
+                    <ExternalLink className="h-4 w-4"/>
+                    独立预览
+                </Button>
+            </div>
+        </div>
+    );
+}
+
 type CandidatesPageProps = {
     panelClass?: string;
     candidateFiltersCollapsed: boolean;
-    candidateFilterSummary: string;
     candidateViewMode: CandidateViewMode;
     setCandidateViewMode: React.Dispatch<React.SetStateAction<CandidateViewMode>>;
     setCandidateFiltersCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
@@ -144,7 +257,6 @@ type CandidatesPageProps = {
     candidatesLoading: boolean;
     candidateListScrollRef: (node: HTMLDivElement | null) => void;
     candidateListHorizontalRailRef: (node: HTMLDivElement | null) => void;
-    candidateListTableWidth: number;
     renderCandidateListHeaderCell: (key: CandidateListColumnKey, label: string) => React.ReactNode;
     selectedCandidateId: number | null;
     setSelectedCandidateId: React.Dispatch<React.SetStateAction<number | null>>;
@@ -190,14 +302,11 @@ type CandidatesPageProps = {
     skills: RecruitmentSkill[];
     toggleInterviewSkillSelection: (skillId: number) => void;
     downloadInterviewQuestion: (questionId: number) => Promise<void>;
-    syncInterviewPreviewHeight: (iframe: HTMLIFrameElement | null) => void;
-    interviewPreviewHeight: number;
 };
 
 export function CandidatesPage({
     panelClass = defaultPanelClass,
     candidateFiltersCollapsed,
-    candidateFilterSummary,
     candidateViewMode,
     setCandidateViewMode,
     setCandidateFiltersCollapsed,
@@ -226,7 +335,6 @@ export function CandidatesPage({
     candidatesLoading,
     candidateListScrollRef,
     candidateListHorizontalRailRef,
-    candidateListTableWidth,
     renderCandidateListHeaderCell,
     selectedCandidateId,
     setSelectedCandidateId,
@@ -272,8 +380,6 @@ export function CandidatesPage({
     skills,
     toggleInterviewSkillSelection,
     downloadInterviewQuestion,
-    syncInterviewPreviewHeight,
-    interviewPreviewHeight,
 }: CandidatesPageProps) {
     const [candidateListViewportEl, setCandidateListViewportEl] = React.useState<HTMLDivElement | null>(null);
     const [candidateListScrollTop, setCandidateListScrollTop] = React.useState(0);
@@ -359,9 +465,31 @@ export function CandidatesPage({
         };
     }, [candidateViewMode, candidateListViewportEl]);
 
+    const candidateListVisibleColumns = React.useMemo<CandidateListColumnKey[]>(
+        () => ["candidate", "position", "status", "match", "source", "updated"],
+        [],
+    );
+
+    const candidateListEffectiveColumnWidths = React.useMemo<CandidateListDisplayColumnWidths>(() => (
+        candidateListCompactMode
+            ? {
+                ...candidateListDisplayColumnWidths,
+                candidate: 132,
+                position: 108,
+            }
+            : candidateListDisplayColumnWidths
+    ), [candidateListCompactMode, candidateListDisplayColumnWidths]);
+
+    const candidateListEffectiveTableWidth = React.useMemo(() => {
+        return 56 + candidateListVisibleColumns.reduce(
+            (sum, key) => sum + candidateListEffectiveColumnWidths[key],
+            0,
+        );
+    }, [candidateListEffectiveColumnWidths, candidateListVisibleColumns]);
+
     React.useEffect(() => {
         setCandidateListMeasuredRowHeights({});
-    }, [candidateViewMode, candidateListTableWidth, visibleCandidates]);
+    }, [candidateViewMode, candidateListEffectiveTableWidth, visibleCandidates]);
 
     React.useEffect(() => {
         const rowObservers = candidateListRowObserversRef.current;
@@ -425,28 +553,6 @@ export function CandidatesPage({
         }
         return visibleCandidates.slice(candidateListVirtualMetrics.startIndex, candidateListVirtualMetrics.endIndex + 1);
     }, [candidateListVirtualMetrics.endIndex, candidateListVirtualMetrics.startIndex, visibleCandidates]);
-
-    const candidateListVisibleColumns = React.useMemo<CandidateListColumnKey[]>(
-        () => ["candidate", "position", "status", "match", "source", "updated"],
-        [],
-    );
-
-    const candidateListEffectiveColumnWidths = React.useMemo<CandidateListDisplayColumnWidths>(() => (
-        candidateListCompactMode
-            ? {
-                ...candidateListDisplayColumnWidths,
-                candidate: 132,
-                position: 108,
-            }
-            : candidateListDisplayColumnWidths
-    ), [candidateListCompactMode, candidateListDisplayColumnWidths]);
-
-    const candidateListEffectiveTableWidth = React.useMemo(() => {
-        return 56 + candidateListVisibleColumns.reduce(
-            (sum, key) => sum + candidateListEffectiveColumnWidths[key],
-            0,
-        );
-    }, [candidateListEffectiveColumnWidths, candidateListVisibleColumns]);
 
     const createCandidateRowMeasureRef = React.useCallback((candidateId: number) => {
         return (node: HTMLTableRowElement | null) => {
@@ -627,14 +733,11 @@ export function CandidatesPage({
                 </div>
             )}
 
-            <div className="grid min-h-0 items-stretch gap-4 2xl:gap-6 overflow-hidden xl:grid-cols-[minmax(300px,0.74fr)_minmax(0,1.26fr)] 2xl:grid-cols-[minmax(320px,0.78fr)_minmax(0,1.22fr)]">
+            <div className="grid min-h-0 items-stretch gap-4 2xl:gap-6 overflow-hidden xl:grid-cols-[minmax(280px,0.62fr)_minmax(0,1.38fr)] 2xl:grid-cols-[minmax(300px,0.65fr)_minmax(0,1.35fr)]">
                 <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
-                    <CardHeader className="pb-0">
+                    <CardHeader className="py-3 pb-0">
                         <div className="flex items-center justify-between gap-3">
-                            <div>
-                                <CardTitle className="text-lg">候选人列表</CardTitle>
-                                <CardDescription>左侧筛选扫读，右侧处理当前候选人。</CardDescription>
-                            </div>
+                            <CardTitle className="text-base">候选人列表</CardTitle>
                             <Badge variant="outline" className="rounded-full">{visibleCandidates.length} 人</Badge>
                         </div>
                     </CardHeader>
@@ -922,8 +1025,8 @@ export function CandidatesPage({
                 <Card className={cn(panelClass, "min-h-0 min-w-0 gap-0 overflow-hidden py-0")}>
                     {candidateDetailLoading ? <LoadingPanel label="正在加载候选人详情"/> : candidateDetail ? (
                         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-                            <div className="border-b border-slate-200/80 px-4 py-2.5 dark:border-slate-800">
-                                <div className="space-y-1.5">
+                            <div className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
+                                <div className="space-y-1">
                                     <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                                             <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(candidateDetail.candidate)))}>
                                                 {labelForCandidateStatus(resolveCandidateDisplayStatus(candidateDetail.candidate))}
@@ -941,8 +1044,8 @@ export function CandidatesPage({
                                                 </Badge>
                                             ) : null}
                                         </div>
-                                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                                            <h3 className="break-words text-[1.25rem] font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-[1.4rem]">
+                                        <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+                                            <h3 className="break-words text-[1.12rem] font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-[1.2rem]">
                                                 {candidateDetail.candidate.name}
                                             </h3>
                                             {candidateDetailHeadlineMeta ? (
@@ -955,9 +1058,9 @@ export function CandidatesPage({
                                         </div>
                                     </div>
                             </div>
-                            <div className="border-b border-slate-200/80 px-4 py-2.5 dark:border-slate-800">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
+                            <div className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
+                                <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                    <div className="flex shrink-0 items-center gap-2">
                                         <Button
                                             size="sm"
                                             variant="outline"
@@ -987,18 +1090,17 @@ export function CandidatesPage({
                                             {isCurrentInterviewTaskCancelling ? "停止中..." : currentCandidateInterviewTaskId ? "停止生成" : "面试题"}
                                         </Button>
                                     </div>
-                                    <div className="flex w-full flex-wrap items-center justify-start xl:w-auto xl:justify-end">
-                                        <div className="flex flex-wrap items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
-                                            <Button size="sm" variant={candidateDetailPanel === "profile" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("profile")}>
-                                                档案
-                                            </Button>
-                                            <Button size="sm" variant={candidateDetailPanel === "ai" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("ai")}>
-                                                AI 评估
-                                            </Button>
-                                            <Button size="sm" variant={candidateDetailPanel === "interview" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("interview")}>
-                                                简历 / 面试题
-                                            </Button>
-                                        </div>
+                                    <div className="mx-1 h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-800"/>
+                                    <div className="ml-auto flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
+                                        <Button size="sm" variant={candidateDetailPanel === "profile" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("profile")}>
+                                            档案
+                                        </Button>
+                                        <Button size="sm" variant={candidateDetailPanel === "ai" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("ai")}>
+                                            AI 评估
+                                        </Button>
+                                        <Button size="sm" variant={candidateDetailPanel === "interview" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("interview")}>
+                                            面试准备
+                                        </Button>
                                     </div>
                                 </div>
                             </div>
@@ -1229,11 +1331,7 @@ export function CandidatesPage({
                                                                             <InfoTile label="记忆来源" value={labelForMemorySource(log.memory_source)}/>
                                                                         </div>
                                                                         {log.error_message ? <p className="mt-3 break-all text-sm text-rose-600">{log.error_message}</p> : null}
-                                                                        <div className="mt-3 min-w-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                                            <pre className="min-w-0 whitespace-pre-wrap break-all text-xs leading-6 text-slate-600 dark:text-slate-300">
-                                                                                {formatStructuredValue(log.output_snapshot, log.output_summary || "执行中，等待模型返回...")}
-                                                                            </pre>
-                                                                        </div>
+                                                                        <OutputSnippet content={formatStructuredValue(log.output_snapshot, log.output_summary || "执行中，等待模型返回...")}/>
                                                                         <div className="mt-3 flex flex-wrap gap-2">
                                                                             <Button size="sm" variant="outline" onClick={() => openTaskLogDetail(log.id)}>查看完整日志</Button>
                                                                         </div>
@@ -1333,38 +1431,16 @@ export function CandidatesPage({
 
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
                                                 {latestInterviewQuestion ? (
-                                                    <div className="space-y-3">
-                                                        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">
-                                                                最近一份面试题：{latestInterviewQuestion.round_name}
-                                                            </p>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onClick={() => void downloadInterviewQuestion(latestInterviewQuestion.id)}
-                                                            >
-                                                                <Download className="h-4 w-4"/>
-                                                                下载 HTML
-                                                            </Button>
-                                                        </div>
-                                                        {looksLikeFullHtmlDocument(latestInterviewQuestion.html_content) ? (
-                                                            <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-950">
-                                                                <iframe
-                                                                    title={`${latestInterviewQuestion.round_name}-preview`}
-                                                                    srcDoc={latestInterviewQuestion.html_content}
-                                                                    sandbox="allow-scripts"
-                                                                    onLoad={(event) => syncInterviewPreviewHeight(event.currentTarget)}
-                                                                    className="w-full border-0 bg-white"
-                                                                    style={{height: interviewPreviewHeight}}
-                                                                />
-                                                            </div>
-                                                        ) : (
-                                                            <div
-                                                                className="prose prose-slate max-w-none dark:prose-invert"
-                                                                dangerouslySetInnerHTML={{__html: latestInterviewQuestion.html_content}}
-                                                            />
-                                                        )}
-                                                    </div>
+                                                    <InterviewQuestionCard
+                                                        question={latestInterviewQuestion}
+                                                        onDownload={() => void downloadInterviewQuestion(latestInterviewQuestion.id)}
+                                                        onPreview={() => {
+                                                            const blob = new Blob([latestInterviewQuestion.html_content], {type: "text/html"});
+                                                            const previewUrl = URL.createObjectURL(blob);
+                                                            window.open(previewUrl, "_blank", "noopener,noreferrer");
+                                                            window.setTimeout(() => URL.revokeObjectURL(previewUrl), 60_000);
+                                                        }}
+                                                    />
                                                 ) : (
                                                     <EmptyState title="暂无面试题" description="点击上方按钮后，系统会结合岗位 JD、候选人简历和 Skills 生成定制化题目。"/>
                                                 )}

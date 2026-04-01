@@ -336,7 +336,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [resumeMailSubmitting, setResumeMailSubmitting] = useState(false);
     const [mailDispatchActionKey, setMailDispatchActionKey] = useState<string | null>(null);
     const [chatSending, setChatSending] = useState(false);
-    const [interviewPreviewHeight, setInterviewPreviewHeight] = useState(760);
     const [cancellingTaskIds, setCancellingTaskIds] = useState<number[]>([]);
     const [activeJDTaskId, setActiveJDTaskId] = useState<number | null>(null);
     const [activeJDPositionId, setActiveJDPositionId] = useState<number | null>(null);
@@ -420,32 +419,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const chatContextRef = useRef(chatContext);
     const positionTitleInputRef = useRef<HTMLInputElement | null>(null);
     const positionHeadcountInputRef = useRef<HTMLInputElement | null>(null);
-
-    const syncInterviewPreviewHeight = useCallback((iframe: HTMLIFrameElement | null) => {
-        if (!iframe) {
-            return;
-        }
-        const applyHeight = () => {
-            try {
-                const doc = iframe.contentDocument;
-                const body = doc?.body;
-                const root = doc?.documentElement;
-                const nextHeight = Math.max(
-                    body?.scrollHeight || 0,
-                    body?.offsetHeight || 0,
-                    root?.scrollHeight || 0,
-                    root?.offsetHeight || 0,
-                    640,
-                );
-                setInterviewPreviewHeight(nextHeight);
-            } catch {
-                setInterviewPreviewHeight(760);
-            }
-        };
-        applyHeight();
-        window.setTimeout(applyHeight, 120);
-        window.setTimeout(applyHeight, 420);
-    }, []);
 
     const [skillDialogOpen, setSkillDialogOpen] = useState(false);
     const [skillEditingId, setSkillEditingId] = useState<number | null>(null);
@@ -744,10 +717,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         )
     ), [candidateListColumnWidths, candidateListViewportWidth]);
 
-    const candidateListTableWidth = useMemo(() => {
-        return 56 + Object.values(candidateListDisplayColumnWidths).reduce((sum, width) => sum + width, 0);
-    }, [candidateListDisplayColumnWidths]);
-
     const auditListDisplayColumnWidths = useMemo(() => (
         expandTableColumnWidths(
             auditListColumnBaseWidths,
@@ -777,46 +746,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     const recentCandidates = dashboard?.recent_candidates || [];
     const recentLogs = aiLogs.slice(0, 6);
-    const candidateFilterSummary = useMemo(() => {
-        const positionLabel = candidatePositionFilter === "all"
-            ? "全部岗位"
-            : (positions.find((position) => String(position.id) === candidatePositionFilter)?.title || "指定岗位");
-        const statusLabel = candidateStatusFilter === "all"
-            ? "全部状态"
-            : (candidateStatusLabels[candidateStatusFilter] || candidateStatusFilter);
-        const matchLabel = ({
-            all: "全部匹配度",
-            "80+": "80% 以上",
-            "60+": "60% 以上",
-            "40+": "40% 以上",
-        } as Record<string, string>)[candidateMatchFilter] || candidateMatchFilter;
-        const timeLabel = ({
-            all: "全部时间",
-            today: "今天",
-            "7d": "近 7 天",
-            "30d": "近 30 天",
-        } as Record<string, string>)[candidateTimeFilter] || candidateTimeFilter;
-        const sourceLabel = candidateSourceFilter === "all" ? "全部来源" : candidateSourceFilter;
-        const keywordLabel = candidateQuery.trim() ? `关键词：${candidateQuery.trim()}` : "无关键词";
-        return [
-            candidateViewMode === "board" ? "看板视图" : "列表视图",
-            positionLabel,
-            statusLabel,
-            matchLabel,
-            sourceLabel,
-            timeLabel,
-            keywordLabel,
-        ].join(" · ");
-    }, [
-        candidateMatchFilter,
-        candidatePositionFilter,
-        candidateQuery,
-        candidateSourceFilter,
-        candidateStatusFilter,
-        candidateTimeFilter,
-        candidateViewMode,
-        positions,
-    ]);
     const auditFilterSummary = useMemo(() => {
         const taskTypeLabel = logTaskTypeFilter === "all"
             ? "全部任务类型"
@@ -1182,10 +1111,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setInterviewSkillSelectionDirty(false);
         setCandidateProcessLogsExpanded(false);
     }, [selectedCandidateId]);
-
-    useEffect(() => {
-        setInterviewPreviewHeight(760);
-    }, [selectedCandidateId, candidateDetail?.interview_questions?.[0]?.id, candidateDetail?.interview_questions?.[0]?.html_content]);
 
     useEffect(() => {
         if (candidateViewMode !== "list" || !candidateListScrollEl) {
@@ -5167,7 +5092,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             <CandidatesPage
                 panelClass={panelClass}
                 candidateFiltersCollapsed={candidateFiltersCollapsed}
-                candidateFilterSummary={candidateFilterSummary}
                 candidateViewMode={candidateViewMode}
                 setCandidateViewMode={setCandidateViewMode}
                 setCandidateFiltersCollapsed={setCandidateFiltersCollapsed}
@@ -5196,7 +5120,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 candidatesLoading={candidatesLoading}
                 candidateListScrollRef={candidateListScrollRef}
                 candidateListHorizontalRailRef={candidateListHorizontalRailRef}
-                candidateListTableWidth={candidateListTableWidth}
                 renderCandidateListHeaderCell={renderCandidateListHeaderCell}
                 selectedCandidateId={selectedCandidateId}
                 setSelectedCandidateId={setSelectedCandidateId}
@@ -5242,8 +5165,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 skills={skills}
                 toggleInterviewSkillSelection={toggleInterviewSkillSelection}
                 downloadInterviewQuestion={downloadInterviewQuestion}
-                syncInterviewPreviewHeight={syncInterviewPreviewHeight}
-                interviewPreviewHeight={interviewPreviewHeight}
             />
         );
     }
