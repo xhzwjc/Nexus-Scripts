@@ -279,8 +279,30 @@ export function CandidatesPage({
     const [candidateListScrollTop, setCandidateListScrollTop] = React.useState(0);
     const [candidateListViewportHeight, setCandidateListViewportHeight] = React.useState(0);
     const [candidateListMeasuredRowHeights, setCandidateListMeasuredRowHeights] = React.useState<Record<number, number>>({});
+    const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
     const candidateListMetricsFrameRef = React.useRef<number | null>(null);
     const candidateListRowObserversRef = React.useRef<Map<number, ResizeObserver>>(new Map());
+
+    React.useEffect(() => {
+        if (!candidateListViewportEl) {
+            return;
+        }
+
+        const syncCompactMode = () => {
+            setCandidateListCompactMode(candidateListViewportEl.clientWidth <= 760);
+        };
+
+        syncCompactMode();
+
+        if (typeof ResizeObserver === "undefined") {
+            window.addEventListener("resize", syncCompactMode);
+            return () => window.removeEventListener("resize", syncCompactMode);
+        }
+
+        const observer = new ResizeObserver(() => syncCompactMode());
+        observer.observe(candidateListViewportEl);
+        return () => observer.disconnect();
+    }, [candidateListViewportEl]);
 
     const mergedCandidateListScrollRef = React.useCallback((node: HTMLDivElement | null) => {
         setCandidateListViewportEl(node);
@@ -403,6 +425,28 @@ export function CandidatesPage({
         }
         return visibleCandidates.slice(candidateListVirtualMetrics.startIndex, candidateListVirtualMetrics.endIndex + 1);
     }, [candidateListVirtualMetrics.endIndex, candidateListVirtualMetrics.startIndex, visibleCandidates]);
+
+    const candidateListVisibleColumns = React.useMemo<CandidateListColumnKey[]>(
+        () => ["candidate", "position", "status", "match", "source", "updated"],
+        [],
+    );
+
+    const candidateListEffectiveColumnWidths = React.useMemo<CandidateListDisplayColumnWidths>(() => (
+        candidateListCompactMode
+            ? {
+                ...candidateListDisplayColumnWidths,
+                candidate: 132,
+                position: 108,
+            }
+            : candidateListDisplayColumnWidths
+    ), [candidateListCompactMode, candidateListDisplayColumnWidths]);
+
+    const candidateListEffectiveTableWidth = React.useMemo(() => {
+        return 56 + candidateListVisibleColumns.reduce(
+            (sum, key) => sum + candidateListEffectiveColumnWidths[key],
+            0,
+        );
+    }, [candidateListEffectiveColumnWidths, candidateListVisibleColumns]);
 
     const createCandidateRowMeasureRef = React.useCallback((candidateId: number) => {
         return (node: HTMLTableRowElement | null) => {
@@ -626,7 +670,7 @@ export function CandidatesPage({
                                     ref={mergedCandidateListScrollRef}
                                     className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
                                 >
-                                    <table style={{width: candidateListTableWidth, minWidth: candidateListTableWidth}} className="caption-bottom table-fixed text-sm">
+                                    <table style={{width: candidateListEffectiveTableWidth, minWidth: candidateListEffectiveTableWidth}} className="caption-bottom table-fixed text-sm">
                                         <thead className="[&_tr]:border-b">
                                             <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">
                                                 <th className="text-foreground sticky top-0 z-10 h-10 w-14 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap">
@@ -637,12 +681,37 @@ export function CandidatesPage({
                                                         aria-label="全选候选人"
                                                     />
                                                 </th>
-                                                {renderCandidateListHeaderCell("candidate", "候选人")}
-                                                {renderCandidateListHeaderCell("position", "岗位")}
-                                                {renderCandidateListHeaderCell("status", "状态")}
-                                                {renderCandidateListHeaderCell("match", "匹配度")}
-                                                {renderCandidateListHeaderCell("source", "来源")}
-                                                {renderCandidateListHeaderCell("updated", "更新时间")}
+                                                {candidateListVisibleColumns.map((columnKey) => {
+                                                    const label = columnKey === "candidate"
+                                                        ? "候选人"
+                                                        : columnKey === "position"
+                                                            ? "岗位"
+                                                            : columnKey === "status"
+                                                                ? "状态"
+                                                                : columnKey === "match"
+                                                                    ? "匹配度"
+                                                                    : columnKey === "source"
+                                                                        ? "来源"
+                                                                        : "更新时间";
+
+                                                    if (!candidateListCompactMode) {
+                                                        return renderCandidateListHeaderCell(columnKey, label);
+                                                    }
+
+                                                    return (
+                                                        <th
+                                                            key={columnKey}
+                                                            style={{
+                                                                width: candidateListEffectiveColumnWidths[columnKey],
+                                                                minWidth: candidateListEffectiveColumnWidths[columnKey],
+                                                                maxWidth: candidateListEffectiveColumnWidths[columnKey],
+                                                            }}
+                                                            className="text-foreground sticky top-0 z-10 h-10 bg-inherit px-2 text-left align-middle text-xs font-medium whitespace-nowrap"
+                                                        >
+                                                            {label}
+                                                        </th>
+                                                    );
+                                                })}
                                             </tr>
                                         </thead>
                                         <tbody className="[&_tr:last-child]:border-0">
@@ -651,7 +720,7 @@ export function CandidatesPage({
                                                     {candidateListVirtualMetrics.topSpacerHeight > 0 ? (
                                                         <tr aria-hidden="true" className="border-0">
                                                             <td
-                                                                colSpan={7}
+                                                                colSpan={candidateListVisibleColumns.length + 1}
                                                                 className="h-0 p-0"
                                                                 style={{height: candidateListVirtualMetrics.topSpacerHeight, border: 0}}
                                                             />
@@ -674,9 +743,9 @@ export function CandidatesPage({
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListDisplayColumnWidths.candidate,
-                                                            minWidth: candidateListDisplayColumnWidths.candidate,
-                                                            maxWidth: candidateListDisplayColumnWidths.candidate,
+                                                            width: candidateListEffectiveColumnWidths.candidate,
+                                                            minWidth: candidateListEffectiveColumnWidths.candidate,
+                                                            maxWidth: candidateListEffectiveColumnWidths.candidate,
                                                         }}
                                                         className="p-2 align-middle"
                                                     >
@@ -704,9 +773,9 @@ export function CandidatesPage({
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListDisplayColumnWidths.position,
-                                                            minWidth: candidateListDisplayColumnWidths.position,
-                                                            maxWidth: candidateListDisplayColumnWidths.position,
+                                                            width: candidateListEffectiveColumnWidths.position,
+                                                            minWidth: candidateListEffectiveColumnWidths.position,
+                                                            maxWidth: candidateListEffectiveColumnWidths.position,
                                                         }}
                                                         className="p-2 align-middle"
                                                     >
@@ -714,9 +783,9 @@ export function CandidatesPage({
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListDisplayColumnWidths.status,
-                                                            minWidth: candidateListDisplayColumnWidths.status,
-                                                            maxWidth: candidateListDisplayColumnWidths.status,
+                                                            width: candidateListEffectiveColumnWidths.status,
+                                                            minWidth: candidateListEffectiveColumnWidths.status,
+                                                            maxWidth: candidateListEffectiveColumnWidths.status,
                                                         }}
                                                         className="p-2 align-middle whitespace-nowrap"
                                                     >
@@ -726,9 +795,9 @@ export function CandidatesPage({
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListDisplayColumnWidths.match,
-                                                            minWidth: candidateListDisplayColumnWidths.match,
-                                                            maxWidth: candidateListDisplayColumnWidths.match,
+                                                            width: candidateListEffectiveColumnWidths.match,
+                                                            minWidth: candidateListEffectiveColumnWidths.match,
+                                                            maxWidth: candidateListEffectiveColumnWidths.match,
                                                         }}
                                                         className="p-2 align-middle whitespace-nowrap"
                                                     >
@@ -736,9 +805,9 @@ export function CandidatesPage({
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListDisplayColumnWidths.source,
-                                                            minWidth: candidateListDisplayColumnWidths.source,
-                                                            maxWidth: candidateListDisplayColumnWidths.source,
+                                                            width: candidateListEffectiveColumnWidths.source,
+                                                            minWidth: candidateListEffectiveColumnWidths.source,
+                                                            maxWidth: candidateListEffectiveColumnWidths.source,
                                                         }}
                                                         className="p-2 align-middle"
                                                     >
@@ -746,9 +815,9 @@ export function CandidatesPage({
                                                     </td>
                                                     <td
                                                         style={{
-                                                            width: candidateListDisplayColumnWidths.updated,
-                                                            minWidth: candidateListDisplayColumnWidths.updated,
-                                                            maxWidth: candidateListDisplayColumnWidths.updated,
+                                                            width: candidateListEffectiveColumnWidths.updated,
+                                                            minWidth: candidateListEffectiveColumnWidths.updated,
+                                                            maxWidth: candidateListEffectiveColumnWidths.updated,
                                                         }}
                                                         className="p-2 align-middle"
                                                     >
@@ -759,7 +828,7 @@ export function CandidatesPage({
                                                     {candidateListVirtualMetrics.bottomSpacerHeight > 0 ? (
                                                         <tr aria-hidden="true" className="border-0">
                                                             <td
-                                                                colSpan={7}
+                                                                colSpan={candidateListVisibleColumns.length + 1}
                                                                 className="h-0 p-0"
                                                                 style={{height: candidateListVirtualMetrics.bottomSpacerHeight, border: 0}}
                                                             />
@@ -768,7 +837,7 @@ export function CandidatesPage({
                                                 </>
                                             ) : (
                                                 <tr>
-                                                    <td colSpan={7} className="p-2 align-middle">
+                                                    <td colSpan={candidateListVisibleColumns.length + 1} className="p-2 align-middle">
                                                         <EmptyState title="没有符合条件的候选人" description="调整筛选条件，或先上传一批简历进入系统。"/>
                                                     </td>
                                                 </tr>
@@ -781,7 +850,7 @@ export function CandidatesPage({
                                         ref={candidateListHorizontalRailRef}
                                         className="overflow-x-auto overflow-y-hidden [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.95)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100/80 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.98)_transparent] dark:[&::-webkit-scrollbar-track]:bg-slate-900/80 dark:[&::-webkit-scrollbar-thumb]:border-slate-900 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700"
                                     >
-                                        <div style={{width: candidateListTableWidth, height: 1}}/>
+                                        <div style={{width: candidateListEffectiveTableWidth, height: 1}}/>
                                     </div>
                                 </div>
                             </div>
