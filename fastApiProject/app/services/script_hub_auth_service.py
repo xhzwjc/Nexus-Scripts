@@ -90,11 +90,10 @@ def load_user_permission_overrides(db: Session, user_id: int) -> List[Tuple[str,
 def build_permission_map(db: Session, user: ScriptHubUser) -> Dict[str, bool]:
     roles = load_roles_for_user(db, user.id)
     role_codes = {role.role_code for role in roles}
-    if user.is_super_admin or "admin" in role_codes:
-        return {permission_key: True for permission_key in ALL_PERMISSION_KEYS}
-
     granted: Dict[str, bool] = {}
-    if roles:
+    if user.is_super_admin or "admin" in role_codes:
+        granted.update({permission_key: True for permission_key in ALL_PERMISSION_KEYS})
+    elif roles:
         rows = (
             db.query(ScriptHubPermission.permission_key)
             .join(ScriptHubRolePermission, ScriptHubRolePermission.permission_id == ScriptHubPermission.id)

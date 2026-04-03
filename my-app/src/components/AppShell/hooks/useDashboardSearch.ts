@@ -67,6 +67,7 @@ export function useDashboardSearch({
         ] as const;
 
         scriptItems.forEach((item) => {
+            if (!currentUser?.permissions[item.key]) return;
             const cfg = t.scriptConfig.items[item.configKey];
             if (cfg && (cfg.name.toLowerCase().includes(query) || cfg.description.toLowerCase().includes(query) || item.keywords.some((keyword) => keyword.includes(query)))) {
                 if (!results.find((result) => result.id === item.key)) {
@@ -87,6 +88,7 @@ export function useDashboardSearch({
         ];
 
         toolItems.forEach((item) => {
+            if (item.id === 'ocr' && !currentUser?.permissions['ocr-tool']) return;
             if (item.id === 'devtools' && !currentUser?.permissions['dev-tools']) return;
             if (item.id === 'teamResources' && !currentUser?.permissions['team-resources']) return;
             if (item.id === 'aiResources' && !currentUser?.permissions['ai-resources']) return;

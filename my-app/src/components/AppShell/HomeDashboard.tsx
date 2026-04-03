@@ -227,6 +227,7 @@ export function HomeDashboard({
                         onNavigateToSystem={() => onOpenSystem('chunmiao')}
                         setCurrentView={onSetCurrentView}
                         userKey={userKey}
+                        currentUser={currentUser}
                     />
                 </div>
             </div>

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { authenticatedFetch, clearScriptHubSession, getStoredScriptHubSession } from '@/lib/auth';
+import { authenticatedFetch, clearScriptHubSession, getStoredScriptHubSession, validateStoredScriptHubSession } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import type {
     ScriptHubAuditLogEntry,
@@ -407,13 +407,20 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
         return [...keys].sort();
     }, [form.roleCodes, roleMap]);
 
+    const baselinePermissionKeys = useMemo(() => {
+        if (form.isSuperAdmin || form.roleCodes.includes('admin')) {
+            return (overview?.catalog.permissions || []).map((permission) => permission.key);
+        }
+        return selectedRolePermissionKeys;
+    }, [form.isSuperAdmin, form.roleCodes, overview, selectedRolePermissionKeys]);
+
     const grantablePermissions = useMemo(() => {
-        return (overview?.catalog.permissions || []).filter((permission) => !selectedRolePermissionKeys.includes(permission.key));
-    }, [overview, selectedRolePermissionKeys]);
+        return (overview?.catalog.permissions || []).filter((permission) => !baselinePermissionKeys.includes(permission.key));
+    }, [baselinePermissionKeys, overview]);
 
     const revokablePermissions = useMemo(() => {
-        return (overview?.catalog.permissions || []).filter((permission) => selectedRolePermissionKeys.includes(permission.key));
-    }, [overview, selectedRolePermissionKeys]);
+        return (overview?.catalog.permissions || []).filter((permission) => baselinePermissionKeys.includes(permission.key));
+    }, [baselinePermissionKeys, overview]);
 
     const permissionGroups = useMemo(() => {
         return groupPermissionsByCategory(overview?.catalog.permissions || []);
@@ -625,8 +632,8 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
 
         setSaving(true);
         try {
-            const filteredGrantedPermissions = normalizedForm.grantedPermissions.filter((permissionKey) => !selectedRolePermissionKeys.includes(permissionKey));
-            const filteredRevokedPermissions = normalizedForm.revokedPermissions.filter((permissionKey) => selectedRolePermissionKeys.includes(permissionKey));
+            const filteredGrantedPermissions = normalizedForm.grantedPermissions.filter((permissionKey) => !baselinePermissionKeys.includes(permissionKey));
+            const filteredRevokedPermissions = normalizedForm.revokedPermissions.filter((permissionKey) => baselinePermissionKeys.includes(permissionKey));
             const url = mode === 'create'
                 ? '/api/admin/rbac/users'
                 : `/api/admin/rbac/users/${encodeURIComponent(normalizedForm.userCode)}`;
@@ -657,7 +664,13 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
                 ? { userCode: payload.user.user_code, accessKey: payload.generated_access_key }
                 : null);
             toast.success(mode === 'create' ? t.accessControl.userCreated : t.accessControl.userUpdated);
+            const isCurrentUser = getStoredScriptHubSession()?.user.id === payload.user.user_code;
             closeDialogs();
+            if (isCurrentUser) {
+                await validateStoredScriptHubSession();
+                window.location.reload();
+                return;
+            }
             await loadOverview();
         } catch (saveError) {
             const message = saveError instanceof Error ? saveError.message : t.accessControl.saveFailed;

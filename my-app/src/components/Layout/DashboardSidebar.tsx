@@ -127,12 +127,14 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                             setCurrentView('system');
                                         },
                                     })}
-                                    {renderNavItem({
-                                        active: currentView === 'ocr-tool',
-                                        label: t.nav.ocrTool,
-                                        icon: <ScanLine className="h-[18px] w-[18px]" />,
-                                        onClick: () => setCurrentView('ocr-tool'),
-                                    })}
+                                    {currentUser?.permissions['ocr-tool']
+                                        ? renderNavItem({
+                                            active: currentView === 'ocr-tool',
+                                            label: t.nav.ocrTool,
+                                            icon: <ScanLine className="h-[18px] w-[18px]" />,
+                                            onClick: () => setCurrentView('ocr-tool'),
+                                        })
+                                        : null}
                                     {currentUser?.permissions['server-monitoring']
                                         ? renderNavItem({
                                             active: currentView === 'ops-center',

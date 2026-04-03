@@ -254,6 +254,34 @@ function AppContent() {
         });
     }, [system, scripts, scriptQuery, t]);
 
+    useEffect(() => {
+        if (!currentUser) {
+            return;
+        }
+
+        const requiredViewPermissions: Partial<Record<ViewType, string>> = {
+            'ocr-tool': 'ocr-tool',
+            'dev-tools': 'dev-tools',
+            'team-resources': 'team-resources',
+            'ai-resources': 'ai-resources',
+            'ops-center': 'server-monitoring',
+            'agent-chat': 'agent-chat',
+            'access-control': 'rbac-manage',
+            'ai-recruitment': 'ai-recruitment',
+        };
+
+        const requiredPermission = requiredViewPermissions[currentView];
+        if (requiredPermission && !currentUser.permissions[requiredPermission]) {
+            setCurrentView('home');
+            return;
+        }
+
+        if (currentView === 'script' && selectedScript && !currentUser.permissions[selectedScript]) {
+            setSelectedScript('');
+            setCurrentView('system');
+        }
+    }, [currentUser, currentView, selectedScript]);
+
     const totalScripts = useMemo(() => (
         Object.values(systems).reduce((total, sys) => total + sys.scripts.length, 0)
     ), [systems]);

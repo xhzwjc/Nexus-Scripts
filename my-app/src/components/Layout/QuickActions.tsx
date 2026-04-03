@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Play, Clock, Zap, ArrowRight, Terminal, FileCode, Settings, BookOpen } from 'lucide-react';
-import type { ViewType, Script } from '@/lib/types';
+import type { User, ViewType, Script } from '@/lib/types';
 import { allScripts } from '@/lib/config';
 import { useI18n } from '@/lib/i18n';
 
@@ -11,6 +11,7 @@ interface QuickActionsProps {
     onNavigateToSystem: () => void;
     setCurrentView: (view: ViewType) => void;
     userKey: string;
+    currentUser: User | null;
 }
 
 interface RecentScript {
@@ -57,7 +58,8 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
     onNavigateToScript,
     onNavigateToSystem,
     setCurrentView,
-    userKey
+    userKey,
+    currentUser,
 }) => {
     const { t } = useI18n();
     const [recentScripts, setRecentScripts] = useState<RecentScript[]>([]);
@@ -67,7 +69,11 @@ export const QuickActions: React.FC<QuickActionsProps> = ({
         { id: 'devtools', label: t.quickActions.devTools, icon: <Terminal className="w-3.5 h-3.5" />, view: 'dev-tools' as ViewType },
         { id: 'ocr', label: t.quickActions.ocrTool, icon: <FileCode className="w-3.5 h-3.5" />, view: 'ocr-tool' as ViewType },
         { id: 'help', label: t.quickActions.helpDocs, icon: <BookOpen className="w-3.5 h-3.5" />, view: 'help' as ViewType },
-    ];
+    ].filter((link) => {
+        if (link.id === 'devtools') return !!currentUser?.permissions['dev-tools'];
+        if (link.id === 'ocr') return !!currentUser?.permissions['ocr-tool'];
+        return true;
+    });
 
     useEffect(() => {
         if (userKey) {
