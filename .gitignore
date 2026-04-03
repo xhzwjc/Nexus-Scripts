@@ -25,3 +25,6 @@ docker-compose.local.yml
 
 tmp/recruitment-debug/
 *.err.log
+
+# 招聘测试上传数据（本地调试文件，不提交）
+fastApiProject/data/recruitment_uploads/resumes/
