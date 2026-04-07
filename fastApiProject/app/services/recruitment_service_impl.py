@@ -41,12 +41,12 @@ from ..recruitment_models import (
     RecruitmentSkill,
 )
 from ..secret_crypto import decrypt_secret, encrypt_secret, mask_secret
-from .recruitment_ai_gateway import RecruitmentAIGateway, get_provider_options
+from .recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, _parse_llm_json_response, get_provider_options
 from .recruitment_mailer import RecruitmentMailSenderRuntime, build_resume_email, load_attachment_from_path, send_email_via_smtp
 from .recruitment_prompts import INTERVIEW_QUESTION_STREAM_PREVIEW_SYSTEM_PROMPT, INTERVIEW_QUESTION_SYSTEM_PROMPT, JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, JD_GENERATION_SYSTEM_PROMPT, RESUME_PARSE_SYSTEM_PROMPT, RESUME_SCORE_SYSTEM_PROMPT, RESUME_SCREENING_SYSTEM_PROMPT
 from .recruitment_publish_adapters import build_publish_adapter
 from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl, recruitment_task_registry
-from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_interview_structured_fallback, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_interview_generation_constraints, extract_keywords, extract_resume_structured_data, extract_resume_text, infer_interview_capability_domains, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text
+from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_interview_structured_fallback, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_interview_generation_constraints, extract_keywords, extract_resume_structured_data, extract_resume_text, extract_screening_dimension_rules, infer_interview_capability_domains, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text
 
 KNOWN_AI_TASK_TYPES = ["jd_generation", "resume_parse", "resume_score", "interview_question_generation", "chat_orchestrator", "resume_mail_dispatch", "publish_task"]
 LLM_TASK_TYPE_OPTIONS = [{"value": "default", "label": "默认模型"}, {"value": "jd_generation", "label": "JD 生成"}, {"value": "resume_parse", "label": "简历解析"}, {"value": "resume_score", "label": "简历评分"}, {"value": "interview_question_generation", "label": "面试题生成"}, {"value": "chat_orchestrator", "label": "AI 助手"}]
@@ -58,13 +58,33 @@ STRICT_RESUME_SCORE_FIELDS = (
     "concerns",
     "recommendation",
     "suggested_status",
+    "dimensions",
 )
+RAW_SCREENING_SCORE_STORAGE_FORMAT = "raw_screening_v1"
+VALID_SCREENING_SUGGESTED_STATUSES = {"screening_passed", "talent_pool", "screening_rejected"}
+SCREENING_PAYLOAD_SCHEMA_CONFIG = {
+    "parsed_resume": {
+        "basic_info_fields": ("name", "phone", "email", "years_of_experience", "education", "location"),
+        "list_fields": ("work_experiences", "education_experiences", "skills", "projects"),
+        "string_fields": ("summary",),
+    },
+    "score": {
+        "number_fields": ("total_score", "match_percent"),
+        "text_list_fields": ("advantages", "concerns"),
+        "string_fields": ("recommendation",),
+        "enum_fields": {
+            "suggested_status": VALID_SCREENING_SUGGESTED_STATUSES,
+        },
+        "dimension_fields": ("label", "score", "max_score", "reason", "evidence", "is_inferred"),
+    },
+}
 SKILL_TASK_KEYWORDS = {
     "screening": {"screening", "score", "scoring", "resume_score", "resume-screening", "初筛", "评分", "筛选"},
     "interview": {"interview", "question", "questions", "interview-question", "面试", "面试题", "出题"},
     "jd": {"jd", "job_description", "job-description", "岗位jd", "职位jd", "jd生成", "生成jd", "岗位描述", "职位描述"},
 }
 logger = logging.getLogger(__name__)
+PROCESS_BOOTED_AT = datetime.now()
 
 AI_TASK_LOG_PROMPT_LIMIT = 24000
 AI_TASK_LOG_REQUEST_LIMIT = 120000
@@ -108,6 +128,25 @@ def _snapshot_text(value: Any) -> str:
     if isinstance(value, str):
         return value
     return json_dumps_safe(value)
+
+
+def _extract_json_parse_failure_meta(exc: Exception, *, default_source: str) -> Dict[str, Any]:
+    if isinstance(exc, RecruitmentAIJSONParseError):
+        raw_response_text = str(exc.raw_response_text or "").strip()
+        return {
+            "primary_model_call_succeeded": bool(raw_response_text),
+            "final_response_source": "screening_json_parse_failed" if default_source == "screening_request_failed" else "score_json_parse_failed",
+            "screening_result_state": "json_parse_failed",
+            "raw_response_text": raw_response_text,
+            "output_summary": truncate_text(raw_response_text, 600) if raw_response_text else "AI screening JSON 解析失败",
+        }
+    return {
+        "primary_model_call_succeeded": False,
+        "final_response_source": default_source,
+        "screening_result_state": "request_failed",
+        "raw_response_text": None,
+        "output_summary": "AI screening JSON 解析失败",
+    }
 
 
 def _copy_json_like(value: Any) -> Any:
@@ -184,8 +223,12 @@ def _compact_recommendation(value: Any, max_length: int = 240) -> Optional[str]:
     text = str(value or "").strip()
     if not text:
         return None
+    if not re.search(r"[A-Za-z0-9\u4e00-\u9fff]", text):
+        return None
     sentence = re.split(r"[。！？!?;\n]+", text, maxsplit=1)[0].strip()
     compact = re.sub(r"\s+", " ", sentence or text).strip()
+    if not re.search(r"[A-Za-z0-9\u4e00-\u9fff]", compact):
+        return None
     if len(compact) <= max_length:
         return compact
     return f"{compact[: max_length - 3].rstrip()}..."
@@ -211,6 +254,320 @@ def _parse_score_number(value: Any) -> Optional[float]:
         return None
 
 
+_GENERIC_EMPTY_STRING_MARKERS = {"", ",", "，", ";", "；", "-", "--"}
+_GENERIC_EMPTY_STRING_MARKERS_LOWER = {"null", "none", "n/a"}
+
+
+def sanitize_string(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list, tuple, set)):
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    if text in _GENERIC_EMPTY_STRING_MARKERS or lowered in _GENERIC_EMPTY_STRING_MARKERS_LOWER:
+        return ""
+    text = re.sub(r"^[,，;；\s]+", "", text)
+    text = re.sub(r"[,，;；\s]+$", "", text)
+    if not text:
+        return ""
+    lowered = text.lower()
+    if text in _GENERIC_EMPTY_STRING_MARKERS or lowered in _GENERIC_EMPTY_STRING_MARKERS_LOWER:
+        return ""
+    return text
+
+
+def _is_meaningful_sanitized_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (int, float)):
+        return True
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, list):
+        return any(_is_meaningful_sanitized_value(item) for item in value)
+    if isinstance(value, dict):
+        return any(_is_meaningful_sanitized_value(item) for item in value.values())
+    return bool(value)
+
+
+def _sanitize_json_like(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized: Dict[str, Any] = {}
+        for key, item in value.items():
+            sanitized_item = _sanitize_json_like(item)
+            if _is_meaningful_sanitized_value(sanitized_item):
+                sanitized[str(key)] = sanitized_item
+        return sanitized
+    if isinstance(value, list):
+        sanitized_items = [_sanitize_json_like(item) for item in value]
+        return [item for item in sanitized_items if _is_meaningful_sanitized_value(item)]
+    if isinstance(value, str):
+        return sanitize_string(value)
+    if value is None:
+        return ""
+    return value
+
+
+def sanitize_string_list(value: Any) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    result: List[str] = []
+    for item in value:
+        text = sanitize_string(item)
+        if text:
+            result.append(text)
+    return result
+
+
+def sanitize_number(value: Any, default: float = 0.0) -> float:
+    numeric = _parse_score_number(value)
+    return float(numeric) if numeric is not None else float(default)
+
+
+def sanitize_enum(value: Any, allowed_values: Sequence[str] | set[str]) -> str:
+    normalized = sanitize_string(value)
+    return normalized if normalized in set(allowed_values) else ""
+
+
+def sanitize_dimensions(value: Any, schema_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    allowed_fields = tuple(schema_config.get("dimension_fields") or ())
+    result: List[Dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        evidence_value = item.get("evidence")
+        if isinstance(evidence_value, list):
+            evidence = "；".join(sanitize_string_list(evidence_value))
+        else:
+            evidence = sanitize_string(evidence_value)
+        normalized: Dict[str, Any] = {
+            "label": sanitize_string(item.get("label")),
+            "score": sanitize_number(item.get("score"), default=0.0),
+            "max_score": sanitize_number(item.get("max_score"), default=0.0),
+            "reason": sanitize_string(item.get("reason")),
+            "evidence": evidence,
+            "is_inferred": item.get("is_inferred") is True,
+        }
+        sanitized = {key: normalized.get(key) for key in allowed_fields}
+        if _is_meaningful_sanitized_value(sanitized.get("label")):
+            result.append(sanitized)
+    return result
+
+
+def _sanitize_screening_payload_structure(payload: Any, schema_config: Dict[str, Any]) -> Dict[str, Any]:
+    parsed_resume_config = schema_config.get("parsed_resume") or {}
+    score_config = schema_config.get("score") or {}
+    source_payload = payload if isinstance(payload, dict) else {}
+    parsed_resume_payload = source_payload.get("parsed_resume") if isinstance(source_payload.get("parsed_resume"), dict) else {}
+    basic_info_payload = parsed_resume_payload.get("basic_info") if isinstance(parsed_resume_payload.get("basic_info"), dict) else {}
+    score_payload = source_payload.get("score") if isinstance(source_payload.get("score"), dict) else {}
+
+    sanitized_parsed_resume: Dict[str, Any] = {
+        "basic_info": {
+            field: sanitize_string(basic_info_payload.get(field))
+            for field in parsed_resume_config.get("basic_info_fields") or []
+        },
+        "summary": sanitize_string(parsed_resume_payload.get("summary")),
+    }
+    for field in parsed_resume_config.get("list_fields") or []:
+        sanitized_parsed_resume[field] = _sanitize_json_like(parsed_resume_payload.get(field)) if isinstance(parsed_resume_payload.get(field), list) else []
+
+    sanitized_score: Dict[str, Any] = {
+        field: sanitize_number(score_payload.get(field), default=0.0)
+        for field in score_config.get("number_fields") or []
+    }
+    for field in score_config.get("text_list_fields") or []:
+        sanitized_score[field] = sanitize_string_list(score_payload.get(field))
+    for field in score_config.get("string_fields") or []:
+        sanitized_score[field] = sanitize_string(score_payload.get(field))
+    enum_fields = score_config.get("enum_fields") or {}
+    for field, allowed_values in enum_fields.items():
+        sanitized_score[field] = sanitize_enum(score_payload.get(field), allowed_values)
+    sanitized_score["dimensions"] = sanitize_dimensions(score_payload.get("dimensions"), score_config)
+
+    return {
+        "parsed_resume": sanitized_parsed_resume,
+        "score": sanitized_score,
+    }
+
+
+def _validate_screening_payload_warnings(payload: Dict[str, Any], schema_config: Dict[str, Any]) -> List[str]:
+    warnings: List[str] = []
+    parsed_resume = payload.get("parsed_resume") if isinstance(payload.get("parsed_resume"), dict) else {}
+    score_payload = payload.get("score") if isinstance(payload.get("score"), dict) else {}
+    parsed_resume_config = schema_config.get("parsed_resume") or {}
+    score_config = schema_config.get("score") or {}
+
+    missing_basic_fields = [
+        field for field in parsed_resume_config.get("basic_info_fields") or []
+        if field not in (parsed_resume.get("basic_info") or {})
+    ]
+    if missing_basic_fields:
+        warnings.append(f"parsed_resume.basic_info 缺少字段：{'、'.join(missing_basic_fields)}")
+
+    for field in parsed_resume_config.get("list_fields") or []:
+        if not isinstance(parsed_resume.get(field), list):
+            warnings.append(f"parsed_resume.{field} 不是数组，已按空数组清洗。")
+
+    dimensions = score_payload.get("dimensions") if isinstance(score_payload.get("dimensions"), list) else []
+    if not dimensions:
+        warnings.append("score.dimensions 缺失或为空。")
+    required_dimension_labels = [
+        str(item or "").strip()
+        for item in (score_config.get("required_dimension_labels") or [])
+        if str(item or "").strip()
+    ]
+    if required_dimension_labels:
+        actual_dimension_labels = {
+            str(item.get("label") or "").strip()
+            for item in dimensions
+            if isinstance(item, dict) and str(item.get("label") or "").strip()
+        }
+        missing_dimension_labels = [label for label in required_dimension_labels if label not in actual_dimension_labels]
+        if missing_dimension_labels:
+            warnings.append(f"score.dimensions 缺少维度：{'、'.join(missing_dimension_labels[:8])}")
+
+    total_score = _parse_score_number(score_payload.get("total_score"))
+    match_percent = _parse_score_number(score_payload.get("match_percent"))
+    dimension_total = round(sum((_parse_score_number(item.get("score")) or 0.0) for item in dimensions) + 1e-9, 1)
+    if total_score is not None and abs(total_score - dimension_total) > 0.1:
+        warnings.append(f"score.total_score 与 dimensions 求和不一致：当前为 {total_score:.1f}，维度求和为 {dimension_total:.1f}。")
+        # 自动修正：用 dimensions 求和值覆盖 total_score 和 match_percent
+        score_payload["total_score"] = round(dimension_total, 1)
+        corrected_match = round(dimension_total * 10)
+        score_payload["match_percent"] = corrected_match
+        total_score = _parse_score_number(score_payload.get("total_score"))
+        match_percent = _parse_score_number(score_payload.get("match_percent"))
+    if total_score is not None and match_percent is not None:
+        expected_match_percent = round((total_score * 10) + 1e-9, 1)
+        if abs(match_percent - expected_match_percent) > 0.1:
+            warnings.append(f"score.match_percent 与 total_score * 10 不一致：当前为 {match_percent:.1f}，按总分应为 {expected_match_percent:.1f}。")
+            score_payload["match_percent"] = expected_match_percent
+            match_percent = _parse_score_number(score_payload.get("match_percent"))
+
+    current_status = _normalize_suggested_status(score_payload.get("suggested_status"))
+    core_gap_labels = [
+        label
+        for label in PRIMARY_CORE_DIMENSION_LABELS
+        if not any(
+            isinstance(item, dict)
+            and str(item.get("label") or "").strip() == label
+            and (_parse_score_number(item.get("score")) or 0.0) > 0
+            for item in dimensions
+        )
+    ]
+    status_thresholds = score_config.get("status_thresholds") or {}
+    derived_recommendation, derived_status = _derive_screening_decision_from_score(
+        match_percent=score_payload.get("match_percent"),
+        total_score=score_payload.get("total_score"),
+        missing_core_labels=core_gap_labels,
+        pass_threshold=_parse_score_number(status_thresholds.get("pass_threshold")) or 75.0,
+        pool_threshold=_parse_score_number(status_thresholds.get("pool_threshold")) or 55.0,
+    )
+    if current_status and derived_status and current_status != derived_status:
+        warnings.append(
+            f"score.suggested_status 与修正后的分数/核心维度规则不一致：当前为 {current_status}，按最终分数应为 {derived_status}。"
+        )
+        score_payload["suggested_status"] = derived_status
+        current_status = derived_status
+
+    current_recommendation = _compact_recommendation(score_payload.get("recommendation"))
+    if current_status and derived_status and current_status == derived_status and derived_recommendation:
+        if current_recommendation != derived_recommendation and not _recommendation_matches_status(current_status, current_recommendation):
+            warnings.append("score.recommendation 与修正后的 suggested_status 不一致，已按最终状态同步修正。")
+            score_payload["recommendation"] = derived_recommendation
+
+    for field, allowed_values in (score_config.get("enum_fields") or {}).items():
+        value = str(score_payload.get(field) or "").strip()
+        if value and value not in set(allowed_values):
+            warnings.append(f"score.{field} 不在合法枚举内。")
+        if not value:
+            warnings.append(f"score.{field} 缺失或无效。")
+
+    if not isinstance(score_payload.get("advantages"), list):
+        warnings.append("score.advantages 不是数组，已按空数组清洗。")
+    if not isinstance(score_payload.get("concerns"), list):
+        warnings.append("score.concerns 不是数组，已按空数组清洗。")
+
+    # 校验：score > 0 但 evidence 为空
+    for dim in dimensions:
+        if not isinstance(dim, dict):
+            continue
+        dim_score = _parse_score_number(dim.get("score")) or 0.0
+        dim_evidence = dim.get("evidence")
+        dim_label = str(dim.get("label") or "").strip()
+        evidence_is_empty = (
+            dim_evidence is None
+            or (isinstance(dim_evidence, str) and not dim_evidence.strip())
+            or (isinstance(dim_evidence, list) and len(dim_evidence) == 0)
+        )
+        if dim_score > 0 and evidence_is_empty:
+            warnings.append(f"维度[{dim_label}]得分>{dim_score}但evidence为空，疑似推断评分。")
+
+    # 校验：evidence 里混入了判断句
+    PSEUDO_EVIDENCE_PATTERNS = ["简历未提及", "未见", "缺乏", "不足", "无相关经验", "未明确说明", "候选人具备", "体现了", "说明其"]
+    for dim in dimensions:
+        if not isinstance(dim, dict):
+            continue
+        dim_label = str(dim.get("label") or "").strip()
+        dim_evidence = dim.get("evidence")
+        evidence_texts = []
+        if isinstance(dim_evidence, str):
+            evidence_texts = [dim_evidence]
+        elif isinstance(dim_evidence, list):
+            evidence_texts = [str(e) for e in dim_evidence if e]
+        for ev in evidence_texts:
+            if any(pattern in ev for pattern in PSEUDO_EVIDENCE_PATTERNS):
+                warnings.append(f"维度[{dim_label}]的evidence包含判断句而非原文摘录。")
+                break
+
+    return warnings[:12]
+
+
+def sanitize_screening_payload(payload: Any, schema_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    sanitized_payload = _sanitize_screening_payload_structure(payload, schema_config)
+    warnings = _validate_screening_payload_warnings(sanitized_payload, schema_config)
+    return sanitized_payload, {"warnings": warnings}
+
+
+def sanitize_screening_score_payload(payload: Any, schema_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    score_payload = _extract_model_score_payload(payload)
+    sanitized_wrapper, meta = sanitize_screening_payload({"parsed_resume": {}, "score": score_payload}, schema_config)
+    return sanitized_wrapper.get("score") or {}, meta
+
+
+def _build_screening_schema_config(
+    skill_snapshots: Sequence[Dict[str, Any]],
+    *,
+    status_rules: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    dimension_rules = extract_screening_dimension_rules(skill_snapshots, limit=32)
+    required_dimension_labels = tuple(
+        str(item.get("label") or "").strip()
+        for item in dimension_rules
+        if isinstance(item, dict) and str(item.get("label") or "").strip()
+    )
+    normalized_status_rules = status_rules if isinstance(status_rules, dict) else {}
+    return {
+        "parsed_resume": dict(SCREENING_PAYLOAD_SCHEMA_CONFIG.get("parsed_resume") or {}),
+        "score": {
+            **dict(SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
+            "required_dimension_labels": required_dimension_labels,
+            "status_thresholds": {
+                "pass_threshold": _parse_score_number(normalized_status_rules.get("pass_threshold")) or 75.0,
+                "pool_threshold": _parse_score_number(normalized_status_rules.get("pool_threshold")) or 55.0,
+            },
+        },
+    }
+
+
 def _contains_cjk_text(value: Any) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", str(value or "")))
 
@@ -226,6 +583,9 @@ def _normalize_suggested_status(value: Any) -> Optional[str]:
         "pool": "talent_pool",
         "hold": "talent_pool",
         "review": "talent_pool",
+        "conditionally_passed": "talent_pool",
+        "conditional_passed": "talent_pool",
+        "conditional pass": "talent_pool",
         "screening_rejected": "screening_rejected",
         "reject": "screening_rejected",
         "rejected": "screening_rejected",
@@ -237,6 +597,165 @@ def _normalize_suggested_status(value: Any) -> Optional[str]:
     }
     normalized = mapping.get(text, text)
     return normalized if normalized in {"screening_passed", "talent_pool", "screening_rejected"} else None
+
+
+def _build_expected_score_dimensions_from_rules(skill_snapshots: Sequence[Dict[str, Any]], *, limit: int = 12) -> List[Dict[str, Any]]:
+    rules = extract_screening_dimension_rules(skill_snapshots, limit=limit)
+    result: List[Dict[str, Any]] = []
+    for rule in rules:
+        label = str(rule.get("label") or "").strip()
+        if not label:
+            continue
+        result.append(
+            {
+                "label": label,
+                "score": None,
+                "max_score": rule.get("max_score"),
+                "weight_text": rule.get("weight_text"),
+                "is_core": bool(rule.get("is_core")),
+                "reason": "",
+                "evidence": [],
+            }
+        )
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _normalize_rule_reference_text(value: Any) -> str:
+    text = strip_markdown(str(value or ""))
+    return re.sub(r"\s+", "", text).strip().lower()
+
+
+def _score_payload_reuses_rule_text_as_evidence(
+    *,
+    dimensions: Sequence[Dict[str, Any]],
+    skill_snapshots: Sequence[Dict[str, Any]],
+) -> bool:
+    rules = extract_screening_dimension_rules(skill_snapshots, limit=12)
+    if not rules:
+        return False
+    note_by_label = {
+        str(rule.get("label") or "").strip(): _normalize_rule_reference_text(rule.get("note"))
+        for rule in rules
+        if str(rule.get("label") or "").strip()
+    }
+    all_rule_notes = [note for note in note_by_label.values() if note]
+    for item in dimensions:
+        label = str(item.get("label") or "").strip()
+        normalized_note = note_by_label.get(label, "")
+        for evidence in _normalize_score_text_items(item.get("evidence"), limit=3):
+            normalized_evidence = _normalize_rule_reference_text(evidence)
+            if not normalized_evidence or normalized_evidence == _normalize_rule_reference_text("简历未提及"):
+                continue
+            if normalized_note and (normalized_evidence in normalized_note or normalized_note in normalized_evidence):
+                return True
+            if any(len(note) >= 12 and (normalized_evidence in note or note in normalized_evidence) for note in all_rule_notes):
+                return True
+    return False
+
+
+def _analyze_ai_score_payload_quality(
+    *,
+    score_payload: Dict[str, Any],
+    skill_snapshots: Sequence[Dict[str, Any]],
+) -> List[str]:
+    issues: List[str] = []
+    dimensions = _normalize_score_dimensions(score_payload.get("dimensions"), limit=12)
+    expected_dimensions = _build_expected_score_dimensions_from_rules(skill_snapshots, limit=12)
+    expected_labels = [str(item.get("label") or "").strip() for item in expected_dimensions if str(item.get("label") or "").strip()]
+    actual_labels = {str(item.get("label") or "").strip() for item in dimensions if str(item.get("label") or "").strip()}
+    missing_labels = [label for label in expected_labels if label not in actual_labels]
+    if missing_labels:
+        issues.append(f"dimensions 缺少必填维度：{'、'.join(missing_labels[:8])}")
+
+    derived_total_score, derived_match_percent = _derive_score_metrics_from_dimensions(dimensions)
+    raw_total_score = _parse_score_number(score_payload.get("total_score"))
+    raw_match_percent = _parse_score_number(score_payload.get("match_percent"))
+    if derived_total_score is not None and raw_total_score is None:
+        issues.append("total_score 缺失")
+    elif derived_total_score is not None and abs((raw_total_score or 0.0) - derived_total_score) > 0.1:
+        issues.append("total_score 与 dimensions 求和不一致")
+    if derived_match_percent is not None and raw_match_percent is None:
+        issues.append("match_percent 缺失")
+    elif derived_match_percent is not None and abs((raw_match_percent or 0.0) - derived_match_percent) > 0.5:
+        issues.append("match_percent 与 dimensions 求和不一致")
+
+    if not _compact_recommendation(score_payload.get("recommendation")):
+        issues.append("recommendation 无效或缺失")
+    if not _normalize_suggested_status(score_payload.get("suggested_status")):
+        issues.append("suggested_status 无效或缺失")
+    if not _normalize_score_text_items(score_payload.get("advantages"), limit=4):
+        issues.append("advantages 缺失")
+    if not _normalize_score_text_items(score_payload.get("concerns"), limit=4):
+        issues.append("concerns 缺失")
+    if _score_payload_reuses_rule_text_as_evidence(dimensions=dimensions, skill_snapshots=skill_snapshots):
+        issues.append("evidence 疑似引用了 Skill/JD 规则文本，而不是简历证据")
+    return _dedupe_texts(issues)
+
+
+def _score_payload_issue_penalty(issue: Any) -> int:
+    text = str(issue or "").strip()
+    if not text:
+        return 0
+    if text.startswith("dimensions 缺少必填维度"):
+        return 60
+    if text.startswith("total_score "):
+        return 50
+    if text.startswith("match_percent "):
+        return 50
+    if text.startswith("suggested_status "):
+        return 40
+    if text.startswith("recommendation "):
+        return 35
+    if text.startswith("evidence 疑似引用了 Skill/JD 规则文本"):
+        return 35
+    if text.startswith("advantages "):
+        return 25
+    if text.startswith("concerns "):
+        return 25
+    return 10
+
+
+def _score_payload_issue_priority(issues: Sequence[Any]) -> Tuple[int, int]:
+    normalized = [str(item or "").strip() for item in issues if str(item or "").strip()]
+    return sum(_score_payload_issue_penalty(item) for item in normalized), len(normalized)
+
+
+def _derive_screening_decision_from_score(
+    *,
+    match_percent: Any,
+    total_score: Any,
+    missing_core_labels: Sequence[Any],
+    pass_threshold: float = 75,
+    pool_threshold: float = 55,
+) -> Tuple[Optional[str], Optional[str]]:
+    normalized_match_percent = _parse_score_number(match_percent)
+    normalized_total_score = _parse_score_number(total_score)
+    if normalized_match_percent is None and normalized_total_score is not None:
+        normalized_match_percent = round(normalized_total_score * 10, 1)
+    if normalized_match_percent is None:
+        return None, None
+
+    normalized_missing_core_labels = [
+        str(item or "").strip()
+        for item in missing_core_labels
+        if str(item or "").strip()
+    ]
+    both_primary_cores_missing = all(
+        core in normalized_missing_core_labels
+        for core in ["智能家居生态", "IoT通信协议"]
+    )
+    if both_primary_cores_missing:
+        return "建议本次不安排面试", "screening_rejected"
+    if normalized_match_percent >= pass_threshold and not normalized_missing_core_labels:
+        return "建议安排首面", "screening_passed"
+    if normalized_match_percent >= pool_threshold:
+        return (
+            "建议安排面试进一步评估" if normalized_missing_core_labels else "建议保留观察",
+            "talent_pool",
+        )
+    return "建议本次不安排面试", "screening_rejected"
 
 
 def _normalize_report_number(value: Any) -> str:
@@ -274,6 +793,8 @@ def _normalize_score_text_items(value: Any, *, limit: int = 5) -> List[str]:
     for item in source:
         text = strip_markdown(str(item or "")).strip()
         text = re.sub(r"\s+", " ", text)
+        if text and not re.search(r"[A-Za-z0-9\u4e00-\u9fff]", text):
+            continue
         if not text or text in result:
             continue
         result.append(text[:120])
@@ -305,6 +826,340 @@ def _shape_resume_score_payload(payload: Any) -> Dict[str, Any]:
     }
 
 
+def _extract_model_score_payload(content: Any) -> Dict[str, Any]:
+    payload = content if isinstance(content, dict) else {}
+    if isinstance(payload.get("score"), dict):
+        payload = payload.get("score") or {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _build_ai_raw_score_payload(content: Any) -> Optional[Dict[str, Any]]:
+    payload = _extract_model_score_payload(content)
+    if not payload:
+        return None
+    raw_status = payload.get("suggested_status")
+    original_status = str(raw_status or "").strip() or None
+    return {
+        "total_score": payload.get("total_score"),
+        "match_percent": payload.get("match_percent"),
+        "advantages": _normalize_score_text_items(payload.get("advantages"), limit=5),
+        "concerns": _normalize_score_text_items(payload.get("concerns"), limit=5),
+        "recommendation": str(payload.get("recommendation") or "").strip(),
+        "suggested_status_raw": raw_status,
+        "suggested_status_original": original_status,
+        "dimensions": _normalize_score_dimensions(payload.get("dimensions"), limit=12),
+    }
+
+
+def _build_normalized_score_payload(content: Any) -> Dict[str, Any]:
+    return _shape_resume_score_payload(content)
+
+
+def _append_score_risk_flag(
+    risk_flags: List[Dict[str, Any]],
+    *,
+    code: str,
+    message: str,
+    severity: str = "warning",
+) -> None:
+    normalized_message = str(message or "").strip()
+    if not normalized_message:
+        return
+    if any(flag.get("code") == code and flag.get("message") == normalized_message for flag in risk_flags):
+        return
+    risk_flags.append(
+        {
+            "code": code,
+            "severity": severity,
+            "message": normalized_message,
+        }
+    )
+
+def _normalize_score_warning_items(value: Any, *, limit: int = 8) -> List[str]:
+    if isinstance(value, list):
+        source = value
+    elif isinstance(value, str):
+        source = re.split(r"[\n\r]+", value)
+    else:
+        source = []
+    result: List[str] = []
+    for item in source:
+        text = str(item or "").strip()
+        text = re.sub(r"\s+", " ", text)
+        if not text or text in result:
+            continue
+        result.append(text[:240])
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _merge_warning_items(*values: Any, limit: int = 8) -> List[str]:
+    merged: List[str] = []
+    for value in values:
+        for item in _normalize_score_warning_items(value, limit=limit):
+            if item not in merged:
+                merged.append(item)
+            if len(merged) >= limit:
+                return merged
+    return merged
+
+
+def _derive_score_metrics_from_dimensions(value: Any) -> Tuple[Optional[float], Optional[float]]:
+    dimensions = _normalize_score_dimensions(value, limit=32)
+    total_score = 0.0
+    has_dimension_score = False
+    for item in dimensions:
+        numeric = _parse_score_number(item.get("score"))
+        if numeric is None:
+            continue
+        total_score += numeric
+        has_dimension_score = True
+    if not has_dimension_score:
+        return None, None
+    total_score = round(total_score + 1e-9, 1)
+    match_percent = round((total_score * 10) + 1e-9, 1)
+    return total_score, match_percent
+
+
+def _looks_like_positive_screening_recommendation(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    if re.search(r"(不安排|不通过|淘汰|拒绝|不建议)", text):
+        return False
+    return bool(re.search(r"(安排|建议).{0,8}(面试|首面|复试)|条件性通过|可以推进|建议推进|建议约面", text))
+
+
+def _build_score_quality_warnings(
+    *,
+    ai_raw_score: Optional[Dict[str, Any]],
+    normalized_score: Dict[str, Any],
+    derived_total_score_from_dimensions: Optional[float],
+    derived_match_percent_from_dimensions: Optional[float],
+    missing_core_labels: Sequence[Any],
+) -> List[str]:
+    warnings: List[str] = []
+    raw_total_score = _parse_score_number(ai_raw_score.get("total_score")) if ai_raw_score else None
+    raw_match_percent = _parse_score_number(ai_raw_score.get("match_percent")) if ai_raw_score else None
+    normalized_total_score = _parse_score_number(normalized_score.get("total_score"))
+    normalized_match_percent = _parse_score_number(normalized_score.get("match_percent"))
+    if (
+        raw_total_score is not None
+        and derived_total_score_from_dimensions is not None
+        and abs(raw_total_score - derived_total_score_from_dimensions) > 0.1
+    ):
+        warnings.append(
+            f"模型原始 total_score 与最终 dimensions 汇总不一致，当前展示按最终维度汇总值标准化：原始为 {raw_total_score:.1f}，维度汇总为 {derived_total_score_from_dimensions:.1f}。"
+        )
+    if (
+        raw_match_percent is not None
+        and derived_match_percent_from_dimensions is not None
+        and abs(raw_match_percent - derived_match_percent_from_dimensions) > 0.5
+    ):
+        warnings.append(
+            f"模型原始 match_percent 与最终 dimensions 汇总不一致，当前展示按最终维度汇总值标准化：原始为 {raw_match_percent:.1f}，维度汇总应为 {derived_match_percent_from_dimensions:.1f}。"
+        )
+    if (
+        derived_total_score_from_dimensions is not None
+        and normalized_total_score is not None
+        and abs(normalized_total_score - derived_total_score_from_dimensions) > 0.1
+    ):
+        warnings.append(
+            f"标准化后的 total_score 与 dimensions 汇总仍不一致：当前为 {normalized_total_score:.1f}，维度汇总为 {derived_total_score_from_dimensions:.1f}。"
+        )
+    if normalized_total_score is not None and normalized_match_percent is not None:
+        expected_match_percent = round((normalized_total_score * 10) + 1e-9, 1)
+        if abs(normalized_match_percent - expected_match_percent) > 0.5:
+            warnings.append(
+                f"标准化后的 match_percent 与 total_score * 10 不一致：当前为 {normalized_match_percent:.1f}，按总分应为 {expected_match_percent:.1f}。"
+            )
+    elif (
+        derived_match_percent_from_dimensions is not None
+        and normalized_match_percent is not None
+        and abs(normalized_match_percent - derived_match_percent_from_dimensions) > 0.5
+    ):
+        warnings.append(
+            f"标准化后的 match_percent 与 dimensions 汇总仍不一致：当前为 {normalized_match_percent:.1f}，维度汇总应为 {derived_match_percent_from_dimensions:.1f}。"
+        )
+
+    normalized_status = str(normalized_score.get("suggested_status") or "").strip()
+    recommendation = str(normalized_score.get("recommendation") or "").strip()
+    has_core_gaps = any(str(item or "").strip() for item in missing_core_labels)
+    if has_core_gaps and normalized_status == "screening_passed":
+        warnings.append("suggested_status 与维度明细存在偏差：存在核心维度缺失，但当前建议状态仍为 screening_passed。")
+    if has_core_gaps and _looks_like_positive_screening_recommendation(recommendation):
+        warnings.append("recommendation 与维度明细存在偏差：存在核心维度缺失，但当前建议仍倾向继续推进。")
+
+    return _normalize_score_warning_items(_dedupe_texts(warnings), limit=8)
+
+
+def _build_score_consistency_metadata(
+    *,
+    ai_raw_score: Optional[Dict[str, Any]],
+    normalized_score: Dict[str, Any],
+    dimensions: Any,
+    missing_core_labels: Sequence[Any],
+) -> Dict[str, Any]:
+    derived_total_score_from_dimensions, derived_match_percent_from_dimensions = _derive_score_metrics_from_dimensions(dimensions)
+    score_quality_warnings = _build_score_quality_warnings(
+        ai_raw_score=ai_raw_score,
+        normalized_score=normalized_score,
+        derived_total_score_from_dimensions=derived_total_score_from_dimensions,
+        derived_match_percent_from_dimensions=derived_match_percent_from_dimensions,
+        missing_core_labels=missing_core_labels,
+    )
+    return {
+        "derived_total_score_from_dimensions": derived_total_score_from_dimensions,
+        "derived_match_percent_from_dimensions": derived_match_percent_from_dimensions,
+        "score_quality_warnings": score_quality_warnings,
+    }
+
+
+def _merge_model_dimensions_with_fallback(
+    model_dimensions: Any,
+    fallback_dimensions: Any,
+    *,
+    limit: int = 12,
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    normalized_model = _normalize_score_dimensions(model_dimensions, limit=limit * 2)
+    normalized_fallback = _normalize_score_dimensions(fallback_dimensions, limit=limit * 2)
+    if not normalized_fallback:
+        return normalized_model[:limit], []
+    if not normalized_model:
+        return normalized_fallback[:limit], ["AI 原始 dimensions 缺失，已按 Skill 维度补全完整评分明细。"]
+
+    fallback_by_label = {str(item.get("label") or "").strip(): item for item in normalized_fallback if str(item.get("label") or "").strip()}
+    model_by_label = {str(item.get("label") or "").strip(): item for item in normalized_model if str(item.get("label") or "").strip()}
+    merged: List[Dict[str, Any]] = []
+    missing_labels: List[str] = []
+
+    for label, fallback_item in fallback_by_label.items():
+        model_item = model_by_label.get(label)
+        if not model_item:
+            merged.append(dict(fallback_item))
+            missing_labels.append(label)
+            continue
+        merged.append(
+            {
+                "label": label,
+                "score": model_item.get("score") if model_item.get("score") is not None else fallback_item.get("score"),
+                "max_score": model_item.get("max_score") if model_item.get("max_score") is not None else fallback_item.get("max_score"),
+                "weight_text": model_item.get("weight_text") or fallback_item.get("weight_text"),
+                "is_core": bool(fallback_item.get("is_core") or model_item.get("is_core")),
+                "reason": model_item.get("reason") or fallback_item.get("reason"),
+                "evidence": model_item.get("evidence") or fallback_item.get("evidence") or [],
+            }
+        )
+
+    for item in normalized_model:
+        label = str(item.get("label") or "").strip()
+        if label and label not in fallback_by_label:
+            merged.append(item)
+
+    warnings: List[str] = []
+    if missing_labels:
+        warnings.append(f"AI 原始 dimensions 缺少 {len(missing_labels)} 个维度（{'、'.join(missing_labels[:6])}），已进入后处理校验并补齐结构。")
+    elif len(normalized_model) < len(normalized_fallback):
+        warnings.append("AI 原始 dimensions 数量少于 Skill 维度要求，已按 Skill 维度补全完整评分明细。")
+
+    return merged[:limit], warnings
+
+
+def _annotate_model_dimensions_with_expected_metadata(
+    model_dimensions: Any,
+    expected_dimensions: Any,
+    *,
+    limit: int = 12,
+) -> Tuple[List[Dict[str, Any]], List[str], List[str], List[str]]:
+    normalized_model = _normalize_score_dimensions(model_dimensions, limit=limit * 2)
+    normalized_expected = _normalize_score_dimensions(expected_dimensions, limit=limit * 2)
+
+    expected_by_label = {
+        str(item.get("label") or "").strip(): item
+        for item in normalized_expected
+        if str(item.get("label") or "").strip()
+    }
+    raw_labels: List[str] = []
+    enriched: List[Dict[str, Any]] = []
+    scores_by_label: Dict[str, float] = {}
+
+    for item in normalized_model:
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        raw_labels.append(label)
+        meta = expected_by_label.get(label) or {}
+        score_value = _parse_score_number(item.get("score"))
+        if score_value is not None:
+            scores_by_label[label] = score_value
+        enriched.append(
+            {
+                "label": label,
+                "score": item.get("score"),
+                "max_score": item.get("max_score") if item.get("max_score") is not None else meta.get("max_score"),
+                "weight_text": item.get("weight_text") or meta.get("weight_text"),
+                "is_core": bool(item.get("is_core") or meta.get("is_core")),
+                "reason": item.get("reason"),
+                "evidence": item.get("evidence") or [],
+            }
+        )
+
+    raw_label_set = set(raw_labels)
+    missing_labels = [label for label in expected_by_label if label not in raw_label_set]
+    missing_core_labels = [
+        label
+        for label, meta in expected_by_label.items()
+        if meta.get("is_core") and (label in missing_labels or scores_by_label.get(label, 0.0) <= 0)
+    ]
+
+    warnings: List[str] = []
+    if missing_labels:
+        warnings.append(
+            f"AI 原始 dimensions 缺少 {len(missing_labels)} 个维度（{'、'.join(missing_labels[:6])}），当前结果已进入后处理校验。"
+        )
+
+    return enriched[:limit], missing_labels, missing_core_labels, warnings
+
+
+def _build_score_compat_payload(normalized_score: Dict[str, Any], score_enhancements: Dict[str, Any]) -> Dict[str, Any]:
+    normalized_payload = _shape_resume_score_payload(normalized_score)
+    derived_total_score = _parse_score_number(score_enhancements.get("derived_total_score_from_dimensions"))
+    derived_match_percent = _parse_score_number(score_enhancements.get("derived_match_percent_from_dimensions"))
+    if derived_total_score is not None:
+        normalized_payload["total_score"] = derived_total_score
+    if derived_match_percent is not None:
+        normalized_payload["match_percent"] = derived_match_percent
+    missing_core_labels = [str(item or "").strip() for item in score_enhancements.get("missing_core_labels") or [] if str(item or "").strip()]
+    return {
+        **normalized_payload,
+        "dimensions": _normalize_score_dimensions(score_enhancements.get("dimensions"), limit=12),
+        "dimensions_mode": score_enhancements.get("dimensions_mode"),
+        "missing_core_labels": missing_core_labels,
+        "score_cap_reason": score_enhancements.get("score_cap_reason"),
+        "derived_total_score_from_dimensions": derived_total_score,
+        "derived_match_percent_from_dimensions": derived_match_percent,
+        "score_quality_warnings": _normalize_score_warning_items(score_enhancements.get("score_quality_warnings"), limit=8),
+        "repair_reason": score_enhancements.get("repair_reason"),
+        "report_markdown": str(score_enhancements.get("report_markdown") or "").strip() or None,
+    }
+
+
+def _build_layered_score_payload(
+    *,
+    ai_raw_score: Optional[Dict[str, Any]],
+    normalized_score: Dict[str, Any],
+    score_enhancements: Dict[str, Any],
+) -> Dict[str, Any]:
+    normalized_payload = _shape_resume_score_payload(normalized_score)
+    return {
+        "ai_raw_score": ai_raw_score,
+        "normalized_score": normalized_payload,
+        "score_enhancements": score_enhancements,
+        "score": _build_score_compat_payload(normalized_payload, score_enhancements),
+    }
+
+
 def _build_authoritative_fallback_score_payload(
     *,
     position_or_candidate: Any,
@@ -315,9 +1170,15 @@ def _build_authoritative_fallback_score_payload(
 ) -> Dict[str, Any]:
     fallback_result = score_candidate_fallback(position_or_candidate, parsed_payload, weights, status_rules, skill_snapshots)
     strict_payload = _shape_resume_score_payload(fallback_result)
+    normalized_dimensions = _normalize_score_dimensions(fallback_result.get("dimensions"), limit=12)
+    derived_total_score, derived_match_percent = _derive_score_metrics_from_dimensions(normalized_dimensions)
+    if derived_total_score is not None:
+        strict_payload["total_score"] = derived_total_score
+    if derived_match_percent is not None:
+        strict_payload["match_percent"] = derived_match_percent
     return {
         **strict_payload,
-        "dimensions": _normalize_score_dimensions(fallback_result.get("dimensions"), limit=12),
+        "dimensions": normalized_dimensions,
         "dimensions_mode": fallback_result.get("dimensions_mode"),
         "missing_core_labels": list(fallback_result.get("missing_core_labels") or []),
         "score_cap_reason": fallback_result.get("score_cap_reason"),
@@ -325,22 +1186,22 @@ def _build_authoritative_fallback_score_payload(
 
 
 def _build_score_log_snapshot(
-    payload: Dict[str, Any],
     *,
-    report_markdown: str = "",
-    repair_reason: Optional[str] = None,
-    score_source: str,
+    ai_raw_score: Optional[Dict[str, Any]],
+    normalized_score: Dict[str, Any],
+    score_enhancements: Dict[str, Any],
 ) -> Dict[str, Any]:
     return {
-        "score": _shape_resume_score_payload(payload),
+        "ai_raw_score": ai_raw_score,
+        "normalized_score": _shape_resume_score_payload(normalized_score),
+        "score": _build_score_compat_payload(normalized_score, score_enhancements),
         "score_enhancements": {
-            "dimensions": _normalize_score_dimensions(payload.get("dimensions"), limit=12),
-            "dimensions_mode": payload.get("dimensions_mode"),
-            "missing_core_labels": list(payload.get("missing_core_labels") or []),
-            "score_cap_reason": payload.get("score_cap_reason"),
-            "repair_reason": repair_reason or payload.get("repair_reason"),
-            "report_markdown": str(report_markdown or payload.get("report_markdown") or "").strip() or None,
-            "score_source": score_source,
+            **score_enhancements,
+            "dimensions": _normalize_score_dimensions(score_enhancements.get("dimensions"), limit=12),
+            "missing_core_labels": list(score_enhancements.get("missing_core_labels") or []),
+            "risk_flags": list(score_enhancements.get("risk_flags") or []),
+            "score_quality_warnings": _normalize_score_warning_items(score_enhancements.get("score_quality_warnings"), limit=8),
+            "report_markdown": str(score_enhancements.get("report_markdown") or "").strip() or None,
         },
     }
 
@@ -355,20 +1216,223 @@ def _normalize_score_dimensions(value: Any, *, limit: int = 12) -> List[Dict[str
         label = str(item.get("label") or item.get("key") or "").strip()
         if not label:
             continue
+        numeric_score = _parse_score_number(item.get("score"))
+        numeric_max_score = _parse_score_number(item.get("max_score"))
+        evidence = _normalize_score_text_items(item.get("evidence"), limit=2)
+        if any(text == "简历未提及" for text in evidence):
+            evidence = []
         result.append(
             {
                 "label": label,
-                "score": _parse_score_number(item.get("score")),
-                "max_score": _parse_score_number(item.get("max_score")),
+                "score": numeric_score,
+                "max_score": numeric_max_score,
                 "weight_text": str(item.get("weight_text") or "").strip() or None,
                 "is_core": bool(item.get("is_core")),
-                "reason": str(item.get("reason") or "").strip() or None,
-                "evidence": _normalize_score_text_items(item.get("evidence"), limit=2),
+                "is_inferred": bool(item.get("is_inferred")),
+                "reason": _build_dimension_reason_summary(
+                    label,
+                    score=numeric_score or 0.0,
+                    max_score=numeric_max_score or 0.0,
+                    raw_reason=item.get("reason"),
+                    evidence=evidence,
+                ),
+                "evidence": evidence,
             }
         )
         if len(result) >= limit:
             break
     return result
+
+
+INVALID_SCORE_SUMMARY_MARKERS = (
+    "暂无明显亮点",
+    "暂无优势",
+    "暂无风险点",
+    "暂无明显风险",
+    "暂无优点",
+)
+
+
+def _looks_like_structured_repr_text(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    if re.search(r"\{[^{}]*[:：][^{}]*\}", normalized):
+        return True
+    return normalized.count("{") > 0 and normalized.count("}") > 0
+
+
+def _normalize_score_summary_text(text: Any) -> str:
+    normalized = re.sub(r"\s+", " ", strip_markdown(str(text or ""))).strip()
+    if not normalized:
+        return ""
+    if any(marker in normalized for marker in INVALID_SCORE_SUMMARY_MARKERS):
+        return ""
+    if _looks_like_structured_repr_text(normalized):
+        return ""
+    normalized = re.sub(r"(学历信息|文档与缺陷闭环|加分项命中|自动化/脚本相关|测试设计与缺陷闭环|固件/烧录相关|硬件测试证据|相关证据|命中证据)\s*[：:]\s*", "", normalized)
+    normalized = re.sub(r"[；;]\s*证据[:：].*$", "", normalized)
+    normalized = normalized.strip("；;，,：: ")
+    if any(marker in normalized for marker in INVALID_SCORE_SUMMARY_MARKERS):
+        return ""
+    if _looks_like_structured_repr_text(normalized):
+        return ""
+    return normalized
+
+
+def _dimension_label_for_summary(label: Any) -> str:
+    return str(label or "").strip().replace("/", "与") or "该维度"
+
+
+def _build_dimension_reason_summary(
+    label: str,
+    *,
+    score: float,
+    max_score: float,
+    raw_reason: Any,
+    evidence: Sequence[str],
+) -> str:
+    normalized_reason = _normalize_score_summary_text(raw_reason)
+    if normalized_reason:
+        return normalized_reason
+    if score <= 0:
+        missing_templates = {
+            "智能家居生态": "简历未提及米家、鸿蒙、HomeKit、涂鸦等生态联动测试经历",
+            "IoT通信协议": "简历未提及 Wi-Fi、BLE、ZigBee、Thread、MQTT、星闪等协议测试经验",
+            "软件测试基础": "简历未明确体现软件测试基础能力",
+            "嵌入式/固件经验": "简历未提及嵌入式、固件或 OTA 相关经验",
+            "硬件测试经验": "简历未明确体现硬件测试场景",
+            "自动化测试": "简历未明确提及自动化测试工具或脚本经验",
+            "学历/专业匹配": "简历未提供足够的学历或专业匹配信息",
+            "文档输出能力": "简历未明确体现测试报告或用例文档输出能力",
+            "加分项": "简历未体现明显的岗位加分项",
+        }
+        return missing_templates.get(label, "简历未提及")
+    positive_templates = {
+        "智能家居生态": "简历体现了智能家居生态或设备联动相关经历",
+        "IoT通信协议": "简历体现了通信协议或连接场景相关测试经历",
+        "软件测试基础": "简历体现了测试设计、问题定位和缺陷闭环能力",
+        "嵌入式/固件经验": "简历包含固件、升级或相关测试场景表述",
+        "硬件测试经验": "简历体现了较长期的硬件测试背景和多类测试场景",
+        "自动化测试": "简历体现了自动化测试或测试效率改进相关经验",
+        "学历/专业匹配": "学历和专业背景与岗位要求基本匹配",
+        "文档输出能力": "简历体现了测试报告、用例或指导书输出能力",
+        "加分项": "简历命中了部分岗位加分项",
+    }
+    if max_score > 0 and score / max_score < 0.6:
+        low_templates = {
+            "软件测试基础": "该维度有一定证据，但深度和覆盖范围仍有限",
+            "嵌入式/固件经验": "该维度有少量表述，但实际参与深度仍需核实",
+            "自动化测试": "该维度有一定表述，但工具使用深度仍需核实",
+            "加分项": "该维度有部分命中，但补强作用相对有限",
+        }
+        return low_templates.get(label, positive_templates.get(label, "简历中有该维度的相关证据"))
+    return positive_templates.get(label, "简历中有该维度的相关证据")
+
+
+def _build_dimension_advantage_summary(item: Dict[str, Any]) -> str:
+    label = _dimension_label_for_summary(item.get("label"))
+    templates = {
+        "智能家居生态": "具备一定智能家居生态或联动测试相关经历。",
+        "IoT通信协议": "具备一定通信协议或连接场景测试经历。",
+        "软件测试基础": "具备较扎实的软件测试基础，简历体现了测试设计、问题定位和缺陷闭环能力。",
+        "嵌入式/固件经验": "具备一定固件、升级链路或相关测试场景经验。",
+        "硬件测试经验": "具备较长期的硬件测试背景，覆盖电源、信号、可靠性或整机场景。",
+        "自动化测试": "具备自动化测试或测试效率改进相关经验。",
+        "学历/专业匹配": "学历和专业背景与岗位要求基本匹配。",
+        "文档输出能力": "具备测试报告、用例或指导书等文档输出能力。",
+        "加分项": "具备部分岗位加分项经历，可作为补充优势。",
+    }
+    return templates.get(label, f"{label}方面存在一定匹配优势。")
+
+
+def _build_dimension_concern_summary(item: Dict[str, Any]) -> str:
+    label = _dimension_label_for_summary(item.get("label"))
+    score = _parse_score_number(item.get("score")) or 0.0
+    max_score = _parse_score_number(item.get("max_score")) or 0.0
+    zero_templates = {
+        "智能家居生态": "缺少智能家居生态联动测试的直接证据。",
+        "IoT通信协议": "缺少 Wi-Fi、BLE、ZigBee、Thread、MQTT、星闪等 IoT 协议测试证据。",
+        "软件测试基础": "软件测试基础证据不足，仍需核实测试设计与缺陷闭环能力。",
+        "嵌入式/固件经验": "嵌入式、固件或 OTA 相关经验未明确体现。",
+        "硬件测试经验": "硬件测试场景证据不足，相关深度仍需核实。",
+        "自动化测试": "自动化测试工具和脚本经验未明确体现。",
+        "学历/专业匹配": "学历或专业与岗位要求的匹配证据有限。",
+        "文档输出能力": "测试报告、用例文档或缺陷闭环能力证据有限。",
+        "加分项": "岗位加分项命中有限。",
+    }
+    low_templates = {
+        "软件测试基础": "软件测试基础有一定证据，但覆盖范围和深度仍需继续核实。",
+        "嵌入式/固件经验": "嵌入式或固件相关表述较弱，建议面试重点核实参与深度。",
+        "硬件测试经验": "硬件测试经历存在，但具体问题定位深度仍需继续核实。",
+        "自动化测试": "自动化测试相关表述较少，建议继续核实工具使用深度。",
+        "加分项": "岗位加分项有一定命中，但补强作用相对有限。",
+    }
+    if score <= 0:
+        return zero_templates.get(label, f"{label}方面缺少直接证据。")
+    if max_score > 0 and score / max_score < 0.6:
+        return low_templates.get(label, f"{label}方面匹配度偏弱，建议面试继续核实。")
+    return ""
+
+
+def _build_dimension_score_summaries(dimensions: Sequence[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+    advantages: List[str] = []
+    concerns: List[str] = []
+    positive_dimensions = [item for item in dimensions if (_parse_score_number(item.get("score")) or 0.0) > 0]
+    issue_dimensions = [
+        item
+        for item in dimensions
+        if (_parse_score_number(item.get("score")) or 0.0) <= 0
+        or (
+            (_parse_score_number(item.get("max_score")) or 0.0) > 0
+            and ((_parse_score_number(item.get("score")) or 0.0) / (_parse_score_number(item.get("max_score")) or 1.0)) < 0.6
+        )
+    ]
+    positive_dimensions.sort(key=lambda item: ((_parse_score_number(item.get("score")) or 0.0), (_parse_score_number(item.get("max_score")) or 0.0)), reverse=True)
+    for item in positive_dimensions:
+        summary = _build_dimension_advantage_summary(item)
+        if summary and summary not in advantages:
+            advantages.append(summary)
+        if len(advantages) >= 4:
+            break
+    for item in issue_dimensions:
+        summary = _build_dimension_concern_summary(item)
+        if summary and summary not in concerns:
+            concerns.append(summary)
+        if len(concerns) >= 4:
+            break
+    return advantages, concerns
+
+
+def _merge_score_texts_with_dimension_fallback(
+    raw_items: Any,
+    generated_items: Sequence[str],
+    *,
+    min_required: int,
+    empty_fallback: str,
+    limit: int = 4,
+) -> List[str]:
+    normalized_raw = [
+        item
+        for item in [_normalize_score_summary_text(text) for text in _normalize_score_text_items(raw_items, limit=limit)]
+        if item
+    ]
+    result: List[str] = []
+    for item in normalized_raw:
+        if item not in result:
+            result.append(item)
+        if len(result) >= limit:
+            return result
+    if len(result) < min_required:
+        for item in generated_items:
+            normalized = _normalize_score_summary_text(item)
+            if normalized and normalized not in result:
+                result.append(normalized)
+            if len(result) >= limit:
+                break
+    if not result and empty_fallback:
+        result.append(empty_fallback)
+    return result[:limit]
 
 
 def _score_payload_has_language_drift(payload: Dict[str, Any]) -> bool:
@@ -430,6 +1494,93 @@ def _build_resume_parse_warning_message(parsed_payload: Dict[str, Any], fallback
     if not _resume_parse_has_warning(parsed_payload, None, fallback_name):
         return None
     return "解析结果存在异常片段，建议人工复核。"
+
+
+def _detect_parse_field_mixed_types(items: Any) -> bool:
+    if not isinstance(items, list) or not items:
+        return False
+    seen_types = {type(item) for item in items if item is not None}
+    return len(seen_types) > 1
+
+
+def _extract_parse_quality_warnings(parsed_payload: Dict[str, Any]) -> List[str]:
+    warnings: List[str] = []
+    suspicious_pattern = re.compile(r"[A-Za-z0-9]{18,}")
+    work_experiences = parsed_payload.get("work_experiences") if isinstance(parsed_payload.get("work_experiences"), list) else []
+    education_experiences = parsed_payload.get("education_experiences") if isinstance(parsed_payload.get("education_experiences"), list) else []
+    projects = parsed_payload.get("projects") if isinstance(parsed_payload.get("projects"), list) else []
+    raw_text = str(parsed_payload.get("raw_text") or "")
+
+    if _detect_parse_field_mixed_types(work_experiences):
+        warnings.append("work_experiences 同时包含结构化对象与裸文本条目")
+    if _detect_parse_field_mixed_types(education_experiences):
+        warnings.append("education_experiences 同时包含结构化对象与裸文本条目")
+    if _detect_parse_field_mixed_types(projects):
+        warnings.append("projects 同时包含结构化对象与裸文本条目")
+    if any(isinstance(item, str) for item in work_experiences):
+        warnings.append("work_experiences 中仍包含未完全结构化的裸文本条目")
+    if any(isinstance(item, str) for item in education_experiences):
+        warnings.append("education_experiences 中仍包含未完全结构化的裸文本条目")
+    if any(isinstance(item, str) for item in projects):
+        warnings.append("projects 中仍包含未完全结构化的裸文本条目")
+
+    if any(isinstance(item, str) and suspicious_pattern.search(item) for item in work_experiences + education_experiences + projects):
+        warnings.append("解析结果中仍包含疑似 OCR / hash 异常片段")
+    if any(isinstance(item, str) and re.search(r"(英语四级|普通话|证书|荣誉)", item) for item in education_experiences):
+        warnings.append("education_experiences 中混入了证书或荣誉类文本")
+    if any(
+        isinstance(item, str)
+        and (
+            re.match(r"^\d+[、.]", item.strip())
+            or "测试指导书" in item
+            or "项目交付" in item
+        )
+        for item in projects
+    ):
+        warnings.append("projects 中混入了非标准项目条目")
+    if any(isinstance(item, str) and re.match(r"^\d{4}", item.strip()) for item in work_experiences):
+        warnings.append("work_experiences 中仍包含未完全结构化的日期文本")
+    if any(isinstance(item, dict) and not _is_valid_work_resume_item(item) for item in work_experiences):
+        warnings.append("work_experiences 中仍存在结构异常的工作经历条目")
+    if any(isinstance(item, dict) and not _is_valid_education_resume_item(item) for item in education_experiences):
+        warnings.append("education_experiences 中仍存在结构异常的教育条目")
+    if any(isinstance(item, dict) and not _is_valid_project_resume_item(item) for item in projects):
+        warnings.append("projects 中仍存在结构异常的项目条目")
+    if any(
+        isinstance(item, dict)
+        and re.search(r"(Cadence|PADS|Protel|OrCAD|PCB)", str(item.get("company_name") or item.get("company") or ""), re.IGNORECASE)
+        for item in work_experiences
+    ):
+        warnings.append("work_experiences 中混入了工具名或非公司主体文本")
+    if any(
+        isinstance(item, dict)
+        and re.search(r"(主要负责|测试执行|项目交付|实验室设备管理|负责.+测试|负责.+开发)", str(item.get("position") or item.get("title") or ""))
+        for item in work_experiences
+    ):
+        warnings.append("work_experiences 中存在职位字段混入职责描述的情况")
+    if len(work_experiences) >= 3 and sum(1 for item in work_experiences if isinstance(item, dict) and not str(item.get("duration") or "").strip()) >= 2:
+        warnings.append("work_experiences 中有多条工作经历缺少 duration，时间切分可能仍不稳定")
+    if raw_text and "项目经历" in raw_text and not projects:
+        warnings.append("简历原文存在项目经历，但 projects 未成功提取出结构化项目")
+    if (
+        raw_text
+        and re.search(r"(大学|学院).{0,12}(本科|硕士|博士).{0,18}(电子|计算机|自动化|软件工程|通信)", raw_text)
+        and not any(isinstance(item, dict) and str(item.get("major") or "").strip() for item in education_experiences)
+    ):
+        warnings.append("education_experiences 未完整保留专业字段")
+    return warnings
+
+
+def _derive_parse_execution_status(status: Optional[str], error_message: Any = None) -> str:
+    normalized_error = _normalize_resume_parse_error_text(error_message)
+    normalized_status = str(status or "").strip().lower()
+    if normalized_status in {"cancelled", "failed"}:
+        return normalized_status
+    if normalized_error and "已切换兜底解析" in normalized_error:
+        return "fallback"
+    if normalized_status in {"success", "warning"}:
+        return "success"
+    return normalized_status or "success"
 
 
 def _parse_skill_frontmatter(content: Any) -> Dict[str, str]:
@@ -511,6 +1662,7 @@ def _extract_skill_task_types(skill: Any) -> List[str]:
 def _resume_item_to_report_text(item: Any) -> str:
     if isinstance(item, dict):
         preferred_keys = [
+            "company_name",
             "company",
             "employer",
             "organization",
@@ -522,6 +1674,7 @@ def _resume_item_to_report_text(item: Any) -> str:
             "school",
             "degree",
             "major",
+            "content",
             "description",
             "summary",
         ]
@@ -583,16 +1736,24 @@ def _build_screening_report_markdown(candidate: RecruitmentCandidate, parsed_pay
     skills = _resume_report_lines(parsed_payload.get("skills"), limit=8)
     work_experiences = _resume_report_lines(parsed_payload.get("work_experiences"), limit=3)
     projects = _resume_report_lines(parsed_payload.get("projects"), limit=3)
-    advantages = _coerce_report_text_list(score_payload.get("advantages") or score_payload.get("advantages_text")) or ["暂无明显亮点，建议结合简历原文进一步人工复核。"]
-    concerns = _coerce_report_text_list(score_payload.get("concerns") or score_payload.get("concerns_text")) or ["暂无明确风险点，建议面试环节继续核实关键信息。"]
+    dimensions = _normalize_score_dimensions(score_payload.get("dimensions"), limit=12)
+    advantages = _normalize_score_text_items(score_payload.get("advantages") or score_payload.get("advantages_text"), limit=4)
+    concerns = _normalize_score_text_items(score_payload.get("concerns") or score_payload.get("concerns_text"), limit=4)
     summary = strip_markdown(str(parsed_payload.get("summary") or "")).strip() or "暂无简历摘要。"
     status_value = _normalize_suggested_status(score_payload.get("suggested_status"))
     status_text = SCREENING_STATUS_LABELS.get(status_value or "", str(score_payload.get("suggested_status") or "未给出"))
-    recommendation = str(score_payload.get("recommendation") or "未给出").strip() or "未给出"
-    total_score_text = _normalize_report_number(score_payload.get("total_score"))
-    match_percent_text = _normalize_report_number(score_payload.get("match_percent"))
-    total_score_scale = _infer_score_scale(score_payload.get("total_score"))
-    dimensions = _normalize_score_dimensions(score_payload.get("dimensions"), limit=12)
+    recommendation = _compact_recommendation(score_payload.get("recommendation")) or "AI 原始 recommendation 缺失，请重新触发初筛。"
+    total_score_value = _parse_score_number(score_payload.get("total_score"))
+    match_percent_value = _parse_score_number(score_payload.get("match_percent"))
+    derived_total_score = _parse_score_number(score_payload.get("derived_total_score_from_dimensions"))
+    derived_match_percent = _parse_score_number(score_payload.get("derived_match_percent_from_dimensions"))
+    if derived_total_score is not None:
+        total_score_value = derived_total_score
+    if derived_match_percent is not None:
+        match_percent_value = derived_match_percent
+    total_score_text = _normalize_report_number(total_score_value)
+    match_percent_text = _normalize_report_number(match_percent_value)
+    total_score_scale = _infer_score_scale(total_score_value)
 
     lines = [
         "# 候选人初筛报告",
@@ -630,7 +1791,7 @@ def _build_screening_report_markdown(candidate: RecruitmentCandidate, parsed_pay
             if item.get("is_core"):
                 suffix.append("核心")
             meta_text = f"（{' · '.join(suffix)}）" if suffix else ""
-            reason = str(item.get("reason") or "暂无依据").strip() or "暂无依据"
+            reason = _normalize_score_summary_text(item.get("reason")) or "简历未提及"
             evidence = _normalize_score_text_items(item.get("evidence"), limit=2)
             if evidence:
                 reason = f"{reason}；证据：{'；'.join(evidence)}"
@@ -640,12 +1801,18 @@ def _build_screening_report_markdown(candidate: RecruitmentCandidate, parsed_pay
         "",
         "## 候选人亮点",
     ])
-    lines.extend([f"{index}. {item}" for index, item in enumerate(advantages[:5], 1)])
+    if advantages:
+        lines.extend([f"{index}. {item}" for index, item in enumerate(advantages[:5], 1)])
+    else:
+        lines.append("1. -")
     lines.extend([
         "",
         "## 风险点 / 待核实项",
     ])
-    lines.extend([f"{index}. {item}" for index, item in enumerate(concerns[:5], 1)])
+    if concerns:
+        lines.extend([f"{index}. {item}" for index, item in enumerate(concerns[:5], 1)])
+    else:
+        lines.append("1. -")
     lines.extend([
         "",
         "## 简历摘要",
@@ -861,6 +2028,58 @@ def _is_education_resume_item(item: Any) -> bool:
     return has_education_marker and has_year and not has_company_marker
 
 
+def _is_valid_work_resume_item(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    company = str(item.get("company_name") or item.get("company") or "").strip()
+    position = str(item.get("position") or item.get("title") or "").strip()
+    duration = str(item.get("duration") or "").strip()
+    if not company or company in {"至今", "现在", "今"}:
+        return False
+    if company.isdigit() or len(company) < 3:
+        return False
+    if re.fullmatch(r"[\d.\-~至今现在 ]+", company):
+        return False
+    if re.search(r"(Cadence|PADS|Protel|OrCAD|PCB)", company, re.IGNORECASE):
+        return False
+    if "查看原理图" in company or "测试方案" in company:
+        return False
+    if not any(keyword in company for keyword in ["公司", "有限公司", "集团", "科技", "软件", "中心", "研究院", "通信", "电子", "股份"]):
+        return False
+    if duration and not re.search(r"(?:19|20)\d{2}", duration):
+        return False
+    if position and (
+        len(position) > 28
+        or re.search(r"(主要负责|测试执行|项目交付|实验室设备管理|负责.+测试|负责.+开发)", position)
+    ):
+        return False
+    if not duration and not position:
+        return False
+    return True
+
+
+def _is_valid_education_resume_item(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    school = str(item.get("school") or "").strip()
+    degree = str(item.get("degree") or "").strip()
+    major = str(item.get("major") or "").strip()
+    if any(keyword in school for keyword in ["英语四级", "英语六级", "普通话", "证书", "荣誉", "资格证"]):
+        return False
+    return bool(school or degree or major)
+
+
+def _is_valid_project_resume_item(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    project_name = str(item.get("project_name") or item.get("name") or "").strip()
+    if not project_name or project_name in {"项目经历", "项目经验", "项目名称"}:
+        return False
+    if re.match(r"^\d+[、.．]\s*(项目交付|编写测试指导书|测试指导书)\b", project_name):
+        return False
+    return True
+
+
 def _reconcile_resume_sections(work_items: List[Any], education_items: List[Any]) -> Tuple[List[Any], List[Any]]:
     moved_signatures = {_resume_item_signature(item) for item in work_items if _is_education_resume_item(item)}
     next_work = [item for item in work_items if _resume_item_signature(item) not in moved_signatures]
@@ -875,15 +2094,27 @@ def _reconcile_resume_sections(work_items: List[Any], education_items: List[Any]
     return next_work, next_education
 
 
-def _sanitize_resume_list(ai_items: Any, raw_text: str, fallback_items: Any, *, limit: int, allow_short: bool = False) -> List[Any]:
+def _sanitize_resume_list(
+    primary_items: Any,
+    raw_text: str,
+    secondary_items: Any,
+    *,
+    limit: int,
+    allow_short: bool = False,
+    validator: Optional[Callable[[Any], bool]] = None,
+) -> List[Any]:
     result: List[Any] = []
     seen_signatures: List[str] = []
-    for collection in [ai_items if isinstance(ai_items, list) else [], fallback_items if isinstance(fallback_items, list) else []]:
+    primary_collection = primary_items if isinstance(primary_items, list) else []
+    secondary_collection = secondary_items if isinstance(secondary_items, list) else []
+    for collection, should_check_support in [(primary_collection, False), (secondary_collection, True)]:
         for item in collection:
             normalized_item = _normalize_resume_item(item)
             if normalized_item is None:
                 continue
-            if item in (ai_items if isinstance(ai_items, list) else []) and not _resume_item_supported(normalized_item, raw_text, allow_short=allow_short):
+            if validator and not validator(normalized_item):
+                continue
+            if should_check_support and not _resume_item_supported(normalized_item, raw_text, allow_short=allow_short):
                 continue
             signature = _resume_item_signature(normalized_item)
             if not signature or signature in seen_signatures:
@@ -917,15 +2148,33 @@ def _sanitize_resume_basic_info(ai_basic_info: Any, fallback_basic_info: Any, ra
 def _sanitize_ai_parsed_resume(parsed_resume: Dict[str, Any], raw_text: str, fallback_name: str) -> Dict[str, Any]:
     normalized = _normalize_resume_parse_payload(parsed_resume)
     raw_based = _normalize_resume_parse_payload(extract_resume_structured_data(raw_text, fallback_name))
-    work_experiences = _sanitize_resume_list(normalized.get("work_experiences"), raw_text, raw_based.get("work_experiences"), limit=8)
-    education_experiences = _sanitize_resume_list(normalized.get("education_experiences"), raw_text, raw_based.get("education_experiences"), limit=6)
+    work_experiences = _sanitize_resume_list(
+        raw_based.get("work_experiences"),
+        raw_text,
+        normalized.get("work_experiences"),
+        limit=8,
+        validator=_is_valid_work_resume_item,
+    )
+    education_experiences = _sanitize_resume_list(
+        raw_based.get("education_experiences"),
+        raw_text,
+        normalized.get("education_experiences"),
+        limit=6,
+        validator=_is_valid_education_resume_item,
+    )
     work_experiences, education_experiences = _reconcile_resume_sections(work_experiences, education_experiences)
     return {
         "basic_info": _sanitize_resume_basic_info(normalized.get("basic_info"), raw_based.get("basic_info"), raw_text),
         "work_experiences": work_experiences,
         "education_experiences": education_experiences,
         "skills": _sanitize_resume_list(normalized.get("skills"), raw_text, raw_based.get("skills"), limit=20, allow_short=True),
-        "projects": _sanitize_resume_list(normalized.get("projects"), raw_text, raw_based.get("projects"), limit=6),
+        "projects": _sanitize_resume_list(
+            raw_based.get("projects"),
+            raw_text,
+            normalized.get("projects"),
+            limit=6,
+            validator=_is_valid_project_resume_item,
+        ),
         "summary": raw_based.get("summary") or normalized.get("summary") or "",
         "raw_text": raw_text,
     }
@@ -978,10 +2227,16 @@ def _normalize_resume_score_payload(content: Any) -> Dict[str, Any]:
         payload = payload.get("score") or {}
     advantages = payload.get("advantages")
     concerns = payload.get("concerns")
+    dimensions = _normalize_score_dimensions(payload.get("dimensions"), limit=12)
     total_score = _parse_score_number(payload.get("total_score"))
     match_percent = _parse_score_number(payload.get("match_percent"))
+    derived_total_score, derived_match_percent = _derive_score_metrics_from_dimensions(dimensions)
     declared_scale = _parse_score_number(payload.get("total_score_scale"))
     total_score_scale = 10 if declared_scale == 10 else 100
+    if derived_total_score is not None:
+        total_score_scale = 10
+        total_score = derived_total_score
+        match_percent = derived_match_percent
     if total_score is not None and (declared_scale == 10 or total_score <= 10):
         total_score_scale = 10
         total_score = max(0.0, min(10.0, total_score))
@@ -1013,12 +2268,480 @@ def _normalize_resume_score_payload(content: Any) -> Dict[str, Any]:
     }
 
 
+DIRTY_BASIC_INFO_VALUES = {",", "，", "-", "--", "null", "none", "未提及", "n/a"}
+SUMMARY_EVIDENCE_MARKERS = ("简历中提及", "候选人具备", "体现了", "说明其", "反映出", "可以看出")
+PRIMARY_CORE_DIMENSION_LABELS = ("智能家居生态", "IoT通信协议")
+SCREENING_DIMENSION_KEYWORDS = {
+    "智能家居生态": ["米家", "鸿蒙", "homekit", "涂鸦", "智能家居", "生态链", "联动"],
+    "IoT通信协议": ["wi-fi", "wifi", "ble", "zigbee", "thread", "mqtt", "星闪", "蓝牙", "uwb"],
+    "软件测试基础": ["测试用例", "测试报告", "问题定位", "问题追踪", "测试方案", "性能测试", "功能测试", "SOP"],
+    "嵌入式/固件经验": ["ota", "固件", "烧录", "串口", "升级"],
+    "硬件测试经验": ["硬件测试", "电源测试", "信号类测试", "可靠性测试", "ESD", "EMC", "整机测试", "PCBA"],
+    "自动化测试": ["自动化", "ATE", "python", "appium", "selenium", "脚本"],
+    "学历/专业匹配": ["本科", "硕士", "博士", "电子信息工程", "计算机", "自动化", "软件工程", "通信"],
+    "文档输出能力": ["测试报告", "测试用例", "SOP", "指导书", "报告模板", "根本原因的报告"],
+    "加分项": ["小米", "华为", "海尔", "美的", "linux", "shell", "功耗", "射频", "ci/cd", "istqb", "slb", "ai"],
+}
+SCREENING_STATUS_RECOMMENDATIONS = {
+    "screening_passed": "建议安排首轮面试",
+    "talent_pool": "建议进入人才库，后续有更匹配岗位再跟进",
+    "screening_rejected": "建议本次不安排面试",
+}
+
+
+def _sanitize_basic_info_value(field: str, value: Any) -> str:
+    text = re.sub(r"\s+", " ", strip_markdown(str(value or ""))).strip()
+    if not text:
+        return ""
+    if text.lower() in DIRTY_BASIC_INFO_VALUES or text in DIRTY_BASIC_INFO_VALUES:
+        return ""
+    if field == "phone":
+        compact = re.sub(r"[\s\-()（）]+", "", text)
+        if not re.fullmatch(r"\+?\d{6,20}", compact):
+            return ""
+    if field == "email" and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text):
+        return ""
+    return text
+
+
+def _sanitize_screening_basic_info_payload(basic_info: Any) -> Dict[str, Any]:
+    source = basic_info if isinstance(basic_info, dict) else {}
+    return {
+        field: _sanitize_basic_info_value(field, source.get(field))
+        for field in ["name", "phone", "email", "years_of_experience", "education", "location"]
+    }
+
+
+def _extract_resume_text_lines(raw_resume_text: str, *, limit: int = 400) -> List[str]:
+    result: List[str] = []
+
+    def push(text: Any) -> None:
+        normalized = re.sub(r"\s+", " ", str(text or "")).strip(" \t\r\n,，；;")
+        if not normalized:
+            return
+        if len(normalized) > 240:
+            normalized = normalized[:240].rstrip()
+        if len(normalized) < 4 or normalized in result:
+            return
+        result.append(normalized)
+
+    for raw_line in str(raw_resume_text or "").splitlines():
+        if len(result) >= limit:
+            break
+        push(raw_line)
+        for segment in re.split(r"[；;]", str(raw_line or "")):
+            if len(result) >= limit:
+                break
+            push(segment)
+    return result
+
+
+def _looks_like_summary_evidence_text(text: Any) -> bool:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not normalized:
+        return False
+    if any(marker in normalized for marker in SUMMARY_EVIDENCE_MARKERS):
+        return True
+    return bool(re.match(r"^(简历|候选人|该候选人)", normalized))
+
+
+def _build_dimension_evidence_keywords(label: str, reason: Any, evidence: Sequence[str]) -> List[str]:
+    keywords: List[str] = []
+    generic_tokens = {
+        "经验", "能力", "基础", "相关", "说明", "体现", "具备", "测试", "候选人", "简历",
+        "工作", "项目", "系统", "平台", "流程", "问题", "输出", "匹配", "维度", "原文",
+    }
+
+    def push(token: Any) -> None:
+        normalized = str(token or "").strip().lower()
+        normalized = normalized.strip("：:()（）[]【】,.，。；;!！?？\"' ")
+        if (
+            len(normalized) < 2
+            or len(normalized) > 24
+            or normalized in generic_tokens
+            or normalized in keywords
+        ):
+            return
+        keywords.append(normalized)
+
+    for token in SCREENING_DIMENSION_KEYWORDS.get(label, []):
+        push(token)
+    for text in [label, str(reason or ""), *list(evidence or [])]:
+        for token in extract_keywords(text):
+            push(token)
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9+_.-]{1,24}", str(text or "")):
+            push(token)
+    return keywords[:12]
+
+
+def _recover_resume_evidence_snippets(
+    raw_resume_text: str,
+    *,
+    label: str,
+    reason: Any,
+    evidence: Sequence[str],
+    limit: int = 2,
+) -> List[str]:
+    lines = _extract_resume_text_lines(raw_resume_text, limit=500)
+    if not lines:
+        return []
+    keywords = _build_dimension_evidence_keywords(label, reason, evidence)
+    if not keywords:
+        return []
+
+    ranked: List[Tuple[int, int, str]] = []
+    for line in lines:
+        lowered_line = _resume_search_text(line)
+        hits = [keyword for keyword in keywords if keyword in lowered_line]
+        if not hits:
+            continue
+        ranked.append((len(hits), len(line), line))
+
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    result: List[str] = []
+    for _, _, line in ranked:
+        if line not in result:
+            result.append(line)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _recommendation_matches_status(status: Optional[str], recommendation: Optional[str]) -> bool:
+    normalized_status = _normalize_suggested_status(status)
+    text = str(recommendation or "").strip()
+    if not normalized_status or not text:
+        return False
+    if normalized_status == "screening_rejected":
+        return bool(re.search(r"(不安排|不通过|淘汰|拒绝|不建议)", text))
+    if normalized_status == "talent_pool":
+        return bool(re.search(r"(人才库|保留|观察|后续有更匹配岗位再跟进|后续跟进)", text))
+    return bool(re.search(r"(安排|建议).{0,8}(面试|首面|首轮)", text))
+
+
+def _sanitize_dimension_against_resume(
+    item: Dict[str, Any],
+    *,
+    raw_resume_text: str,
+) -> Tuple[Dict[str, Any], List[str]]:
+    label = str(item.get("label") or "").strip() or "未命名维度"
+    score = _parse_score_number(item.get("score")) or 0.0
+    max_score = _parse_score_number(item.get("max_score")) or 0.0
+    reason = _normalize_score_summary_text(item.get("reason")) or ""
+    evidence_items = _normalize_score_text_items(item.get("evidence"), limit=2)
+    warnings: List[str] = []
+
+    if reason == "简历未提及":
+        evidence_items = []
+
+    valid_evidence: List[str] = []
+    suspicious_evidence: List[str] = []
+    for evidence in evidence_items:
+        if evidence == "简历未提及":
+            continue
+        if _looks_like_summary_evidence_text(evidence) or not _resume_item_supported(evidence, raw_resume_text, allow_short=True):
+            suspicious_evidence.append(evidence)
+        elif evidence not in valid_evidence:
+            valid_evidence.append(evidence)
+
+    if suspicious_evidence or (score > 0 and not valid_evidence):
+        recovered = _recover_resume_evidence_snippets(
+            raw_resume_text,
+            label=label,
+            reason=reason,
+            evidence=[*valid_evidence, *suspicious_evidence],
+            limit=2,
+        )
+        for snippet in recovered:
+            if snippet not in valid_evidence:
+                valid_evidence.append(snippet)
+        if suspicious_evidence and recovered:
+            warnings.append(f"{label} 的 evidence 不是简历原文摘录，已尝试替换为 resume_text 原文片段。")
+
+    if score > 0 and not valid_evidence:
+        warnings.append(f"{label} 缺少可验证的简历原文 evidence，当前已按“简历未提及”回退该维度。")
+        score = 0.0
+        reason = "简历未提及"
+    elif score <= 0 and reason == "简历未提及":
+        valid_evidence = []
+    elif score <= 0 and not valid_evidence:
+        reason = "简历未提及"
+    elif score > 0 and (not reason or reason == "简历未提及"):
+        reason = _build_dimension_reason_summary(label, score=score, max_score=max_score, raw_reason="", evidence=valid_evidence)
+
+    if reason == "简历未提及":
+        valid_evidence = []
+
+    return {
+        "label": label,
+        "score": round(score + 1e-9, 1),
+        "max_score": max_score,
+        "weight_text": item.get("weight_text"),
+        "is_core": bool(item.get("is_core")),
+        "reason": reason or "简历未提及",
+        "evidence": valid_evidence[:2],
+    }, warnings
+
+
+def sanitize_and_validate_screening_result(
+    *,
+    parsed_resume: Dict[str, Any],
+    score_payload: Dict[str, Any],
+    raw_resume_text: str,
+    expected_dimensions: Sequence[Dict[str, Any]],
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    sanitized_payload, meta = sanitize_screening_payload(
+        {
+            "parsed_resume": parsed_resume,
+            "score": score_payload,
+        },
+        SCREENING_PAYLOAD_SCHEMA_CONFIG,
+    )
+    return (
+        sanitized_payload.get("parsed_resume") or {},
+        sanitized_payload.get("score") or {},
+        {
+            "warnings": _normalize_score_warning_items(meta.get("warnings"), limit=12),
+        },
+    )
+
+
 def _has_resume_parse_content(content: Any) -> bool:
     return isinstance(content, dict) and any(key in content for key in ["basic_info", "work_experiences", "education_experiences", "skills", "projects", "summary"])
 
 
 def _has_resume_score_content(content: Any) -> bool:
     return isinstance(content, dict) and any(key in content for key in ["total_score", "match_percent", "advantages", "concerns", "recommendation", "suggested_status"])
+
+
+def _is_json_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _validate_screening_basic_info_payload(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("AI 返回的 screening JSON 非法：parsed_resume.basic_info 不是对象")
+    result: Dict[str, Any] = {}
+    for field in ["name", "phone", "email", "years_of_experience", "education", "location"]:
+        item = value.get(field)
+        if not isinstance(item, str):
+            raise ValueError(f"AI 返回的 screening JSON 非法：parsed_resume.basic_info.{field} 类型错误")
+        result[field] = item
+    return result
+
+
+def _validate_screening_parsed_resume_payload(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("AI 返回的 screening JSON 非法：parsed_resume 不是对象")
+    basic_info = _validate_screening_basic_info_payload(value.get("basic_info"))
+    work_experiences = value.get("work_experiences")
+    education_experiences = value.get("education_experiences")
+    skills = value.get("skills")
+    projects = value.get("projects")
+    summary = value.get("summary")
+    if not isinstance(work_experiences, list):
+        raise ValueError("AI 返回的 screening JSON 非法：parsed_resume.work_experiences 不是数组")
+    if not isinstance(education_experiences, list):
+        raise ValueError("AI 返回的 screening JSON 非法：parsed_resume.education_experiences 不是数组")
+    if not isinstance(skills, list):
+        raise ValueError("AI 返回的 screening JSON 非法：parsed_resume.skills 不是数组")
+    if not isinstance(projects, list):
+        raise ValueError("AI 返回的 screening JSON 非法：parsed_resume.projects 不是数组")
+    if not isinstance(summary, str):
+        raise ValueError("AI 返回的 screening JSON 非法：parsed_resume.summary 类型错误")
+    return {
+        "basic_info": basic_info,
+        "work_experiences": work_experiences,
+        "education_experiences": education_experiences,
+        "skills": skills,
+        "projects": projects,
+        "summary": summary,
+    }
+
+
+def _validate_screening_dimension_item(value: Any, *, index: int) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"AI 返回的 screening JSON 非法：score.dimensions[{index}] 不是对象")
+    label = value.get("label")
+    score = value.get("score")
+    max_score = value.get("max_score")
+    reason = value.get("reason")
+    evidence = value.get("evidence")
+    if not isinstance(label, str):
+        raise ValueError(f"AI 返回的 screening JSON 非法：score.dimensions[{index}].label 类型错误")
+    if not _is_json_number(score):
+        raise ValueError(f"AI 返回的 screening JSON 非法：score.dimensions[{index}].score 类型错误")
+    if not _is_json_number(max_score):
+        raise ValueError(f"AI 返回的 screening JSON 非法：score.dimensions[{index}].max_score 类型错误")
+    if not isinstance(reason, str):
+        raise ValueError(f"AI 返回的 screening JSON 非法：score.dimensions[{index}].reason 类型错误")
+    if not (
+        isinstance(evidence, str)
+        or (
+            isinstance(evidence, list)
+            and all(isinstance(item, str) for item in evidence)
+        )
+    ):
+        raise ValueError(f"AI 返回的 screening JSON 非法：score.dimensions[{index}].evidence 类型错误")
+    normalized: Dict[str, Any] = {
+        "label": label,
+        "score": float(score),
+        "max_score": float(max_score),
+        "reason": reason,
+        "evidence": evidence,
+    }
+    if "is_inferred" in value:
+        normalized["is_inferred"] = bool(value.get("is_inferred"))
+    if "weight_text" in value:
+        normalized["weight_text"] = value.get("weight_text")
+    if "is_core" in value:
+        normalized["is_core"] = bool(value.get("is_core"))
+    return normalized
+
+
+def _validate_screening_score_payload(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("AI 返回的 screening JSON 非法：score 不是对象")
+    total_score = value.get("total_score")
+    match_percent = value.get("match_percent")
+    advantages = value.get("advantages")
+    concerns = value.get("concerns")
+    recommendation = value.get("recommendation")
+    suggested_status = value.get("suggested_status")
+    dimensions = value.get("dimensions")
+    if not _is_json_number(total_score):
+        raise ValueError("AI 返回的 screening JSON 非法：score.total_score 类型错误")
+    if not _is_json_number(match_percent):
+        raise ValueError("AI 返回的 screening JSON 非法：score.match_percent 类型错误")
+    if not isinstance(advantages, list) or not all(isinstance(item, str) for item in advantages):
+        raise ValueError("AI 返回的 screening JSON 非法：score.advantages 类型错误")
+    if not isinstance(concerns, list) or not all(isinstance(item, str) for item in concerns):
+        raise ValueError("AI 返回的 screening JSON 非法：score.concerns 类型错误")
+    if not isinstance(recommendation, str):
+        raise ValueError("AI 返回的 screening JSON 非法：score.recommendation 类型错误")
+    if not isinstance(suggested_status, str) or suggested_status not in VALID_SCREENING_SUGGESTED_STATUSES:
+        raise ValueError("AI 返回的 screening JSON 非法：score.suggested_status 不在合法枚举内")
+    if not isinstance(dimensions, list):
+        raise ValueError("AI 返回的 screening JSON 非法：score.dimensions 不是数组")
+    normalized_dimensions = [
+        _validate_screening_dimension_item(item, index=index)
+        for index, item in enumerate(dimensions)
+    ]
+    return {
+        "total_score": float(total_score),
+        "match_percent": float(match_percent),
+        "advantages": list(advantages),
+        "concerns": list(concerns),
+        "recommendation": recommendation,
+        "suggested_status": suggested_status,
+        "dimensions": normalized_dimensions,
+    }
+
+
+def _validate_primary_screening_response(value: Any) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    if not isinstance(value, dict):
+        raise ValueError("AI 返回的 screening JSON 非法：根对象不是 JSON object")
+    parsed_resume = _validate_screening_parsed_resume_payload(value.get("parsed_resume"))
+    score = _validate_screening_score_payload(value.get("score"))
+    return parsed_resume, score
+
+
+def _validate_primary_score_only_response(value: Any) -> Dict[str, Any]:
+    payload = _extract_model_score_payload(value)
+    return _validate_screening_score_payload(payload)
+
+
+def _classify_screening_score_validity(
+    score_payload: Any,
+    schema_config: Dict[str, Any],
+    *,
+    validation_warnings: Optional[Sequence[Any]] = None,
+) -> Tuple[bool, List[str]]:
+    reasons: List[str] = []
+    if not isinstance(score_payload, dict):
+        return False, ["score 对象缺失或不是合法 JSON object"]
+
+    dimensions = score_payload.get("dimensions") if isinstance(score_payload.get("dimensions"), list) else []
+    if not dimensions:
+        reasons.append("score.dimensions 缺失或为空")
+
+    required_dimension_labels = [
+        str(item or "").strip()
+        for item in ((schema_config.get("score") or {}).get("required_dimension_labels") or [])
+        if str(item or "").strip()
+    ]
+    if required_dimension_labels:
+        actual_dimension_labels = {
+            str(item.get("label") or "").strip()
+            for item in dimensions
+            if isinstance(item, dict) and str(item.get("label") or "").strip()
+        }
+        missing_dimension_labels = [label for label in required_dimension_labels if label not in actual_dimension_labels]
+        if missing_dimension_labels:
+            reasons.append(f"score.dimensions 缺少维度：{'、'.join(missing_dimension_labels[:8])}")
+
+    if not _normalize_suggested_status(score_payload.get("suggested_status")):
+        reasons.append("score.suggested_status 缺失或无效")
+    if not _compact_recommendation(score_payload.get("recommendation")):
+        reasons.append("score.recommendation 缺失或无效")
+
+    for warning in _normalize_score_warning_items(validation_warnings, limit=8):
+        if (
+            warning.startswith("score.dimensions 缺失或为空")
+            or warning.startswith("score.dimensions 缺少维度")
+            or warning.startswith("score.suggested_status 缺失或无效")
+        ):
+            reasons.append(warning)
+
+    normalized_reasons: List[str] = []
+    seen_reason_keys: set[str] = set()
+    for item in reasons:
+        text = str(item or "").strip()
+        normalized_key = re.sub(r"[。；;，,\s]+$", "", text)
+        if not normalized_key or normalized_key in seen_reason_keys:
+            continue
+        seen_reason_keys.add(normalized_key)
+        normalized_reasons.append(normalized_key)
+    return (not normalized_reasons), normalized_reasons
+
+
+def _build_raw_screening_storage_payload(
+    *,
+    score_payload: Dict[str, Any],
+    score_source: str,
+    primary_model_call_succeeded: bool,
+    fallback_score_only_ai_called: bool,
+    final_response_source: str,
+    validation_warnings: Optional[Sequence[Any]] = None,
+) -> Dict[str, Any]:
+    normalized_validation_warnings = _normalize_score_warning_items(validation_warnings, limit=8)
+    return {
+        "_storage_format": RAW_SCREENING_SCORE_STORAGE_FORMAT,
+        "score": score_payload,
+        "debug": {
+            "score_source": str(score_source or "").strip() or None,
+            "primary_model_call_succeeded": bool(primary_model_call_succeeded),
+            "fallback_score_only_ai_called": bool(fallback_score_only_ai_called),
+            "final_response_source": str(final_response_source or "").strip() or None,
+            "score_validation_passed": not bool(normalized_validation_warnings),
+            "validation_warnings": normalized_validation_warnings,
+        },
+    }
+
+
+def _build_screening_output_summary(
+    *,
+    parsed_resume: Optional[Dict[str, Any]] = None,
+    score_payload: Optional[Dict[str, Any]] = None,
+) -> str:
+    summary_payload: Dict[str, Any] = {}
+    if isinstance(parsed_resume, dict):
+        summary_payload["parsed_resume"] = parsed_resume
+    if isinstance(score_payload, dict):
+        summary_payload["score"] = score_payload
+    if not summary_payload:
+        return ""
+    return truncate_text(json_dumps_safe(summary_payload), 600)
 
 
 class RecruitmentService:
@@ -1066,6 +2789,58 @@ class RecruitmentService:
         row.error_message = _truncate_utf8_text("任务已被用户停止。", 12000)
         row.output_summary = _truncate_utf8_text("已停止生成", 12000)
         self.db.add(row)
+        return True
+
+    def _is_orphaned_live_task(self, row: RecruitmentAITaskLog) -> bool:
+        if row.status not in {"pending", "queued", "running"}:
+            return False
+        if recruitment_task_registry.get(row.id):
+            return False
+        checkpoint = row.updated_at or row.created_at
+        if not checkpoint:
+            return False
+        if getattr(checkpoint, "tzinfo", None) is not None:
+            checkpoint = checkpoint.replace(tzinfo=None)
+        if checkpoint < PROCESS_BOOTED_AT:
+            return True
+        stale_before = datetime.now() - timedelta(minutes=30)
+        return checkpoint < stale_before
+
+    def _settle_orphaned_live_task(self, row: RecruitmentAITaskLog) -> bool:
+        if self._settle_orphaned_cancelling_task(row):
+            return True
+        if not self._is_orphaned_live_task(row):
+            return False
+        row.status = "failed"
+        row.error_message = _truncate_utf8_text(
+            row.error_message or "任务执行上下文已丢失，系统已自动标记为失败。",
+            12000,
+        )
+        row.output_summary = _truncate_utf8_text(
+            "AI 初筛任务执行已中断，系统已自动标记为失败。",
+            12000,
+        )
+        self.db.add(row)
+        if row.task_type == "resume_score" and row.related_candidate_id:
+            candidate = self.db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.id == row.related_candidate_id,
+                RecruitmentCandidate.deleted.is_(False),
+            ).first()
+            if candidate:
+                self._mark_candidate_screening_failed_if_needed(
+                    candidate,
+                    actor_id=row.created_by or "system",
+                    reason="AI 初筛任务中断，请重新发起初筛。",
+                    source="ai_screening_orphaned",
+                )
+                self.db.add(candidate)
+        logger.warning(
+            "Settled orphaned AI task task_id=%s task_type=%s status=%s related_candidate_id=%s",
+            row.id,
+            row.task_type,
+            row.status,
+            row.related_candidate_id,
+        )
         return True
 
     def _start_background_ai_task(self, task_id: int, runner: Callable[[RecruitmentTaskControl], None]) -> None:
@@ -1466,6 +3241,46 @@ class RecruitmentService:
         candidate.updated_by = actor_id
         self.db.flush()
 
+    def _auto_advance_candidate_after_screening(
+        self,
+        candidate: RecruitmentCandidate,
+        *,
+        actor_id: str,
+    ) -> None:
+        if candidate.status not in {"pending_screening", "screening_failed"}:
+            return
+        suggested_status = _normalize_suggested_status(candidate.ai_recommended_status)
+        if not suggested_status or suggested_status == candidate.status:
+            return
+        position = self._get_position(candidate.position_id) if candidate.position_id else None
+        if position and not bool(position.auto_advance_on_screening):
+            return
+        self._create_status_history(
+            candidate,
+            suggested_status,
+            "AI 初筛完成，按 AI 建议自动更新候选人状态。",
+            actor_id,
+            "ai_screening",
+        )
+
+    def _mark_candidate_screening_failed_if_needed(
+        self,
+        candidate: RecruitmentCandidate,
+        *,
+        actor_id: str,
+        reason: str,
+        source: str,
+    ) -> None:
+        if candidate.status != "pending_screening":
+            return
+        self._create_status_history(
+            candidate,
+            "screening_failed",
+            reason,
+            actor_id,
+            source,
+        )
+
     def _create_ai_task_log(self, task_type: str, *, created_by: str, related_position_id: Optional[int] = None, related_candidate_id: Optional[int] = None, related_skill_ids: Optional[Iterable[Any]] = None, related_skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None, related_resume_file_id: Optional[int] = None, related_publish_task_id: Optional[int] = None, memory_source: Optional[str] = None, request_hash: Optional[str] = None) -> RecruitmentAITaskLog:
         row = RecruitmentAITaskLog(task_type=task_type, related_position_id=related_position_id, related_candidate_id=related_candidate_id, related_skill_id=None, related_skill_ids_json=json_dumps_safe(_dedupe_ints(related_skill_ids or [])), related_skill_snapshots_json=json_dumps_safe(list(related_skill_snapshots or [])), related_resume_file_id=related_resume_file_id, related_publish_task_id=related_publish_task_id, memory_source=memory_source, request_hash=request_hash, status="pending", created_by=created_by)
         self.db.add(row)
@@ -1831,29 +3646,91 @@ class RecruitmentService:
         self.db.refresh(row)
         return self._serialize_skill(row)
     def _serialize_parse_result(self, row: RecruitmentResumeParseResult) -> Dict[str, Any]:
-        return {"id": row.id, "candidate_id": row.candidate_id, "resume_file_id": row.resume_file_id, "raw_text": row.raw_text or "", "basic_info": json_loads_safe(row.basic_info_json, {}), "work_experiences": json_loads_safe(row.work_experiences_json, []), "education_experiences": json_loads_safe(row.education_experiences_json, []), "skills": json_loads_safe(row.skills_json, []), "projects": json_loads_safe(row.projects_json, []), "summary": row.summary_text, "status": row.status, "error_message": row.error_message, "created_at": isoformat_or_none(row.created_at)}
+        parsed_resume = {
+            "basic_info": json_loads_safe(row.basic_info_json, {}),
+            "work_experiences": json_loads_safe(row.work_experiences_json, []),
+            "education_experiences": json_loads_safe(row.education_experiences_json, []),
+            "skills": json_loads_safe(row.skills_json, []),
+            "projects": json_loads_safe(row.projects_json, []),
+            "summary": row.summary_text,
+        }
+        return {
+            "id": row.id,
+            "candidate_id": row.candidate_id,
+            "resume_file_id": row.resume_file_id,
+            "raw_text": row.raw_text or "",
+            **parsed_resume,
+            "status": row.status,
+            "error_message": row.error_message,
+            "created_at": isoformat_or_none(row.created_at),
+        }
 
     def _serialize_score(self, row: RecruitmentCandidateScore) -> Dict[str, Any]:
         payload = json_loads_safe(row.score_json, {})
+        if isinstance(payload, dict) and payload.get("_storage_format") == RAW_SCREENING_SCORE_STORAGE_FORMAT:
+            raw_score = payload.get("score") if isinstance(payload.get("score"), dict) else {}
+            debug_payload = payload.get("debug") if isinstance(payload.get("debug"), dict) else {}
+            row_total_score = _parse_score_number(row.total_score)
+            row_match_percent = _parse_score_number(row.match_percent)
+            return {
+                "id": row.id,
+                "candidate_id": row.candidate_id,
+                "parse_result_id": row.parse_result_id,
+                "total_score": row_total_score if row_total_score is not None else raw_score.get("total_score"),
+                "total_score_scale": 10,
+                "match_percent": row_match_percent if row_match_percent is not None else raw_score.get("match_percent"),
+                "advantages": _normalize_score_text_items(raw_score.get("advantages"), limit=5),
+                "concerns": _normalize_score_text_items(raw_score.get("concerns"), limit=5),
+                "recommendation": row.recommendation if row.recommendation is not None else raw_score.get("recommendation"),
+                "suggested_status": row.suggested_status or raw_score.get("suggested_status"),
+                "dimensions": sanitize_dimensions(raw_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
+                "score_validation_passed": debug_payload.get("score_validation_passed"),
+                "validation_warnings": _normalize_score_warning_items(debug_payload.get("validation_warnings"), limit=8),
+                "manual_override_score": row.manual_override_score,
+                "manual_override_reason": row.manual_override_reason,
+                "created_at": isoformat_or_none(row.created_at),
+                "updated_at": isoformat_or_none(row.updated_at),
+            }
+        normalized_score = payload.get("normalized_score") if isinstance(payload.get("normalized_score"), dict) else None
+        score_enhancements = payload.get("score_enhancements") if isinstance(payload.get("score_enhancements"), dict) else None
+        if normalized_score is None:
+            normalized_score = _shape_resume_score_payload(payload)
+        if score_enhancements is None:
+            score_enhancements = {
+                "dimensions": _normalize_score_dimensions(payload.get("dimensions"), limit=12),
+                "dimensions_mode": payload.get("dimensions_mode"),
+                "missing_core_labels": list(payload.get("missing_core_labels") or []),
+                "score_cap_reason": payload.get("score_cap_reason"),
+                "derived_total_score_from_dimensions": _parse_score_number(payload.get("derived_total_score_from_dimensions")),
+                "derived_match_percent_from_dimensions": _parse_score_number(payload.get("derived_match_percent_from_dimensions")),
+                "score_quality_warnings": _normalize_score_warning_items(payload.get("score_quality_warnings"), limit=8),
+                "repair_reason": payload.get("repair_reason"),
+                "report_markdown": str(payload.get("report_markdown") or "").strip() or None,
+                "risk_flags": list(payload.get("risk_flags") or []),
+                "decision_note": payload.get("decision_note"),
+                "score_source": payload.get("score_source"),
+            }
+        if score_enhancements.get("score_source") == "fallback_builder":
+            score_enhancements["score_quality_warnings"] = _merge_warning_items(
+                ["当前评分来自 fallback_builder，非主模型直接结构化结果"],
+                score_enhancements.get("score_quality_warnings"),
+                limit=8,
+            )
+        compatibility_score = _build_score_compat_payload(normalized_score, score_enhancements)
+        row_total_score = _parse_score_number(row.total_score)
+        row_match_percent = _parse_score_number(row.match_percent)
         return {
             "id": row.id,
             "candidate_id": row.candidate_id,
             "parse_result_id": row.parse_result_id,
-            "total_score": row.total_score,
-            "total_score_scale": _infer_score_scale(row.total_score),
-            "match_percent": row.match_percent,
-            "advantages": _normalize_score_text_items(payload.get("advantages"), limit=5),
-            "concerns": _normalize_score_text_items(payload.get("concerns"), limit=5),
-            "advantages_text": row.advantages_text,
-            "concerns_text": row.concerns_text,
-            "recommendation": row.recommendation,
-            "suggested_status": row.suggested_status,
-            "dimensions": _normalize_score_dimensions(payload.get("dimensions"), limit=12),
-            "dimensions_mode": payload.get("dimensions_mode"),
-            "missing_core_labels": list(payload.get("missing_core_labels") or []),
-            "score_cap_reason": payload.get("score_cap_reason"),
-            "repair_reason": payload.get("repair_reason"),
-            "report_markdown": str(payload.get("report_markdown") or "").strip() or None,
+            "total_score": row_total_score if row_total_score is not None else compatibility_score.get("total_score"),
+            "total_score_scale": _infer_score_scale(row_total_score if row_total_score is not None else compatibility_score.get("total_score")),
+            "match_percent": row_match_percent if row_match_percent is not None else compatibility_score.get("match_percent"),
+            "advantages": _normalize_score_text_items(compatibility_score.get("advantages"), limit=5),
+            "concerns": _normalize_score_text_items(compatibility_score.get("concerns"), limit=5),
+            "recommendation": row.recommendation or compatibility_score.get("recommendation"),
+            "suggested_status": row.suggested_status or compatibility_score.get("suggested_status"),
+            "dimensions": sanitize_dimensions(compatibility_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
             "manual_override_score": row.manual_override_score,
             "manual_override_reason": row.manual_override_reason,
             "created_at": isoformat_or_none(row.created_at),
@@ -1970,20 +3847,37 @@ class RecruitmentService:
     def _serialize_candidate_summary(self, row: RecruitmentCandidate) -> Dict[str, Any]:
         position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == row.position_id, RecruitmentPosition.deleted.is_(False)).first() if row.position_id else None
         score_row = self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == row.latest_score_id).first() if row.latest_score_id else None
+        serialized_score = self._serialize_score(score_row) if score_row else None
+        display_match_percent = _parse_score_number(serialized_score.get("match_percent")) if serialized_score else _parse_score_number(row.match_percent)
+        display_total_score = _parse_score_number(serialized_score.get("total_score")) if serialized_score else _parse_score_number(score_row.total_score if score_row else None)
         active_screening_task = self.db.query(RecruitmentAITaskLog).filter(
             RecruitmentAITaskLog.related_candidate_id == row.id,
             RecruitmentAITaskLog.task_type == "resume_score",
             RecruitmentAITaskLog.status.in_(["pending", "queued", "running", "cancelling"]),
         ).order_by(RecruitmentAITaskLog.updated_at.desc(), RecruitmentAITaskLog.id.desc()).first()
+        if active_screening_task and self._settle_orphaned_live_task(active_screening_task):
+            self.db.commit()
+            self.db.refresh(row)
+            active_screening_task = self.db.query(RecruitmentAITaskLog).filter(
+                RecruitmentAITaskLog.related_candidate_id == row.id,
+                RecruitmentAITaskLog.task_type == "resume_score",
+                RecruitmentAITaskLog.status.in_(["pending", "queued", "running", "cancelling"]),
+            ).order_by(RecruitmentAITaskLog.updated_at.desc(), RecruitmentAITaskLog.id.desc()).first()
+        score_suggested_status = str(serialized_score.get("suggested_status") or "").strip() if serialized_score else ""
+        ai_recommended_status = score_suggested_status or str(row.ai_recommended_status or "").strip() or None
+        if active_screening_task:
+            display_status = "screening_running"
+        elif row.status == "pending_screening" and ai_recommended_status:
+            display_status = ai_recommended_status
+        else:
+            display_status = row.status or ""
         position_screening_skill_rows = self._get_position_task_skill_rows(position.id, "screening") if position else []
         position_interview_skill_rows = self._get_position_task_skill_rows(position.id, "interview") if position else []
         position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position else []
-        return {"id": row.id, "candidate_code": row.candidate_code, "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "source": row.source, "source_detail": row.source_detail, "status": row.status, "active_screening_task_id": active_screening_task.id if active_screening_task else None, "active_screening_task_status": active_screening_task.status if active_screening_task else None, "ai_recommended_status": row.ai_recommended_status, "match_percent": row.match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": score_row.total_score if score_row else None, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "candidate_code": row.candidate_code, "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "active_screening_task_id": active_screening_task.id if active_screening_task else None, "active_screening_task_status": active_screening_task.status if active_screening_task else None, "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None) -> List[Dict[str, Any]]:
         builder = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False))
-        if status:
-            builder = builder.filter(RecruitmentCandidate.status == status)
         if position_id:
             builder = builder.filter(RecruitmentCandidate.position_id == position_id)
         if query:
@@ -1992,7 +3886,14 @@ class RecruitmentService:
         rows = builder.order_by(RecruitmentCandidate.updated_at.desc(), RecruitmentCandidate.id.desc()).all()
         if tag:
             rows = [row for row in rows if tag in json_loads_safe(row.tags_json, [])]
-        return [self._serialize_candidate_summary(row) for row in rows]
+        serialized_rows = [self._serialize_candidate_summary(row) for row in rows]
+        if status:
+            serialized_rows = [
+                item
+                for item in serialized_rows
+                if str(item.get("display_status") or item.get("status") or "").strip() == status
+            ]
+        return serialized_rows
 
     def get_candidate_detail(self, candidate_id: int) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
@@ -2003,6 +3904,14 @@ class RecruitmentService:
         status_history = self.db.query(RecruitmentCandidateStatusHistory).filter(RecruitmentCandidateStatusHistory.candidate_id == candidate.id).order_by(RecruitmentCandidateStatusHistory.created_at.desc(), RecruitmentCandidateStatusHistory.id.desc()).all()
         questions = self.db.query(RecruitmentInterviewQuestion).filter(RecruitmentInterviewQuestion.candidate_id == candidate.id).order_by(RecruitmentInterviewQuestion.created_at.desc(), RecruitmentInterviewQuestion.id.desc()).all()
         activity = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.related_candidate_id == candidate.id).order_by(RecruitmentAITaskLog.created_at.desc(), RecruitmentAITaskLog.id.desc()).limit(50).all()
+        activity_touched = False
+        for item in activity:
+            if self._settle_orphaned_live_task(item):
+                activity_touched = True
+        if activity_touched:
+            self.db.commit()
+            self.db.refresh(candidate)
+            activity = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.related_candidate_id == candidate.id).order_by(RecruitmentAITaskLog.created_at.desc(), RecruitmentAITaskLog.id.desc()).limit(50).all()
         return {"candidate": self._serialize_candidate_summary(candidate), "resume_files": [self._serialize_resume_file(item) for item in resume_files], "parse_result": self._serialize_parse_result(parse_row) if parse_row else None, "score": self._serialize_score(score_row) if score_row else None, "workflow_memory": self._serialize_workflow_memory(workflow_memory) if workflow_memory else None, "status_history": [self._serialize_status_history(item) for item in status_history], "interview_questions": [self._serialize_interview_question(item) for item in questions], "activity": [self._serialize_ai_task_log(item) for item in activity]}
 
     def update_candidate(self, candidate_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
@@ -2099,18 +4008,61 @@ class RecruitmentService:
             "summary": position.summary,
         }
 
-    def _save_score_result(self, candidate: RecruitmentCandidate, parse_row: RecruitmentResumeParseResult, actor_id: str, content: Dict[str, Any]) -> RecruitmentCandidateScore:
-        strict_payload = _shape_resume_score_payload(content)
-        payload = {
-            **strict_payload,
-            "dimensions": _normalize_score_dimensions(content.get("dimensions"), limit=12),
-            "dimensions_mode": content.get("dimensions_mode"),
-            "missing_core_labels": list(content.get("missing_core_labels") or []),
-            "score_cap_reason": content.get("score_cap_reason"),
-            "repair_reason": content.get("repair_reason"),
-            "report_markdown": str(content.get("report_markdown") or "").strip() or None,
+    def _save_score_result(self, candidate: RecruitmentCandidate, parse_row: RecruitmentResumeParseResult, actor_id: str, content: Dict[str, Any], *, allow_status_advance: bool = True) -> RecruitmentCandidateScore:
+        if isinstance(content, dict) and content.get("_storage_format") == RAW_SCREENING_SCORE_STORAGE_FORMAT:
+            raw_score = content.get("score") if isinstance(content.get("score"), dict) else {}
+            total_score = raw_score.get("total_score") if _is_json_number(raw_score.get("total_score")) else None
+            match_percent = raw_score.get("match_percent") if _is_json_number(raw_score.get("match_percent")) else None
+            recommendation = raw_score.get("recommendation") if isinstance(raw_score.get("recommendation"), str) else None
+            suggested_status = raw_score.get("suggested_status") if isinstance(raw_score.get("suggested_status"), str) else None
+            advantages = raw_score.get("advantages") if isinstance(raw_score.get("advantages"), list) else []
+            concerns = raw_score.get("concerns") if isinstance(raw_score.get("concerns"), list) else []
+            score_row = RecruitmentCandidateScore(
+                candidate_id=candidate.id,
+                parse_result_id=parse_row.id,
+                score_json=json_dumps_safe(content),
+                total_score=total_score,
+                match_percent=match_percent,
+                advantages_text="\n".join([str(item).strip() for item in advantages if isinstance(item, str) and str(item).strip()]),
+                concerns_text="\n".join([str(item).strip() for item in concerns if isinstance(item, str) and str(item).strip()]),
+                recommendation=recommendation,
+                suggested_status=suggested_status,
+                created_at=None,
+            )
+            self.db.add(score_row)
+            self.db.flush()
+            candidate.latest_score_id = score_row.id
+            candidate.match_percent = match_percent
+            candidate.ai_recommended_status = suggested_status
+            if allow_status_advance:
+                self._auto_advance_candidate_after_screening(candidate, actor_id=actor_id)
+            candidate.updated_by = actor_id
+            self.db.add(candidate)
+            return score_row
+        ai_raw_score = content.get("ai_raw_score") if isinstance(content.get("ai_raw_score"), dict) else None
+        normalized_score = content.get("normalized_score") if isinstance(content.get("normalized_score"), dict) else _build_normalized_score_payload(content)
+        raw_enhancements = content.get("score_enhancements") if isinstance(content.get("score_enhancements"), dict) else {}
+        score_enhancements = {
+            "dimensions": _normalize_score_dimensions(raw_enhancements.get("dimensions"), limit=12),
+            "dimensions_mode": raw_enhancements.get("dimensions_mode"),
+            "missing_core_labels": list(raw_enhancements.get("missing_core_labels") or []),
+            "score_cap_reason": raw_enhancements.get("score_cap_reason"),
+            "derived_total_score_from_dimensions": _parse_score_number(raw_enhancements.get("derived_total_score_from_dimensions")),
+            "derived_match_percent_from_dimensions": _parse_score_number(raw_enhancements.get("derived_match_percent_from_dimensions")),
+            "score_quality_warnings": _normalize_score_warning_items(raw_enhancements.get("score_quality_warnings"), limit=8),
+            "report_markdown": str(raw_enhancements.get("report_markdown") or "").strip() or None,
+            "score_source": raw_enhancements.get("score_source"),
+            "decision_note": raw_enhancements.get("decision_note"),
+            "risk_flags": list(raw_enhancements.get("risk_flags") or []),
+            "repair_reason": raw_enhancements.get("repair_reason"),
         }
-        normalized = _normalize_resume_score_payload(payload)
+        payload = _build_layered_score_payload(
+            ai_raw_score=ai_raw_score,
+            normalized_score=normalized_score,
+            score_enhancements=score_enhancements,
+        )
+        compatibility_score = payload.get("score") if isinstance(payload.get("score"), dict) else _build_score_compat_payload(normalized_score, score_enhancements)
+        normalized = _normalize_resume_score_payload(compatibility_score)
         score_row = RecruitmentCandidateScore(
             candidate_id=candidate.id,
             parse_result_id=parse_row.id,
@@ -2128,104 +4080,23 @@ class RecruitmentService:
         candidate.latest_score_id = score_row.id
         candidate.match_percent = normalized.get("match_percent")
         candidate.ai_recommended_status = normalized.get("suggested_status")
+        if allow_status_advance:
+            self._auto_advance_candidate_after_screening(candidate, actor_id=actor_id)
         candidate.updated_by = actor_id
         self.db.add(candidate)
         return score_row
 
-    def _finalize_score_payload(self, *, candidate: RecruitmentCandidate, parsed_payload: Dict[str, Any], model_payload: Dict[str, Any], weights: Dict[str, Any], status_rules: Dict[str, Any], skill_snapshots: Sequence[Dict[str, Any]]) -> Tuple[Dict[str, Any], bool, Optional[str]]:
-        position_or_candidate = self._get_position(candidate.position_id) if candidate.position_id else candidate
-        fallback_result = score_candidate_fallback(position_or_candidate, parsed_payload, weights, status_rules, skill_snapshots)
-        fallback_payload = _shape_resume_score_payload(fallback_result)
-        normalized_model = _normalize_resume_score_payload(model_payload)
-        if normalized_model.get("total_score") is None or normalized_model.get("match_percent") is None:
-            repaired_payload = dict(fallback_payload)
-            repaired_payload["dimensions"] = _normalize_score_dimensions(fallback_result.get("dimensions"), limit=12)
-            repaired_payload["dimensions_mode"] = fallback_result.get("dimensions_mode")
-            repaired_payload["missing_core_labels"] = list(fallback_result.get("missing_core_labels") or [])
-            repaired_payload["score_cap_reason"] = fallback_result.get("score_cap_reason")
-            repaired_payload["repair_reason"] = "模型未返回完整分数"
-            return repaired_payload, True, "模型未返回完整分数"
-        finalized_payload = _shape_resume_score_payload(normalized_model)
-        repaired_reasons: List[str] = []
-
-        finalized_payload["advantages"] = _merge_score_text_lists(
-            fallback_payload.get("advantages"),
-            finalized_payload.get("advantages"),
-            limit=5,
-        )
-        finalized_payload["concerns"] = _merge_score_text_lists(
-            fallback_payload.get("concerns"),
-            finalized_payload.get("concerns"),
-            limit=5,
-        )
-
-        if _score_payload_has_language_drift(finalized_payload):
-            finalized_payload["advantages"] = _normalize_score_text_items(fallback_payload.get("advantages"), limit=5)
-            finalized_payload["concerns"] = _normalize_score_text_items(fallback_payload.get("concerns"), limit=5)
-            finalized_payload["recommendation"] = fallback_payload.get("recommendation")
-            repaired_reasons.append("模型输出语言不一致，已回退为中文评分结论")
-
-        if fallback_result.get("dimensions_mode") == "skill_rubric":
-            model_score = _parse_score_number(finalized_payload.get("total_score"))
-            fallback_score = _parse_score_number(fallback_payload.get("total_score"))
-            model_status = _normalize_suggested_status(finalized_payload.get("suggested_status"))
-            fallback_status = _normalize_suggested_status(fallback_payload.get("suggested_status"))
-            finalized_payload["total_score"] = fallback_payload.get("total_score")
-            finalized_payload["match_percent"] = fallback_payload.get("match_percent")
-            finalized_payload["suggested_status"] = fallback_payload.get("suggested_status")
-            finalized_payload["recommendation"] = fallback_payload.get("recommendation")
-            if (
-                (model_score is not None and fallback_score is not None and abs(model_score - fallback_score) >= 0.1)
-                or model_status != fallback_status
-            ):
-                repaired_reasons.append("最终分数与状态已按 Skill 评分维度收口")
-
-        if _score_payload_has_hard_rule_mismatch(finalized_payload, fallback_payload):
-            finalized_payload["total_score"] = min(
-                _parse_score_number(finalized_payload.get("total_score")) or 0.0,
-                _parse_score_number(fallback_payload.get("total_score")) or 0.0,
-            )
-            finalized_payload["match_percent"] = min(
-                _parse_score_number(finalized_payload.get("match_percent")) or 0.0,
-                _parse_score_number(fallback_payload.get("match_percent")) or 0.0,
-            )
-            finalized_payload["suggested_status"] = fallback_payload.get("suggested_status")
-            finalized_payload["recommendation"] = fallback_payload.get("recommendation")
-            finalized_payload["concerns"] = _normalize_score_text_items(fallback_payload.get("concerns"), limit=5)
-            repaired_reasons.append("模型评分与核心 Skills 硬规则不一致，已按规则收口")
-
-        if not finalized_payload.get("recommendation"):
-            finalized_payload["recommendation"] = fallback_payload.get("recommendation")
-            repaired_reasons.append("模型未返回有效推荐结论，已补全")
-        if not finalized_payload.get("suggested_status"):
-            finalized_payload["suggested_status"] = fallback_payload.get("suggested_status")
-            repaired_reasons.append("模型未返回有效建议状态，已补全")
-
-        strict_payload = _shape_resume_score_payload(finalized_payload)
-        finalized_payload = {
-            **strict_payload,
-            "dimensions": _normalize_score_dimensions(fallback_result.get("dimensions"), limit=12),
-            "dimensions_mode": fallback_result.get("dimensions_mode"),
-            "missing_core_labels": list(fallback_result.get("missing_core_labels") or []),
-            "score_cap_reason": fallback_result.get("score_cap_reason"),
-        }
-        repair_reason = "；".join(repaired_reasons) if repaired_reasons else None
-        return finalized_payload, bool(repaired_reasons), repair_reason
-
-    def _build_resume_screening_prompt(self, *, candidate: RecruitmentCandidate, raw_text: str, skill_snapshots: Sequence[Dict[str, Any]], custom_requirements: str, weights: Dict[str, Any], status_rules: Dict[str, Any]) -> str:
+    def _build_resume_screening_prompt(self, *, candidate: RecruitmentCandidate, raw_text: str, skill_snapshots: Sequence[Dict[str, Any]], custom_requirements: str, status_rules: Dict[str, Any]) -> str:
         structured_payload = {
             "candidate_name": candidate.name,
             "position": self._get_position_screening_payload(candidate),
             "resume_text": raw_text[:30000],
-            "weights": weights,
             "status_rules": status_rules,
             "custom_requirements": custom_requirements or None,
             "skills": [
                 {
                     "id": skill.get("id"),
                     "name": skill.get("name"),
-                    "description": skill.get("description"),
-                    "content": str(skill.get("content") or ""),
                 }
                 for skill in skill_snapshots
             ],
@@ -2239,6 +4110,12 @@ class RecruitmentService:
             "3. 标记为“核心第一优先”或硬性要求的维度，不能用泛化亮点替代。",
             "4. advantages 和 concerns 必须直接对应 ACTIVE_SKILLS 维度，不得只是摘抄简历原文。",
             "5. 当多个关键维度缺失时，不得给出 screening_passed。",
+            "6. 最终 total_score 必须严格等于各维度 score 求和，不能另行给出与维度不一致的总分。",
+            "7. advantages 必须从“得分大于 0 的维度”中提炼，至少输出 2 条；如果命中维度不足 2 个，则输出所有命中维度对应优势。",
+            "8. concerns 必须从“缺失、低分、核心缺口维度”中提炼，至少输出 2 条；如果问题不足 2 个，则输出所有真实问题。",
+            "9. advantages 和 concerns 必须是招聘视角下的自然语言总结，不得直接输出对象字符串、字段 repr、截断碎片或“暂无明显亮点”。",
+            "10. 若两个核心维度都缺失，可判定为不通过；但总分仍必须等于所有维度小分之和，不得再额外压低或改写。",
+            "11. 如果某维度已经给分，则该维度信息应优先体现在 advantages 中；如果某维度为 0 分或证据缺失，则该维度信息应优先体现在 concerns 中。",
             f"CANDIDATE_NAME: {candidate.name or '未提供'}",
             f"ACTIVE_SKILL_NAMES: {skill_names}",
             f"CUSTOM_REQUIREMENTS: {custom_requirements or '无'}",
@@ -2248,10 +4125,43 @@ class RecruitmentService:
             json_dumps_safe(structured_payload),
         ])
 
-    def _build_combined_screening_fallback(self, *, candidate: RecruitmentCandidate, raw_text: str, weights: Dict[str, Any], status_rules: Dict[str, Any], skill_snapshots: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
-        parsed_resume = extract_resume_structured_data(raw_text, candidate.name)
-        score = score_candidate_fallback(self._get_position(candidate.position_id) if candidate.position_id else candidate, parsed_resume, weights, status_rules, skill_snapshots)
-        return {"parsed_resume": parsed_resume, "score": score}
+    def _build_resume_score_prompt(self, *, candidate: RecruitmentCandidate, parsed_payload: Dict[str, Any], skill_snapshots: Sequence[Dict[str, Any]], custom_requirements: str, status_rules: Dict[str, Any]) -> str:
+        dimension_rules = extract_screening_dimension_rules(skill_snapshots, limit=12)
+        raw_resume_text = str(parsed_payload.get("raw_text") or "")
+        parsed_resume_payload = {key: value for key, value in parsed_payload.items() if key != "raw_text"}
+        structured_payload = {
+            "position": self._get_position_screening_payload(candidate),
+            "resume_text": raw_resume_text[:30000],
+            "parsed_resume": parsed_resume_payload,
+            "status_rules": status_rules,
+            "custom_requirements": custom_requirements or None,
+            "active_skill_names": [str(skill.get("name") or "").strip() for skill in skill_snapshots if str(skill.get("name") or "").strip()],
+            "dimension_rules": dimension_rules,
+        }
+        skill_names = "、".join([str(skill.get("name") or "") for skill in skill_snapshots]) if skill_snapshots else "无"
+        return "\n\n".join([
+            "TASK: 基于 ACTIVE_SKILLS 对候选人进行严格初筛评分。",
+            "PRIORITY_RULES:",
+            "1. ACTIVE_SKILLS 定义了必须逐项核查的评分维度，不能跳过任何一个维度。",
+            "2. 任一维度缺少直接简历证据时，必须在 concerns 中明确写出，并显著降分。",
+            "3. 标记为“核心第一优先”或硬性要求的维度，不能用泛化亮点替代。",
+            "4. advantages 和 concerns 必须直接对应 ACTIVE_SKILLS 维度，不得只是摘抄简历原文。",
+            "5. 当多个关键维度缺失时，不得给出 screening_passed。",
+            "6. 最终 total_score 必须严格等于各维度 score 求和，不能另行给出与维度不一致的总分。",
+            "7. advantages 必须从“得分大于 0 的维度”中提炼，至少输出 2 条；如果命中维度不足 2 个，则输出所有命中维度对应优势。",
+            "8. concerns 必须从“缺失、低分、核心缺口维度”中提炼，至少输出 2 条；如果问题不足 2 个，则输出所有真实问题。",
+            "9. advantages 和 concerns 必须是招聘视角下的自然语言总结，不得直接输出对象字符串、字段 repr、截断碎片或“暂无明显亮点”。",
+            "10. 若两个核心维度都缺失，可判定为不通过；但总分仍必须等于所有维度小分之和，不得再额外压低或改写。",
+            "11. 如果某维度已经给分，则该维度信息应优先体现在 advantages 中；如果某维度为 0 分或证据缺失，则该维度信息应优先体现在 concerns 中。",
+            "12. recommendation 不能为空、不能只是标点；suggested_status 必须是 screening_passed、talent_pool、screening_rejected 三者之一。",
+            f"CANDIDATE_NAME: {candidate.name or '未提供'}",
+            f"ACTIVE_SKILL_NAMES: {skill_names}",
+            f"CUSTOM_REQUIREMENTS: {custom_requirements or '无'}",
+            "SCORING_DIMENSION_RULES:",
+            json_dumps_safe(dimension_rules),
+            "STRUCTURED_CONTEXT_JSON:",
+            json_dumps_safe(structured_payload),
+        ])
 
     def _get_current_parse_result(self, candidate: RecruitmentCandidate) -> Optional[RecruitmentResumeParseResult]:
         if not candidate.latest_parse_result_id or not candidate.latest_resume_file_id:
@@ -2273,20 +4183,24 @@ class RecruitmentService:
         self.db.add(resume_file)
         self.db.commit()
         raw_text = extract_resume_text(Path(resume_file.storage_path), resume_file.file_ext or "")
-        weights = self._get_rule_config("resume_score_weights", DEFAULT_RULE_CONFIGS["resume_score_weights"])
         status_rules = self._get_rule_config("default_status_rules", DEFAULT_RULE_CONFIGS["default_status_rules"])
         skill_snapshots = self._tailor_skill_snapshots_for_task(self._build_skill_snapshots(skill_rows, custom_requirements, custom_name="附加初筛要求"), "screening")
+        screening_schema_config = _build_screening_schema_config(
+            skill_snapshots,
+            status_rules=status_rules,
+        )
         related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
         prompt = self._build_resume_screening_prompt(
             candidate=candidate,
             raw_text=raw_text,
             skill_snapshots=skill_snapshots,
             custom_requirements=custom_requirements,
-            weights=weights,
             status_rules=status_rules,
         )
+        logger.debug("Screening user prompt preview candidate_id=%s: %s", candidate.id, truncate_text(prompt, 2000))
         request_hash = self._build_request_hash("resume_screening", candidate.id, resume_file.id, related_skill_ids, memory_source, custom_requirements)
         log_row = self._get_ai_task_log_row(existing_task_id) if existing_task_id else self._create_ai_task_log("resume_score", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=resume_file.id, memory_source=memory_source, request_hash=request_hash)
+        task: Optional[Dict[str, Any]] = None
         try:
             self._raise_if_cancelled(cancel_control)
             self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在执行简历解析与初筛评分")
@@ -2294,10 +4208,37 @@ class RecruitmentService:
                 task_type="resume_score",
                 system_prompt=RESUME_SCREENING_SYSTEM_PROMPT,
                 user_prompt=prompt,
-                fallback_builder=lambda: self._build_combined_screening_fallback(candidate=candidate, raw_text=raw_text, weights=weights, status_rules=status_rules, skill_snapshots=skill_snapshots),
                 cancel_control=cancel_control,
             )
             self._raise_if_cancelled(cancel_control)
+            authoritative_raw_text = str(task.get("raw_response_text") or "").strip()
+            authoritative_payload = _parse_llm_json_response(authoritative_raw_text or json_dumps_safe(task.get("content") or {}))
+            sanitized_payload, validation_meta = sanitize_screening_payload(
+                authoritative_payload,
+                screening_schema_config,
+            )
+            parsed_resume = sanitized_payload.get("parsed_resume") or {}
+            raw_score_payload = sanitized_payload.get("score") or {}
+            validation_warnings = _normalize_score_warning_items(validation_meta.get("warnings"), limit=8)
+            screening_result_valid, invalid_result_reasons = _classify_screening_score_validity(
+                raw_score_payload,
+                screening_schema_config,
+                validation_warnings=validation_warnings,
+            )
+            if validation_warnings:
+                logger.warning(
+                    "Screening payload validation warnings candidate_id=%s: %s",
+                    candidate.id,
+                    " ".join(validation_warnings),
+                )
+            storage_payload = _build_raw_screening_storage_payload(
+                score_payload=raw_score_payload,
+                score_source="primary_screening_model",
+                primary_model_call_succeeded=True,
+                fallback_score_only_ai_called=False,
+                final_response_source="primary_screening_model",
+                validation_warnings=validation_warnings,
+            )
         except RecruitmentTaskCancelled:
             self.db.rollback()
             resume_file = self._get_resume_file(candidate.latest_resume_file_id)
@@ -2307,41 +4248,59 @@ class RecruitmentService:
             self.db.commit()
             self._mark_ai_task_cancelled(log_row.id, actor_id=actor_id, reason="任务已被用户停止，初筛未继续生成。")
             raise
-        content = task.get("content") or {}
-        parse_candidate = content.get("parsed_resume") if isinstance(content, dict) else None
-        if not _has_resume_parse_content(parse_candidate) and _has_resume_parse_content(content):
-            parse_candidate = content
-        parsed_resume = _normalize_resume_parse_payload(parse_candidate)
-        parsed_resume = _sanitize_ai_parsed_resume(parsed_resume, raw_text, candidate.name)
-        score_candidate = content.get("score") if isinstance(content, dict) else None
-        if not _has_resume_score_content(score_candidate) and _has_resume_score_content(content):
-            score_candidate = content
-        raw_score_payload = score_candidate if isinstance(score_candidate, dict) else {}
-        if task.get("used_fallback"):
-            score_payload = _build_authoritative_fallback_score_payload(
-                position_or_candidate=self._get_position(candidate.position_id) if candidate.position_id else candidate,
-                parsed_payload=parsed_resume,
-                weights=weights,
-                status_rules=status_rules,
-                skill_snapshots=skill_snapshots,
+        except Exception as exc:
+            self.db.rollback()
+            resume_file = self._get_resume_file(candidate.latest_resume_file_id)
+            failed_candidate = self._get_candidate(candidate.id)
+            failure_meta = _extract_json_parse_failure_meta(exc, default_source="screening_request_failed")
+            resume_file.parse_status = "failed"
+            resume_file.parse_error = str(exc)
+            self._mark_candidate_screening_failed_if_needed(
+                failed_candidate,
+                actor_id=actor_id,
+                reason="AI 初筛执行失败，请重新发起初筛。",
+                source="ai_screening_failed",
             )
-            raw_score_payload = dict(score_payload)
-            score_repaired = True
-            repair_reason = "主模型一体化结果不可用，已使用兜底评分结果"
-        else:
-            score_payload, score_repaired, repair_reason = self._finalize_score_payload(
-                candidate=candidate,
-                parsed_payload=parsed_resume,
-                model_payload=raw_score_payload,
-                weights=weights,
-                status_rules=status_rules,
-                skill_snapshots=skill_snapshots,
+            self.db.add(resume_file)
+            self.db.add(failed_candidate)
+            self.db.commit()
+            logger.info(
+                "Screening completed candidate_id=%s primary_model_call_succeeded=%s fallback_score_only_ai_called=%s final_response_source=%s",
+                candidate.id,
+                failure_meta.get("primary_model_call_succeeded"),
+                False,
+                failure_meta.get("final_response_source"),
             )
-        report_markdown = _build_screening_report_markdown(candidate, parsed_resume, score_payload)
-        parse_pipeline_error = task.get("error_message") if task.get("used_fallback") else None
-        parse_has_warning = _resume_parse_has_warning(parsed_resume, parse_pipeline_error, candidate.name)
-        parse_status = "warning" if parse_has_warning else "success"
-        parse_error_message = _build_resume_parse_warning_message(parsed_resume, candidate.name, parse_pipeline_error)
+            self._finish_ai_task_log(
+                log_row,
+                status="failed",
+                provider=task.get("provider") if task else None,
+                model_name=task.get("model_name") if task else None,
+                prompt_snapshot=task.get("prompt_snapshot") if task else prompt,
+                full_request_snapshot=task.get("full_request_snapshot") if task else None,
+                input_summary=task.get("input_summary") if task else truncate_text(prompt, 600),
+                output_summary=task.get("output_summary") if task else failure_meta.get("output_summary"),
+                output_snapshot={
+                    "raw": task.get("content") if task else None,
+                    "raw_response_text": task.get("raw_response_text") if task else failure_meta.get("raw_response_text"),
+                    "parse_strategy": "combined_parse_and_score",
+                    "reused_existing_parse": False,
+                    "primary_model_call_succeeded": bool(task and not task.get("used_fallback")) if task else failure_meta.get("primary_model_call_succeeded"),
+                    "fallback_score_only_ai_called": False,
+                    "final_response_source": failure_meta.get("final_response_source"),
+                    "screening_result_state": failure_meta.get("screening_result_state"),
+                },
+                error_message=str(exc),
+                token_usage=task.get("token_usage") if task else None,
+                memory_source=memory_source,
+                related_skill_ids=related_skill_ids,
+                related_skill_snapshots=skill_snapshots,
+            )
+            raise
+        parse_status = "success"
+        parse_error_message = None
+        parse_quality_warnings: List[str] = []
+        execution_status = "success"
         parse_row = RecruitmentResumeParseResult(
             candidate_id=candidate.id,
             resume_file_id=resume_file.id,
@@ -2359,34 +4318,83 @@ class RecruitmentService:
         self.db.flush()
         basic_info = parsed_resume.get("basic_info") or {}
         candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
-        candidate.phone = basic_info.get("phone") or candidate.phone
-        candidate.email = basic_info.get("email") or candidate.email
-        candidate.years_of_experience = basic_info.get("years_of_experience") or candidate.years_of_experience
-        candidate.education = basic_info.get("education") or candidate.education
+        candidate.phone = str(basic_info.get("phone") or "").strip() or None
+        candidate.email = str(basic_info.get("email") or "").strip() or None
+        candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
+        candidate.education = str(basic_info.get("education") or "").strip() or None
         candidate.latest_parse_result_id = parse_row.id
         candidate.updated_by = actor_id
         resume_file.parse_status = parse_status
         resume_file.parse_error = parse_error_message
         self.db.add(candidate)
         self.db.add(resume_file)
-        score_row = self._save_score_result(candidate, parse_row, actor_id, {**score_payload, "report_markdown": report_markdown, "repair_reason": repair_reason})
+        score_row = self._save_score_result(
+            candidate,
+            parse_row,
+            actor_id,
+            storage_payload,
+            allow_status_advance=screening_result_valid,
+        )
+        final_task_status = "success"
+        final_response_source = "primary_screening_model"
+        final_output_summary = _build_screening_output_summary(
+            parsed_resume=parsed_resume,
+            score_payload=raw_score_payload,
+        ) or task.get("output_summary")
+        screening_result_state = "success"
+        if not screening_result_valid:
+            self._mark_candidate_screening_failed_if_needed(
+                candidate,
+                actor_id=actor_id,
+                reason="AI 已返回结果，但初筛评分无效，请重新发起初筛。",
+                source="ai_screening_invalid",
+            )
+            final_task_status = "failed"
+            final_response_source = "primary_screening_model_invalid"
+            final_output_summary = "AI 返回了无效初筛结果"
+            screening_result_state = "invalid"
         self.db.commit()
         self.db.refresh(parse_row)
         self.db.refresh(score_row)
-        raw_output_snapshot: Any = content
-        if task.get("used_fallback"):
-            raw_output_snapshot = {
+        logger.info(
+            "Screening completed candidate_id=%s primary_model_call_succeeded=%s fallback_score_only_ai_called=%s final_response_source=%s",
+            candidate.id,
+            True,
+            False,
+            final_response_source,
+        )
+        self._finish_ai_task_log(
+            log_row,
+            status=final_task_status,
+            provider=task.get("provider"),
+            model_name=task.get("model_name"),
+            prompt_snapshot=task.get("prompt_snapshot"),
+            full_request_snapshot=task.get("full_request_snapshot"),
+            input_summary=task.get("input_summary"),
+            output_summary=final_output_summary,
+            output_snapshot={
                 "parsed_resume": parsed_resume,
                 "score": raw_score_payload,
-                "source": "fallback_builder_recomputed_from_sanitized_parse",
-            }
-        log_score_snapshot = _build_score_log_snapshot(
-            score_payload,
-            report_markdown=report_markdown,
-            repair_reason=repair_reason,
-            score_source="fallback_builder" if task.get("used_fallback") else "model_or_finalized_model",
+                "raw_response_text": task.get("raw_response_text"),
+                "meta": {
+                    "parse_status": parse_status,
+                    "parse_strategy": "combined_parse_and_score",
+                    "reused_existing_parse": False,
+                    "primary_model_call_succeeded": True,
+                    "fallback_score_only_ai_called": False,
+                    "final_response_source": final_response_source,
+                    "screening_result_state": screening_result_state,
+                    "screening_result_valid": screening_result_valid,
+                    "invalid_result_reasons": invalid_result_reasons,
+                    "validation_warnings": validation_warnings,
+                },
+            },
+            error_message=None if screening_result_valid else "AI 返回了无效初筛结果",
+            token_usage=task.get("token_usage"),
+            memory_source=memory_source,
+            related_skill_ids=related_skill_ids,
+            related_skill_snapshots=skill_snapshots,
         )
-        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"parsed_resume": parsed_resume, **log_score_snapshot, "raw": raw_output_snapshot, "score_repaired": score_repaired, "repair_reason": repair_reason, "parse_status": parse_status, "parse_strategy": "combined_parse_and_score", "reused_existing_parse": False, "parse_warning_message": parse_error_message}, error_message=task.get("error_message") or parse_error_message, token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
         return parse_row, score_row
 
     def _parse_latest_resume(self, candidate: RecruitmentCandidate, actor_id: str) -> RecruitmentResumeParseResult:
@@ -2408,15 +4416,23 @@ class RecruitmentService:
         parse_has_warning = _resume_parse_has_warning(sanitized_resume, parse_pipeline_error, candidate.name)
         parse_status = "warning" if parse_has_warning else "success"
         parse_error_message = _build_resume_parse_warning_message(sanitized_resume, candidate.name, parse_pipeline_error)
+        parse_quality_warnings = _extract_parse_quality_warnings(sanitized_resume)
+        execution_status = "fallback" if task.get("used_fallback") else "success"
+        if execution_status == "fallback":
+            parse_quality_warnings = _merge_warning_items(
+                ["当前解析来自 fallback_builder，非主模型直接结构化结果"],
+                parse_quality_warnings,
+                limit=8,
+            )
         parse_row = RecruitmentResumeParseResult(candidate_id=candidate.id, resume_file_id=resume_file.id, raw_text=raw_text, basic_info_json=json_dumps_safe(sanitized_resume.get("basic_info") or {}), work_experiences_json=json_dumps_safe(sanitized_resume.get("work_experiences") or []), education_experiences_json=json_dumps_safe(sanitized_resume.get("education_experiences") or []), skills_json=json_dumps_safe(sanitized_resume.get("skills") or []), projects_json=json_dumps_safe(sanitized_resume.get("projects") or []), summary_text=sanitized_resume.get("summary") or "", status=parse_status, error_message=parse_error_message)
         self.db.add(parse_row)
         self.db.flush()
         basic_info = sanitized_resume.get("basic_info") or {}
         candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
-        candidate.phone = basic_info.get("phone") or candidate.phone
-        candidate.email = basic_info.get("email") or candidate.email
-        candidate.years_of_experience = basic_info.get("years_of_experience") or candidate.years_of_experience
-        candidate.education = basic_info.get("education") or candidate.education
+        candidate.phone = str(basic_info.get("phone") or "").strip() or None
+        candidate.email = str(basic_info.get("email") or "").strip() or None
+        candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
+        candidate.education = str(basic_info.get("education") or "").strip() or None
         candidate.latest_parse_result_id = parse_row.id
         candidate.updated_by = actor_id
         resume_file.parse_status = parse_status
@@ -2425,67 +4441,182 @@ class RecruitmentService:
         self.db.add(resume_file)
         self.db.commit()
         self.db.refresh(parse_row)
-        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"parsed_resume": sanitized_resume, "raw": content, "parse_status": parse_status, "parse_strategy": "parse_only", "reused_existing_parse": False, "parse_warning_message": parse_error_message}, error_message=task.get("error_message") or parse_error_message, token_usage=task.get("token_usage"))
+        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"parsed_resume": sanitized_resume, "normalized_parse": sanitized_resume, "execution_status": execution_status, "parse_quality_warnings": parse_quality_warnings, "raw": content, "parse_status": parse_status, "parse_strategy": "parse_only", "reused_existing_parse": False, "parse_warning_message": parse_error_message}, error_message=task.get("error_message") or parse_error_message, token_usage=task.get("token_usage"))
         return parse_row
 
     def _score_candidate(self, candidate: RecruitmentCandidate, parse_row: RecruitmentResumeParseResult, actor_id: str, skill_rows: Sequence[RecruitmentSkill], memory_source: str, custom_requirements: str = "", *, existing_task_id: Optional[int] = None, cancel_control: Optional[RecruitmentTaskControl] = None) -> RecruitmentCandidateScore:
-        position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == candidate.position_id, RecruitmentPosition.deleted.is_(False)).first() if candidate.position_id else None
         parsed_payload = self._serialize_parse_result(parse_row)
-        weights = self._get_rule_config("resume_score_weights", DEFAULT_RULE_CONFIGS["resume_score_weights"])
         status_rules = self._get_rule_config("default_status_rules", DEFAULT_RULE_CONFIGS["default_status_rules"])
         skill_snapshots = self._tailor_skill_snapshots_for_task(self._build_skill_snapshots(skill_rows, custom_requirements, custom_name="附加初筛要求"), "screening")
+        screening_schema_config = _build_screening_schema_config(
+            skill_snapshots,
+            status_rules=status_rules,
+        )
         related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
-        prompt = json_dumps_safe({"position": None if not position else {"title": position.title, "department": position.department, "location": position.location, "employment_type": position.employment_type, "salary_range": position.salary_range, "key_requirements": position.key_requirements, "bonus_points": position.bonus_points, "summary": position.summary}, "parsed_resume": parsed_payload, "weights": weights, "status_rules": status_rules, "custom_requirements": custom_requirements or None, "skills": [{"id": skill.get("id"), "name": skill.get("name"), "description": skill.get("description"), "content": str(skill.get("content") or "")} for skill in skill_snapshots]})
+        prompt = self._build_resume_score_prompt(
+            candidate=candidate,
+            parsed_payload=parsed_payload,
+            skill_snapshots=skill_snapshots,
+            custom_requirements=custom_requirements,
+            status_rules=status_rules,
+        )
+        logger.debug("Resume score user prompt preview candidate_id=%s: %s", candidate.id, truncate_text(prompt, 2000))
         request_hash = self._build_request_hash("resume_score", candidate.id, parse_row.id, related_skill_ids, memory_source, custom_requirements)
         log_row = self._get_ai_task_log_row(existing_task_id) if existing_task_id else self._create_ai_task_log("resume_score", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=parse_row.resume_file_id, memory_source=memory_source, request_hash=request_hash)
+        task: Optional[Dict[str, Any]] = None
         try:
             self._raise_if_cancelled(cancel_control)
             self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在根据岗位与 Skills 进行初筛评分")
-            task = self.ai_gateway.generate_json(task_type="resume_score", system_prompt=RESUME_SCORE_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: score_candidate_fallback(position or candidate, parsed_payload, weights, status_rules, skill_snapshots), cancel_control=cancel_control)
+            task = self.ai_gateway.generate_json(
+                task_type="resume_score",
+                system_prompt=RESUME_SCORE_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                cancel_control=cancel_control,
+            )
             self._raise_if_cancelled(cancel_control)
+            authoritative_raw_text = str(task.get("raw_response_text") or "").strip()
+            authoritative_payload = _parse_llm_json_response(authoritative_raw_text or json_dumps_safe(task.get("content") or {}))
+            raw_score_payload, validation_meta = sanitize_screening_score_payload(
+                authoritative_payload,
+                screening_schema_config,
+            )
+            validation_warnings = _normalize_score_warning_items(validation_meta.get("warnings"), limit=8)
+            screening_result_valid, invalid_result_reasons = _classify_screening_score_validity(
+                raw_score_payload,
+                screening_schema_config,
+                validation_warnings=validation_warnings,
+            )
+            if validation_warnings:
+                logger.warning(
+                    "Score payload validation warnings candidate_id=%s: %s",
+                    candidate.id,
+                    " ".join(validation_warnings),
+                )
+            storage_payload = _build_raw_screening_storage_payload(
+                score_payload=raw_score_payload,
+                score_source="primary_score_model",
+                primary_model_call_succeeded=True,
+                fallback_score_only_ai_called=False,
+                final_response_source="primary_score_model",
+                validation_warnings=validation_warnings,
+            )
+            score_row = self._save_score_result(
+                candidate,
+                parse_row,
+                actor_id,
+                storage_payload,
+                allow_status_advance=screening_result_valid,
+            )
+            final_task_status = "success"
+            final_response_source = "primary_score_model"
+            final_output_summary = _build_screening_output_summary(
+                score_payload=raw_score_payload,
+            ) or task.get("output_summary")
+            screening_result_state = "success"
+            if not screening_result_valid:
+                self._mark_candidate_screening_failed_if_needed(
+                    candidate,
+                    actor_id=actor_id,
+                    reason="AI 已返回结果，但初筛评分无效，请重新发起初筛。",
+                    source="ai_screening_invalid",
+                )
+                final_task_status = "failed"
+                final_response_source = "primary_score_model_invalid"
+                final_output_summary = "AI 返回了无效初筛结果"
+                screening_result_state = "invalid"
+            self.db.commit()
+            self.db.refresh(score_row)
+            logger.info(
+                "Screening completed candidate_id=%s primary_model_call_succeeded=%s fallback_score_only_ai_called=%s final_response_source=%s",
+                candidate.id,
+                True,
+                False,
+                final_response_source,
+            )
+            self._finish_ai_task_log(
+                log_row,
+                status=final_task_status,
+                provider=task.get("provider"),
+                model_name=task.get("model_name"),
+                prompt_snapshot=task.get("prompt_snapshot"),
+                full_request_snapshot=task.get("full_request_snapshot"),
+                input_summary=task.get("input_summary"),
+                output_summary=final_output_summary,
+                output_snapshot={
+                    "score": raw_score_payload,
+                    "raw_response_text": task.get("raw_response_text"),
+                    "meta": {
+                        "parse_strategy": "reuse_existing_parse",
+                        "reused_existing_parse": True,
+                        "parse_result_id": parse_row.id,
+                        "parse_result_status": parse_row.status,
+                        "primary_model_call_succeeded": True,
+                        "fallback_score_only_ai_called": False,
+                        "final_response_source": final_response_source,
+                        "screening_result_state": screening_result_state,
+                        "screening_result_valid": screening_result_valid,
+                        "invalid_result_reasons": invalid_result_reasons,
+                        "validation_warnings": validation_warnings,
+                    },
+                },
+                error_message=None if screening_result_valid else "AI 返回了无效初筛结果",
+                token_usage=task.get("token_usage"),
+                memory_source=memory_source,
+                related_skill_ids=related_skill_ids,
+                related_skill_snapshots=skill_snapshots,
+            )
+            return score_row
         except RecruitmentTaskCancelled:
             self.db.rollback()
             self._mark_ai_task_cancelled(log_row.id, actor_id=actor_id, reason="任务已被用户停止，初筛评分未继续生成。")
             raise
-        raw_score_payload = task.get("content") or {}
-        if task.get("used_fallback"):
-            score_payload = _build_authoritative_fallback_score_payload(
-                position_or_candidate=position or candidate,
-                parsed_payload=parsed_payload,
-                weights=weights,
-                status_rules=status_rules,
-                skill_snapshots=skill_snapshots,
+        except Exception as exc:
+            self.db.rollback()
+            failed_candidate = self._get_candidate(candidate.id)
+            failure_meta = _extract_json_parse_failure_meta(exc, default_source="score_model_failed")
+            self._mark_candidate_screening_failed_if_needed(
+                failed_candidate,
+                actor_id=actor_id,
+                reason="AI 初筛执行失败，请重新发起初筛。",
+                source="ai_screening_failed",
             )
-            raw_score_payload = dict(score_payload)
-            score_repaired = True
-            repair_reason = "主模型评分结果不可用，已使用兜底评分结果"
-        else:
-            score_payload, score_repaired, repair_reason = self._finalize_score_payload(
-                candidate=candidate,
-                parsed_payload=parsed_payload,
-                model_payload=raw_score_payload if isinstance(raw_score_payload, dict) else {},
-                weights=weights,
-                status_rules=status_rules,
-                skill_snapshots=skill_snapshots,
+            self.db.add(failed_candidate)
+            self.db.commit()
+            logger.info(
+                "Screening completed candidate_id=%s primary_model_call_succeeded=%s fallback_score_only_ai_called=%s final_response_source=%s",
+                candidate.id,
+                failure_meta.get("primary_model_call_succeeded"),
+                False,
+                failure_meta.get("final_response_source"),
             )
-        report_markdown = _build_screening_report_markdown(candidate, parsed_payload, score_payload)
-        score_row = self._save_score_result(candidate, parse_row, actor_id, {**score_payload, "report_markdown": report_markdown, "repair_reason": repair_reason})
-        self.db.commit()
-        self.db.refresh(score_row)
-        raw_output_snapshot: Any = raw_score_payload
-        if task.get("used_fallback"):
-            raw_output_snapshot = {
-                "score": raw_score_payload,
-                "source": "fallback_builder_recomputed_from_existing_parse",
-            }
-        log_score_snapshot = _build_score_log_snapshot(
-            score_payload,
-            report_markdown=report_markdown,
-            repair_reason=repair_reason,
-            score_source="fallback_builder" if task.get("used_fallback") else "model_or_finalized_model",
-        )
-        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={**log_score_snapshot, "raw": raw_output_snapshot, "score_repaired": score_repaired, "repair_reason": repair_reason, "parse_strategy": "reuse_existing_parse", "reused_existing_parse": True, "parse_result_id": parse_row.id, "parse_result_status": parse_row.status}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
-        return score_row
+            self._finish_ai_task_log(
+                log_row,
+                status="failed",
+                provider=task.get("provider") if task else None,
+                model_name=task.get("model_name") if task else None,
+                prompt_snapshot=task.get("prompt_snapshot") if task else prompt,
+                full_request_snapshot=task.get("full_request_snapshot") if task else None,
+                input_summary=task.get("input_summary") if task else truncate_text(prompt, 600),
+                output_summary=task.get("output_summary") if task else failure_meta.get("output_summary"),
+                output_snapshot={
+                    "raw": task.get("content") if task else None,
+                    "raw_response_text": task.get("raw_response_text") if task else failure_meta.get("raw_response_text"),
+                    "parse_strategy": "reuse_existing_parse",
+                    "reused_existing_parse": True,
+                    "parse_result_id": parse_row.id,
+                    "parse_result_status": parse_row.status,
+                    "primary_model_call_succeeded": bool(task and not task.get("used_fallback")) if task else failure_meta.get("primary_model_call_succeeded"),
+                    "fallback_score_only_ai_called": False,
+                    "final_response_source": failure_meta.get("final_response_source"),
+                    "screening_result_state": failure_meta.get("screening_result_state"),
+                },
+                error_message=str(exc),
+                token_usage=task.get("token_usage") if task else None,
+                memory_source=memory_source,
+                related_skill_ids=related_skill_ids,
+                related_skill_snapshots=skill_snapshots,
+            )
+            raise
 
     def trigger_latest_parse(self, candidate_id: int, actor_id: str) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
@@ -2513,19 +4644,12 @@ class RecruitmentService:
         workflow.position_id = candidate.position_id
         workflow.screening_skill_ids_json = json_dumps_safe([skill.id for skill in skill_rows])
         workflow.screening_memory_source = memory_source
-        workflow.screening_rule_snapshot_json = json_dumps_safe({"weights": self._get_rule_config("resume_score_weights", DEFAULT_RULE_CONFIGS["resume_score_weights"]), "status_rules": self._get_rule_config("default_status_rules", DEFAULT_RULE_CONFIGS["default_status_rules"]), "custom_requirements": custom_requirements or None})
+        workflow.screening_rule_snapshot_json = json_dumps_safe({"status_rules": self._get_rule_config("default_status_rules", DEFAULT_RULE_CONFIGS["default_status_rules"]), "custom_requirements": custom_requirements or None, "weight_source": "active_skill_details"})
         workflow.latest_parse_result_id = parse_row.id
         workflow.latest_score_id = score_row.id
         workflow.last_screened_at = func.now()
         workflow.updated_by = actor_id
         self.db.add(workflow)
-        next_status = score_row.suggested_status or candidate.status
-        reason = score_row.recommendation or "AI 初筛完成"
-        if next_status == "screening_passed" and position and position.auto_advance_on_screening:
-            next_status = "pending_interview"
-            reason = f"{reason}；岗位配置为通过后自动推进到待面试"
-        if next_status and next_status != candidate.status:
-            self._create_status_history(candidate, next_status, reason, actor_id, "auto_screening")
         candidate.updated_by = actor_id
         self.db.add(candidate)
         self.db.commit()
@@ -3298,20 +5422,11 @@ class RecruitmentService:
         if status:
             builder = builder.filter(RecruitmentAITaskLog.status == status)
         rows = builder.order_by(RecruitmentAITaskLog.created_at.desc(), RecruitmentAITaskLog.id.desc()).limit(200).all()
-        stale_before = datetime.utcnow() - timedelta(minutes=30)
         touched = False
         for row in rows:
-            if self._settle_orphaned_cancelling_task(row):
+            if self._settle_orphaned_live_task(row):
                 touched = True
                 continue
-            if row.status not in {"pending", "running", "cancelling"}:
-                continue
-            checkpoint = row.updated_at or row.created_at
-            if checkpoint and checkpoint < stale_before:
-                row.status = "failed"
-                row.error_message = row.error_message or "任务长时间未完成，系统已自动标记为失败。"
-                self.db.add(row)
-                touched = True
         if touched:
             self.db.commit()
             for row in rows:
@@ -3322,7 +5437,7 @@ class RecruitmentService:
         row = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.id == task_id).first()
         if not row:
             raise ValueError("鎿嶄綔澶辫触")
-        if self._settle_orphaned_cancelling_task(row):
+        if self._settle_orphaned_live_task(row):
             self.db.commit()
             self.db.refresh(row)
         return self._serialize_ai_task_log(row, include_full_request_snapshot=True)

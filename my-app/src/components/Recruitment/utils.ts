@@ -720,6 +720,18 @@ export function labelForCandidateStatus(status?: string | null) {
     return candidateStatusLabels[status || ""] || status || "未知状态";
 }
 
+function resolveCandidateMatchPercentForDisplay(candidate?: CandidateSummary | null) {
+    if (!candidate) {
+        return null;
+    }
+    const directMatchPercent = typeof candidate.match_percent === "number"
+        ? candidate.match_percent
+        : candidate.match_percent != null
+            ? Number(candidate.match_percent)
+            : null;
+    return directMatchPercent !== null && Number.isFinite(directMatchPercent) ? directMatchPercent : null;
+}
+
 export function resolveCandidateDisplayStatus(candidate?: CandidateSummary | null) {
     if (!candidate) {
         return "";
@@ -729,6 +741,12 @@ export function resolveCandidateDisplayStatus(candidate?: CandidateSummary | nul
         && ["pending", "queued", "running", "cancelling"].includes(candidate.active_screening_task_status)
     ) {
         return "screening_running";
+    }
+    if (candidate.display_status) {
+        return candidate.display_status;
+    }
+    if (candidate.status === "pending_screening") {
+        return candidate.ai_recommended_status || candidate.status || "";
     }
     return candidate.status || "";
 }

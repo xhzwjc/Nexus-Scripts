@@ -149,6 +149,7 @@ import {
     labelForTaskExecutionStatus,
     parseEmailList,
     parseStructuredLogOutput,
+    resolveCandidateDisplayStatus,
     resolveLogSkillSnapshots,
     resolveTaskSkillIds,
     shortText,
@@ -764,9 +765,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const todoSummary = useMemo(() => {
         return {
             pendingPublish: positions.filter((position) => position.status === "draft" || !position.current_jd_version_id).length,
-            pendingScreening: candidates.filter((candidate) => candidate.status === "pending_screening").length,
-            pendingInterview: candidates.filter((candidate) => candidate.status === "pending_interview").length,
-            pendingDecision: candidates.filter((candidate) => candidate.status === "pending_offer").length,
+            pendingScreening: candidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_screening").length,
+            pendingInterview: candidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_interview").length,
+            pendingDecision: candidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_offer").length,
         };
     }, [candidates, positions]);
 
@@ -1517,7 +1518,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
-    async function loadCandidates(options?: { silent?: boolean }) {
+    async function loadCandidates(options?: { silent?: boolean; force?: boolean }) {
         const requestId = candidatesLoadRequestIdRef.current + 1;
         candidatesLoadRequestIdRef.current = requestId;
         if (!options?.silent) {
@@ -1529,10 +1530,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 status: candidateStatusFilter,
                 position_id: candidatePositionFilter === "all" ? null : candidatePositionFilter,
             });
-            const data = await runDedupedRequest(
-                `candidates:${query}`,
-                () => recruitmentApi<CandidateSummary[]>(`/candidates${query}`),
-            );
+            const request = () => recruitmentApi<CandidateSummary[]>(`/candidates${query}`);
+            const data = options?.force
+                ? await request()
+                : await runDedupedRequest(
+                    `candidates:${query}`,
+                    request,
+                );
             if (!mountedRef.current || candidatesLoadRequestIdRef.current !== requestId) {
                 return data;
             }
@@ -1556,15 +1560,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
-    async function loadCandidateDetail(candidateId: number, options?: { silent?: boolean }) {
+    async function loadCandidateDetail(candidateId: number, options?: { silent?: boolean; force?: boolean }) {
         if (!options?.silent) {
             setCandidateDetailLoading(true);
         }
         try {
-            const data = await runDedupedRequest(
-                `candidate-detail:${candidateId}:${options?.silent ? "silent" : "full"}`,
-                () => recruitmentApi<CandidateDetail>(`/candidates/${candidateId}`),
-            );
+            const request = () => recruitmentApi<CandidateDetail>(`/candidates/${candidateId}`);
+            const data = options?.force
+                ? await request()
+                : await runDedupedRequest(
+                    `candidate-detail:${candidateId}:${options?.silent ? "silent" : "full"}`,
+                    request,
+                );
             if (!mountedRef.current || selectedCandidateIdRef.current !== candidateId) {
                 return data;
             }
@@ -1865,12 +1872,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }
                 clearActiveScreeningTask(candidateId, taskId);
                 await Promise.all([
-                    loadCandidates({silent: true}),
+                    loadCandidates({silent: true, force: true}),
                     loadDashboard(),
                     loadLogs({silent: true}),
                 ]);
                 if (selectedCandidateIdRef.current === candidateId) {
-                    await loadCandidateDetail(candidateId, {silent: true});
+                    await loadCandidateDetail(candidateId, {silent: true, force: true});
                 }
                 if (options?.suppressFinishToast) {
                     return;
@@ -5159,27 +5166,30 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 <CardTitle className="text-lg">关联候选人</CardTitle>
                                             </CardHeader>
                                             <CardContent className="space-y-3">
-                                                {positionDetail.candidates.length ? positionDetail.candidates.map((candidate) => (
-                                                    <button
-                                                        key={candidate.id}
-                                                        type="button"
-                                                        className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
-                                                        onClick={() => {
-                                                            setSelectedCandidateId(candidate.id);
-                                                            setActivePage("candidates");
-                                                        }}
-                                                    >
-                                                        <div>
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                                                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                匹配度 {formatPercent(candidate.match_percent)} · {candidate.phone || "未填写手机号"}
-                                                            </p>
-                                                        </div>
-                                                        <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidate.status))}>
-                                                            {labelForCandidateStatus(candidate.status)}
-                                                        </Badge>
-                                                    </button>
-                                                )) : (
+                                                {positionDetail.candidates.length ? positionDetail.candidates.map((candidate) => {
+                                                    const displayStatus = resolveCandidateDisplayStatus(candidate);
+                                                    return (
+                                                        <button
+                                                            key={candidate.id}
+                                                            type="button"
+                                                            className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
+                                                            onClick={() => {
+                                                                setSelectedCandidateId(candidate.id);
+                                                                setActivePage("candidates");
+                                                            }}
+                                                        >
+                                                            <div>
+                                                                <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
+                                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                    匹配度 {formatPercent(candidate.match_percent)} · {candidate.phone || "未填写手机号"}
+                                                                </p>
+                                                            </div>
+                                                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", displayStatus))}>
+                                                                {labelForCandidateStatus(displayStatus)}
+                                                            </Badge>
+                                                        </button>
+                                                    );
+                                                }) : (
                                                     <EmptyState title="暂无候选人" description="上传简历并关联到这个岗位后，这里会出现最新候选人列表。"/>
                                                 )}
                                             </CardContent>

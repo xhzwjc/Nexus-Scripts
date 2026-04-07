@@ -17,6 +17,13 @@ from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskC
 logger = logging.getLogger(__name__)
 
 
+class RecruitmentAIJSONParseError(RuntimeError):
+    def __init__(self, message: str, *, raw_response_text: str = "", provider_payload: Any = None):
+        super().__init__(message)
+        self.raw_response_text = raw_response_text or ""
+        self.provider_payload = provider_payload
+
+
 def _truncate(value: Any, limit: int = 1000) -> str:
     text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     if len(text) <= limit:
@@ -26,22 +33,137 @@ def _truncate(value: Any, limit: int = 1000) -> str:
 
 def _strip_json_fences(value: str) -> str:
     text = (value or "").strip()
-    if text.startswith("```json"):
-        text = text[len("```json"):].strip()
-    elif text.startswith("```"):
-        text = text[len("```"):].strip()
-    if text.endswith("```"):
-        text = text[:-3].strip()
+    fenced_match = re.search(r"```(?:json)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
+    if fenced_match:
+        text = fenced_match.group(1).strip()
+    text = re.sub(r"^\s*```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*```\s*$", "", text)
+    return text.strip()
+
+
+def _normalize_json_candidate_text(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "{}"
+    text = text.replace("\ufeff", "").replace("“", "\"").replace("”", "\"").replace("’", "'")
+    text = re.sub(r"^\s*(?:json|JSON)\s*[:：]\s*", "", text)
+    text = re.sub(r"^\s*Here(?:'s| is)?\s+the\s+JSON\s*[:：]\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^\s*以下是(?:结果|JSON)?\s*[:：]\s*", "", text)
     return text
 
 
 def _extract_json_candidate(value: str) -> str:
-    text = _strip_json_fences(value)
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        return text[start:end + 1]
+    text = _normalize_json_candidate_text(_strip_json_fences(value))
+    start = -1
+    for index, char in enumerate(text):
+        if char in "{[":
+            start = index
+            break
+    if start != -1:
+        stack: list[str] = []
+        in_string = False
+        escape = False
+        for index in range(start, len(text)):
+            char = text[index]
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == "\"":
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == "{":
+                stack.append("}")
+                continue
+            if char == "[":
+                stack.append("]")
+                continue
+            if char in "}]" and stack:
+                expected = stack[-1]
+                if char == expected:
+                    stack.pop()
+                    if not stack:
+                        return text[start:index + 1]
+    object_start = text.find("{")
+    object_end = text.rfind("}")
+    if object_start != -1 and object_end != -1 and object_end > object_start:
+        return text[object_start:object_end + 1]
+    list_start = text.find("[")
+    list_end = text.rfind("]")
+    if list_start != -1 and list_end != -1 and list_end > list_start:
+        return text[list_start:list_end + 1]
     return text
+
+
+def _balance_json_closers(value: str) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    stack: list[str] = []
+    in_string = False
+    escape = False
+    for char in text:
+        if escape:
+            escape = False
+            continue
+        if char == "\\":
+            escape = True
+            continue
+        if char == "\"":
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char == "{":
+            stack.append("}")
+        elif char == "[":
+            stack.append("]")
+        elif char in "}]" and stack and char == stack[-1]:
+            stack.pop()
+    balanced = text
+    if in_string:
+        balanced = f'{balanced}"'
+    if stack:
+        balanced = f"{balanced}{''.join(reversed(stack))}"
+    return balanced
+
+
+def _repair_missing_commas_globally(value: str) -> str:
+    repaired = str(value or "")
+    patterns = (
+        (
+            r'("(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?|\}|\])(\s*)(?=")',
+            r"\1,\2",
+        ),
+        (
+            r'("(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?|\}|\])(\s*)(?=[\{\[])',
+            r"\1,\2",
+        ),
+    )
+    for _ in range(4):
+        previous = repaired
+        for pattern, replacement in patterns:
+            repaired = re.sub(pattern, replacement, repaired, flags=re.IGNORECASE)
+        if repaired == previous:
+            break
+    return repaired
+
+
+def _repair_json_candidate(value: str) -> str:
+    repaired = _normalize_json_candidate_text(_extract_json_candidate(value or "{}").strip() or "{}")
+    repaired = _escape_control_chars_in_json_strings(repaired)
+    repaired = _repair_missing_commas_globally(repaired)
+    repaired = re.sub(r'(["\}\]0-9a-zA-Z])(\\n|\n|\r\n?)(\s*")', r"\1,\3", repaired)
+    repaired = re.sub(r"(\})(\s*)(\")", r"\1,\2\3", repaired)
+    repaired = re.sub(r"(\])(\s*)(\")", r"\1,\2\3", repaired)
+    repaired = re.sub(r'("(?:\\.|[^"\\])*")\s*:\s*("(?:\\.|[^"\\])*")\s*("(?:\\.|[^"\\])*")\s*:', r'\1: \2, \3:', repaired)
+    repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
+    repaired = _balance_json_closers(repaired)
+    return repaired
 
 
 def _escape_control_chars_in_json_strings(value: str) -> str:
@@ -78,14 +200,68 @@ def _escape_control_chars_in_json_strings(value: str) -> str:
     return "".join(result)
 
 
+def _next_nonspace_index(value: str, start: int) -> Optional[int]:
+    for index in range(max(0, start), len(value)):
+        if not value[index].isspace():
+            return index
+    return None
+
+
+def _repair_missing_comma_from_error(value: str, exc: json.JSONDecodeError) -> Optional[str]:
+    if "Expecting ',' delimiter" not in str(exc):
+        return None
+    position = getattr(exc, "pos", None)
+    if position is None:
+        return None
+    next_index = _next_nonspace_index(value, position)
+    if next_index is None:
+        return None
+    before = value[:next_index]
+    after = value[next_index:]
+    if not re.search(r'(?:\"|\}|\]|\d|true|false|null)\s*$', before):
+        return None
+    if not re.match(r'^\s*(?:\"|\{|\[|-?\d|true\b|false\b|null\b)', after):
+        return None
+    return f"{value[:next_index]},{value[next_index:]}"
+
+
+def _repair_unterminated_string_from_error(value: str, exc: json.JSONDecodeError) -> Optional[str]:
+    message = str(exc)
+    if "Unterminated string" not in message and "Invalid control character" not in message:
+        return None
+    if value.count("\"") % 2 == 0:
+        return None
+    return _balance_json_closers(f'{value}"')
+
+
 def _parse_llm_json_response(raw_text: str) -> Dict[str, Any]:
-    candidate = _extract_json_candidate(raw_text or "{}").strip() or "{}"
-    try:
-        return json.loads(candidate)
-    except json.JSONDecodeError:
-        repaired = _escape_control_chars_in_json_strings(candidate)
-        repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
-        return json.loads(repaired)
+    repaired = _repair_json_candidate(raw_text or "{}")
+    last_error: Optional[json.JSONDecodeError] = None
+    for _ in range(8):
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            missing_comma_repaired = _repair_missing_comma_from_error(repaired, exc)
+            if missing_comma_repaired and missing_comma_repaired != repaired:
+                repaired = _repair_json_candidate(missing_comma_repaired)
+                continue
+            unterminated_string_repaired = _repair_unterminated_string_from_error(repaired, exc)
+            if unterminated_string_repaired and unterminated_string_repaired != repaired:
+                repaired = _repair_json_candidate(unterminated_string_repaired)
+                continue
+            narrowed = _extract_json_candidate(repaired).strip() or repaired
+            if narrowed != repaired:
+                repaired = _repair_json_candidate(narrowed)
+                continue
+            balanced = _repair_json_candidate(repaired)
+            if balanced != repaired:
+                repaired = balanced
+                continue
+            break
+    if last_error:
+        raise last_error
+    return json.loads(repaired)
 
 
 def _dump_request_snapshot(value: Dict[str, Any]) -> str:
@@ -93,6 +269,9 @@ def _dump_request_snapshot(value: Dict[str, Any]) -> str:
 
 
 def _format_http_error(exc: Exception) -> str:
+    if isinstance(exc, RecruitmentAIJSONParseError):
+        return str(exc)
+
     if isinstance(exc, httpx.HTTPStatusError):
         response = exc.response
         status = response.status_code
@@ -117,8 +296,30 @@ def _format_http_error(exc: Exception) -> str:
     return str(exc)
 
 
+def _is_glm_json_request(config: "RecruitmentLLMRuntimeConfig", *, response_mode: str) -> bool:
+    if response_mode != "json":
+        return False
+    provider = (config.provider or "").strip().lower()
+    model_name = (config.model_name or "").strip().lower()
+    return provider in {"glm", "zhipu"} or model_name.startswith("glm-4-flash") or model_name.startswith("glm-4-plus")
+
+
+def _resolve_request_temperature(config: "RecruitmentLLMRuntimeConfig", *, response_mode: str) -> float | int:
+    if response_mode != "json":
+        return 0.3
+    if _is_glm_json_request(config, response_mode=response_mode):
+        return 0
+    return 0.2
+
+
+def _resolve_openai_json_response_format(config: "RecruitmentLLMRuntimeConfig", *, response_mode: str) -> Optional[Dict[str, str]]:
+    if not _is_glm_json_request(config, response_mode=response_mode):
+        return None
+    return {"type": "json_object"}
+
+
 def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_mode: str, system_prompt: str, user_prompt: str) -> str:
-    temperature = 0.2 if response_mode == "json" else 0.3
+    temperature = _resolve_request_temperature(config, response_mode=response_mode)
     if config.runtime_provider == "gemini":
         request_body = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
@@ -144,6 +345,9 @@ def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_m
                 {"role": "user", "content": f"{user_prompt}\n\nPlease return valid JSON only." if response_mode == "json" else user_prompt},
             ],
         }
+        response_format = _resolve_openai_json_response_format(config, response_mode=response_mode)
+        if response_format:
+            request_body["response_format"] = response_format
         endpoint = f"{(config.base_url or '').rstrip('/')}/chat/completions" if config.base_url else None
     return _dump_request_snapshot(
         {
@@ -160,6 +364,8 @@ def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_m
 
 
 def _is_retryable_error(exc: Exception) -> bool:
+    if isinstance(exc, RecruitmentAIJSONParseError):
+        return False
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         if status in {408, 409, 425, 429} or status >= 500:
@@ -325,6 +531,39 @@ class RecruitmentAIGateway:
             "total_tokens": usage.get("total_tokens"),
         }
 
+    def _extract_usage_from_openai_response_payload(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        usage = payload.get("usage") or {}
+        if not usage:
+            return None
+        return {
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "total_tokens": usage.get("total_tokens"),
+        }
+
+    def _extract_text_from_openai_compatible_response_payload(self, payload: Dict[str, Any]) -> str:
+        chunks: list[str] = []
+        for choice in payload.get("choices") or []:
+            message = choice.get("message") or {}
+            message_content = message.get("content")
+            if isinstance(message_content, str) and message_content:
+                chunks.append(message_content)
+            elif isinstance(message_content, list):
+                for item in message_content:
+                    if isinstance(item, dict) and item.get("text"):
+                        chunks.append(str(item.get("text")))
+            delta = choice.get("delta") or {}
+            delta_content = delta.get("content")
+            if isinstance(delta_content, str) and delta_content:
+                chunks.append(delta_content)
+            elif isinstance(delta_content, list):
+                for item in delta_content:
+                    if isinstance(item, dict) and item.get("text"):
+                        chunks.append(str(item.get("text")))
+            elif isinstance(delta_content, dict) and delta_content.get("text"):
+                chunks.append(str(delta_content.get("text")))
+        return "".join(chunks).strip()
+
     def _extract_text_from_anthropic(self, payload: Dict[str, Any]) -> str:
         chunks = []
         for item in payload.get("content") or []:
@@ -354,17 +593,21 @@ class RecruitmentAIGateway:
         ]
         body = {
             "model": config.model_name,
-            "temperature": 0.2 if response_mode == "json" else 0.3,
+            "temperature": _resolve_request_temperature(config, response_mode=response_mode),
             "messages": messages,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        response_format = _resolve_openai_json_response_format(config, response_mode=response_mode)
+        if response_format:
+            body["response_format"] = response_format
         client = self._build_httpx_client(config, cancel_control=cancel_control)
         headers = {
             "Authorization": f"Bearer {config.api_key}",
             "Content-Type": "application/json",
         }
         chunks: list[str] = []
+        raw_lines_seen: list[str] = []
         token_usage: Optional[Dict[str, Any]] = None
         try:
             with client.stream("POST", endpoint, headers=headers, json=body) as response:
@@ -375,6 +618,7 @@ class RecruitmentAIGateway:
                     if not raw_line:
                         continue
                     line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
+                    raw_lines_seen.append(line)
                     if not line.startswith("data:"):
                         continue
                     data = line[len("data:"):].strip()
@@ -412,10 +656,38 @@ class RecruitmentAIGateway:
             except Exception:
                 pass
         raw_text = "".join(chunks).strip()
+        if response_mode == "json" and not raw_text:
+            fallback_body_text = "\n".join([line for line in raw_lines_seen if line]).strip()
+            if fallback_body_text:
+                try:
+                    provider_payload = json.loads(fallback_body_text)
+                except Exception:
+                    provider_payload = None
+                if isinstance(provider_payload, dict):
+                    raw_text = self._extract_text_from_openai_compatible_response_payload(provider_payload)
+                    token_usage = token_usage or self._extract_usage_from_openai_response_payload(provider_payload)
+                    if raw_text:
+                        logger.warning(
+                            "OpenAI-compatible JSON stream returned no SSE delta content; recovered content from non-SSE response body for model=%s",
+                            config.model_name,
+                        )
         if response_mode == "json":
+            if not raw_text:
+                raise RecruitmentAIJSONParseError(
+                    "AI screening JSON 解析失败: 模型返回了空响应内容",
+                    raw_response_text="",
+                )
+            try:
+                content = _parse_llm_json_response(raw_text or "{}")
+            except json.JSONDecodeError as exc:
+                raise RecruitmentAIJSONParseError(
+                    f"AI screening JSON 解析失败: {exc}",
+                    raw_response_text=raw_text,
+                ) from exc
             return {
-                "content": _parse_llm_json_response(raw_text or "{}"),
+                "content": content,
                 "token_usage": token_usage,
+                "raw_response_text": raw_text,
             }
         return {
             "content": {"markdown": raw_text, "html": raw_text.replace("\n", "<br />")},
@@ -535,9 +807,20 @@ class RecruitmentAIGateway:
                 pass
         parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
         raw_text = "\n".join([part.get("text", "") for part in parts if part.get("text")]).strip() or "{}"
-        content = _parse_llm_json_response(raw_text)
+        try:
+            content = _parse_llm_json_response(raw_text)
+        except json.JSONDecodeError as exc:
+            raise RecruitmentAIJSONParseError(
+                f"AI screening JSON 解析失败: {exc}",
+                raw_response_text=raw_text,
+                provider_payload=payload,
+            ) from exc
         usage = payload.get("usageMetadata") or {}
-        return {"content": content, "token_usage": {"prompt_tokens": usage.get("promptTokenCount"), "completion_tokens": usage.get("candidatesTokenCount"), "total_tokens": usage.get("totalTokenCount")}}
+        return {
+            "content": content,
+            "token_usage": {"prompt_tokens": usage.get("promptTokenCount"), "completion_tokens": usage.get("candidatesTokenCount"), "total_tokens": usage.get("totalTokenCount")},
+            "raw_response_text": raw_text,
+        }
 
     def _call_gemini_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         if not config.api_key:
@@ -587,9 +870,20 @@ class RecruitmentAIGateway:
             except Exception:
                 pass
         raw_text = self._extract_text_from_anthropic(payload) or "{}"
-        content = _parse_llm_json_response(raw_text)
+        try:
+            content = _parse_llm_json_response(raw_text)
+        except json.JSONDecodeError as exc:
+            raise RecruitmentAIJSONParseError(
+                f"AI screening JSON 解析失败: {exc}",
+                raw_response_text=raw_text,
+                provider_payload=payload,
+            ) from exc
         usage = payload.get("usage") or {}
-        return {"content": content, "token_usage": {"prompt_tokens": usage.get("input_tokens"), "completion_tokens": usage.get("output_tokens"), "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)}}
+        return {
+            "content": content,
+            "token_usage": {"prompt_tokens": usage.get("input_tokens"), "completion_tokens": usage.get("output_tokens"), "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)},
+            "raw_response_text": raw_text,
+        }
 
     def _call_anthropic_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         if not config.api_key:
@@ -615,7 +909,7 @@ class RecruitmentAIGateway:
         usage = payload.get("usage") or {}
         return {"content": {"markdown": raw_text, "html": raw_text.replace("\n", "<br />")}, "token_usage": {"prompt_tokens": usage.get("input_tokens"), "completion_tokens": usage.get("output_tokens"), "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)}}
 
-    def generate_json(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Callable[[], Dict[str, Any]], cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
+    def generate_json(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Optional[Callable[[], Dict[str, Any]]] = None, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         config = self.resolve_config(task_type)
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
         full_request_snapshot = _build_request_snapshot(config, response_mode="json", system_prompt=system_prompt, user_prompt=user_prompt)
@@ -631,7 +925,20 @@ class RecruitmentAIGateway:
                 else:
                     response_payload = self._call_openai_compatible_json(config, system_prompt, user_prompt, cancel_control=cancel_control)
                 content = response_payload["content"]
-                return {"content": content, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": False, "prompt_snapshot": prompt_snapshot, "full_request_snapshot": full_request_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(content, 600), "token_usage": response_payload.get("token_usage"), "error_message": None}
+                return {
+                    "content": content,
+                    "provider": config.provider,
+                    "model_name": config.model_name,
+                    "source": config.source,
+                    "used_fallback": False,
+                    "prompt_snapshot": prompt_snapshot,
+                    "full_request_snapshot": full_request_snapshot,
+                    "input_summary": _truncate(user_prompt, 600),
+                    "output_summary": _truncate(content, 600),
+                    "token_usage": response_payload.get("token_usage"),
+                    "error_message": None,
+                    "raw_response_text": response_payload.get("raw_response_text"),
+                }
             except RecruitmentTaskCancelled:
                 raise
             except Exception as exc:
@@ -649,8 +956,25 @@ class RecruitmentAIGateway:
                     continue
                 logger.warning("Recruitment JSON task %s failed, falling back: %s", task_type, exc)
                 break
+        if fallback_builder is None:
+            if isinstance(last_error, RecruitmentAIJSONParseError):
+                raise last_error
+            raise RuntimeError(_format_http_error(last_error or RuntimeError("Unknown AI task failure")))
         fallback = fallback_builder()
-        return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "full_request_snapshot": full_request_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure"))}
+        return {
+            "content": fallback,
+            "provider": config.provider,
+            "model_name": config.model_name,
+            "source": config.source,
+            "used_fallback": True,
+            "prompt_snapshot": prompt_snapshot,
+            "full_request_snapshot": full_request_snapshot,
+            "input_summary": _truncate(user_prompt, 600),
+            "output_summary": _truncate(fallback, 600),
+            "token_usage": None,
+            "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure")),
+            "raw_response_text": None,
+        }
 
     def generate_text(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Callable[[], Dict[str, str]], cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         config = self.resolve_config(task_type)

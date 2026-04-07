@@ -179,6 +179,7 @@ export const candidateStatusLabels: Record<string, string> = {
     new_imported: "新导入",
     pending_screening: "待初筛",
     screening_running: "初筛中",
+    screening_failed: "初筛失败",
     screening_passed: "初筛通过",
     screening_rejected: "初筛淘汰",
     pending_interview: "待面试",

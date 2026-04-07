@@ -113,6 +113,7 @@ export interface CandidateSummary {
   source?: string | null;
   source_detail?: string | null;
   status: string;
+  display_status?: string | null;
   active_screening_task_id?: number | null;
   active_screening_task_status?: string | null;
   ai_recommended_status?: string | null;
@@ -158,6 +159,16 @@ export interface ResumeParseResult {
   created_at?: string | null;
 }
 
+export interface CandidateScoreDimension {
+  label?: string | null;
+  score?: number | null;
+  max_score?: number | null;
+  reason?: string | null;
+  evidence?: string | null;
+  is_inferred?: boolean | null;
+  [key: string]: unknown;
+}
+
 export interface CandidateScore {
   id: number;
   candidate_id: number;
@@ -167,16 +178,11 @@ export interface CandidateScore {
   match_percent?: number | null;
   advantages?: string[];
   concerns?: string[];
-  advantages_text?: string | null;
-  concerns_text?: string | null;
   recommendation?: string | null;
   suggested_status?: string | null;
-  dimensions?: Array<Record<string, unknown>>;
-  dimensions_mode?: string | null;
-  missing_core_labels?: string[];
-  score_cap_reason?: string | null;
-  repair_reason?: string | null;
-  report_markdown?: string | null;
+  dimensions?: CandidateScoreDimension[];
+  score_validation_passed?: boolean | null;
+  validation_warnings?: string[];
   manual_override_score?: number | null;
   manual_override_reason?: string | null;
   created_at?: string | null;

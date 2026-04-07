@@ -27,6 +27,7 @@ import {
     joinTags,
     type AITaskLog,
     type CandidateDetail,
+    type CandidateScoreDimension,
     type CandidateSummary,
     type PositionSummary,
     type RecruitmentSkill,
@@ -106,6 +107,7 @@ type CandidateInterviewQuestion = CandidateDetail["interview_questions"][number]
 
 const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 84;
 const CANDIDATE_LIST_OVERSCAN = 6;
+const SCORE_SUGGESTED_STATUS_VALUES = new Set(["screening_passed", "talent_pool", "screening_rejected"]);
 
 function findVirtualRowStartIndex(metrics: VirtualCandidateRowMetric[], scrollTop: number) {
     let low = 0;
@@ -243,45 +245,22 @@ function buildCandidateScoreFallbackMarkdown(score?: CandidateDetail["score"] | 
     if (!score) {
         return "暂无 AI 评分输出。";
     }
-    const embeddedReportMarkdown = String((score as Record<string, unknown>).report_markdown || "").trim();
-    if (embeddedReportMarkdown) {
-        return embeddedReportMarkdown;
-    }
-    const rawDimensions = Array.isArray((score as Record<string, unknown>).dimensions)
-        ? ((score as Record<string, unknown>).dimensions as Array<Record<string, unknown>>)
-        : [];
-    const dimensionLines = rawDimensions
-        .map((item) => {
-            const label = String(item.label || item.key || "").trim();
-            if (!label) {
-                return "";
-            }
-            const scoreValue = typeof item.score === "number" ? item.score : item.score != null ? String(item.score) : "-";
-            const maxScore = typeof item.max_score === "number" ? item.max_score : item.max_score != null ? String(item.max_score) : "-";
-            const noteParts = [
-                item.weight_text ? String(item.weight_text).trim() : "",
-                item.is_core ? "核心" : "",
-            ].filter(Boolean);
-            const reason = item.reason ? String(item.reason).trim() : "";
-            const evidence = Array.isArray(item.evidence)
-                ? item.evidence.map((entry) => String(entry || "").trim()).filter(Boolean).slice(0, 2)
-                : [];
-            const suffix = noteParts.length > 0 ? `（${noteParts.join(" · ")}）` : "";
-            const extra = [reason, evidence.length > 0 ? `证据：${evidence.join("；")}` : ""].filter(Boolean).join("；");
-            return `- ${label}：${scoreValue} / ${maxScore}${suffix}${extra ? ` — ${extra}` : ""}`;
-        })
+    const displayValues = resolveScoreDisplayValues(score as Record<string, unknown>);
+    const recommendation = readScoreText(score.recommendation) || "-";
+    const suggestedStatus = readSuggestedStatus(score.suggested_status);
+    const advantages = readScoreTextArray(score.advantages);
+    const concerns = readScoreTextArray(score.concerns);
+    const dimensionLines = readScoreDimensions((score as Record<string, unknown>).dimensions)
+        .map(buildDimensionMarkdownLine)
         .filter(Boolean);
     const sections = [
         "# AI 初筛结果",
-        `- 总分：${formatScoreValue(
-            score.total_score,
-            typeof score.total_score_scale === "number" ? score.total_score_scale : null,
-        )}`,
-        `- 匹配度：${formatPercent(score.match_percent)}`,
-        `- 推荐状态：${labelForCandidateStatus(score.suggested_status || "") || "未记录"}`,
+        `- 总分：${displayValues.totalScore !== null ? formatScoreValue(displayValues.totalScore, displayValues.totalScoreScale) : "-"}`,
+        `- 匹配度：${displayValues.matchPercent !== null ? formatPercent(displayValues.matchPercent) : "-"}`,
+        `- 推荐状态：${labelForCandidateStatus(suggestedStatus) || "-"}`,
         "",
         "## AI 建议",
-        score.recommendation || "暂无建议",
+        recommendation,
         "",
         ...(dimensionLines.length > 0
             ? [
@@ -291,63 +270,145 @@ function buildCandidateScoreFallbackMarkdown(score?: CandidateDetail["score"] | 
             ]
             : []),
         "## 优势",
-        score.advantages_text || joinTags(Array.isArray(score.advantages) ? score.advantages as string[] : []) || "暂无",
+        ...(advantages.length > 0 ? advantages.map((item, index) => `${index + 1}. ${item}`) : ["-"]),
         "",
         "## 风险点",
-        score.concerns_text || joinTags(Array.isArray(score.concerns) ? score.concerns as string[] : []) || "暂无",
+        ...(concerns.length > 0 ? concerns.map((item, index) => `${index + 1}. ${item}`) : ["-"]),
     ];
     return sections.join("\n");
 }
 
+function toScoreRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+    }
+    return value as Record<string, unknown>;
+}
+
+function toScoreNumber(value: unknown): number | null {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+    }
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return null;
+        }
+        const numeric = Number(trimmed.replace(/%$/, ""));
+        return Number.isFinite(numeric) ? numeric : null;
+    }
+    return null;
+}
+
+function readScoreNumberStrict(value: unknown): number | null {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return null;
+    }
+    return value;
+}
+
+function readScoreText(value: unknown): string | null {
+    if (typeof value !== "string") {
+        return null;
+    }
+    const trimmed = value.trim();
+    return trimmed || null;
+}
+
+function readScoreTextArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function readSuggestedStatus(value: unknown): string {
+    const normalized = readScoreText(value);
+    if (!normalized || !SCORE_SUGGESTED_STATUS_VALUES.has(normalized)) {
+        return "";
+    }
+    return normalized;
+}
+
+function readScoreDimensions(value: unknown): CandidateScoreDimension[] {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value.filter((item) => item && typeof item === "object" && !Array.isArray(item)) as CandidateScoreDimension[];
+}
+
+function readDimensionEvidence(value: unknown): string | null {
+    if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed || null;
+    }
+    return null;
+}
+
+function buildDimensionMarkdownLine(item: CandidateScoreDimension) {
+    const label = readScoreText(item.label) || readScoreText(item.key) || "";
+    if (!label) {
+        return "";
+    }
+    const reason = readScoreText(item.reason) || "";
+    const evidence = readDimensionEvidence(item.evidence);
+    const extra = [reason, evidence ? `证据：${evidence}` : ""].filter(Boolean).join("；");
+    const scoreValue = readScoreNumberStrict(item.score);
+    const maxScore = readScoreNumberStrict(item.max_score);
+    return `- ${label}：${scoreValue !== null ? scoreValue : "-"} / ${maxScore !== null ? maxScore : "-"}${extra ? ` — ${extra}` : ""}`;
+}
+
+function resolveScoreDisplayValues(scoreLike?: Record<string, unknown> | null) {
+    return {
+        totalScore: readScoreNumberStrict(scoreLike?.total_score),
+        matchPercent: readScoreNumberStrict(scoreLike?.match_percent),
+        totalScoreScale: typeof scoreLike?.total_score_scale === "number" ? scoreLike.total_score_scale : null,
+    };
+}
+
+function deriveScoreDecisionValues(scoreLike?: Record<string, unknown> | null) {
+    return {
+        recommendation: readScoreText(scoreLike?.recommendation) || "",
+        suggestedStatus: readSuggestedStatus(scoreLike?.suggested_status),
+    };
+}
+
+function resolveCandidateSummaryMatchPercent(candidate?: CandidateSummary | null) {
+    if (!candidate) {
+        return null;
+    }
+    return toScoreNumber(candidate.match_percent);
+}
+
 function buildStructuredAiOutputMarkdown(payload: Record<string, unknown>) {
-    const scoreValue = payload.total_score;
-    const matchPercent = payload.match_percent;
-    const recommendation = String(payload.recommendation || "").trim();
-    const suggestedStatus = String(payload.suggested_status || "").trim();
-    const advantages = Array.isArray(payload.advantages)
-        ? payload.advantages.map((item) => String(item || "").trim()).filter(Boolean)
-        : [];
-    const concerns = Array.isArray(payload.concerns)
-        ? payload.concerns.map((item) => String(item || "").trim()).filter(Boolean)
-        : [];
-    const dimensions = Array.isArray(payload.dimensions)
-        ? payload.dimensions as Array<Record<string, unknown>>
-        : [];
-    const dimensionLines = dimensions
-        .map((item) => {
-            const label = String(item.label || item.key || "").trim();
-            if (!label) {
-                return "";
-            }
-            const parts = [
-                item.weight_text ? String(item.weight_text).trim() : "",
-                item.is_core ? "核心" : "",
-            ].filter(Boolean);
-            const reason = item.reason ? String(item.reason).trim() : "";
-            const evidence = Array.isArray(item.evidence)
-                ? item.evidence.map((entry) => String(entry || "").trim()).filter(Boolean).slice(0, 2)
-                : [];
-            const suffix = parts.length > 0 ? `（${parts.join(" · ")}）` : "";
-            const extra = [reason, evidence.length > 0 ? `证据：${evidence.join("；")}` : ""].filter(Boolean).join("；");
-            return `- ${label}：${String(item.score ?? "-")} / ${String(item.max_score ?? "-")}${suffix}${extra ? ` — ${extra}` : ""}`;
-        })
+    const displayValues = resolveScoreDisplayValues(payload);
+    const decisionValues = deriveScoreDecisionValues(payload);
+    const recommendation = decisionValues.recommendation;
+    const suggestedStatus = decisionValues.suggestedStatus;
+    const advantages = readScoreTextArray(payload.advantages);
+    const concerns = readScoreTextArray(payload.concerns);
+    const dimensionLines = readScoreDimensions(payload.dimensions)
+        .map(buildDimensionMarkdownLine)
         .filter(Boolean);
 
     return [
         "# AI 初筛结果",
-        `- 总分：${typeof scoreValue === "number" ? scoreValue : String(scoreValue ?? "-")}`,
-        `- 匹配度：${typeof matchPercent === "number" ? `${matchPercent}%` : String(matchPercent ?? "-")}`,
-        `- 推荐状态：${labelForCandidateStatus(suggestedStatus) || suggestedStatus || "未记录"}`,
+        `- 总分：${displayValues.totalScore !== null ? formatScoreValue(displayValues.totalScore, displayValues.totalScoreScale) : "-"}`,
+        `- 匹配度：${displayValues.matchPercent !== null ? `${displayValues.matchPercent}%` : "-"}`,
+        `- 推荐状态：${labelForCandidateStatus(suggestedStatus) || "-"}`,
         "",
         "## AI 建议",
-        recommendation || "暂无建议",
+        recommendation || "-",
         "",
         ...(dimensionLines.length > 0 ? ["## 逐维度评分", ...dimensionLines, ""] : []),
         "## 优势",
-        ...(advantages.length > 0 ? advantages.map((item, index) => `${index + 1}. ${item}`) : ["暂无"]),
+        ...(advantages.length > 0 ? advantages.map((item, index) => `${index + 1}. ${item}`) : ["-"]),
         "",
         "## 风险点",
-        ...(concerns.length > 0 ? concerns.map((item, index) => `${index + 1}. ${item}`) : ["暂无"]),
+        ...(concerns.length > 0 ? concerns.map((item, index) => `${index + 1}. ${item}`) : ["-"]),
     ].join("\n");
 }
 
@@ -359,36 +420,32 @@ function resolveCandidateAiOutputPayload(
     let markdown = "";
     let raw = "";
     const scoreRecord = score && typeof score === "object" ? score as Record<string, unknown> : null;
-    const scoreReportMarkdown = String(scoreRecord?.report_markdown || "").trim();
+
+    if (score) {
+        markdown = buildCandidateScoreFallbackMarkdown(score);
+    }
 
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         const payload = parsed as Record<string, unknown>;
-        const scorePayload = payload.score;
-        const scoreEnhancements = payload.score_enhancements;
-        if (scorePayload && typeof scorePayload === "object" && !Array.isArray(scorePayload)) {
-            const mergedScorePayload: Record<string, unknown> = {
-                ...(scorePayload as Record<string, unknown>),
-                ...(scoreEnhancements && typeof scoreEnhancements === "object" && !Array.isArray(scoreEnhancements)
-                    ? scoreEnhancements as Record<string, unknown>
-                    : {}),
-            };
-            const reportMarkdown = mergedScorePayload.report_markdown;
-            if (typeof reportMarkdown === "string" && reportMarkdown.trim()) {
-                markdown = reportMarkdown.trim();
-            } else {
-                markdown = buildStructuredAiOutputMarkdown(mergedScorePayload);
-            }
-        } else if ("total_score" in payload || "match_percent" in payload || "advantages" in payload || "concerns" in payload) {
-            markdown = buildStructuredAiOutputMarkdown(payload);
+        const scorePayload = toScoreRecord(payload.score)
+            || (
+                "total_score" in payload
+                || "match_percent" in payload
+                || "advantages" in payload
+                || "concerns" in payload
+                || "dimensions" in payload
+                    ? payload
+                    : null
+            );
+        if (!markdown && scorePayload) {
+            markdown = buildStructuredAiOutputMarkdown(scorePayload);
         }
         raw = formatStructuredValue(parsed, log?.output_summary || "");
     } else if (typeof parsed === "string" && parsed.trim()) {
-        markdown = parsed.trim();
+        if (!markdown) {
+            markdown = parsed.trim();
+        }
         raw = parsed.trim();
-    }
-
-    if (scoreReportMarkdown && (!markdown || scoreReportMarkdown.length > markdown.length)) {
-        markdown = scoreReportMarkdown;
     }
 
     if (!markdown) {
@@ -1156,9 +1213,9 @@ export function CandidatesPage({
     }, [candidateDetail, candidateDetailPanel, updateCandidateDetailToolbarMetrics]);
 
     const candidateOverviewStats = React.useMemo(() => {
-        const pendingScreeningCount = visibleCandidates.filter((candidate) => candidate.status === "pending_screening").length;
-        const pendingInterviewCount = visibleCandidates.filter((candidate) => candidate.status === "pending_interview").length;
-        const talentPoolCount = visibleCandidates.filter((candidate) => candidate.status === "talent_pool").length;
+        const pendingScreeningCount = visibleCandidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_screening").length;
+        const pendingInterviewCount = visibleCandidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_interview").length;
+        const talentPoolCount = visibleCandidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "talent_pool").length;
         const sentResumeCount = visibleCandidates.filter((candidate) => Boolean(getCandidateResumeMailSummary(candidate.id))).length;
 
         return [
@@ -1208,6 +1265,14 @@ export function CandidatesPage({
     const candidateAiOutputAvailable = Boolean(
         candidateAiOutputPayload.markdown.trim()
         || candidateAiOutputPayload.raw.trim(),
+    );
+    const candidateScoreDisplayValues = React.useMemo(
+        () => resolveScoreDisplayValues(toScoreRecord(candidateDetail?.score ?? null)),
+        [candidateDetail?.score],
+    );
+    const candidateScoreDecisionValues = React.useMemo(
+        () => deriveScoreDecisionValues(toScoreRecord(candidateDetail?.score ?? null)),
+        [candidateDetail?.score],
     );
     const candidateDetailDisplayStatus = resolveCandidateDisplayStatus(candidateDetail?.candidate);
     const candidateDetailHasRuntimeOverride = Boolean(
@@ -1433,7 +1498,7 @@ export function CandidatesPage({
                                                         }}
                                                         className="p-2 align-middle whitespace-nowrap"
                                                     >
-                                                        {formatPercent(candidate.match_percent)}
+                                                        {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
                                                     </td>
                                                     <td
                                                         style={{
@@ -1529,7 +1594,7 @@ export function CandidatesPage({
                                                                     <p className="mt-2 text-[11px] opacity-80">{getCandidateResumeMailSummary(candidate.id)}</p>
                                                                 ) : null}
                                                                 <div className="mt-3 flex items-center justify-between text-xs opacity-80">
-                                                                    <span>匹配度 {formatPercent(candidate.match_percent)}</span>
+                                                                    <span>匹配度 {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}</span>
                                                                     <span>{formatDateTime(candidate.updated_at)}</span>
                                                                 </div>
                                                             </button>
@@ -1572,7 +1637,7 @@ export function CandidatesPage({
                                                     </Badge>
                                                 ) : null}
                                                 <Badge variant="outline" className="rounded-full">
-                                                    匹配度 {formatPercent(candidateDetail.candidate.match_percent)}
+                                                    匹配度 {formatPercent(candidateScoreDisplayValues.matchPercent ?? resolveCandidateSummaryMatchPercent(candidateDetail.candidate))}
                                                 </Badge>
                                                 <Badge variant="outline" className="rounded-full">
                                                     发送 {selectedCandidateResumeMailCountLabel}
@@ -1792,38 +1857,100 @@ export function CandidatesPage({
                                                         查看完整 AI 输出
                                                     </Button>
                                                 </div>
-                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
-                                                    <div className="flex flex-wrap items-start justify-between gap-3">
-                                                        <div className="min-w-0 flex-1">
-                                                            <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
-                                                                {formatScoreValue(
-                                                                    candidateDetail.score?.total_score,
-                                                                    typeof candidateDetail.score?.total_score_scale === "number"
-                                                                        ? candidateDetail.score.total_score_scale
-                                                                        : null,
-                                                                )}
-                                                            </p>
+                                                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
+                                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                                            <div className="min-w-0 flex-1">
+                                                                <p className="text-3xl font-semibold text-slate-900 dark:text-slate-100">
+                                                                    {candidateScoreDisplayValues.totalScore !== null
+                                                                        ? formatScoreValue(
+                                                                            candidateScoreDisplayValues.totalScore,
+                                                                            candidateScoreDisplayValues.totalScoreScale,
+                                                                        )
+                                                                        : "-"}
+                                                                </p>
                                                             <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">
-                                                                AI 建议：{candidateDetail.score?.recommendation || "尚未生成"} · 推荐状态 {labelForCandidateStatus(candidateDetail.score?.suggested_status || "")}
-                                                            </p>
+                                                                    AI 建议：{candidateScoreDecisionValues.recommendation || "-"} · 推荐状态 {labelForCandidateStatus(candidateScoreDecisionValues.suggestedStatus) || "-"}
+                                                                </p>
                                                         </div>
-                                                        <Badge variant="outline" className="shrink-0 rounded-full">
-                                                            匹配度 {formatPercent(candidateDetail.score?.match_percent ?? candidateDetail.candidate.match_percent)}
-                                                        </Badge>
+                                                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                                            {candidateDetail.score?.score_validation_passed === false ? (
+                                                                <Badge variant="outline" className="rounded-full border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                                                                    评分有校验警告
+                                                                </Badge>
+                                                            ) : null}
+                                                            <Badge variant="outline" className="rounded-full">
+                                                                匹配度 {candidateScoreDisplayValues.matchPercent !== null
+                                                                    ? formatPercent(candidateScoreDisplayValues.matchPercent)
+                                                                    : "-"}
+                                                            </Badge>
+                                                        </div>
                                                     </div>
                                                     <div className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
-                                                        <p className="break-words leading-7">
-                                                            <span className="font-medium text-slate-900 dark:text-slate-100">优势：</span>
-                                                            {candidateDetail.score?.advantages_text
-                                                                || joinTags(Array.isArray(candidateDetail.score?.advantages) ? candidateDetail.score.advantages as string[] : [])
-                                                                || "暂无"}
-                                                        </p>
-                                                        <p className="break-words leading-7">
-                                                            <span className="font-medium text-slate-900 dark:text-slate-100">风险点：</span>
-                                                            {candidateDetail.score?.concerns_text
-                                                                || joinTags(Array.isArray(candidateDetail.score?.concerns) ? candidateDetail.score.concerns as string[] : [])
-                                                                || "暂无"}
-                                                        </p>
+                                                        {Array.isArray(candidateDetail.score?.validation_warnings) && candidateDetail.score.validation_warnings.length > 0 ? (
+                                                            <details className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/80 dark:bg-amber-950/30 dark:text-amber-200">
+                                                                <summary className="cursor-pointer font-medium">查看评分校验警告</summary>
+                                                                <ul className="mt-2 space-y-1">
+                                                                    {candidateDetail.score.validation_warnings.map((item, index) => (
+                                                                        <li key={`score-warning-${index}`} className="break-words leading-6">
+                                                                            {index + 1}. {item}
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            </details>
+                                                        ) : null}
+                                                        <div className="space-y-2">
+                                                            <p className="font-medium text-slate-900 dark:text-slate-100">优势</p>
+                                                            {readScoreTextArray(candidateDetail.score?.advantages).length > 0 ? (
+                                                                <ul className="space-y-1">
+                                                                    {readScoreTextArray(candidateDetail.score?.advantages).map((item, index) => (
+                                                                        <li key={`advantage-${index}`} className="break-words leading-7">
+                                                                            {index + 1}. {item}
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            ) : (
+                                                                <p className="break-words leading-7">-</p>
+                                                            )}
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <p className="font-medium text-slate-900 dark:text-slate-100">风险点</p>
+                                                            {readScoreTextArray(candidateDetail.score?.concerns).length > 0 ? (
+                                                                <ul className="space-y-1">
+                                                                    {readScoreTextArray(candidateDetail.score?.concerns).map((item, index) => (
+                                                                        <li key={`concern-${index}`} className="break-words leading-7">
+                                                                            {index + 1}. {item}
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            ) : (
+                                                                <p className="break-words leading-7">-</p>
+                                                            )}
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <p className="font-medium text-slate-900 dark:text-slate-100">维度评分</p>
+                                                            {readScoreDimensions(candidateDetail.score?.dimensions).length > 0 ? (
+                                                                <ul className="space-y-2">
+                                                                    {readScoreDimensions(candidateDetail.score?.dimensions).map((item, index) => {
+                                                                        const label = readScoreText(item.label) || "-";
+                                                                        const scoreValue = readScoreNumberStrict(item.score);
+                                                                        const maxScore = readScoreNumberStrict(item.max_score);
+                                                                        const evidence = readDimensionEvidence(item.evidence);
+                                                                        return (
+                                                                            <li key={`dimension-${index}`} className="rounded-xl border border-slate-200/70 px-3 py-2 dark:border-slate-800">
+                                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                                    {label}：{scoreValue !== null ? scoreValue : "-"} / {maxScore !== null ? maxScore : "-"}
+                                                                                </p>
+                                                                                <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                                                    证据：{evidence || "-"}
+                                                                                </p>
+                                                                            </li>
+                                                                        );
+                                                                    })}
+                                                                </ul>
+                                                            ) : (
+                                                                <p className="break-words leading-7">-</p>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -2070,7 +2197,7 @@ export function CandidatesPage({
                                                     <div className="min-w-0">
                                                         <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
                                                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                            {candidate.position_title || "未分配岗位"} · {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))} · 匹配度 {formatPercent(candidate.match_percent)}
+                                                            {candidate.position_title || "未分配岗位"} · {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))} · 匹配度 {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
                                                         </p>
                                                     </div>
                                                     <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.updated_at)}</p>
