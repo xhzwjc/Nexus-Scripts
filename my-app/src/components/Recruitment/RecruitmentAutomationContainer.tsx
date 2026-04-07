@@ -61,6 +61,7 @@ import {
     type RecruitmentLLMConfig,
     type RecruitmentMailRecipient,
     type RecruitmentMailSenderConfig,
+    type RecruitmentMailAutoPushGlobalConfig,
     type RecruitmentResumeMailDispatch,
     type RecruitmentMetadata,
     type RecruitmentSkill,
@@ -292,6 +293,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [mailSenderConfigs, setMailSenderConfigs] = useState<RecruitmentMailSenderConfig[]>([]);
     const [mailRecipients, setMailRecipients] = useState<RecruitmentMailRecipient[]>([]);
     const [resumeMailDispatches, setResumeMailDispatches] = useState<RecruitmentResumeMailDispatch[]>([]);
+    const [mailAutoPushGlobalConfig, setMailAutoPushGlobalConfig] = useState<RecruitmentMailAutoPushGlobalConfig>({
+        global_default_recipient_ids: [],
+        global_default_recipient_emails: [],
+        global_auto_push_enabled: false,
+    });
 
     const [positionQuery, setPositionQuery] = useState("");
     const [positionStatusFilter, setPositionStatusFilter] = useState("all");
@@ -330,6 +336,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [skillsLoading, setSkillsLoading] = useState(false);
     const [modelsLoading, setModelsLoading] = useState(false);
     const [mailSettingsLoading, setMailSettingsLoading] = useState(false);
+    const [mailAutoPushConfigSaving, setMailAutoPushConfigSaving] = useState(false);
     const [coreRefreshing, setCoreRefreshing] = useState(false);
     const [skillSubmitting, setSkillSubmitting] = useState(false);
     const [llmSubmitting, setLlmSubmitting] = useState(false);
@@ -1705,29 +1712,54 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     async function loadMailSettings() {
         setMailSettingsLoading(true);
         try {
-            const {senders, recipients, dispatches} = await runDedupedRequest("mail-settings", async () => {
-                const [nextSenders, nextRecipients, nextDispatches] = await Promise.all([
+            const {senders, recipients, dispatches, autoPushConfig} = await runDedupedRequest("mail-settings", async () => {
+                const [nextSenders, nextRecipients, nextDispatches, nextAutoPushConfig] = await Promise.all([
                     recruitmentApi<RecruitmentMailSenderConfig[]>("/mail-senders"),
                     recruitmentApi<RecruitmentMailRecipient[]>("/mail-recipients"),
                     recruitmentApi<RecruitmentResumeMailDispatch[]>("/resume-mail-dispatches"),
+                    recruitmentApi<RecruitmentMailAutoPushGlobalConfig>("/mail-auto-config"),
                 ]);
                 return {
                     senders: nextSenders,
                     recipients: nextRecipients,
                     dispatches: nextDispatches,
+                    autoPushConfig: nextAutoPushConfig,
                 };
             });
             if (mountedRef.current) {
                 setMailSenderConfigs(senders);
                 setMailRecipients(recipients);
                 setResumeMailDispatches(dispatches);
+                setMailAutoPushGlobalConfig(autoPushConfig);
             }
-            return {senders, recipients, dispatches};
+            return {senders, recipients, dispatches, autoPushConfig};
         } catch (error) {
             toast.error(`加载邮件配置失败：${error instanceof Error ? error.message : "未知错误"}`);
             throw error;
         } finally {
             setMailSettingsLoading(false);
+        }
+    }
+
+    async function saveMailAutoPushGlobalConfig(nextConfig: RecruitmentMailAutoPushGlobalConfig) {
+        if (mailAutoPushConfigSaving) {
+            return;
+        }
+        setMailAutoPushConfigSaving(true);
+        try {
+            const saved = await recruitmentApi<RecruitmentMailAutoPushGlobalConfig>("/mail-auto-config", {
+                method: "PATCH",
+                body: JSON.stringify({
+                    global_default_recipient_ids: nextConfig.global_default_recipient_ids,
+                    global_auto_push_enabled: nextConfig.global_auto_push_enabled,
+                }),
+            });
+            setMailAutoPushGlobalConfig(saved);
+            toast.success("全局自动推送配置已保存");
+        } catch (error) {
+            toast.error(`保存全局自动推送配置失败：${formatActionError(error)}`);
+        } finally {
+            setMailAutoPushConfigSaving(false);
         }
     }
 
@@ -2609,6 +2641,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             tagsText: joinTags(positionDetail.position.tags),
             autoScreenOnUpload: Boolean(positionDetail.position.auto_screen_on_upload),
             autoAdvanceOnScreening: positionDetail.position.auto_advance_on_screening ?? true,
+            autoMailEnabled: Boolean(positionDetail.position.auto_mail_enabled),
+            autoMailUseGlobalRecipients: Boolean(positionDetail.position.auto_mail_use_global_recipients),
+            autoMailUsePositionRecipients: Boolean(positionDetail.position.auto_mail_use_position_recipients),
+            autoMailPositionRecipientIds: positionDetail.position.auto_mail_position_recipient_ids || [],
+            autoMailAllowedCandidateStatuses: positionDetail.position.auto_mail_allowed_candidate_statuses || ["screening_passed"],
+            autoMailTemplateId: positionDetail.position.auto_mail_template_id || "",
+            autoMailDedupMode: positionDetail.position.auto_mail_dedup_mode || "once_per_candidate_per_status",
+            autoMailCcRecipientIds: positionDetail.position.auto_mail_cc_recipient_ids || [],
+            autoMailBccRecipientIds: positionDetail.position.auto_mail_bcc_recipient_ids || [],
             jdSkillIds: positionDetail.position.jd_skill_ids || [],
             screeningSkillIds: positionDetail.position.screening_skill_ids || [],
             interviewSkillIds: positionDetail.position.interview_skill_ids || [],
@@ -2698,6 +2739,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             tags: splitTags(positionForm.tagsText),
             auto_screen_on_upload: positionForm.autoScreenOnUpload,
             auto_advance_on_screening: positionForm.autoAdvanceOnScreening,
+            auto_mail_enabled: positionForm.autoMailEnabled,
+            auto_mail_use_global_recipients: positionForm.autoMailUseGlobalRecipients,
+            auto_mail_use_position_recipients: positionForm.autoMailUsePositionRecipients,
+            auto_mail_position_recipient_ids: positionForm.autoMailPositionRecipientIds,
+            auto_mail_allowed_candidate_statuses: positionForm.autoMailAllowedCandidateStatuses,
+            auto_mail_template_id: positionForm.autoMailTemplateId.trim() || null,
+            auto_mail_dedup_mode: positionForm.autoMailDedupMode,
+            auto_mail_cc_recipient_ids: positionForm.autoMailCcRecipientIds,
+            auto_mail_bcc_recipient_ids: positionForm.autoMailBccRecipientIds,
             jd_skill_ids: positionForm.jdSkillIds,
             screening_skill_ids: positionForm.screeningSkillIds,
             interview_skill_ids: positionForm.interviewSkillIds,
@@ -5398,13 +5448,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 mailSenderConfigs={mailSenderConfigs}
                 mailRecipients={mailRecipients}
                 resumeMailDispatches={resumeMailDispatches}
+                mailAutoPushGlobalConfig={mailAutoPushGlobalConfig}
                 mailSettingsLoading={mailSettingsLoading}
+                mailAutoPushConfigSaving={mailAutoPushConfigSaving}
                 mailRecipientMap={mailRecipientMap}
                 mailSenderMap={mailSenderMap}
                 candidateMap={candidateMap}
+                positionMap={positionMap}
                 mailDispatchActionKey={mailDispatchActionKey}
                 selectedCandidateIds={selectedCandidateIds}
                 selectedCandidateId={selectedCandidateId}
+                canManageRecruitment={canManageRecruitment}
                 openMailSenderEditor={openMailSenderEditor}
                 openMailRecipientEditor={openMailRecipientEditor}
                 openResumeMailDialog={openResumeMailDialog}
@@ -5412,6 +5466,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 retryResumeMailDispatch={retryResumeMailDispatch}
                 setMailSenderDeleteTarget={setMailSenderDeleteTarget}
                 setMailRecipientDeleteTarget={setMailRecipientDeleteTarget}
+                setMailAutoPushGlobalConfig={setMailAutoPushGlobalConfig}
+                saveMailAutoPushGlobalConfig={saveMailAutoPushGlobalConfig}
                 refreshMailSettingsWithFeedback={refreshMailSettingsWithFeedback}
             />
         );
@@ -5864,6 +5920,150 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             />
                                             初筛通过后自动推进候选人状态
                                         </label>
+                                        <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                                <div>
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">初筛完成后自动推送邮件</p>
+                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        仅在候选人命中岗位允许状态、且解析出有效收件人时触发。手动发送入口会继续保留。
+                                                    </p>
+                                                </div>
+                                                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={positionForm.autoMailEnabled}
+                                                        onChange={(event) => updatePositionFormField("autoMailEnabled", event.target.checked)}
+                                                    />
+                                                    启用自动推送
+                                                </label>
+                                            </div>
+                                            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                                                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={positionForm.autoMailUsePositionRecipients}
+                                                        onChange={(event) => updatePositionFormField("autoMailUsePositionRecipients", event.target.checked)}
+                                                    />
+                                                    使用岗位专属收件人
+                                                </label>
+                                                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={positionForm.autoMailUseGlobalRecipients}
+                                                        onChange={(event) => updatePositionFormField("autoMailUseGlobalRecipients", event.target.checked)}
+                                                    />
+                                                    叠加全局默认收件人
+                                                </label>
+                                            </div>
+                                            <div className="mt-4 space-y-4">
+                                                <div className="space-y-2">
+                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">岗位专属收件人</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
+                                                            <button
+                                                                key={`auto-mail-to-${recipient.id}`}
+                                                                type="button"
+                                                                className={cn(
+                                                                    "rounded-full border px-3 py-2 text-xs transition",
+                                                                    positionForm.autoMailPositionRecipientIds.includes(recipient.id)
+                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                )}
+                                                                onClick={() => updatePositionFormField("autoMailPositionRecipientIds", toggleIdInList(positionForm.autoMailPositionRecipientIds, recipient.id))}
+                                                            >
+                                                                {recipient.name}
+                                                            </button>
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">请先在邮件中心维护收件人</p>}
+                                                    </div>
+                                                </div>
+                                                <div className="grid gap-4 xl:grid-cols-2">
+                                                    <div className="space-y-2">
+                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">抄送人（CC）</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
+                                                                <button
+                                                                    key={`auto-mail-cc-${recipient.id}`}
+                                                                    type="button"
+                                                                    className={cn(
+                                                                        "rounded-full border px-3 py-2 text-xs transition",
+                                                                        positionForm.autoMailCcRecipientIds.includes(recipient.id)
+                                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                            : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                    )}
+                                                                    onClick={() => updatePositionFormField("autoMailCcRecipientIds", toggleIdInList(positionForm.autoMailCcRecipientIds, recipient.id))}
+                                                                >
+                                                                    {recipient.name}
+                                                                </button>
+                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可选抄送人</p>}
+                                                        </div>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">密送人（BCC）</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
+                                                                <button
+                                                                    key={`auto-mail-bcc-${recipient.id}`}
+                                                                    type="button"
+                                                                    className={cn(
+                                                                        "rounded-full border px-3 py-2 text-xs transition",
+                                                                        positionForm.autoMailBccRecipientIds.includes(recipient.id)
+                                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                            : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                    )}
+                                                                    onClick={() => updatePositionFormField("autoMailBccRecipientIds", toggleIdInList(positionForm.autoMailBccRecipientIds, recipient.id))}
+                                                                >
+                                                                    {recipient.name}
+                                                                </button>
+                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可选密送人</p>}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">允许自动发送的候选人状态</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {(metadata?.candidate_statuses || []).map((option) => (
+                                                            <button
+                                                                key={`auto-mail-status-${option.value}`}
+                                                                type="button"
+                                                                className={cn(
+                                                                    "rounded-full border px-3 py-2 text-xs transition",
+                                                                    positionForm.autoMailAllowedCandidateStatuses.includes(option.value)
+                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                )}
+                                                                onClick={() => updatePositionFormField(
+                                                                    "autoMailAllowedCandidateStatuses",
+                                                                    positionForm.autoMailAllowedCandidateStatuses.includes(option.value)
+                                                                        ? positionForm.autoMailAllowedCandidateStatuses.filter((item) => item !== option.value)
+                                                                        : [...positionForm.autoMailAllowedCandidateStatuses, option.value],
+                                                                )}
+                                                            >
+                                                                {option.label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div className="grid gap-4 lg:grid-cols-2">
+                                                    <Field label="自动发送模板 ID（预留）">
+                                                        <Input
+                                                            value={positionForm.autoMailTemplateId}
+                                                            placeholder="为空时使用系统默认模板"
+                                                            onChange={(event) => updatePositionFormField("autoMailTemplateId", event.target.value)}
+                                                        />
+                                                    </Field>
+                                                    <Field label="重复发送策略">
+                                                        <NativeSelect
+                                                            value={positionForm.autoMailDedupMode}
+                                                            onChange={(event) => updatePositionFormField("autoMailDedupMode", event.target.value)}
+                                                        >
+                                                            <option value="once_per_candidate_per_status">同候选人同状态仅一次</option>
+                                                            <option value="once_per_candidate">同候选人仅一次</option>
+                                                            <option value="allow_repeat">允许重复发送</option>
+                                                        </NativeSelect>
+                                                    </Field>
+                                                </div>
+                                            </div>
+                                        </div>
                                         <div className="space-y-3">
                                             <p className="text-sm text-slate-600 dark:text-slate-300">岗位可分别绑定 JD 生成、初筛、面试题三类 Skill；这里会显示全部已启用 Skill，你可以手动选择。任务标签或 frontmatter 不是必填，只会影响排序提示。每类默认不选，不选时对应链路不会传 Skills。</p>
                                             <div className="grid gap-4 xl:grid-cols-3">

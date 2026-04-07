@@ -24,6 +24,7 @@ from ..recruitment_schemas import (
     RecruitmentChatContextUpdateRequest,
     RecruitmentChatRequest,
     RecruitmentLLMConfigUpsertRequest,
+    RecruitmentMailAutoPushGlobalConfigRequest,
     RecruitmentMailRecipientUpsertRequest,
     RecruitmentMailSenderUpsertRequest,
     RecruitmentResumeMailSendRequest,
@@ -688,6 +689,17 @@ async def delete_mail_sender(sender_id: int, _session: Dict[str, Any] = Depends(
 async def list_mail_recipients(_session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_mail_recipients()
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
+
+
+@recruitment_router.get("/mail-auto-config")
+async def get_mail_auto_push_global_config(_session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+    return {"success": True, "data": service.get_mail_auto_push_global_config(), "request_id": str(uuid.uuid4())}
+
+
+@recruitment_router.patch("/mail-auto-config")
+async def update_mail_auto_push_global_config(payload: RecruitmentMailAutoPushGlobalConfigRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+    data = service.update_mail_auto_push_global_config(payload.model_dump())
+    return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.post("/mail-recipients")

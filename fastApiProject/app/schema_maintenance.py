@@ -380,6 +380,52 @@ def ensure_recruitment_schema() -> None:
                 connection.execute(text("ALTER TABLE recruitment_llm_configs ADD COLUMN api_key_ciphertext TEXT NULL"))
             logger.info("Added recruitment_llm_configs.api_key_ciphertext column")
 
+        mail_dispatch_columns = {column["name"] for column in inspector.get_columns("recruitment_resume_mail_dispatches")}
+        if "position_id" not in mail_dispatch_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN position_id INTEGER NULL"))
+            logger.info("Added recruitment_resume_mail_dispatches.position_id column")
+        if "screening_score_id" not in mail_dispatch_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN screening_score_id INTEGER NULL"))
+            logger.info("Added recruitment_resume_mail_dispatches.screening_score_id column")
+        if "cc_recipient_ids_json" not in mail_dispatch_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN cc_recipient_ids_json TEXT NULL"))
+            logger.info("Added recruitment_resume_mail_dispatches.cc_recipient_ids_json column")
+        if "cc_recipient_emails_json" not in mail_dispatch_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN cc_recipient_emails_json TEXT NULL"))
+            logger.info("Added recruitment_resume_mail_dispatches.cc_recipient_emails_json column")
+        if "bcc_recipient_ids_json" not in mail_dispatch_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN bcc_recipient_ids_json TEXT NULL"))
+            logger.info("Added recruitment_resume_mail_dispatches.bcc_recipient_ids_json column")
+        if "bcc_recipient_emails_json" not in mail_dispatch_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN bcc_recipient_emails_json TEXT NULL"))
+            logger.info("Added recruitment_resume_mail_dispatches.bcc_recipient_emails_json column")
+        if "send_mode" not in mail_dispatch_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN send_mode VARCHAR(50) NOT NULL DEFAULT 'manual'"))
+            logger.info("Added recruitment_resume_mail_dispatches.send_mode column")
+        if "trigger_type" not in mail_dispatch_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN trigger_type VARCHAR(80) NULL"))
+            logger.info("Added recruitment_resume_mail_dispatches.trigger_type column")
+        if "candidate_status" not in mail_dispatch_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN candidate_status VARCHAR(50) NULL"))
+            logger.info("Added recruitment_resume_mail_dispatches.candidate_status column")
+        if "dedup_key" not in mail_dispatch_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN dedup_key VARCHAR(255) NULL"))
+            logger.info("Added recruitment_resume_mail_dispatches.dedup_key column")
+        if "trigger_rule_json" not in mail_dispatch_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN trigger_rule_json TEXT NULL"))
+            logger.info("Added recruitment_resume_mail_dispatches.trigger_rule_json column")
+
         db = SessionLocal()
         try:
             for config_key, config_value in DEFAULT_RULE_CONFIGS.items():

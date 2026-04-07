@@ -98,6 +98,15 @@ export function emptyPositionForm(): PositionFormState {
         tagsText: "",
         autoScreenOnUpload: false,
         autoAdvanceOnScreening: true,
+        autoMailEnabled: false,
+        autoMailUseGlobalRecipients: false,
+        autoMailUsePositionRecipients: false,
+        autoMailPositionRecipientIds: [],
+        autoMailAllowedCandidateStatuses: ["screening_passed"],
+        autoMailTemplateId: "",
+        autoMailDedupMode: "once_per_candidate_per_status",
+        autoMailCcRecipientIds: [],
+        autoMailBccRecipientIds: [],
         jdSkillIds: [],
         screeningSkillIds: [],
         interviewSkillIds: [],
@@ -763,6 +772,11 @@ export function labelForResumeMailDispatchStatus(status?: string | null) {
     if (status === "sent") return "已发送";
     if (status === "failed") return "发送失败";
     if (status === "pending") return "发送中";
+    if (status === "skipped_global_disabled") return "跳过：全局未启用";
+    if (status === "skipped_status_not_allowed") return "跳过：状态未命中";
+    if (status === "skipped_duplicate_blocked") return "跳过：重复拦截";
+    if (status === "skipped_no_recipients") return "跳过：无有效收件人";
+    if (status === "skipped_no_sender") return "跳过：无可用发件箱";
     return status || "未知状态";
 }
 

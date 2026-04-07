@@ -17,6 +17,15 @@ class PositionCreateRequest(BaseModel):
     tags: List[str] = Field(default_factory=list)
     auto_screen_on_upload: bool = False
     auto_advance_on_screening: bool = True
+    auto_mail_enabled: bool = False
+    auto_mail_use_global_recipients: bool = False
+    auto_mail_use_position_recipients: bool = False
+    auto_mail_position_recipient_ids: List[int] = Field(default_factory=list)
+    auto_mail_allowed_candidate_statuses: List[str] = Field(default_factory=lambda: ["screening_passed"])
+    auto_mail_template_id: Optional[str] = None
+    auto_mail_dedup_mode: str = Field("once_per_candidate_per_status")
+    auto_mail_cc_recipient_ids: List[int] = Field(default_factory=list)
+    auto_mail_bcc_recipient_ids: List[int] = Field(default_factory=list)
     jd_skill_ids: List[int] = Field(default_factory=list)
     screening_skill_ids: List[int] = Field(default_factory=list)
     interview_skill_ids: List[int] = Field(default_factory=list)
@@ -36,6 +45,15 @@ class PositionUpdateRequest(BaseModel):
     tags: Optional[List[str]] = None
     auto_screen_on_upload: Optional[bool] = None
     auto_advance_on_screening: Optional[bool] = None
+    auto_mail_enabled: Optional[bool] = None
+    auto_mail_use_global_recipients: Optional[bool] = None
+    auto_mail_use_position_recipients: Optional[bool] = None
+    auto_mail_position_recipient_ids: Optional[List[int]] = None
+    auto_mail_allowed_candidate_statuses: Optional[List[str]] = None
+    auto_mail_template_id: Optional[str] = None
+    auto_mail_dedup_mode: Optional[str] = None
+    auto_mail_cc_recipient_ids: Optional[List[int]] = None
+    auto_mail_bcc_recipient_ids: Optional[List[int]] = None
     jd_skill_ids: Optional[List[int]] = None
     screening_skill_ids: Optional[List[int]] = None
     interview_skill_ids: Optional[List[int]] = None
@@ -170,6 +188,15 @@ class RecruitmentResumeMailSendRequest(BaseModel):
     candidate_ids: List[int] = Field(..., min_length=1)
     recipient_ids: List[int] = Field(default_factory=list)
     recipient_emails: List[str] = Field(default_factory=list)
+    cc_recipient_ids: List[int] = Field(default_factory=list)
+    cc_recipient_emails: List[str] = Field(default_factory=list)
+    bcc_recipient_ids: List[int] = Field(default_factory=list)
+    bcc_recipient_emails: List[str] = Field(default_factory=list)
     subject: Optional[str] = None
     body_text: Optional[str] = None
     body_html: Optional[str] = None
+
+
+class RecruitmentMailAutoPushGlobalConfigRequest(BaseModel):
+    global_default_recipient_ids: List[int] = Field(default_factory=list)
+    global_auto_push_enabled: bool = False

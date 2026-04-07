@@ -35,6 +35,15 @@ export type PositionFormState = {
     tagsText: string;
     autoScreenOnUpload: boolean;
     autoAdvanceOnScreening: boolean;
+    autoMailEnabled: boolean;
+    autoMailUseGlobalRecipients: boolean;
+    autoMailUsePositionRecipients: boolean;
+    autoMailPositionRecipientIds: number[];
+    autoMailAllowedCandidateStatuses: string[];
+    autoMailTemplateId: string;
+    autoMailDedupMode: string;
+    autoMailCcRecipientIds: number[];
+    autoMailBccRecipientIds: number[];
     jdSkillIds: number[];
     screeningSkillIds: number[];
     interviewSkillIds: number[];

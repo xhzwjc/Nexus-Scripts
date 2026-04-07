@@ -5,6 +5,8 @@ import {Loader2, Plus, RefreshCw, Send} from "lucide-react";
 
 import type {
     CandidateSummary,
+    PositionSummary,
+    RecruitmentMailAutoPushGlobalConfig,
     RecruitmentMailRecipient,
     RecruitmentMailSenderConfig,
     RecruitmentResumeMailDispatch,
@@ -23,6 +25,7 @@ import {
 import {EmptyState, InfoTile, LoadingPanel} from "../components/SharedComponents";
 import {
     formatLongDateTime,
+    labelForCandidateStatus,
     labelForResumeMailDispatchStatus,
     shortText,
     statusBadgeClass,
@@ -33,13 +36,17 @@ type MailSettingsPageProps = {
     mailSenderConfigs: RecruitmentMailSenderConfig[];
     mailRecipients: RecruitmentMailRecipient[];
     resumeMailDispatches: RecruitmentResumeMailDispatch[];
+    mailAutoPushGlobalConfig: RecruitmentMailAutoPushGlobalConfig;
     mailSettingsLoading: boolean;
+    mailAutoPushConfigSaving: boolean;
     mailRecipientMap: Map<number, RecruitmentMailRecipient>;
     mailSenderMap: Map<number, RecruitmentMailSenderConfig>;
     candidateMap: Map<number, CandidateSummary>;
+    positionMap: Map<number, PositionSummary>;
     mailDispatchActionKey: string | null;
     selectedCandidateIds: number[];
     selectedCandidateId: number | null;
+    canManageRecruitment: boolean;
     openMailSenderEditor: (sender?: RecruitmentMailSenderConfig) => void;
     openMailRecipientEditor: (recipient?: RecruitmentMailRecipient) => void;
     openResumeMailDialog: () => void;
@@ -47,6 +54,8 @@ type MailSettingsPageProps = {
     retryResumeMailDispatch: (dispatch: RecruitmentResumeMailDispatch) => Promise<void>;
     setMailSenderDeleteTarget: (sender: RecruitmentMailSenderConfig) => void;
     setMailRecipientDeleteTarget: (recipient: RecruitmentMailRecipient) => void;
+    setMailAutoPushGlobalConfig: React.Dispatch<React.SetStateAction<RecruitmentMailAutoPushGlobalConfig>>;
+    saveMailAutoPushGlobalConfig: (config: RecruitmentMailAutoPushGlobalConfig) => Promise<void>;
     refreshMailSettingsWithFeedback: () => Promise<void>;
 };
 
@@ -55,13 +64,17 @@ export function MailSettingsPage({
     mailSenderConfigs,
     mailRecipients,
     resumeMailDispatches,
+    mailAutoPushGlobalConfig,
     mailSettingsLoading,
+    mailAutoPushConfigSaving,
     mailRecipientMap,
     mailSenderMap,
     candidateMap,
+    positionMap,
     mailDispatchActionKey,
     selectedCandidateIds,
     selectedCandidateId,
+    canManageRecruitment,
     openMailSenderEditor,
     openMailRecipientEditor,
     openResumeMailDialog,
@@ -69,9 +82,14 @@ export function MailSettingsPage({
     retryResumeMailDispatch,
     setMailSenderDeleteTarget,
     setMailRecipientDeleteTarget,
+    setMailAutoPushGlobalConfig,
+    saveMailAutoPushGlobalConfig,
     refreshMailSettingsWithFeedback,
 }: MailSettingsPageProps) {
     const hasMailData = mailSenderConfigs.length || mailRecipients.length || resumeMailDispatches.length;
+    const selectedGlobalRecipientEmails = mailAutoPushGlobalConfig.global_default_recipient_ids
+        .map((recipientId) => mailRecipientMap.get(recipientId)?.email || "")
+        .filter(Boolean);
 
     if (mailSettingsLoading && !hasMailData) {
         return <LoadingPanel label="正在加载邮件中心"/>;
@@ -111,6 +129,66 @@ export function MailSettingsPage({
             </Card>
 
             <div className="grid gap-6 xl:grid-cols-2">
+                <Card className={panelClass}>
+                    <CardHeader>
+                        <CardTitle className="text-lg">全局自动推送默认配置</CardTitle>
+                        <CardDescription>提供岗位可选复用的默认收件池。只有岗位明确开启自动推送且勾选使用全局收件人时，才会实际发送。</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                            <input
+                                type="checkbox"
+                                checked={mailAutoPushGlobalConfig.global_auto_push_enabled}
+                                disabled={!canManageRecruitment || mailAutoPushConfigSaving}
+                                onChange={(event) => setMailAutoPushGlobalConfig((current) => ({
+                                    ...current,
+                                    global_auto_push_enabled: event.target.checked,
+                                }))}
+                            />
+                            启用系统级自动推送能力
+                        </label>
+                        <div className="space-y-2">
+                            <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">全局默认收件人</p>
+                            <div className="flex flex-wrap gap-2">
+                                {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => {
+                                    const selected = mailAutoPushGlobalConfig.global_default_recipient_ids.includes(recipient.id);
+                                    return (
+                                        <button
+                                            key={`global-mail-recipient-${recipient.id}`}
+                                            type="button"
+                                            disabled={!canManageRecruitment || mailAutoPushConfigSaving}
+                                            className={cn(
+                                                "rounded-full border px-3 py-2 text-xs transition disabled:cursor-not-allowed disabled:opacity-60",
+                                                selected
+                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                    : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                            )}
+                                            onClick={() => setMailAutoPushGlobalConfig((current) => ({
+                                                ...current,
+                                                global_default_recipient_ids: current.global_default_recipient_ids.includes(recipient.id)
+                                                    ? current.global_default_recipient_ids.filter((id) => id !== recipient.id)
+                                                    : [...current.global_default_recipient_ids, recipient.id],
+                                            }))}
+                                        >
+                                            {recipient.name}
+                                        </button>
+                                    );
+                                }) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用收件人，请先新增收件人。</p>}
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border border-dashed border-slate-200/80 px-4 py-3 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                            <span>当前默认邮箱：{selectedGlobalRecipientEmails.length ? selectedGlobalRecipientEmails.join("、") : "未设置"}</span>
+                            <Button
+                                size="sm"
+                                onClick={() => void saveMailAutoPushGlobalConfig(mailAutoPushGlobalConfig)}
+                                disabled={!canManageRecruitment || mailAutoPushConfigSaving}
+                            >
+                                {mailAutoPushConfigSaving ? "保存中..." : "保存默认配置"}
+                            </Button>
+                        </div>
+                    </CardContent>
+                </Card>
+
                 <Card className={panelClass}>
                     <CardHeader>
                         <CardTitle className="text-lg">发件箱</CardTitle>
@@ -209,6 +287,14 @@ export function MailSettingsPage({
                                         </p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
+                                        <Badge variant="outline" className="rounded-full">
+                                            {dispatch.send_mode === "automatic" ? "自动发送" : "手动发送"}
+                                        </Badge>
+                                        {dispatch.trigger_type ? (
+                                            <Badge variant="outline" className="rounded-full">
+                                                {dispatch.trigger_type === "screening_completed" ? "触发：初筛完成" : dispatch.trigger_type}
+                                            </Badge>
+                                        ) : null}
                                         <Badge className={cn("rounded-full border", statusBadgeClass("task", dispatch.status === "sent" ? "success" : dispatch.status))}>
                                             {labelForResumeMailDispatchStatus(dispatch.status)}
                                         </Badge>
@@ -218,6 +304,16 @@ export function MailSettingsPage({
                                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                                     <InfoTile label="候选人" value={shortText(candidateSummary || "未记录", 120)}/>
                                     <InfoTile label="收件人" value={shortText(recipientSummary || "未记录", 120)}/>
+                                </div>
+                                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                                    <InfoTile
+                                        label="来源岗位"
+                                        value={dispatch.position_id ? (positionMap.get(dispatch.position_id)?.title || `岗位 #${dispatch.position_id}`) : "未关联岗位"}
+                                    />
+                                    <InfoTile
+                                        label="触发状态"
+                                        value={dispatch.candidate_status ? labelForCandidateStatus(dispatch.candidate_status) : "未记录"}
+                                    />
                                 </div>
                                 <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{shortText(dispatch.body_text || "正文留空时，系统会使用默认邮件正文模板。", 180)}</p>
                                 {dispatch.error_message ? <p className="mt-3 text-sm text-rose-600 dark:text-rose-300">{dispatch.error_message}</p> : null}

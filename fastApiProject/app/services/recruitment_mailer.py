@@ -127,6 +127,8 @@ def build_resume_email(
     *,
     sender: RecruitmentMailSenderRuntime,
     recipients: Sequence[str],
+    cc_recipients: Sequence[str] = (),
+    bcc_recipients: Sequence[str] = (),
     subject: str,
     body_text: str,
     body_html: str | None = None,
@@ -136,6 +138,10 @@ def build_resume_email(
     sender_display = sender.from_name or sender.from_email
     message["From"] = f"{sender_display} <{sender.from_email}>"
     message["To"] = ", ".join(recipients)
+    if cc_recipients:
+        message["Cc"] = ", ".join(cc_recipients)
+    if bcc_recipients:
+        message["Bcc"] = ", ".join(bcc_recipients)
     message["Subject"] = subject
     if body_html:
         alternative = MIMEMultipart("alternative")

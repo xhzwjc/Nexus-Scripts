@@ -32,6 +32,15 @@ export interface PositionSummary {
   status: string;
   auto_screen_on_upload?: boolean;
   auto_advance_on_screening?: boolean;
+  auto_mail_enabled?: boolean;
+  auto_mail_use_global_recipients?: boolean;
+  auto_mail_use_position_recipients?: boolean;
+  auto_mail_position_recipient_ids?: number[];
+  auto_mail_allowed_candidate_statuses?: string[];
+  auto_mail_template_id?: string | null;
+  auto_mail_dedup_mode?: string | null;
+  auto_mail_cc_recipient_ids?: number[];
+  auto_mail_bcc_recipient_ids?: number[];
   jd_skill_ids?: number[];
   jd_skills?: RecruitmentSkill[];
   screening_skill_ids?: number[];
@@ -398,18 +407,35 @@ export interface RecruitmentResumeMailDispatch {
   id: number;
   sender_config_id?: number | null;
   sender_name?: string | null;
+  position_id?: number | null;
+  screening_score_id?: number | null;
   candidate_ids: number[];
   recipient_ids: number[];
   recipient_emails: string[];
+  cc_recipient_ids?: number[];
+  cc_recipient_emails?: string[];
+  bcc_recipient_ids?: number[];
+  bcc_recipient_emails?: string[];
   subject?: string | null;
   body_text?: string | null;
   body_html?: string | null;
   attachment_count: number;
   status: string;
   error_message?: string | null;
+  send_mode?: string | null;
+  trigger_type?: string | null;
+  candidate_status?: string | null;
+  dedup_key?: string | null;
+  trigger_rule?: Record<string, unknown> | null;
   sent_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface RecruitmentMailAutoPushGlobalConfig {
+  global_default_recipient_ids: number[];
+  global_default_recipient_emails: string[];
+  global_auto_push_enabled: boolean;
 }
 
 interface ApiEnvelope<T> {

@@ -78,6 +78,21 @@ SCREENING_PAYLOAD_SCHEMA_CONFIG = {
         "dimension_fields": ("label", "score", "max_score", "reason", "evidence", "is_inferred"),
     },
 }
+MAIL_AUTO_PUSH_GLOBAL_CONFIG_KEY = "mail_auto_push_defaults"
+POSITION_AUTO_MAIL_CONFIG_KEY = "position_auto_mail_config"
+VALID_AUTO_MAIL_DEDUP_MODES = {"once_per_candidate", "once_per_candidate_per_status", "allow_repeat"}
+VALID_CANDIDATE_STATUS_VALUES = {item["value"] for item in CANDIDATE_STATUS_OPTIONS}
+DEFAULT_POSITION_AUTO_MAIL_CONFIG = {
+    "auto_mail_enabled": False,
+    "auto_mail_use_global_recipients": False,
+    "auto_mail_use_position_recipients": False,
+    "auto_mail_position_recipient_ids": [],
+    "auto_mail_allowed_candidate_statuses": ["screening_passed"],
+    "auto_mail_template_id": None,
+    "auto_mail_dedup_mode": "once_per_candidate_per_status",
+    "auto_mail_cc_recipient_ids": [],
+    "auto_mail_bcc_recipient_ids": [],
+}
 SKILL_TASK_KEYWORDS = {
     "screening": {"screening", "score", "scoring", "resume_score", "resume-screening", "初筛", "评分", "筛选"},
     "interview": {"interview", "question", "questions", "interview-question", "面试", "面试题", "出题"},
@@ -120,6 +135,28 @@ def _dedupe_texts(values: Iterable[Any]) -> List[str]:
 def _slugify(value: str) -> str:
     text = re.sub(r"[^a-zA-Z0-9]+", "-", value or "").strip("-").lower()
     return text[:40] if text else uuid.uuid4().hex[:8]
+
+
+def _looks_like_email(value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text))
+
+
+def _dedupe_email_texts(values: Iterable[Any]) -> List[str]:
+    result: List[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not _looks_like_email(text):
+            continue
+        lowered = text.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        result.append(text)
+    return result
 
 
 def _snapshot_text(value: Any) -> str:
@@ -2887,6 +2924,129 @@ class RecruitmentService:
             return DEFAULT_RULE_CONFIGS.get(config_key, default)
         return json_loads_safe(row.config_value, default) if row.config_type == "json" else row.config_value or default
 
+    def _get_scoped_rule_config(self, config_key: str, default: Any, *, scope: str = "global", scope_id: Optional[Any] = None) -> Any:
+        builder = self.db.query(RecruitmentRuleConfig).filter(
+            RecruitmentRuleConfig.config_key == config_key,
+            RecruitmentRuleConfig.scope == scope,
+        )
+        normalized_scope_id = str(scope_id) if scope != "global" and scope_id is not None else None
+        if scope != "global":
+            builder = builder.filter(RecruitmentRuleConfig.scope_id == normalized_scope_id)
+        row = builder.first()
+        if not row:
+            if scope == "global":
+                return DEFAULT_RULE_CONFIGS.get(config_key, default)
+            return _copy_json_like(default)
+        return json_loads_safe(row.config_value, default) if row.config_type == "json" else row.config_value or default
+
+    def _upsert_json_rule_config(
+        self,
+        config_key: str,
+        value: Dict[str, Any],
+        *,
+        scope: str = "global",
+        scope_id: Optional[Any] = None,
+        description: Optional[str] = None,
+    ) -> RecruitmentRuleConfig:
+        builder = self.db.query(RecruitmentRuleConfig).filter(
+            RecruitmentRuleConfig.config_key == config_key,
+            RecruitmentRuleConfig.scope == scope,
+        )
+        normalized_scope_id = str(scope_id) if scope != "global" and scope_id is not None else None
+        if scope != "global":
+            builder = builder.filter(RecruitmentRuleConfig.scope_id == normalized_scope_id)
+        row = builder.first()
+        if not row:
+            row = RecruitmentRuleConfig(
+                config_key=config_key,
+                config_type="json",
+                scope=scope,
+                scope_id=normalized_scope_id,
+                config_value=json_dumps_safe(value),
+                description=description,
+            )
+        else:
+            row.config_type = "json"
+            row.scope_id = normalized_scope_id
+            row.config_value = json_dumps_safe(value)
+            if description is not None:
+                row.description = description
+        self.db.add(row)
+        self.db.flush()
+        return row
+
+    def _normalize_global_auto_mail_config(self, value: Any) -> Dict[str, Any]:
+        source = value if isinstance(value, dict) else {}
+        recipient_ids = _dedupe_ints(source.get("global_default_recipient_ids") or [])
+        return {
+            "global_default_recipient_ids": recipient_ids,
+            "global_auto_push_enabled": bool(source.get("global_auto_push_enabled")),
+        }
+
+    def _normalize_position_auto_mail_config(self, value: Any) -> Dict[str, Any]:
+        source = value if isinstance(value, dict) else {}
+        allowed_statuses = [
+            item
+            for item in _dedupe_texts(source.get("auto_mail_allowed_candidate_statuses") or DEFAULT_POSITION_AUTO_MAIL_CONFIG["auto_mail_allowed_candidate_statuses"])
+            if item in VALID_CANDIDATE_STATUS_VALUES
+        ]
+        if not allowed_statuses:
+            allowed_statuses = list(DEFAULT_POSITION_AUTO_MAIL_CONFIG["auto_mail_allowed_candidate_statuses"])
+        dedup_mode = str(source.get("auto_mail_dedup_mode") or DEFAULT_POSITION_AUTO_MAIL_CONFIG["auto_mail_dedup_mode"]).strip()
+        if dedup_mode not in VALID_AUTO_MAIL_DEDUP_MODES:
+            dedup_mode = DEFAULT_POSITION_AUTO_MAIL_CONFIG["auto_mail_dedup_mode"]
+        template_id = str(source.get("auto_mail_template_id") or "").strip() or None
+        return {
+            "auto_mail_enabled": bool(source.get("auto_mail_enabled")),
+            "auto_mail_use_global_recipients": bool(source.get("auto_mail_use_global_recipients")),
+            "auto_mail_use_position_recipients": bool(source.get("auto_mail_use_position_recipients")),
+            "auto_mail_position_recipient_ids": _dedupe_ints(source.get("auto_mail_position_recipient_ids") or []),
+            "auto_mail_allowed_candidate_statuses": allowed_statuses,
+            "auto_mail_template_id": template_id,
+            "auto_mail_dedup_mode": dedup_mode,
+            "auto_mail_cc_recipient_ids": _dedupe_ints(source.get("auto_mail_cc_recipient_ids") or []),
+            "auto_mail_bcc_recipient_ids": _dedupe_ints(source.get("auto_mail_bcc_recipient_ids") or []),
+        }
+
+    def _get_global_auto_mail_config(self) -> Dict[str, Any]:
+        payload = self._get_scoped_rule_config(
+            MAIL_AUTO_PUSH_GLOBAL_CONFIG_KEY,
+            DEFAULT_RULE_CONFIGS.get(MAIL_AUTO_PUSH_GLOBAL_CONFIG_KEY, {}),
+            scope="global",
+        )
+        return self._normalize_global_auto_mail_config(payload)
+
+    def _get_position_auto_mail_config(self, position_id: int) -> Dict[str, Any]:
+        payload = self._get_scoped_rule_config(
+            POSITION_AUTO_MAIL_CONFIG_KEY,
+            DEFAULT_POSITION_AUTO_MAIL_CONFIG,
+            scope="position",
+            scope_id=position_id,
+        )
+        return self._normalize_position_auto_mail_config(payload)
+
+    def _serialize_global_auto_mail_config(self, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        normalized = self._normalize_global_auto_mail_config(config if config is not None else self._get_global_auto_mail_config())
+        recipient_rows = self._load_mail_recipient_rows(normalized.get("global_default_recipient_ids") or [])
+        return {
+            **normalized,
+            "global_default_recipient_emails": [row.email for row in recipient_rows],
+        }
+
+    def get_mail_auto_push_global_config(self) -> Dict[str, Any]:
+        return self._serialize_global_auto_mail_config()
+
+    def update_mail_auto_push_global_config(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = self._normalize_global_auto_mail_config(payload)
+        self._upsert_json_rule_config(
+            MAIL_AUTO_PUSH_GLOBAL_CONFIG_KEY,
+            normalized,
+            scope="global",
+            description="邮件自动推送全局默认配置",
+        )
+        self.db.commit()
+        return self._serialize_global_auto_mail_config(normalized)
+
     def _get_position(self, position_id: int) -> RecruitmentPosition:
         row = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == position_id, RecruitmentPosition.deleted.is_(False)).first()
         if not row:
@@ -3464,12 +3624,13 @@ class RecruitmentService:
         jd_skill_rows = self._get_position_task_skill_rows(row.id, "jd")
         screening_skill_rows = self._get_position_task_skill_rows(row.id, "screening")
         interview_skill_rows = self._get_position_task_skill_rows(row.id, "interview")
+        auto_mail_config = self._get_position_auto_mail_config(row.id)
         current_jd = self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.id == row.current_jd_version_id).first() if row.current_jd_version_id else None
         if not current_jd:
             current_jd = self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.position_id == row.id, RecruitmentJDVersion.is_active.is_(True)).order_by(RecruitmentJDVersion.version_no.desc(), RecruitmentJDVersion.id.desc()).first()
         jd_version_count = self.db.query(func.count(RecruitmentJDVersion.id)).filter(RecruitmentJDVersion.position_id == row.id).scalar() or 0
         candidate_count = self.db.query(func.count(RecruitmentCandidate.id)).filter(RecruitmentCandidate.position_id == row.id, RecruitmentCandidate.deleted.is_(False)).scalar() or 0
-        return {"id": row.id, "position_code": row.position_code, "title": row.title, "department": row.department, "location": row.location, "employment_type": row.employment_type, "salary_range": row.salary_range, "headcount": row.headcount, "key_requirements": row.key_requirements, "bonus_points": row.bonus_points, "summary": row.summary, "status": row.status, "auto_screen_on_upload": bool(row.auto_screen_on_upload), "auto_advance_on_screening": bool(row.auto_advance_on_screening), "jd_skill_ids": [skill.id for skill in jd_skill_rows], "jd_skills": [self._serialize_skill(skill) for skill in jd_skill_rows], "screening_skill_ids": [skill.id for skill in screening_skill_rows], "screening_skills": [self._serialize_skill(skill) for skill in screening_skill_rows], "interview_skill_ids": [skill.id for skill in interview_skill_rows], "interview_skills": [self._serialize_skill(skill) for skill in interview_skill_rows], "tags": json_loads_safe(row.tags_json, []), "current_jd_version_id": row.current_jd_version_id, "current_jd_title": current_jd.title if current_jd else None, "jd_version_count": int(jd_version_count), "candidate_count": int(candidate_count), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "position_code": row.position_code, "title": row.title, "department": row.department, "location": row.location, "employment_type": row.employment_type, "salary_range": row.salary_range, "headcount": row.headcount, "key_requirements": row.key_requirements, "bonus_points": row.bonus_points, "summary": row.summary, "status": row.status, "auto_screen_on_upload": bool(row.auto_screen_on_upload), "auto_advance_on_screening": bool(row.auto_advance_on_screening), "auto_mail_enabled": bool(auto_mail_config.get("auto_mail_enabled")), "auto_mail_use_global_recipients": bool(auto_mail_config.get("auto_mail_use_global_recipients")), "auto_mail_use_position_recipients": bool(auto_mail_config.get("auto_mail_use_position_recipients")), "auto_mail_position_recipient_ids": list(auto_mail_config.get("auto_mail_position_recipient_ids") or []), "auto_mail_allowed_candidate_statuses": list(auto_mail_config.get("auto_mail_allowed_candidate_statuses") or []), "auto_mail_template_id": auto_mail_config.get("auto_mail_template_id"), "auto_mail_dedup_mode": auto_mail_config.get("auto_mail_dedup_mode"), "auto_mail_cc_recipient_ids": list(auto_mail_config.get("auto_mail_cc_recipient_ids") or []), "auto_mail_bcc_recipient_ids": list(auto_mail_config.get("auto_mail_bcc_recipient_ids") or []), "jd_skill_ids": [skill.id for skill in jd_skill_rows], "jd_skills": [self._serialize_skill(skill) for skill in jd_skill_rows], "screening_skill_ids": [skill.id for skill in screening_skill_rows], "screening_skills": [self._serialize_skill(skill) for skill in screening_skill_rows], "interview_skill_ids": [skill.id for skill in interview_skill_rows], "interview_skills": [self._serialize_skill(skill) for skill in interview_skill_rows], "tags": json_loads_safe(row.tags_json, []), "current_jd_version_id": row.current_jd_version_id, "current_jd_title": current_jd.title if current_jd else None, "jd_version_count": int(jd_version_count), "candidate_count": int(candidate_count), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _serialize_resume_file(self, row: RecruitmentResumeFile) -> Dict[str, Any]:
         parse_status = row.parse_status
@@ -3563,6 +3724,14 @@ class RecruitmentService:
             screening_skill_ids=payload.get("screening_skill_ids") or [],
             interview_skill_ids=payload.get("interview_skill_ids") or [],
         )
+        auto_mail_config = self._normalize_position_auto_mail_config(payload)
+        self._upsert_json_rule_config(
+            POSITION_AUTO_MAIL_CONFIG_KEY,
+            auto_mail_config,
+            scope="position",
+            scope_id=row.id,
+            description="岗位级初筛自动邮件推送配置",
+        )
         self.db.commit()
         self.db.refresh(row)
         return self._serialize_position(row)
@@ -3581,6 +3750,29 @@ class RecruitmentService:
                 jd_skill_ids=payload.get("jd_skill_ids") if "jd_skill_ids" in payload else None,
                 screening_skill_ids=payload.get("screening_skill_ids") if "screening_skill_ids" in payload else None,
                 interview_skill_ids=payload.get("interview_skill_ids") if "interview_skill_ids" in payload else None,
+            )
+        auto_mail_payload_fields = {
+            "auto_mail_enabled",
+            "auto_mail_use_global_recipients",
+            "auto_mail_use_position_recipients",
+            "auto_mail_position_recipient_ids",
+            "auto_mail_allowed_candidate_statuses",
+            "auto_mail_template_id",
+            "auto_mail_dedup_mode",
+            "auto_mail_cc_recipient_ids",
+            "auto_mail_bcc_recipient_ids",
+        }
+        if any(field in payload for field in auto_mail_payload_fields):
+            merged_auto_mail_config = {
+                **self._get_position_auto_mail_config(row.id),
+                **{field: payload.get(field) for field in auto_mail_payload_fields if field in payload},
+            }
+            self._upsert_json_rule_config(
+                POSITION_AUTO_MAIL_CONFIG_KEY,
+                self._normalize_position_auto_mail_config(merged_auto_mail_config),
+                scope="position",
+                scope_id=row.id,
+                description="岗位级初筛自动邮件推送配置",
             )
         row.updated_by = actor_id
         self.db.add(row)
@@ -4356,6 +4548,12 @@ class RecruitmentService:
         self.db.commit()
         self.db.refresh(parse_row)
         self.db.refresh(score_row)
+        self.db.refresh(candidate)
+        if screening_result_valid:
+            try:
+                self._maybe_send_auto_resume_mail_after_screening(candidate, score_row, actor_id=actor_id)
+            except Exception:
+                logger.exception("Automatic screening mail dispatch failed candidate_id=%s score_id=%s", candidate.id, score_row.id)
         logger.info(
             "Screening completed candidate_id=%s primary_model_call_succeeded=%s fallback_score_only_ai_called=%s final_response_source=%s",
             candidate.id,
@@ -4526,6 +4724,12 @@ class RecruitmentService:
                 screening_result_state = "invalid"
             self.db.commit()
             self.db.refresh(score_row)
+            self.db.refresh(candidate)
+            if screening_result_valid:
+                try:
+                    self._maybe_send_auto_resume_mail_after_screening(candidate, score_row, actor_id=actor_id)
+                except Exception:
+                    logger.exception("Automatic screening mail dispatch failed candidate_id=%s score_id=%s", candidate.id, score_row.id)
             logger.info(
                 "Screening completed candidate_id=%s primary_model_call_succeeded=%s fallback_score_only_ai_called=%s final_response_source=%s",
                 candidate.id,
@@ -5332,9 +5536,524 @@ class RecruitmentService:
         row.updated_by = actor_id
         self.db.add(row)
         self.db.commit()
+
+    def _resolve_mail_sender_row(self, sender_config_id: Optional[Any] = None) -> Optional[RecruitmentMailSenderConfig]:
+        sender_row = None
+        if sender_config_id:
+            try:
+                normalized_sender_id = int(sender_config_id)
+            except (TypeError, ValueError):
+                normalized_sender_id = 0
+            if normalized_sender_id > 0:
+                sender_row = self.db.query(RecruitmentMailSenderConfig).filter(
+                    RecruitmentMailSenderConfig.id == normalized_sender_id,
+                    RecruitmentMailSenderConfig.deleted.is_(False),
+                    RecruitmentMailSenderConfig.is_enabled.is_(True),
+                ).first()
+        if not sender_row:
+            sender_row = self.db.query(RecruitmentMailSenderConfig).filter(
+                RecruitmentMailSenderConfig.deleted.is_(False),
+                RecruitmentMailSenderConfig.is_enabled.is_(True),
+                RecruitmentMailSenderConfig.is_default.is_(True),
+            ).first()
+        if not sender_row:
+            sender_row = self.db.query(RecruitmentMailSenderConfig).filter(
+                RecruitmentMailSenderConfig.deleted.is_(False),
+                RecruitmentMailSenderConfig.is_enabled.is_(True),
+            ).order_by(RecruitmentMailSenderConfig.id.asc()).first()
+        return sender_row
+
+    def _normalize_mail_address_groups(
+        self,
+        *,
+        recipient_rows: Sequence[RecruitmentMailRecipient] = (),
+        direct_emails: Iterable[Any] = (),
+        cc_rows: Sequence[RecruitmentMailRecipient] = (),
+        cc_direct_emails: Iterable[Any] = (),
+        bcc_rows: Sequence[RecruitmentMailRecipient] = (),
+        bcc_direct_emails: Iterable[Any] = (),
+    ) -> Dict[str, List[str]]:
+        used: set[str] = set()
+
+        def consume(values: Iterable[Any]) -> List[str]:
+            resolved: List[str] = []
+            for email in _dedupe_email_texts(values):
+                lowered = email.lower()
+                if lowered in used:
+                    continue
+                used.add(lowered)
+                resolved.append(email)
+            return resolved
+
+        to_emails = consume([row.email for row in recipient_rows] + list(direct_emails or []))
+        cc_emails = consume([row.email for row in cc_rows] + list(cc_direct_emails or []))
+        bcc_emails = consume([row.email for row in bcc_rows] + list(bcc_direct_emails or []))
+        return {
+            "to_emails": to_emails,
+            "cc_emails": cc_emails,
+            "bcc_emails": bcc_emails,
+            "all_emails": [*to_emails, *cc_emails, *bcc_emails],
+        }
+
+    def _prepare_resume_mail_attachments(self, candidates: Sequence[RecruitmentCandidate]) -> List[Any]:
+        attachments: List[Any] = []
+        for candidate in candidates:
+            if not candidate.latest_resume_file_id:
+                continue
+            resume_file = self._get_resume_file(candidate.latest_resume_file_id)
+            attachment_name = _normalize_resume_attachment_name(
+                resume_file.original_name,
+                resume_file.file_ext,
+                f"resume-{candidate.id}",
+            )
+            attachments.append(load_attachment_from_path(resume_file.storage_path, attachment_name, resume_file.mime_type))
+        return attachments
+
+    def _build_resume_mail_default_subject(
+        self,
+        candidates: Sequence[RecruitmentCandidate],
+        *,
+        send_mode: str,
+        position: Optional[RecruitmentPosition] = None,
+    ) -> str:
+        candidate_names = "、".join([item.name for item in candidates[:3]])
+        if send_mode == "automatic" and len(candidates) == 1:
+            status_label = SCREENING_STATUS_LABELS.get(candidates[0].status, candidates[0].status or "初筛完成")
+            position_title = position.title if position else "未关联岗位"
+            return f"【自动推送】{candidate_names} - {position_title} - {status_label}"
+        return f"候选人简历推荐 - {candidate_names}"
+
+    def _build_resume_mail_default_body(
+        self,
+        candidates: Sequence[RecruitmentCandidate],
+        *,
+        send_mode: str,
+        position: Optional[RecruitmentPosition] = None,
+        score_row: Optional[RecruitmentCandidateScore] = None,
+    ) -> str:
+        if send_mode != "automatic" or len(candidates) != 1:
+            return "\n".join([
+                f"候选人：{item.name} / 岗位：{self._serialize_candidate_summary(item).get('position_title') or '未关联岗位'}"
+                for item in candidates
+            ])
+        candidate = candidates[0]
+        serialized_score = self._serialize_score(score_row) if score_row else {}
+        match_percent = serialized_score.get("match_percent")
+        recommendation = str(serialized_score.get("recommendation") or "").strip()
+        advantages = [str(item).strip() for item in (serialized_score.get("advantages") or []) if str(item).strip()]
+        concerns = [str(item).strip() for item in (serialized_score.get("concerns") or []) if str(item).strip()]
+        body_lines = [
+            "系统已完成候选人初筛，以下为自动推送摘要：",
+            f"候选人：{candidate.name}",
+            f"岗位：{position.title if position else '未关联岗位'}",
+            f"当前状态：{SCREENING_STATUS_LABELS.get(candidate.status, candidate.status or '-')}",
+        ]
+        if match_percent is not None:
+            body_lines.append(f"匹配度：{int(match_percent) if float(match_percent).is_integer() else match_percent}%")
+        if recommendation:
+            body_lines.append(f"推荐结论：{recommendation}")
+        if advantages:
+            body_lines.append(f"亮点：{'；'.join(advantages[:3])}")
+        if concerns:
+            body_lines.append(f"风险点：{'；'.join(concerns[:3])}")
+        body_lines.append("附件中包含候选人当前简历，请及时查阅。")
+        return "\n".join(body_lines)
+
+    def _create_mail_dispatch_row(
+        self,
+        *,
+        sender_row: Optional[RecruitmentMailSenderConfig],
+        candidate_ids: Sequence[int],
+        recipient_ids: Sequence[int],
+        recipient_emails: Sequence[str],
+        cc_recipient_ids: Sequence[int] = (),
+        cc_recipient_emails: Sequence[str] = (),
+        bcc_recipient_ids: Sequence[int] = (),
+        bcc_recipient_emails: Sequence[str] = (),
+        subject: Optional[str],
+        body_text: Optional[str],
+        body_html: Optional[str],
+        attachment_count: int,
+        status: str,
+        created_by: str,
+        error_message: Optional[str] = None,
+        sent_at: Any = None,
+        position_id: Optional[int] = None,
+        screening_score_id: Optional[int] = None,
+        send_mode: str = "manual",
+        trigger_type: Optional[str] = None,
+        candidate_status: Optional[str] = None,
+        dedup_key: Optional[str] = None,
+        trigger_rule_payload: Optional[Dict[str, Any]] = None,
+    ) -> RecruitmentResumeMailDispatch:
+        row = RecruitmentResumeMailDispatch(
+            sender_config_id=sender_row.id if sender_row else None,
+            position_id=position_id,
+            screening_score_id=screening_score_id,
+            candidate_ids_json=json_dumps_safe(list(candidate_ids)),
+            recipient_ids_json=json_dumps_safe(list(recipient_ids)),
+            recipient_emails_json=json_dumps_safe(list(recipient_emails)),
+            cc_recipient_ids_json=json_dumps_safe(list(cc_recipient_ids)),
+            cc_recipient_emails_json=json_dumps_safe(list(cc_recipient_emails)),
+            bcc_recipient_ids_json=json_dumps_safe(list(bcc_recipient_ids)),
+            bcc_recipient_emails_json=json_dumps_safe(list(bcc_recipient_emails)),
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+            attachment_count=int(attachment_count or 0),
+            status=status,
+            error_message=error_message,
+            sent_at=sent_at,
+            send_mode=send_mode,
+            trigger_type=trigger_type,
+            candidate_status=candidate_status,
+            dedup_key=dedup_key,
+            trigger_rule_json=json_dumps_safe(trigger_rule_payload or {}),
+            created_by=created_by,
+        )
+        self.db.add(row)
+        self.db.flush()
+        return row
+
+    def _send_resume_mail_dispatch_internal(
+        self,
+        *,
+        sender_row: RecruitmentMailSenderConfig,
+        candidates: Sequence[RecruitmentCandidate],
+        recipient_ids: Sequence[int],
+        recipient_emails: Sequence[str],
+        cc_recipient_ids: Sequence[int] = (),
+        cc_recipient_emails: Sequence[str] = (),
+        bcc_recipient_ids: Sequence[int] = (),
+        bcc_recipient_emails: Sequence[str] = (),
+        subject: Optional[str],
+        body_text: Optional[str],
+        body_html: Optional[str],
+        created_by: str,
+        position_id: Optional[int] = None,
+        screening_score_id: Optional[int] = None,
+        send_mode: str = "manual",
+        trigger_type: Optional[str] = None,
+        candidate_status: Optional[str] = None,
+        dedup_key: Optional[str] = None,
+        trigger_rule_payload: Optional[Dict[str, Any]] = None,
+    ) -> RecruitmentResumeMailDispatch:
+        recipient_rows = self._load_mail_recipient_rows(recipient_ids)
+        cc_rows = self._load_mail_recipient_rows(cc_recipient_ids)
+        bcc_rows = self._load_mail_recipient_rows(bcc_recipient_ids)
+        grouped_emails = self._normalize_mail_address_groups(
+            recipient_rows=recipient_rows,
+            direct_emails=recipient_emails,
+            cc_rows=cc_rows,
+            cc_direct_emails=cc_recipient_emails,
+            bcc_rows=bcc_rows,
+            bcc_direct_emails=bcc_recipient_emails,
+        )
+        if not grouped_emails["all_emails"]:
+            raise ValueError("未解析到有效收件人")
+        attachments = self._prepare_resume_mail_attachments(candidates)
+        dispatch = self._create_mail_dispatch_row(
+            sender_row=sender_row,
+            candidate_ids=[item.id for item in candidates],
+            recipient_ids=[row.id for row in recipient_rows],
+            recipient_emails=grouped_emails["to_emails"],
+            cc_recipient_ids=[row.id for row in cc_rows],
+            cc_recipient_emails=grouped_emails["cc_emails"],
+            bcc_recipient_ids=[row.id for row in bcc_rows],
+            bcc_recipient_emails=grouped_emails["bcc_emails"],
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+            attachment_count=len(attachments),
+            status="pending",
+            created_by=created_by,
+            position_id=position_id,
+            screening_score_id=screening_score_id,
+            send_mode=send_mode,
+            trigger_type=trigger_type,
+            candidate_status=candidate_status,
+            dedup_key=dedup_key,
+            trigger_rule_payload=trigger_rule_payload,
+        )
+        self.db.commit()
+        runtime = self._build_sender_runtime(sender_row)
+        try:
+            message = build_resume_email(
+                sender=runtime,
+                recipients=grouped_emails["to_emails"],
+                cc_recipients=grouped_emails["cc_emails"],
+                bcc_recipients=grouped_emails["bcc_emails"],
+                subject=subject or "",
+                body_text=body_text or "",
+                body_html=body_html,
+                attachments=attachments,
+            )
+            send_email_via_smtp(runtime, message, grouped_emails["all_emails"])
+            dispatch.status = "sent"
+            dispatch.error_message = None
+            dispatch.sent_at = func.now()
+        except Exception as exc:
+            dispatch.status = "failed"
+            dispatch.error_message = str(exc)
+            self.db.add(dispatch)
+            self.db.commit()
+            self.db.refresh(dispatch)
+            return dispatch
+        self.db.add(dispatch)
+        self.db.commit()
+        self.db.refresh(dispatch)
+        return dispatch
+
+    def _record_mail_dispatch_skip(
+        self,
+        *,
+        status: str,
+        created_by: str,
+        candidate_ids: Sequence[int],
+        recipient_ids: Sequence[int] = (),
+        recipient_emails: Sequence[str] = (),
+        cc_recipient_ids: Sequence[int] = (),
+        cc_recipient_emails: Sequence[str] = (),
+        bcc_recipient_ids: Sequence[int] = (),
+        bcc_recipient_emails: Sequence[str] = (),
+        subject: Optional[str] = None,
+        body_text: Optional[str] = None,
+        position_id: Optional[int] = None,
+        screening_score_id: Optional[int] = None,
+        send_mode: str = "automatic",
+        trigger_type: Optional[str] = None,
+        candidate_status: Optional[str] = None,
+        dedup_key: Optional[str] = None,
+        trigger_rule_payload: Optional[Dict[str, Any]] = None,
+        error_message: Optional[str] = None,
+    ) -> RecruitmentResumeMailDispatch:
+        row = self._create_mail_dispatch_row(
+            sender_row=None,
+            candidate_ids=candidate_ids,
+            recipient_ids=recipient_ids,
+            recipient_emails=recipient_emails,
+            cc_recipient_ids=cc_recipient_ids,
+            cc_recipient_emails=cc_recipient_emails,
+            bcc_recipient_ids=bcc_recipient_ids,
+            bcc_recipient_emails=bcc_recipient_emails,
+            subject=subject,
+            body_text=body_text,
+            body_html=None,
+            attachment_count=0,
+            status=status,
+            created_by=created_by,
+            error_message=error_message,
+            position_id=position_id,
+            screening_score_id=screening_score_id,
+            send_mode=send_mode,
+            trigger_type=trigger_type,
+            candidate_status=candidate_status,
+            dedup_key=dedup_key,
+            trigger_rule_payload=trigger_rule_payload,
+        )
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
+    def _build_auto_mail_dedup_key(self, candidate_id: int, candidate_status: str, dedup_mode: str) -> Optional[str]:
+        if dedup_mode == "allow_repeat":
+            return None
+        if dedup_mode == "once_per_candidate":
+            return f"screening_completed:candidate:{candidate_id}"
+        return f"screening_completed:candidate:{candidate_id}:status:{candidate_status}"
+
+    def _has_duplicate_auto_mail_dispatch(self, dedup_key: Optional[str]) -> bool:
+        if not dedup_key:
+            return False
+        row = self.db.query(RecruitmentResumeMailDispatch).filter(
+            RecruitmentResumeMailDispatch.send_mode == "automatic",
+            RecruitmentResumeMailDispatch.trigger_type == "screening_completed",
+            RecruitmentResumeMailDispatch.dedup_key == dedup_key,
+            RecruitmentResumeMailDispatch.status.in_(["pending", "sent"]),
+        ).order_by(RecruitmentResumeMailDispatch.id.desc()).first()
+        return bool(row)
+
+    def _maybe_send_auto_resume_mail_after_screening(
+        self,
+        candidate: RecruitmentCandidate,
+        score_row: RecruitmentCandidateScore,
+        *,
+        actor_id: str,
+    ) -> Optional[RecruitmentResumeMailDispatch]:
+        if not candidate.position_id:
+            return None
+        position = self._get_position(candidate.position_id)
+        position_config = self._get_position_auto_mail_config(position.id)
+        if not bool(position_config.get("auto_mail_enabled")):
+            return None
+        global_config = self._get_global_auto_mail_config()
+        trigger_candidate_status = (
+            _normalize_suggested_status(score_row.suggested_status)
+            or _normalize_suggested_status(candidate.ai_recommended_status)
+            or str(candidate.status or "").strip()
+        )
+        trigger_rule_payload = {
+            "position_auto_mail_config": position_config,
+            "global_auto_mail_config": global_config,
+            "trigger_type": "screening_completed",
+            "resolved_candidate_status": trigger_candidate_status,
+        }
+        if not bool(global_config.get("global_auto_push_enabled")):
+            return self._record_mail_dispatch_skip(
+                status="skipped_global_disabled",
+                created_by=actor_id,
+                candidate_ids=[candidate.id],
+                position_id=position.id,
+                screening_score_id=score_row.id,
+                trigger_type="screening_completed",
+                candidate_status=trigger_candidate_status,
+                trigger_rule_payload=trigger_rule_payload,
+                error_message="全局自动推送能力未启用",
+            )
+        allowed_statuses = list(position_config.get("auto_mail_allowed_candidate_statuses") or [])
+        if trigger_candidate_status not in allowed_statuses:
+            return self._record_mail_dispatch_skip(
+                status="skipped_status_not_allowed",
+                created_by=actor_id,
+                candidate_ids=[candidate.id],
+                position_id=position.id,
+                screening_score_id=score_row.id,
+                trigger_type="screening_completed",
+                candidate_status=trigger_candidate_status,
+                trigger_rule_payload=trigger_rule_payload,
+                error_message=f"候选人触发状态[{trigger_candidate_status or '未识别'}]未命中岗位允许自动发送的状态列表",
+            )
+        position_recipient_ids = _dedupe_ints(
+            position_config.get("auto_mail_position_recipient_ids") or []
+        ) if position_config.get("auto_mail_use_position_recipients") else []
+        global_recipient_ids = _dedupe_ints(
+            global_config.get("global_default_recipient_ids") or []
+        ) if position_config.get("auto_mail_use_global_recipients") else []
+        if position_recipient_ids:
+            to_recipient_ids = list(position_recipient_ids)
+            trigger_rule_payload["resolved_recipient_strategy"] = "position_only"
+        else:
+            to_recipient_ids = list(global_recipient_ids)
+            trigger_rule_payload["resolved_recipient_strategy"] = "global_only" if global_recipient_ids else "none"
+        to_rows = self._load_mail_recipient_rows(to_recipient_ids)
+        cc_rows = self._load_mail_recipient_rows(position_config.get("auto_mail_cc_recipient_ids") or [])
+        bcc_rows = self._load_mail_recipient_rows(position_config.get("auto_mail_bcc_recipient_ids") or [])
+        grouped_emails = self._normalize_mail_address_groups(
+            recipient_rows=to_rows,
+            cc_rows=cc_rows,
+            bcc_rows=bcc_rows,
+        )
+        dedup_key = self._build_auto_mail_dedup_key(
+            candidate.id,
+            trigger_candidate_status or "",
+            str(position_config.get("auto_mail_dedup_mode") or DEFAULT_POSITION_AUTO_MAIL_CONFIG["auto_mail_dedup_mode"]),
+        )
+        if self._has_duplicate_auto_mail_dispatch(dedup_key):
+            return self._record_mail_dispatch_skip(
+                status="skipped_duplicate_blocked",
+                created_by=actor_id,
+                candidate_ids=[candidate.id],
+                recipient_ids=[row.id for row in to_rows],
+                recipient_emails=grouped_emails["to_emails"],
+                cc_recipient_ids=[row.id for row in cc_rows],
+                cc_recipient_emails=grouped_emails["cc_emails"],
+                bcc_recipient_ids=[row.id for row in bcc_rows],
+                bcc_recipient_emails=grouped_emails["bcc_emails"],
+                position_id=position.id,
+                screening_score_id=score_row.id,
+                trigger_type="screening_completed",
+                candidate_status=trigger_candidate_status,
+                dedup_key=dedup_key,
+                trigger_rule_payload=trigger_rule_payload,
+                error_message="命中自动邮件去重策略，已跳过重复发送",
+            )
+        if not grouped_emails["all_emails"]:
+            return self._record_mail_dispatch_skip(
+                status="skipped_no_recipients",
+                created_by=actor_id,
+                candidate_ids=[candidate.id],
+                position_id=position.id,
+                screening_score_id=score_row.id,
+                trigger_type="screening_completed",
+                candidate_status=trigger_candidate_status,
+                dedup_key=dedup_key,
+                trigger_rule_payload=trigger_rule_payload,
+                error_message="未解析到有效收件人",
+            )
+        sender_row = self._resolve_mail_sender_row()
+        if not sender_row:
+            return self._record_mail_dispatch_skip(
+                status="skipped_no_sender",
+                created_by=actor_id,
+                candidate_ids=[candidate.id],
+                recipient_ids=[row.id for row in to_rows],
+                recipient_emails=grouped_emails["to_emails"],
+                cc_recipient_ids=[row.id for row in cc_rows],
+                cc_recipient_emails=grouped_emails["cc_emails"],
+                bcc_recipient_ids=[row.id for row in bcc_rows],
+                bcc_recipient_emails=grouped_emails["bcc_emails"],
+                position_id=position.id,
+                screening_score_id=score_row.id,
+                trigger_type="screening_completed",
+                candidate_status=trigger_candidate_status,
+                dedup_key=dedup_key,
+                trigger_rule_payload=trigger_rule_payload,
+                error_message="未找到可用发件箱",
+            )
+        subject = self._build_resume_mail_default_subject([candidate], send_mode="automatic", position=position)
+        body_text = self._build_resume_mail_default_body([candidate], send_mode="automatic", position=position, score_row=score_row)
+        return self._send_resume_mail_dispatch_internal(
+            sender_row=sender_row,
+            candidates=[candidate],
+            recipient_ids=[row.id for row in to_rows],
+            recipient_emails=grouped_emails["to_emails"],
+            cc_recipient_ids=[row.id for row in cc_rows],
+            cc_recipient_emails=grouped_emails["cc_emails"],
+            bcc_recipient_ids=[row.id for row in bcc_rows],
+            bcc_recipient_emails=grouped_emails["bcc_emails"],
+            subject=subject,
+            body_text=body_text,
+            body_html=None,
+            created_by=actor_id,
+            position_id=position.id,
+            screening_score_id=score_row.id,
+            send_mode="automatic",
+            trigger_type="screening_completed",
+            candidate_status=trigger_candidate_status,
+            dedup_key=dedup_key,
+            trigger_rule_payload=trigger_rule_payload,
+        )
+
     def _serialize_mail_dispatch(self, row: RecruitmentResumeMailDispatch) -> Dict[str, Any]:
         sender = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == row.sender_config_id).first() if row.sender_config_id else None
-        return {"id": row.id, "sender_config_id": row.sender_config_id, "sender_name": sender.name if sender else None, "candidate_ids": json_loads_safe(row.candidate_ids_json, []), "recipient_ids": json_loads_safe(row.recipient_ids_json, []), "recipient_emails": json_loads_safe(row.recipient_emails_json, []), "subject": row.subject, "body_text": row.body_text, "body_html": row.body_html, "attachment_count": row.attachment_count, "status": row.status, "error_message": row.error_message, "sent_at": isoformat_or_none(row.sent_at), "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {
+            "id": row.id,
+            "sender_config_id": row.sender_config_id,
+            "sender_name": sender.name if sender else None,
+            "position_id": row.position_id,
+            "screening_score_id": row.screening_score_id,
+            "candidate_ids": json_loads_safe(row.candidate_ids_json, []),
+            "recipient_ids": json_loads_safe(row.recipient_ids_json, []),
+            "recipient_emails": json_loads_safe(row.recipient_emails_json, []),
+            "cc_recipient_ids": json_loads_safe(row.cc_recipient_ids_json, []),
+            "cc_recipient_emails": json_loads_safe(row.cc_recipient_emails_json, []),
+            "bcc_recipient_ids": json_loads_safe(row.bcc_recipient_ids_json, []),
+            "bcc_recipient_emails": json_loads_safe(row.bcc_recipient_emails_json, []),
+            "subject": row.subject,
+            "body_text": row.body_text,
+            "body_html": row.body_html,
+            "attachment_count": row.attachment_count,
+            "status": row.status,
+            "error_message": row.error_message,
+            "send_mode": row.send_mode,
+            "trigger_type": row.trigger_type,
+            "candidate_status": row.candidate_status,
+            "dedup_key": row.dedup_key,
+            "trigger_rule": json_loads_safe(row.trigger_rule_json, {}),
+            "sent_at": isoformat_or_none(row.sent_at),
+            "created_at": isoformat_or_none(row.created_at),
+            "updated_at": isoformat_or_none(row.updated_at),
+        }
 
     def _build_sender_runtime(self, row: RecruitmentMailSenderConfig) -> RecruitmentMailSenderRuntime:
         password = decrypt_secret(row.password_ciphertext or "")
@@ -5347,13 +6066,7 @@ class RecruitmentService:
         return [self._serialize_mail_dispatch(row) for row in rows]
 
     def send_resume_mail_dispatch(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
-        sender_row = None
-        if payload.get("sender_config_id"):
-            sender_row = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == int(payload.get("sender_config_id")), RecruitmentMailSenderConfig.deleted.is_(False), RecruitmentMailSenderConfig.is_enabled.is_(True)).first()
-        if not sender_row:
-            sender_row = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.deleted.is_(False), RecruitmentMailSenderConfig.is_enabled.is_(True), RecruitmentMailSenderConfig.is_default.is_(True)).first()
-        if not sender_row:
-            sender_row = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.deleted.is_(False), RecruitmentMailSenderConfig.is_enabled.is_(True)).order_by(RecruitmentMailSenderConfig.id.asc()).first()
+        sender_row = self._resolve_mail_sender_row(payload.get("sender_config_id"))
         if not sender_row:
             raise ValueError("鎿嶄綔澶辫触")
         candidate_ids = _dedupe_ints(payload.get("candidate_ids") or [])
@@ -5361,49 +6074,35 @@ class RecruitmentService:
             raise ValueError("鎿嶄綔澶辫触")
         candidates = [self._get_candidate(candidate_id) for candidate_id in candidate_ids]
         recipient_ids = _dedupe_ints(payload.get("recipient_ids") or [])
-        recipient_rows = self._load_mail_recipient_rows(recipient_ids)
-        recipient_emails = _dedupe_texts([row.email for row in recipient_rows] + list(payload.get("recipient_emails") or []))
-        if not recipient_emails:
+        recipient_emails = _dedupe_email_texts(payload.get("recipient_emails") or [])
+        cc_recipient_ids = _dedupe_ints(payload.get("cc_recipient_ids") or [])
+        cc_recipient_emails = _dedupe_email_texts(payload.get("cc_recipient_emails") or [])
+        bcc_recipient_ids = _dedupe_ints(payload.get("bcc_recipient_ids") or [])
+        bcc_recipient_emails = _dedupe_email_texts(payload.get("bcc_recipient_emails") or [])
+        if not recipient_ids and not recipient_emails and not cc_recipient_ids and not cc_recipient_emails and not bcc_recipient_ids and not bcc_recipient_emails:
             raise ValueError("鎿嶄綔澶辫触")
-        subject = str(payload.get("subject") or "").strip() or f"候选人简历推荐 - {', '.join([item.name for item in candidates][:3])}"
-        body_text = str(payload.get("body_text") or "").strip() or "\n".join([
-            f"候选人：{item.name} / 岗位：{self._serialize_candidate_summary(item).get('position_title') or '未关联岗位'}"
-            for item in candidates
-        ])
+        subject = str(payload.get("subject") or "").strip() or self._build_resume_mail_default_subject(candidates, send_mode="manual")
+        body_text = str(payload.get("body_text") or "").strip() or self._build_resume_mail_default_body(candidates, send_mode="manual")
         body_html = payload.get("body_html") or None
-        dispatch = RecruitmentResumeMailDispatch(sender_config_id=sender_row.id, candidate_ids_json=json_dumps_safe(candidate_ids), recipient_ids_json=json_dumps_safe(recipient_ids), recipient_emails_json=json_dumps_safe(recipient_emails), subject=subject, body_text=body_text, body_html=body_html, attachment_count=0, status="pending", created_by=actor_id)
-        self.db.add(dispatch)
-        self.db.flush()
-        attachments = []
-        for candidate in candidates:
-            if not candidate.latest_resume_file_id:
-                continue
-            resume_file = self._get_resume_file(candidate.latest_resume_file_id)
-            attachment_name = _normalize_resume_attachment_name(
-                resume_file.original_name,
-                resume_file.file_ext,
-                f"resume-{candidate.id}",
-            )
-            attachments.append(load_attachment_from_path(resume_file.storage_path, attachment_name, resume_file.mime_type))
-        dispatch.attachment_count = len(attachments)
-        self.db.add(dispatch)
-        self.db.commit()
-        runtime = self._build_sender_runtime(sender_row)
-        try:
-            message = build_resume_email(sender=runtime, recipients=recipient_emails, subject=subject, body_text=body_text, body_html=body_html, attachments=attachments)
-            send_email_via_smtp(runtime, message, recipient_emails)
-            dispatch.status = "sent"
-            dispatch.error_message = None
-            dispatch.sent_at = func.now()
-        except Exception as exc:
-            dispatch.status = "failed"
-            dispatch.error_message = str(exc)
-            self.db.add(dispatch)
-            self.db.commit()
-            raise ValueError(str(exc)) from exc
-        self.db.add(dispatch)
-        self.db.commit()
-        self.db.refresh(dispatch)
+        dispatch = self._send_resume_mail_dispatch_internal(
+            sender_row=sender_row,
+            candidates=candidates,
+            recipient_ids=recipient_ids,
+            recipient_emails=recipient_emails,
+            cc_recipient_ids=cc_recipient_ids,
+            cc_recipient_emails=cc_recipient_emails,
+            bcc_recipient_ids=bcc_recipient_ids,
+            bcc_recipient_emails=bcc_recipient_emails,
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+            created_by=actor_id,
+            send_mode="manual",
+            trigger_type="manual_send",
+            candidate_status=candidates[0].status if len(candidates) == 1 else None,
+        )
+        if dispatch.status == "failed":
+            raise ValueError(dispatch.error_message or "邮件发送失败")
         return self._serialize_mail_dispatch(dispatch)
 
     def _load_mail_recipient_rows(self, recipient_ids: Iterable[Any]) -> List[RecruitmentMailRecipient]:

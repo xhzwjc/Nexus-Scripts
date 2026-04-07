@@ -49,6 +49,10 @@ DEFAULT_RULE_CONFIGS = {
     "default_jd_template": {"sections": ["岗位概述", "岗位职责", "任职要求", "加分项"]},
     "default_interview_template": {"sections": ["技术题", "场景题", "行为题"]},
     "default_status_rules": {"pass_threshold": 75, "pool_threshold": 55},
+    "mail_auto_push_defaults": {
+        "global_default_recipient_ids": [],
+        "global_auto_push_enabled": False,
+    },
 }
 
 IOT_INTERVIEW_CAPABILITY_DOMAINS = [
