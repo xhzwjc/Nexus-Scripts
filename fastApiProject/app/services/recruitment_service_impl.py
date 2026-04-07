@@ -5885,20 +5885,49 @@ class RecruitmentService:
         position = self._get_position(candidate.position_id)
         position_config = self._get_position_auto_mail_config(position.id)
         if not bool(position_config.get("auto_mail_enabled")):
+            logger.debug(
+                "Auto mail skipped: auto_mail_enabled=False candidate_id=%s position_id=%s",
+                candidate.id, position.id,
+            )
             return None
         global_config = self._get_global_auto_mail_config()
+        # 触发状态解析优先级:
+        # 1. AI 初筛 score 的 suggested_status（screening_passed / talent_pool / screening_rejected）
+        # 2. 候选人已更新的 status 字段（可能是 screening_failed / screening_rejected / screening_passed / talent_pool 等）
+        # 注意：screening_failed 不在 _normalize_suggested_status 映射内，需直接取 candidate.status
         trigger_candidate_status = (
             _normalize_suggested_status(score_row.suggested_status)
-            or _normalize_suggested_status(candidate.ai_recommended_status)
             or str(candidate.status or "").strip()
+            or _normalize_suggested_status(candidate.ai_recommended_status)
+            or ""
         )
         trigger_rule_payload = {
             "position_auto_mail_config": position_config,
             "global_auto_mail_config": global_config,
             "trigger_type": "screening_completed",
             "resolved_candidate_status": trigger_candidate_status,
+            "global_auto_push_enabled": bool(global_config.get("global_auto_push_enabled")),
         }
-        if not bool(global_config.get("global_auto_push_enabled")):
+        # global_auto_push_enabled 只是「系统层面是否允许自动推送能力」的能力开关
+        # 只有当岗位使用的是「全局默认收件人」时才需要全局开关也为 true
+        # 如果岗位配置了「岗位专属收件人」则不受全局开关限制，岗位自己决定
+        use_position_recipients = bool(position_config.get("auto_mail_use_position_recipients")) and bool(
+            position_config.get("auto_mail_position_recipient_ids")
+        )
+        use_global_recipients = bool(position_config.get("auto_mail_use_global_recipients"))
+        if not use_position_recipients and not use_global_recipients:
+            return self._record_mail_dispatch_skip(
+                status="skipped_no_recipient_source",
+                created_by=actor_id,
+                candidate_ids=[candidate.id],
+                position_id=position.id,
+                screening_score_id=score_row.id,
+                trigger_type="screening_completed",
+                candidate_status=trigger_candidate_status,
+                trigger_rule_payload=trigger_rule_payload,
+                error_message="岗位未启用任何收件人来源（岗位专属 / 全局默认均未开启）",
+            )
+        if not use_position_recipients and use_global_recipients and not bool(global_config.get("global_auto_push_enabled")):
             return self._record_mail_dispatch_skip(
                 status="skipped_global_disabled",
                 created_by=actor_id,
@@ -5908,7 +5937,7 @@ class RecruitmentService:
                 trigger_type="screening_completed",
                 candidate_status=trigger_candidate_status,
                 trigger_rule_payload=trigger_rule_payload,
-                error_message="全局自动推送能力未启用",
+                error_message="岗位未配置专属收件人，且全局自动推送能力未启用",
             )
         allowed_statuses = list(position_config.get("auto_mail_allowed_candidate_statuses") or [])
         if trigger_candidate_status not in allowed_statuses:

@@ -1907,6 +1907,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     loadCandidates({silent: true, force: true}),
                     loadDashboard(),
                     loadLogs({silent: true}),
+                    loadMailSettings(),
                 ]);
                 if (selectedCandidateIdRef.current === candidateId) {
                     await loadCandidateDetail(candidateId, {silent: true, force: true});
@@ -5925,7 +5926,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 <div>
                                                     <p className="text-sm font-medium text-slate-900 dark:text-slate-100">初筛完成后自动推送邮件</p>
                                                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                        仅在候选人命中岗位允许状态、且解析出有效收件人时触发。手动发送入口会继续保留。
+                                                        启用后仅在候选人状态命中允许列表且解析出有效收件人时触发。岗位专属收件人优先，不受全局开关限制；使用全局收件人时需全局能力也开启。手动发送入口始终保留。
                                                     </p>
                                                 </div>
                                                 <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
@@ -5937,7 +5938,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     启用自动推送
                                                 </label>
                                             </div>
-                                            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                                            <div className={cn("mt-4 grid gap-4 lg:grid-cols-2", !positionForm.autoMailEnabled && "pointer-events-none opacity-40")}>
                                                 <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                                                     <input
                                                         type="checkbox"
@@ -5946,13 +5947,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     />
                                                     使用岗位专属收件人
                                                 </label>
-                                                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                                                <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
                                                     <input
                                                         type="checkbox"
+                                                        className="mt-0.5 shrink-0"
                                                         checked={positionForm.autoMailUseGlobalRecipients}
                                                         onChange={(event) => updatePositionFormField("autoMailUseGlobalRecipients", event.target.checked)}
                                                     />
-                                                    叠加全局默认收件人
+                                                    <span>
+                                                        叠加全局默认收件人
+                                                        <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">（需全局能力也开启）</span>
+                                                    </span>
                                                 </label>
                                             </div>
                                             <div className="mt-4 space-y-4">
