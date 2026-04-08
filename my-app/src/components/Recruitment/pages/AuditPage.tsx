@@ -53,6 +53,7 @@ import {
     resolveLogSkillSnapshots,
     statusBadgeClass,
 } from "../utils";
+import {resolveAuditNoticePresentation} from "./auditNotice";
 
 type AuditListDisplayColumnWidths = {
     taskType: number;
@@ -88,6 +89,17 @@ function readStringList(value: unknown) {
     return Array.isArray(value)
         ? value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean)
         : [];
+}
+
+function labelForAuditLogTask(log?: AITaskLog | null) {
+    if (!log) {
+        return labelForTaskType();
+    }
+    const isRootScreeningLog = Boolean(log.screening_run_id) && (
+        (typeof log.root_task_id === "number" && log.id === log.root_task_id)
+        || (log.root_task_id == null && log.parent_task_id == null && log.task_type === "resume_score")
+    );
+    return isRootScreeningLog ? "初筛流程" : labelForTaskType(log.task_type);
 }
 
 function formatDurationValue(value: unknown) {
@@ -224,8 +236,24 @@ export function AuditPage({
         const validationSummary = typeof selectedValidationMeta?.invalid_result_summary === "string"
             ? selectedValidationMeta.invalid_result_summary.trim()
             : "";
-        return outputSummary || validationSummary || selectedInvalidResultReasons[0] || selectedModelSchemaViolationReason || "";
-    }, [selectedInvalidResultReasons, selectedLogOutputRecord, selectedModelSchemaViolationReason, selectedValidationMeta]);
+        return outputSummary || validationSummary || selectedInvalidResultReasons[0] || "";
+    }, [selectedInvalidResultReasons, selectedLogOutputRecord, selectedValidationMeta]);
+    const selectedAuditNotice = React.useMemo(() => resolveAuditNoticePresentation({
+        screeningResultState: typeof selectedValidationMeta?.screening_result_state === "string"
+            ? selectedValidationMeta.screening_result_state
+            : null,
+        screeningResultValid: typeof selectedValidationMeta?.screening_result_valid === "boolean"
+            ? selectedValidationMeta.screening_result_valid
+            : null,
+        invalidResultReasons: selectedInvalidResultReasons,
+        invalidResultSummary: selectedInvalidResultSummary,
+        modelSchemaViolationReason: selectedModelSchemaViolationReason,
+    }), [
+        selectedInvalidResultReasons,
+        selectedInvalidResultSummary,
+        selectedModelSchemaViolationReason,
+        selectedValidationMeta,
+    ]);
     const selectedPromptRuleDimensionCount = React.useMemo(() => {
         const direct = selectedLogOutputRecord?.prompt_rule_dimension_count;
         if (typeof direct === "number" && Number.isFinite(direct)) {
@@ -534,7 +562,7 @@ export function AuditPage({
                                                                 onClick={() => setSelectedLogId(log.id)}
                                                             >
                                                                 <TableCell style={{width: auditListDisplayColumnWidths.taskType, minWidth: auditListDisplayColumnWidths.taskType, maxWidth: auditListDisplayColumnWidths.taskType}}>
-                                                                    <HoverRevealText text={labelForTaskType(log.task_type)}/>
+                                                                    <HoverRevealText text={labelForAuditLogTask(log)}/>
                                                                 </TableCell>
                                                                 <TableCell style={{width: auditListDisplayColumnWidths.object, minWidth: auditListDisplayColumnWidths.object, maxWidth: auditListDisplayColumnWidths.object}}>
                                                                     <HoverRevealText text={buildLogObjectLabel(log, positionMap, candidateMap, skillMap)}/>
@@ -602,7 +630,7 @@ export function AuditPage({
                                     <Badge className={cn("rounded-full border", statusBadgeClass("task", selectedLogDetail.status))}>
                                         {labelForTaskExecutionStatus(selectedLogDetail.status)}
                                     </Badge>
-                                    <Badge variant="outline" className="rounded-full">{labelForTaskType(selectedLogDetail.task_type)}</Badge>
+                                    <Badge variant="outline" className="rounded-full">{labelForAuditLogTask(selectedLogDetail)}</Badge>
                                     <Badge variant="outline" className="rounded-full">{labelForScreeningTaskStage(selectedLogDetail.stage)}</Badge>
                                 </div>
                                 <h3 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
@@ -632,7 +660,7 @@ export function AuditPage({
                                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                                         <div className="space-y-1">
                                                             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                                                {labelForTaskType(log.task_type)} / {labelForScreeningTaskStage(log.stage)}
+                                                                {labelForAuditLogTask(log)} / {labelForScreeningTaskStage(log.stage)}
                                                             </p>
                                                             <p className="text-xs text-slate-500 dark:text-slate-400">
                                                                 #{log.id} · {buildLogObjectLabel(log, positionMap, candidateMap, skillMap)}
@@ -738,16 +766,16 @@ export function AuditPage({
                                     <InfoTile label="输入摘要" value={selectedLogDetail.input_summary || "暂无"}/>
                                     <InfoTile label="输出摘要" value={selectedLogDetail.output_summary || "暂无"}/>
                                     <InfoTile label="错误信息" value={selectedLogDetail.error_message || "无"}/>
-                                    {(selectedInvalidResultSummary || selectedInvalidResultReasons.length || selectedModelSchemaViolationReason) ? (
-                                        <Field label="无效原因摘要">
-                                            <div className="space-y-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                                    {selectedAuditNotice.show ? (
+                                        <Field label={selectedAuditNotice.title}>
+                                            <div className={selectedAuditNotice.containerClassName}>
                                                 {selectedInvalidResultSummary ? (
                                                     <p className="font-medium">{selectedInvalidResultSummary}</p>
                                                 ) : null}
-                                                {selectedModelSchemaViolationReason ? (
+                                                {selectedAuditNotice.showSchemaReason && selectedModelSchemaViolationReason ? (
                                                     <p>Schema 违规：{selectedModelSchemaViolationReason}</p>
                                                 ) : null}
-                                                {selectedInvalidResultReasons.length ? (
+                                                {selectedAuditNotice.showInvalidReasons && selectedInvalidResultReasons.length ? (
                                                     <div className="space-y-1">
                                                         {selectedInvalidResultReasons.map((reason, index) => (
                                                             <p key={`${reason}-${index}`}>{index + 1}. {reason}</p>

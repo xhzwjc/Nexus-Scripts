@@ -16,6 +16,9 @@ from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskC
 
 logger = logging.getLogger(__name__)
 
+JSON_REPAIR_MAX_ROUNDS = 3
+JSON_RETRYABLE_MIN_EMPTY_LENGTH = 32
+
 
 class RecruitmentAIJSONParseError(RuntimeError):
     def __init__(self, message: str, *, raw_response_text: str = "", provider_payload: Any = None):
@@ -147,20 +150,10 @@ def _balance_json_closers(value: str) -> str:
 
 def _repair_missing_commas_globally(value: str) -> str:
     repaired = str(value or "")
-    patterns = (
-        (
-            r'("(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?|\}|\])(\s*)(?=")',
-            r"\1,\2",
-        ),
-        (
-            r'("(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?|\}|\])(\s*)(?=[\{\[])',
-            r"\1,\2",
-        ),
-    )
-    for _ in range(4):
+    pattern = r'("(?:\\.|[^"\\])*"|true|false|null|-?\d+(?:\.\d+)?|\}|\])(\s*)(?="(?:\\.|[^"\\])*"\s*:)'
+    for _ in range(2):
         previous = repaired
-        for pattern, replacement in patterns:
-            repaired = re.sub(pattern, replacement, repaired, flags=re.IGNORECASE)
+        repaired = re.sub(pattern, r"\1,\2", repaired, flags=re.IGNORECASE)
         if repaired == previous:
             break
     return repaired
@@ -170,10 +163,6 @@ def _repair_json_candidate(value: str) -> str:
     repaired = _normalize_json_candidate_text(_extract_json_candidate(value or "{}").strip() or "{}")
     repaired = _escape_control_chars_in_json_strings(repaired)
     repaired = _repair_missing_commas_globally(repaired)
-    repaired = re.sub(r'(["\}\]0-9a-zA-Z])(\\n|\n|\r\n?)(\s*")', r"\1,\3", repaired)
-    repaired = re.sub(r"(\})(\s*)(\")", r"\1,\2\3", repaired)
-    repaired = re.sub(r"(\])(\s*)(\")", r"\1,\2\3", repaired)
-    repaired = re.sub(r'("(?:\\.|[^"\\])*")\s*:\s*("(?:\\.|[^"\\])*")\s*("(?:\\.|[^"\\])*")\s*:', r'\1: \2, \3:', repaired)
     repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
     repaired = _balance_json_closers(repaired)
     return repaired
@@ -250,7 +239,7 @@ def _repair_unterminated_string_from_error(value: str, exc: json.JSONDecodeError
 def _parse_llm_json_response(raw_text: str) -> Dict[str, Any]:
     repaired = _repair_json_candidate(raw_text or "{}")
     last_error: Optional[json.JSONDecodeError] = None
-    for _ in range(8):
+    for _ in range(JSON_REPAIR_MAX_ROUNDS):
         try:
             return json.loads(repaired)
         except json.JSONDecodeError as exc:
@@ -267,14 +256,25 @@ def _parse_llm_json_response(raw_text: str) -> Dict[str, Any]:
             if narrowed != repaired:
                 repaired = _repair_json_candidate(narrowed)
                 continue
-            balanced = _repair_json_candidate(repaired)
+            balanced = _balance_json_closers(repaired)
             if balanced != repaired:
-                repaired = balanced
+                repaired = _repair_json_candidate(balanced)
                 continue
             break
-    if last_error:
-        raise last_error
-    return json.loads(repaired)
+    if last_error is not None:
+        raise RecruitmentAIJSONParseError(
+            f"AI screening JSON 解析失败: {last_error}",
+            raw_response_text=str(raw_text or ""),
+            provider_payload={"repaired_candidate": repaired},
+        ) from last_error
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError as exc:
+        raise RecruitmentAIJSONParseError(
+            f"AI screening JSON 解析失败: {exc}",
+            raw_response_text=str(raw_text or ""),
+            provider_payload={"repaired_candidate": repaired},
+        ) from exc
 
 
 def _dump_request_snapshot(value: Dict[str, Any]) -> str:
@@ -333,11 +333,13 @@ def _resolve_openai_json_response_format(config: "RecruitmentLLMRuntimeConfig", 
         return None
     provider = (config.provider or "").strip().lower()
     model_name = (config.model_name or "").strip().lower()
-    supported_provider_whitelist = {"openai", "deepseek", "kimi", "moonshot", "glm", "zhipu"}
-    supported_model_prefixes = ("gpt-", "o1", "o3", "deepseek", "moonshot", "kimi", "glm-")
-    if provider in supported_provider_whitelist:
+    openai_model_prefixes = ("gpt-", "o1", "o3", "o4", "gpt-4.1", "gpt-5")
+    glm_model_prefixes = ("glm-",)
+    if provider == "openai" and model_name.startswith(openai_model_prefixes):
         return {"type": "json_object"}
-    if provider == "openai-compatible" and model_name.startswith(supported_model_prefixes):
+    if provider in {"glm", "zhipu"} and model_name.startswith(glm_model_prefixes):
+        return {"type": "json_object"}
+    if provider == "openai-compatible" and model_name.startswith((*openai_model_prefixes, *glm_model_prefixes)):
         return {"type": "json_object"}
     return None
 
@@ -392,7 +394,8 @@ def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_m
 
 def _is_retryable_error(exc: Exception) -> bool:
     if isinstance(exc, RecruitmentAIJSONParseError):
-        return True  # JSON 解析失败允许重试一次
+        raw_response_text = str(exc.raw_response_text or "").strip()
+        return len(raw_response_text) < JSON_RETRYABLE_MIN_EMPTY_LENGTH
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         if status in {408, 409, 425, 429} or status >= 500:
@@ -715,13 +718,7 @@ class RecruitmentAIGateway:
                     "AI screening JSON 解析失败: 模型返回了空响应内容",
                     raw_response_text="",
                 )
-            try:
-                content = _parse_llm_json_response(raw_text or "{}")
-            except json.JSONDecodeError as exc:
-                raise RecruitmentAIJSONParseError(
-                    f"AI screening JSON 解析失败: {exc}",
-                    raw_response_text=raw_text,
-                ) from exc
+            content = _parse_llm_json_response(raw_text or "{}")
             return {
                 "content": content,
                 "token_usage": token_usage,
@@ -847,9 +844,9 @@ class RecruitmentAIGateway:
         raw_text = "\n".join([part.get("text", "") for part in parts if part.get("text")]).strip() or "{}"
         try:
             content = _parse_llm_json_response(raw_text)
-        except json.JSONDecodeError as exc:
+        except RecruitmentAIJSONParseError as exc:
             raise RecruitmentAIJSONParseError(
-                f"AI screening JSON 解析失败: {exc}",
+                str(exc),
                 raw_response_text=raw_text,
                 provider_payload=payload,
             ) from exc
@@ -910,9 +907,9 @@ class RecruitmentAIGateway:
         raw_text = self._extract_text_from_anthropic(payload) or "{}"
         try:
             content = _parse_llm_json_response(raw_text)
-        except json.JSONDecodeError as exc:
+        except RecruitmentAIJSONParseError as exc:
             raise RecruitmentAIJSONParseError(
-                f"AI screening JSON 解析失败: {exc}",
+                str(exc),
                 raw_response_text=raw_text,
                 provider_payload=payload,
             ) from exc

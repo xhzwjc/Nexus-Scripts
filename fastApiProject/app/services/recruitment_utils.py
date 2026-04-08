@@ -203,6 +203,9 @@ DEFAULT_SKILLS = [
     },
 ]
 
+# These seeded defaults are starter records only. Runtime screening must still
+# resolve active skills from the bound position/task context instead of treating
+# any IoT skill as a generic fallback for every job.
 KNOWN_SKILLS = [
     "python", "java", "go", "javascript", "typescript", "sql", "linux", "docker", "k8s",
     "selenium", "playwright", "pytest", "jmeter", "postman", "api", "iot", "测试", "自动化",
@@ -210,7 +213,7 @@ KNOWN_SKILLS = [
     "硬件", "硬件测试", "软硬件", "电子", "固件", "驱动", "设备", "可靠性", "稳定性",
 ]
 
-SCREENING_DIMENSION_KEYWORDS = {
+IOT_SCREENING_DIMENSION_KEYWORDS = {
     "智能家居生态": ["智能家居", "米家", "homekit", "鸿蒙", "涂鸦", "联动", "互联互通", "门锁", "灯具", "网关", "app", "小程序"],
     "IoT通信协议": ["iot", "wi-fi", "wifi", "ble", "蓝牙", "zigbee", "thread", "mqtt", "星闪", "配网", "组网", "协议"],
     "软件测试基础": ["测试用例", "功能测试", "回归测试", "接口测试", "app测试", "缺陷", "bug", "jira", "测试计划", "测试方案", "测试报告", "缺陷报告"],
@@ -221,6 +224,21 @@ SCREENING_DIMENSION_KEYWORDS = {
     "文档输出能力": ["测试报告", "缺陷报告", "用例", "测试用例", "编写完整报告", "填写报告", "提交缺陷", "跟踪缺陷", "总结"],
     "加分项": ["linux", "shell", "ai", "小米", "华为", "美的", "海尔", "功耗", "射频", "ci/cd", "ci", "cd", "认证"],
 }
+
+IOT_SCREENING_CONTEXT_MARKERS = (
+    "iot",
+    "智能家居",
+    "米家",
+    "homekit",
+    "鸿蒙",
+    "zigbee",
+    "mqtt",
+    "ble",
+    "thread",
+    "ota",
+    "固件",
+    "嵌入式",
+)
 
 SCREENING_RULE_IGNORE_MARKERS = (
     "name:",
@@ -1038,6 +1056,8 @@ def _parse_education_experience_item(line: str) -> Optional[Dict[str, Any]]:
     normalized = _clean_resume_line(line)
     if not normalized or any(keyword in normalized for keyword in RESUME_CERTIFICATE_KEYWORDS):
         return None
+    if "@" in normalized or re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", normalized):
+        return None
     duration, remainder = _extract_duration_and_remainder(normalized)
     if not duration:
         year_range_match = re.search(r"((?:19|20)\d{2}\s*[-~～至]\s*(?:19|20)\d{2})", normalized)
@@ -1053,6 +1073,13 @@ def _parse_education_experience_item(line: str) -> Optional[Dict[str, Any]]:
         school = remainder[:degree_match.start()].strip("·|-—()（）[]【】 ")
     school = re.sub(r"\s+", " ", school).strip()
     school = re.sub(r"(教育背景|荣誉证书|技能特长|基本信息)$", "", school).strip()
+    if (
+        not school
+        or "@" in school
+        or any(marker in school for marker in ["联系电话", "邮箱", "Email", "email", "个人简历", "PERSONAL RESUME"])
+        or (len(re.findall(r"(大学|学院)", school)) >= 2 and len(school) > 24)
+    ):
+        return None
     major_match = re.search(r"(?:专业|方向)\s*[:：]?\s*([^\s，,；;|/]+)", remainder)
     major = _clean_resume_line(major_match.group(1)) if major_match else ""
     if not major and degree_match:
@@ -1108,6 +1135,15 @@ def _looks_like_project_noise_line(line: str) -> bool:
     if re.match(r"^\d+[、.．]\s*(项目交付|编写测试指导书|测试指导书|交付物|交付件)\b", normalized):
         return True
     return False
+
+
+def _normalize_fallback_project_name(value: Any) -> str:
+    normalized = _clean_resume_line(value)
+    if not normalized:
+        return ""
+    normalized = re.sub(r"^(项目名称\s*[:：]?\s*)", "", normalized).strip()
+    normalized = re.split(r"(项目描述|职责描述|项目环境|产品介绍|项目简介)\s*[:：]?", normalized, maxsplit=1)[0].strip("：: -")
+    return normalized[:120]
 
 
 def _extract_project_items(lines: Sequence[str], *, limit: int = 6) -> List[Dict[str, Any]]:
@@ -1167,7 +1203,7 @@ def _extract_project_items(lines: Sequence[str], *, limit: int = 6) -> List[Dict
         name_match = re.search(r"项目名称\s*[:：]?\s*(.+)$", normalized)
         if name_match:
             flush_current()
-            project_name = _clean_resume_line(name_match.group(1)).strip("：: -")
+            project_name = _normalize_fallback_project_name(name_match.group(1))
             if project_name and not _looks_like_project_noise_line(project_name):
                 current = {"project_name": project_name[:120]}
             continue
@@ -1175,8 +1211,10 @@ def _extract_project_items(lines: Sequence[str], *, limit: int = 6) -> List[Dict
             if current is not None and (descriptions or responsibilities):
                 flush_current()
             if current is None:
-                current = {"project_name": normalized[:120]}
-                continue
+                project_name = _normalize_fallback_project_name(normalized)
+                if project_name:
+                    current = {"project_name": project_name[:120]}
+                    continue
         if current is None:
             continue
         if RESUME_DATE_RANGE_LINE_PATTERN.match(normalized):
@@ -1325,7 +1363,7 @@ def extract_resume_structured_data(raw_text: str, fallback_name: str) -> Dict[st
         "education_experiences": education_items,
         "skills": discovered_skills[:20],
         "projects": project_items,
-        "summary": "；".join(lines[:5])[:500],
+        "summary": "",
     }
 
 
@@ -1596,6 +1634,11 @@ def _is_dimension_table_header(cells: List[str]) -> bool:
     return first_ok and second_ok and third_ok and fourth_ok
 
 
+def _looks_like_iot_screening_rule_context(*texts: Any) -> bool:
+    combined = " ".join(str(text or "") for text in texts).lower()
+    return any(marker in combined for marker in IOT_SCREENING_CONTEXT_MARKERS)
+
+
 def extract_screening_dimension_rules(skills: Optional[Iterable[Any]], limit: int = 12) -> List[Dict[str, Any]]:
     rules: List[Dict[str, Any]] = []
     seen_labels: set[str] = set()
@@ -1606,6 +1649,11 @@ def extract_screening_dimension_rules(skills: Optional[Iterable[Any]], limit: in
         else:
             content = str(skill or "")
         body = _strip_skill_frontmatter_text(content)
+        iot_context = _looks_like_iot_screening_rule_context(
+            content,
+            skill.get("name") if isinstance(skill, dict) else "",
+            skill.get("description") if isinstance(skill, dict) else "",
+        )
         in_table = False
         header_matched = False
         for raw_line in body.splitlines():
@@ -1646,7 +1694,7 @@ def extract_screening_dimension_rules(skills: Optional[Iterable[Any]], limit: in
                     "max_score": round(float(max_score), 1),
                     "note": note,
                     "is_core": "核心第一优先" in note,
-                    "keywords": SCREENING_DIMENSION_KEYWORDS.get(label, []),
+                    "keywords": IOT_SCREENING_DIMENSION_KEYWORDS.get(label, []) if iot_context else [],
                 }
             )
             if len(rules) >= limit:

@@ -244,6 +244,7 @@ Rules:
 
 RESUME_SCORE_SYSTEM_PROMPT = """You are an ATS screening engine for recruitment.
 Evaluate the candidate against the provided position, parsed resume helper, scoring dimensions, screening skills, and any custom hard requirements.
+This is a resume_score task, so you must return a score-only top-level object.
 Return strict JSON only.
 Return this schema exactly:
 {
@@ -260,7 +261,7 @@ Rules:
 - Base every judgment on resume evidence, position requirements, and screening skills.
 - The only valid evidence source is the candidate's raw resume text in the prompt.
 - Evidence must be quoted or excerpted directly from the raw resume text, not paraphrased from the JD, skill instructions, scoring rubric, rule notes, or system rules.
-- parsed_resume is helper context only, not an independent evidence source. Do not use self-generated parsed fields as evidence unless they are directly copied from the raw resume text.
+- The provided parsed_resume helper is context only, not an independent evidence source. Do not use helper fields as evidence unless they are directly copied from the raw resume text.
 - Never use wording copied from the JD, skill rubric, or rule notes as if it were candidate evidence.
 - A score can only be supported by resume text actually written in the candidate's resume.
 - Each positive-scoring dimension must include 1-2 short evidence excerpts taken directly from the raw resume text.
@@ -284,7 +285,7 @@ Rules:
 - suggested_status must be derived from the dimension-based final total_score and core-dimension rules, not from a separate freeform overall impression.
 - If a hard constraint is not supported by resume evidence, it must appear clearly in concerns and reduce the score.
 - If core dimensions are missing evidence, concerns cannot be empty and screening_passed should normally not be returned.
-- Never claim AI tool usage, head-company background, IoT ecosystem experience, protocol exposure, or automation ability unless the raw resume text provides direct evidence.
+- Never claim company background, domain ecosystem exposure, protocol/tooling ability, or automation experience unless the raw resume text provides direct evidence.
 - Never turn a project mention into employment background, and never infer a company tier from a product name alone.
 - Do not default to generic round scores such as 80, 85, or 90 without concrete resume evidence.
 - If multiple hard constraints are missing, match_percent should drop materially and normally stay below the pass threshold.
@@ -306,8 +307,11 @@ Rules:
 - Do not return any fields beyond total_score, match_percent, advantages, concerns, recommendation, suggested_status, and dimensions.
 - Do not return parsed_resume in resume_score tasks.
 - The top-level object must contain only total_score, match_percent, advantages, concerns, recommendation, suggested_status, and dimensions.
-- Dimension scores must only be supported by evidence from that specific dimension. Do not carry evidence across dimensions: "OTA 压测" cannot support IoT通信协议 full score; "稳压电源测试" cannot support 嵌入式/固件经验 score.
-- For the 嵌入式/固件经验 dimension: a score greater than 0 is only allowed when the resume contains at least one of these direct evidence items: OTA压测、OTA升级专项、固件刷写、版本升级验证、嵌入式调试、烧录、串口调试、Boot相关测试、底层日志定位. Descriptions such as "通过软件和硬件定位问题", "问题排查", "协助开发定位", "分析硬件问题", "硬件可靠性测试" do NOT qualify as 嵌入式/固件经验 evidence and must not be used to give any score to this dimension. When only OTA压测 or upgrade test evidence exists, choose one exact numeric score no greater than 0.4, for example 0.3 or 0.4. When stronger evidence (firmware flashing, serial debugging, boot-level testing) exists, scores above 0.7 are allowed, but you must still output one exact numeric value.
+- If dimensions exist, total_score must equal the exact arithmetic sum of every dimensions.score value.
+- If dimensions exist, match_percent must equal round(total_score * 10).
+- For each dimension, follow the dimension-specific note/rubric provided in DIMENSION_RULES and the active screening skills. Do not invent extra rubric beyond the provided dimension rules.
+- 每个评分维度都只能依据该维度对应的规则说明、岗位要求与简历原文打分，不要在全局规则之外自行新增岗位专属判定标准。
+- Evidence for one dimension must not be mechanically reused as full evidence for another unrelated dimension. Score each dimension independently against its own rule note and resume evidence.
 """ + "\n\n" + SCORE_ONLY_OUTPUT_SCHEMA
 
 INTERVIEW_QUESTION_SYSTEM_PROMPT = """You are an interview question generation engine for recruitment.
