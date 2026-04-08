@@ -101,6 +101,15 @@ class CandidateScreenRequest(BaseModel):
     use_candidate_memory: bool = True
     use_position_skills: bool = True
     custom_requirements: Optional[str] = None
+    force_one_pass: bool = False
+
+
+class CandidateScreenBatchStartRequest(BaseModel):
+    candidate_ids: List[int] = Field(default_factory=list)
+    skill_ids: List[int] = Field(default_factory=list)
+    use_candidate_memory: bool = True
+    use_position_skills: bool = True
+    custom_requirements: Optional[str] = None
 
 
 class SkillUpsertRequest(BaseModel):

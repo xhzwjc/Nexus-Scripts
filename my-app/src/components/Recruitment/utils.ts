@@ -484,11 +484,12 @@ export function isLiveTaskStatus(status?: string | null) {
 }
 
 export function isTerminalTaskStatus(status?: string | null) {
-    return ["success", "fallback", "failed", "cancelled"].includes(status || "");
+    return ["success", "fallback", "failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "cancelled"].includes(status || "");
 }
 
 export function labelForMemorySource(source?: string | null) {
     switch (source) {
+        case "explicit_request":
         case "manual_override":
         case "manual":
             return "手动指定 Skills";
@@ -496,10 +497,15 @@ export function labelForMemorySource(source?: string | null) {
             return "候选人工作记忆";
         case "position":
         case "position_default":
+        case "position_binding":
             return "岗位绑定 Skills";
         case "global":
         case "enabled_global_fallback":
             return "全局启用 Skills";
+        case "task_snapshot":
+            return "任务快照";
+        case "none":
+            return "未命中 Skills";
         case "guardrail":
             return "非招聘拒答规则";
         default:
@@ -655,10 +661,60 @@ export function labelForTaskExecutionStatus(status?: string | null) {
             return "排队中";
         case "pending":
             return "待执行";
+        case "invalid_result":
+            return "结果无效";
+        case "json_parse_failed":
+            return "JSON 失败";
+        case "timeout":
+            return "超时";
+        case "retry_exhausted":
+            return "重试耗尽";
         case "failed":
             return "失败";
         default:
             return status || "-";
+    }
+}
+
+export function labelForScreeningTaskStage(stage?: string | null) {
+    switch (stage) {
+        case "queued":
+            return "已入队";
+        case "parsing":
+            return "解析中";
+        case "parsed":
+            return "解析完成";
+        case "scoring":
+            return "评分中";
+        case "validating":
+            return "校验中";
+        case "saving":
+            return "保存中";
+        case "completed":
+            return "已完成";
+        case "failed":
+            return "失败";
+        case "cancelled":
+            return "已停止";
+        default:
+            return stage || "-";
+    }
+}
+
+export function labelForSkillResolutionSource(source?: string | null) {
+    switch (source) {
+        case "position_binding":
+            return "岗位绑定";
+        case "candidate_memory":
+            return "候选人工作记忆";
+        case "explicit_request":
+            return "显式指定";
+        case "task_snapshot":
+            return "任务快照";
+        case "none":
+            return "未命中";
+        default:
+            return source || "未记录";
     }
 }
 
@@ -697,6 +753,8 @@ export function statusBadgeClass(kind: "position" | "candidate" | "task", value?
         if (value === "running") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200";
         if (value === "cancelling") return "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200";
         if (value === "cancelled") return "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300";
+        if (value === "invalid_result") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
+        if (value === "json_parse_failed" || value === "timeout" || value === "retry_exhausted") return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
         if (value === "failed") return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
     }
     if (kind === "position") {

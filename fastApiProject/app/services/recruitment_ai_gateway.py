@@ -1,4 +1,4 @@
-﻿import json
+import json
 import logging
 import os
 import re
@@ -22,6 +22,19 @@ class RecruitmentAIJSONParseError(RuntimeError):
         super().__init__(message)
         self.raw_response_text = raw_response_text or ""
         self.provider_payload = provider_payload
+
+
+class RecruitmentAITimeoutError(RuntimeError):
+    def __init__(self, message: str, *, last_error: Optional[Exception] = None):
+        super().__init__(message)
+        self.last_error = last_error
+
+
+class RecruitmentAIRetryExhaustedError(RuntimeError):
+    def __init__(self, message: str, *, last_error: Optional[Exception] = None, attempts: int = 0):
+        super().__init__(message)
+        self.last_error = last_error
+        self.attempts = attempts
 
 
 def _truncate(value: Any, limit: int = 1000) -> str:
@@ -301,25 +314,37 @@ def _is_glm_json_request(config: "RecruitmentLLMRuntimeConfig", *, response_mode
         return False
     provider = (config.provider or "").strip().lower()
     model_name = (config.model_name or "").strip().lower()
-    return provider in {"glm", "zhipu"} or model_name.startswith("glm-4-flash") or model_name.startswith("glm-4-plus")
+    if provider in {"glm", "zhipu"}:
+        return True
+    # 覆盖所有 glm- 前缀模型，包括 glm-5、glm-4.5-air 等新版本
+    if model_name.startswith("glm-"):
+        return True
+    return False
 
 
 def _resolve_request_temperature(config: "RecruitmentLLMRuntimeConfig", *, response_mode: str) -> float | int:
     if response_mode != "json":
         return 0.3
-    if _is_glm_json_request(config, response_mode=response_mode):
-        return 0
-    return 0.2
+    return 0
 
 
 def _resolve_openai_json_response_format(config: "RecruitmentLLMRuntimeConfig", *, response_mode: str) -> Optional[Dict[str, str]]:
-    if not _is_glm_json_request(config, response_mode=response_mode):
+    if response_mode != "json":
         return None
-    return {"type": "json_object"}
+    provider = (config.provider or "").strip().lower()
+    model_name = (config.model_name or "").strip().lower()
+    supported_provider_whitelist = {"openai", "deepseek", "kimi", "moonshot", "glm", "zhipu"}
+    supported_model_prefixes = ("gpt-", "o1", "o3", "deepseek", "moonshot", "kimi", "glm-")
+    if provider in supported_provider_whitelist:
+        return {"type": "json_object"}
+    if provider == "openai-compatible" and model_name.startswith(supported_model_prefixes):
+        return {"type": "json_object"}
+    return None
 
 
 def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_mode: str, system_prompt: str, user_prompt: str) -> str:
     temperature = _resolve_request_temperature(config, response_mode=response_mode)
+    response_format: Optional[Dict[str, str]] = None
     if config.runtime_provider == "gemini":
         request_body = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
@@ -358,6 +383,8 @@ def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_m
             "base_url": config.base_url,
             "endpoint": endpoint,
             "response_mode": response_mode,
+            "temperature": temperature,
+            "response_format": response_format,
             "request_body": request_body,
         }
     )
@@ -365,7 +392,7 @@ def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_m
 
 def _is_retryable_error(exc: Exception) -> bool:
     if isinstance(exc, RecruitmentAIJSONParseError):
-        return False
+        return True  # JSON 解析失败允许重试一次
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         if status in {408, 409, 425, 429} or status >= 500:
@@ -510,7 +537,18 @@ class RecruitmentAIGateway:
         return self._build_runtime_config(get_provider_definition("openai-compatible"), model_name=settings.AI_MODEL_NAME, base_url=settings.AI_BASE_URL, api_key=settings.AI_API_KEY, source="env:fallback")
 
     def _build_httpx_client(self, config: RecruitmentLLMRuntimeConfig, *, cancel_control: Optional[RecruitmentTaskControl] = None) -> httpx.Client:
-        client = httpx.Client(timeout=float(config.extra_config.get("timeout_seconds") or 180))
+        connect_timeout = float(config.extra_config.get("connect_timeout_seconds") or 10)
+        read_timeout = float(config.extra_config.get("read_timeout_seconds") or 75)
+        write_timeout = float(config.extra_config.get("write_timeout_seconds") or 20)
+        pool_timeout = float(config.extra_config.get("pool_timeout_seconds") or 10)
+        client = httpx.Client(
+            timeout=httpx.Timeout(
+                connect=connect_timeout,
+                read=read_timeout,
+                write=write_timeout,
+                pool=pool_timeout,
+            )
+        )
         if cancel_control:
             cancel_control.register_closer(client.close)
         return client
@@ -788,7 +826,7 @@ class RecruitmentAIGateway:
             raise RuntimeError("Missing API key for Gemini")
         base_url = (config.base_url or "https://generativelanguage.googleapis.com").rstrip("/")
         url = f"{base_url}/v1beta/models/{config.model_name}:generateContent"
-        body = {"system_instruction": {"parts": [{"text": system_prompt}]}, "contents": [{"role": "user", "parts": [{"text": f"{user_prompt}\n\n请仅返回有效 JSON。"}]}], "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}}
+        body = {"system_instruction": {"parts": [{"text": system_prompt}]}, "contents": [{"role": "user", "parts": [{"text": f"{user_prompt}\n\n请仅返回有效 JSON。"}]}], "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}}
         client = self._build_httpx_client(config, cancel_control=cancel_control)
         try:
             response = client.post(url, params={"key": config.api_key}, json=body)
@@ -855,7 +893,7 @@ class RecruitmentAIGateway:
         base_url = (config.base_url or "https://api.anthropic.com").rstrip("/")
         client = self._build_httpx_client(config, cancel_control=cancel_control)
         try:
-            response = client.post(f"{base_url}/v1/messages", headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json={"model": config.model_name, "max_tokens": 4000, "temperature": 0.2, "system": system_prompt, "messages": [{"role": "user", "content": f"{user_prompt}\n\nReturn valid JSON only."}]})
+            response = client.post(f"{base_url}/v1/messages", headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json={"model": config.model_name, "max_tokens": 4000, "temperature": 0, "system": system_prompt, "messages": [{"role": "user", "content": f"{user_prompt}\n\nReturn valid JSON only."}]})
             response.raise_for_status()
             if cancel_control:
                 cancel_control.raise_if_cancelled()
@@ -913,7 +951,8 @@ class RecruitmentAIGateway:
         config = self.resolve_config(task_type)
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
         full_request_snapshot = _build_request_snapshot(config, response_mode="json", system_prompt=system_prompt, user_prompt=user_prompt)
-        max_retries = max(0, int(config.extra_config.get("max_retries") or 2))
+        default_max_retries = 1 if task_type in {"resume_score", "resume_parse"} else 2
+        max_retries = max(0, int(config.extra_config.get("max_retries") if "max_retries" in config.extra_config else default_max_retries))
         retry_delay = float(config.extra_config.get("retry_delay_seconds") or 1.2)
         last_error: Exception | None = None
         for attempt in range(max_retries + 1):
@@ -954,11 +993,15 @@ class RecruitmentAIGateway:
                     else:
                         time.sleep(sleep_seconds)
                     continue
-                logger.warning("Recruitment JSON task %s failed, falling back: %s", task_type, exc)
+                logger.warning("Recruitment JSON task %s failed: %s", task_type, exc)
                 break
         if fallback_builder is None:
             if isinstance(last_error, RecruitmentAIJSONParseError):
                 raise last_error
+            if isinstance(last_error, httpx.TimeoutException):
+                raise RecruitmentAITimeoutError(_format_http_error(last_error), last_error=last_error) from last_error
+            if last_error and _is_retryable_error(last_error) and max_retries > 0:
+                raise RecruitmentAIRetryExhaustedError(_format_http_error(last_error), last_error=last_error, attempts=max_retries + 1) from last_error
             raise RuntimeError(_format_http_error(last_error or RuntimeError("Unknown AI task failure")))
         fallback = fallback_builder()
         return {

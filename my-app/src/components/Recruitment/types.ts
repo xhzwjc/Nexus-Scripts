@@ -202,8 +202,8 @@ export const candidateStatusLabels: Record<string, string> = {
 
 export const aiTaskLabels: Record<string, string> = {
     jd_generation: "JD 生成",
-    resume_parse: "简历解析（手动/历史）",
-    resume_score: "简历评分",
+    resume_parse: "简历解析",
+    resume_score: "初筛评分",
     interview_question_generation: "面试题生成",
     chat_orchestrator: "对话助手",
 };

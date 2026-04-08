@@ -65,7 +65,9 @@ import {
     type RecruitmentResumeMailDispatch,
     type RecruitmentMetadata,
     type RecruitmentSkill,
+    type RecruitmentTaskBatchStartResponse,
     type ResumeFile,
+    type ResumeUploadResponse,
     type RecruitmentTaskStartResponse,
 } from "@/lib/recruitment-api";
 import {cn} from "@/lib/utils";
@@ -618,7 +620,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         );
     }, [assistantContextSkillIds, chatContext.candidate_id, chatContext.position_id, chatContext.skill_ids.length]);
     const activeScreeningTaskIds = useMemo(() => Object.values(activeScreeningTaskMap), [activeScreeningTaskMap]);
-    const selectedCandidateScreeningTaskId = selectedCandidateId ? (activeScreeningTaskMap[selectedCandidateId] || null) : null;
+    const selectedCandidateScreeningTaskId = selectedCandidateId
+        ? (
+            activeScreeningTaskMap[selectedCandidateId]
+            || (candidateDetail?.candidate.id === selectedCandidateId ? candidateDetail?.candidate.active_screening_task_id : null)
+            || candidateMap.get(selectedCandidateId)?.active_screening_task_id
+            || null
+        )
+        : null;
     const isBatchScreeningRunning = activeBatchScreeningTaskIds.length > 0;
     const currentCandidateInterviewTaskId = activeInterviewCandidateId === selectedCandidateId ? activeInterviewTaskId : null;
     const isTaskCancelling = useCallback((taskId?: number | null) => {
@@ -1930,6 +1939,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         });
     }
 
+    useEffect(() => {
+        candidates.forEach((candidate) => {
+            if (!candidate.active_screening_task_id || !candidate.active_screening_task_status || !isLiveTaskStatus(candidate.active_screening_task_status)) {
+                return;
+            }
+            if (taskMonitorTokensRef.current.has(candidate.active_screening_task_id)) {
+                return;
+            }
+            attachScreeningTaskMonitor(candidate.id, candidate.active_screening_task_id, {
+                suppressFinishToast: true,
+            });
+        });
+    }, [candidates]);
+
     function updateChatMessage(messageId: string, updater: (message: ChatMessage) => ChatMessage) {
         setChatMessages((current) => current.map((message) => (
             message.id === messageId ? updater(message) : message
@@ -2974,31 +2997,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             position_id: resumeUploadPositionId === "all" ? null : resumeUploadPositionId,
         });
         try {
-            const uploaded = await recruitmentApi<Array<{
-                id: number;
-                auto_screen_enabled?: boolean;
-                auto_screen_started?: boolean;
-                auto_screen_task_id?: number | null;
-                auto_screen_task_status?: string | null;
-                auto_screen_error?: string | null;
-            }>>(`/candidates/upload-resumes${query}`, {
+            const uploaded = await recruitmentApi<ResumeUploadResponse>(`/candidates/upload-resumes${query}`, {
                 method: "POST",
                 body: formData,
             });
-            const startedCount = uploaded.filter((item) => item.auto_screen_started).length;
-            const failedCount = uploaded.filter((item) => item.auto_screen_enabled && !item.auto_screen_started).length;
-            uploaded.forEach((item) => {
-                if (item.auto_screen_started && item.auto_screen_task_id) {
+            uploaded.items.forEach((item) => {
+                if (item.auto_screen_task_id && item.auto_screen_task_status && isLiveTaskStatus(item.auto_screen_task_status)) {
                     attachScreeningTaskMonitor(item.id, item.auto_screen_task_id, {
                         suppressFinishToast: true,
                     });
                 }
             });
-            if (startedCount > 0) {
-                toast.success(`已上传 ${uploaded.length} 份简历，其中 ${startedCount} 份已自动开始初筛${failedCount > 0 ? `，${failedCount} 份启动失败` : ""}。`);
-            } else {
-                toast.success("简历已上传。若岗位已开启自动初筛，系统会继续执行初筛；否则可在候选人页手动开始初筛。");
-            }
+            toast.success(
+                `已上传 ${uploaded.uploaded_count} 份简历，自动初筛已入队 ${uploaded.auto_screen_queued_count} 份，已跳过进行中任务 ${uploaded.auto_screen_skipped_existing_live_task_count} 份${uploaded.auto_screen_failed_count > 0 ? `，失败 ${uploaded.auto_screen_failed_count} 份` : ""}。`,
+            );
             setResumeUploadOpen(false);
             setResumeUploadFiles([]);
             await refreshCoreData();
@@ -3133,34 +3145,45 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         screeningLaunchInFlightRef.current = true;
         setScreeningSubmitting(true);
-        const failures: string[] = [];
-        const startedTaskIds: number[] = [];
         try {
-            for (const candidateId of candidateIds) {
-                try {
-                    const task = await recruitmentApi<RecruitmentTaskStartResponse>(`/candidates/${candidateId}/screen/start`, {
-                        method: "POST",
-                        body: JSON.stringify({
-                            skill_ids: [],
-                            use_candidate_memory: true,
-                            use_position_skills: true,
-                        }),
+            if (isBatchRequest) {
+                const response = await recruitmentApi<RecruitmentTaskBatchStartResponse>("/candidates/screen/batch-start", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        candidate_ids: candidateIds,
+                        skill_ids: [],
+                        use_candidate_memory: true,
+                        use_position_skills: true,
+                    }),
+                });
+                response.tasks.forEach((task) => {
+                    if (!task.related_candidate_id || !task.task_id) {
+                        return;
+                    }
+                    attachScreeningTaskMonitor(task.related_candidate_id, task.task_id, {
+                        batch: true,
+                        suppressFinishToast: true,
                     });
-                    startedTaskIds.push(task.task_id);
-                    attachScreeningTaskMonitor(candidateId, task.task_id, {
-                        batch: isBatchRequest,
-                        suppressFinishToast: isBatchRequest,
-                    });
-                } catch (error) {
-                    failures.push(`候选人 #${candidateId}: ${error instanceof Error ? error.message : "未知错误"}`);
+                });
+                if (response.queued_count || response.skipped_existing_live_task_count) {
+                    toast.success(`已入队 ${response.queued_count} 个，已跳过进行中的 ${response.skipped_existing_live_task_count} 个${(response.failed_count || 0) > 0 ? `，失败 ${response.failed_count}` : ""}。`);
+                } else {
+                    toast.error("没有成功入队任何初筛任务");
                 }
-            }
-            if (failures.length) {
-                toast.error(`初筛完成，但有 ${failures.length} 份失败：${failures[0]}`);
-            } else if (startedTaskIds.length) {
-                toast.success(candidateIds.length > 1 ? `已开始 ${candidateIds.length} 份初筛，可随时停止` : "已开始初筛，可随时停止");
             } else {
-                toast.error("没有成功启动任何初筛任务");
+                const candidateId = candidateIds[0];
+                const task = await recruitmentApi<RecruitmentTaskStartResponse>(`/candidates/${candidateId}/screen/start`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                        skill_ids: [],
+                        use_candidate_memory: true,
+                        use_position_skills: true,
+                    }),
+                });
+                attachScreeningTaskMonitor(candidateId, task.task_id, {
+                    suppressFinishToast: false,
+                });
+                toast.success(task.reused_existing_task ? "已有初筛任务在执行，已为你定位到现有任务" : "已将初筛任务加入队列");
             }
         } finally {
             screeningLaunchInFlightRef.current = false;

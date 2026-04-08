@@ -327,6 +327,34 @@ def ensure_recruitment_schema() -> None:
             logger.info("Added recruitment_positions.interview_skill_ids_json column")
 
         ai_task_columns = {column["name"] for column in inspector.get_columns("recruitment_ai_task_logs")}
+        if "screening_run_id" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN screening_run_id VARCHAR(80) NULL"))
+            logger.info("Added recruitment_ai_task_logs.screening_run_id column")
+        if "parent_task_id" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN parent_task_id INTEGER NULL"))
+            logger.info("Added recruitment_ai_task_logs.parent_task_id column")
+        if "root_task_id" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN root_task_id INTEGER NULL"))
+            logger.info("Added recruitment_ai_task_logs.root_task_id column")
+        if "stage" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN stage VARCHAR(50) NULL"))
+            logger.info("Added recruitment_ai_task_logs.stage column")
+        if "stage_started_at" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN stage_started_at DATETIME NULL"))
+            logger.info("Added recruitment_ai_task_logs.stage_started_at column")
+        if "stage_completed_at" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN stage_completed_at DATETIME NULL"))
+            logger.info("Added recruitment_ai_task_logs.stage_completed_at column")
+        if "duration_ms" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN duration_ms INTEGER NULL"))
+            logger.info("Added recruitment_ai_task_logs.duration_ms column")
         if "related_skill_ids_json" not in ai_task_columns:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN related_skill_ids_json TEXT NULL"))
@@ -340,6 +368,22 @@ def ensure_recruitment_schema() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN memory_source VARCHAR(80) NULL"))
             logger.info("Added recruitment_ai_task_logs.memory_source column")
+        if "skill_resolution_source" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN skill_resolution_source VARCHAR(80) NULL"))
+            logger.info("Added recruitment_ai_task_logs.skill_resolution_source column")
+        if "skill_resolution_detail_json" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN skill_resolution_detail_json TEXT NULL"))
+            logger.info("Added recruitment_ai_task_logs.skill_resolution_detail_json column")
+        if "score_rule_snapshot_json" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN score_rule_snapshot_json TEXT NULL"))
+            logger.info("Added recruitment_ai_task_logs.score_rule_snapshot_json column")
+        if "timing_breakdown_json" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN timing_breakdown_json TEXT NULL"))
+            logger.info("Added recruitment_ai_task_logs.timing_breakdown_json column")
         if "request_hash" not in ai_task_columns:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN request_hash VARCHAR(120) NULL"))
@@ -352,13 +396,41 @@ def ensure_recruitment_schema() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN full_request_snapshot TEXT NULL"))
             logger.info("Added recruitment_ai_task_logs.full_request_snapshot column")
+        if "raw_response_text" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN raw_response_text TEXT NULL"))
+            logger.info("Added recruitment_ai_task_logs.raw_response_text column")
+        if "parsed_response_json" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN parsed_response_json TEXT NULL"))
+            logger.info("Added recruitment_ai_task_logs.parsed_response_json column")
+        if "sanitized_response_json" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN sanitized_response_json TEXT NULL"))
+            logger.info("Added recruitment_ai_task_logs.sanitized_response_json column")
+        if "validation_meta_json" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN validation_meta_json TEXT NULL"))
+            logger.info("Added recruitment_ai_task_logs.validation_meta_json column")
+        if "persisted_result_refs_json" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN persisted_result_refs_json TEXT NULL"))
+            logger.info("Added recruitment_ai_task_logs.persisted_result_refs_json column")
         if engine.dialect.name == "mysql":
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN related_skill_snapshots_json LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN skill_resolution_detail_json LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN score_rule_snapshot_json LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN timing_breakdown_json LONGTEXT NULL"))
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN prompt_snapshot LONGTEXT NULL"))
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN full_request_snapshot LONGTEXT NULL"))
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN output_summary LONGTEXT NULL"))
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN output_snapshot LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN raw_response_text LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN parsed_response_json LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN sanitized_response_json LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN validation_meta_json LONGTEXT NULL"))
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN persisted_result_refs_json LONGTEXT NULL"))
             logger.info("Expanded recruitment_ai_task_logs large text columns to LONGTEXT")
 
         score_columns = {column["name"]: column for column in inspector.get_columns("recruitment_candidate_scores")}

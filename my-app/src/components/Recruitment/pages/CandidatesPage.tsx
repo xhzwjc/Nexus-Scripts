@@ -81,6 +81,7 @@ import {
     labelForCandidateStatus,
     labelForMemorySource,
     labelForProvider,
+    labelForScreeningTaskStage,
     labelForTaskExecutionStatus,
     labelForTaskType,
     parseStructuredLogOutput,
@@ -340,12 +341,57 @@ function readScoreDimensions(value: unknown): CandidateScoreDimension[] {
     return value.filter((item) => item && typeof item === "object" && !Array.isArray(item)) as CandidateScoreDimension[];
 }
 
-function readDimensionEvidence(value: unknown): string | null {
+function readDimensionEvidenceList(value: unknown): string[] {
     if (typeof value === "string") {
         const trimmed = value.trim();
-        return trimmed || null;
+        return trimmed ? [trimmed] : [];
     }
-    return null;
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function readDimensionEvidence(value: unknown): string | null {
+    const items = readDimensionEvidenceList(value);
+    return items.length ? items.join(" / ") : null;
+}
+
+function extractScreeningTaskStage(log?: AITaskLog | null): string {
+    const parsed = parseStructuredLogOutput(log?.output_snapshot);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const payload = parsed as Record<string, unknown>;
+        const directStage = typeof payload.stage === "string" ? payload.stage.trim() : "";
+        if (directStage) {
+            return directStage;
+        }
+        const meta = payload.meta;
+        if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+            const metaStage = typeof (meta as Record<string, unknown>).stage === "string"
+                ? String((meta as Record<string, unknown>).stage).trim()
+                : "";
+            if (metaStage) {
+                return metaStage;
+            }
+        }
+    }
+    switch (log?.status) {
+        case "queued":
+        case "pending":
+            return "queued";
+        case "running":
+            return "scoring";
+        case "success":
+        case "fallback":
+            return "completed";
+        case "cancelled":
+            return "cancelled";
+        default:
+            return log?.status ? "failed" : "";
+    }
 }
 
 function buildDimensionMarkdownLine(item: CandidateScoreDimension) {
@@ -1258,6 +1304,35 @@ export function CandidatesPage({
         () => candidateProcessActivity.find((log) => log.task_type === "resume_score") || null,
         [candidateProcessActivity],
     );
+    const currentScreeningTaskLog = React.useMemo(
+        () => (
+            selectedCandidateScreeningTaskId
+                ? candidateProcessActivity.find((log) => log.id === selectedCandidateScreeningTaskId) || latestResumeScoreLog
+                : null
+        ),
+        [candidateProcessActivity, latestResumeScoreLog, selectedCandidateScreeningTaskId],
+    );
+    const currentScreeningTaskStage = React.useMemo(
+        () => (
+            extractScreeningTaskStage(currentScreeningTaskLog)
+            || candidateDetail?.candidate.active_screening_stage
+            || ""
+        ),
+        [candidateDetail?.candidate.active_screening_stage, currentScreeningTaskLog],
+    );
+    const currentScreeningTaskType = React.useMemo(
+        () => currentScreeningTaskLog?.task_type || candidateDetail?.candidate.active_screening_task_type || "",
+        [candidateDetail?.candidate.active_screening_task_type, currentScreeningTaskLog],
+    );
+    const currentScreeningTaskStatus = React.useMemo(
+        () => currentScreeningTaskLog?.status || candidateDetail?.candidate.active_screening_status || "",
+        [candidateDetail?.candidate.active_screening_status, currentScreeningTaskLog],
+    );
+    const shouldShowCurrentScreeningTask = Boolean(
+        currentScreeningTaskLog
+        || candidateDetail?.candidate.active_screening_stage
+        || candidateDetail?.candidate.display_status_reason,
+    );
     const candidateAiOutputPayload = React.useMemo(
         () => resolveCandidateAiOutputPayload(latestResumeScoreLog, candidateDetail?.score),
         [candidateDetail?.score, latestResumeScoreLog],
@@ -1351,7 +1426,7 @@ export function CandidatesPage({
                                     disabled={isBatchScreeningCancelling || (screeningSubmitting && !isBatchScreeningRunning) || (!isBatchScreeningRunning && !selectedCandidateIds.length)}
                                 >
                                     {isBatchScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : isBatchScreeningRunning ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
-                                    {isBatchScreeningCancelling ? "停止中..." : isBatchScreeningRunning ? "停止批量初筛" : screeningSubmitting ? "启动中..." : "批量开始初筛"}
+                                    {isBatchScreeningCancelling ? "停止中..." : isBatchScreeningRunning ? "停止批量初筛" : screeningSubmitting ? "入队中..." : "批量入队"}
                                 </Button>
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => openResumeMailDialog(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Mail className="h-4 w-4"/>
@@ -1489,6 +1564,13 @@ export function CandidatesPage({
                                                         <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(candidate)))}>
                                                             {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))}
                                                         </Badge>
+                                                        {candidate.display_status_reason ? (
+                                                            <HoverRevealText
+                                                                text={candidate.display_status_reason}
+                                                                className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400"
+                                                                tooltipClassName="max-w-sm"
+                                                            />
+                                                        ) : null}
                                                     </td>
                                                     <td
                                                         style={{
@@ -1692,7 +1774,7 @@ export function CandidatesPage({
                                                 disabled={isSelectedCandidateScreeningCancelling || (screeningSubmitting && !selectedCandidateScreeningTaskId)}
                                             >
                                                 {isSelectedCandidateScreeningCancelling ? <Loader2 className="h-4 w-4 animate-spin"/> : selectedCandidateScreeningTaskId ? <Square className="h-4 w-4"/> : screeningSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : <Sparkles className="h-4 w-4"/>}
-                                                {isSelectedCandidateScreeningCancelling ? "停止中..." : selectedCandidateScreeningTaskId ? "停止初筛" : screeningSubmitting ? "启动中..." : "开始初筛"}
+                                                {isSelectedCandidateScreeningCancelling ? "停止中..." : selectedCandidateScreeningTaskId ? "停止初筛" : screeningSubmitting ? "入队中..." : "开始初筛"}
                                             </Button>
                                             {primaryResumeFile ? (
                                                 <Button className="shrink-0" size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile)}>
@@ -1725,6 +1807,38 @@ export function CandidatesPage({
                                             </Button>
                                         </div>
                                     </div>
+                                    {shouldShowCurrentScreeningTask ? (
+                                        <div className="mt-2 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">当前初筛任务</p>
+                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        {currentScreeningTaskLog?.output_summary || currentScreeningTaskLog?.error_message || candidateDetail?.candidate.display_status_reason || "任务执行中"}
+                                                    </p>
+                                                    {candidateDetail?.candidate.display_status_reason ? (
+                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                            {candidateDetail.candidate.display_status_reason}
+                                                        </p>
+                                                    ) : null}
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    {currentScreeningTaskType ? (
+                                                        <Badge variant="outline" className="rounded-full">
+                                                            {labelForTaskType(currentScreeningTaskType)}
+                                                        </Badge>
+                                                    ) : null}
+                                                    <Badge variant="outline" className="rounded-full">
+                                                        {labelForScreeningTaskStage(currentScreeningTaskStage)}
+                                                    </Badge>
+                                                    {currentScreeningTaskStatus ? (
+                                                        <Badge className={cn("rounded-full border", statusBadgeClass("task", currentScreeningTaskStatus))}>
+                                                            {labelForTaskExecutionStatus(currentScreeningTaskStatus)}
+                                                        </Badge>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : null}
                                     {candidateDetailToolbarHasOverflow ? (
                                         <div className="mt-1">
                                             <div
@@ -1934,15 +2048,26 @@ export function CandidatesPage({
                                                                         const label = readScoreText(item.label) || "-";
                                                                         const scoreValue = readScoreNumberStrict(item.score);
                                                                         const maxScore = readScoreNumberStrict(item.max_score);
-                                                                        const evidence = readDimensionEvidence(item.evidence);
+                                                                        const evidences = readDimensionEvidenceList(item.evidence);
                                                                         return (
                                                                             <li key={`dimension-${index}`} className="rounded-xl border border-slate-200/70 px-3 py-2 dark:border-slate-800">
                                                                                 <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                                                                                     {label}：{scoreValue !== null ? scoreValue : "-"} / {maxScore !== null ? maxScore : "-"}
                                                                                 </p>
-                                                                                <p className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">
-                                                                                    证据：{evidence || "-"}
-                                                                                </p>
+                                                                                <div className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                                                    <p>证据：</p>
+                                                                                    {evidences.length ? (
+                                                                                        <ul className="mt-1 space-y-1">
+                                                                                            {evidences.map((evidence, evidenceIndex) => (
+                                                                                                <li key={`dimension-${index}-evidence-${evidenceIndex}`} className="break-words">
+                                                                                                    {evidence}
+                                                                                                </li>
+                                                                                            ))}
+                                                                                        </ul>
+                                                                                    ) : (
+                                                                                        <p>-</p>
+                                                                                    )}
+                                                                                </div>
                                                                             </li>
                                                                         );
                                                                     })}

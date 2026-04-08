@@ -123,8 +123,16 @@ export interface CandidateSummary {
   source_detail?: string | null;
   status: string;
   display_status?: string | null;
+  display_status_reason?: string | null;
+  active_screening_run_id?: string | null;
   active_screening_task_id?: number | null;
+  active_screening_task_type?: string | null;
+  active_screening_stage?: string | null;
+  active_screening_status?: string | null;
   active_screening_task_status?: string | null;
+  active_screening_started_at?: string | null;
+  latest_completed_parse_task_id?: number | null;
+  latest_completed_score_task_id?: number | null;
   ai_recommended_status?: string | null;
   match_percent?: number | null;
   tags: string[];
@@ -173,7 +181,7 @@ export interface CandidateScoreDimension {
   score?: number | null;
   max_score?: number | null;
   reason?: string | null;
-  evidence?: string | null;
+  evidence?: string | string[] | null;
   is_inferred?: boolean | null;
   [key: string]: unknown;
 }
@@ -262,6 +270,12 @@ export interface RecruitmentLLMConfig {
 export interface AITaskLog {
   id: number;
   task_type: string;
+  screening_run_id?: string | null;
+  parent_task_id?: number | null;
+  root_task_id?: number | null;
+  stage?: string | null;
+  stage_started_at?: string | null;
+  stage_completed_at?: string | null;
   related_position_id?: number | null;
   related_candidate_id?: number | null;
   related_skill_id?: number | null;
@@ -270,6 +284,10 @@ export interface AITaskLog {
   related_resume_file_id?: number | null;
   related_publish_task_id?: number | null;
   memory_source?: string | null;
+  skill_resolution_source?: string | null;
+  skill_resolution_detail?: Record<string, unknown> | null;
+  score_rule_snapshot?: Array<Record<string, unknown>>;
+  timing_breakdown?: Record<string, unknown> | null;
   request_hash?: string | null;
   model_provider?: string | null;
   model_name?: string | null;
@@ -278,6 +296,11 @@ export interface AITaskLog {
   input_summary?: string | null;
   output_summary?: string | null;
   output_snapshot?: unknown;
+  raw_response_text?: string | null;
+  parsed_response_json?: Record<string, unknown> | null;
+  sanitized_response_json?: Record<string, unknown> | null;
+  validation_meta?: Record<string, unknown> | null;
+  persisted_result_refs?: Record<string, unknown> | null;
   duration_ms?: number | null;
   status: string;
   error_message?: string | null;
@@ -368,8 +391,39 @@ export interface RecruitmentTaskStartResponse {
   task_id: number;
   status: string;
   task_type: string;
+  screening_run_id?: string | null;
   related_position_id?: number | null;
   related_candidate_id?: number | null;
+  reused_existing_task?: boolean;
+}
+
+export interface RecruitmentTaskBatchStartResponse {
+  queued_count: number;
+  skipped_existing_live_task_count: number;
+  failed_count?: number;
+  task_ids: number[];
+  tasks: RecruitmentTaskStartResponse[];
+}
+
+export interface ResumeUploadItem extends CandidateSummary {
+  auto_screen_enabled?: boolean;
+  auto_screen_needed?: boolean;
+  auto_screen_candidate_id?: number | null;
+  auto_screen_queued?: boolean;
+  auto_screen_task_id?: number | null;
+  auto_screen_task_status?: string | null;
+  auto_screen_reused_existing_task?: boolean;
+  auto_screen_error?: string | null;
+}
+
+export interface ResumeUploadResponse {
+  items: ResumeUploadItem[];
+  uploaded_count: number;
+  auto_screen_queued_count: number;
+  auto_screen_skipped_existing_live_task_count: number;
+  auto_screen_failed_count: number;
+  auto_screen_task_ids: number[];
+  auto_screen_tasks: RecruitmentTaskStartResponse[];
 }
 
 export interface RecruitmentMailSenderConfig {

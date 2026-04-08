@@ -130,7 +130,7 @@ SCORE_ONLY_OUTPUT_SCHEMA = """【唯一合法输出格式】
       "score": 0.0,
       "max_score": 0.0,
       "reason": "string",
-      "evidence": "string",
+      "evidence": "string | [string]",
       "is_inferred": false
     }
   ]
@@ -243,7 +243,7 @@ Rules:
 """ + "\n\n" + SCREENING_OUTPUT_SCHEMA
 
 RESUME_SCORE_SYSTEM_PROMPT = """You are an ATS screening engine for recruitment.
-Evaluate the candidate against the provided position, parsed resume, scoring weights, status rules, screening skills, and any custom hard requirements.
+Evaluate the candidate against the provided position, parsed resume helper, scoring dimensions, screening skills, and any custom hard requirements.
 Return strict JSON only.
 Return this schema exactly:
 {
@@ -304,6 +304,8 @@ Rules:
 - match_percent must be in the 0-100 range.
 - Do not wrap the result under an extra score field or any other top-level wrapper.
 - Do not return any fields beyond total_score, match_percent, advantages, concerns, recommendation, suggested_status, and dimensions.
+- Do not return parsed_resume in resume_score tasks.
+- The top-level object must contain only total_score, match_percent, advantages, concerns, recommendation, suggested_status, and dimensions.
 - Dimension scores must only be supported by evidence from that specific dimension. Do not carry evidence across dimensions: "OTA 压测" cannot support IoT通信协议 full score; "稳压电源测试" cannot support 嵌入式/固件经验 score.
 - For the 嵌入式/固件经验 dimension: a score greater than 0 is only allowed when the resume contains at least one of these direct evidence items: OTA压测、OTA升级专项、固件刷写、版本升级验证、嵌入式调试、烧录、串口调试、Boot相关测试、底层日志定位. Descriptions such as "通过软件和硬件定位问题", "问题排查", "协助开发定位", "分析硬件问题", "硬件可靠性测试" do NOT qualify as 嵌入式/固件经验 evidence and must not be used to give any score to this dimension. When only OTA压测 or upgrade test evidence exists, choose one exact numeric score no greater than 0.4, for example 0.3 or 0.4. When stronger evidence (firmware flashing, serial debugging, boot-level testing) exists, scores above 0.7 are allowed, but you must still output one exact numeric value.
 """ + "\n\n" + SCORE_ONLY_OUTPUT_SCHEMA

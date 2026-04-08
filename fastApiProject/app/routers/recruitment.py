@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..database import SessionLocal, get_db
 from ..recruitment_schemas import (
+    CandidateScreenBatchStartRequest,
     CandidateStatusUpdateRequest,
     CandidateScreenRequest,
     CandidateUpdateRequest,
@@ -255,28 +256,46 @@ async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optio
     for item in files:
         uploaded_files.append({"file_name": item.filename or "resume.bin", "content_type": item.content_type, "content": await item.read()})
     try:
-        data = service.upload_resume_files(uploaded_files, position_id, _session.get("id") or "unknown")
-        for row in data:
-            row["auto_screen_started"] = False
+        rows = service.upload_resume_files(uploaded_files, position_id, _session.get("id") or "unknown")
+        auto_screen_queued_count = 0
+        auto_screen_skipped_existing_live_task_count = 0
+        auto_screen_failed_count = 0
+        auto_screen_tasks: List[Dict[str, Any]] = []
+        for row in rows:
+            row["auto_screen_needed"] = bool(row.get("latest_resume_file_id") and row.get("auto_screen_enabled"))
+            row["auto_screen_candidate_id"] = row.get("id")
+            row["auto_screen_queued"] = False
             row["auto_screen_task_id"] = None
             row["auto_screen_task_status"] = None
+            row["auto_screen_reused_existing_task"] = False
             row["auto_screen_error"] = None
-            if row.get("latest_resume_file_id") and row.get("auto_screen_enabled"):
-                try:
-                    task = service.start_screen_candidate(
-                        row["id"],
-                        _session.get("id") or "unknown",
-                        skill_ids=[],
-                        use_position_skills=True,
-                        use_candidate_memory=True,
-                        custom_requirements="",
-                    )
-                    row["auto_screen_started"] = True
-                    row["auto_screen_task_id"] = task.get("task_id")
-                    row["auto_screen_task_status"] = task.get("status")
-                except Exception as exc:
-                    row["auto_screen_error"] = str(exc)
-        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+            if not row["auto_screen_needed"]:
+                continue
+            try:
+                task = service.enqueue_screen_candidate(
+                    row["id"],
+                    _session.get("id") or "unknown",
+                    skill_ids=[],
+                    use_position_skills=True,
+                    use_candidate_memory=True,
+                    custom_requirements="",
+                    dispatch=False,
+                )
+                row["auto_screen_task_id"] = task.get("task_id")
+                row["auto_screen_task_status"] = task.get("status")
+                row["auto_screen_reused_existing_task"] = bool(task.get("reused_existing_task"))
+                row["auto_screen_queued"] = not bool(task.get("reused_existing_task"))
+                if row["auto_screen_reused_existing_task"]:
+                    auto_screen_skipped_existing_live_task_count += 1
+                else:
+                    auto_screen_queued_count += 1
+                auto_screen_tasks.append(task)
+            except Exception as exc:
+                row["auto_screen_error"] = str(exc)
+                auto_screen_failed_count += 1
+        if auto_screen_tasks:
+            service.process_next_screening_task()
+        return {"success": True, "data": {"items": rows, "uploaded_count": len(rows), "auto_screen_queued_count": auto_screen_queued_count, "auto_screen_skipped_existing_live_task_count": auto_screen_skipped_existing_live_task_count, "auto_screen_failed_count": auto_screen_failed_count, "auto_screen_task_ids": [task.get("task_id") for task in auto_screen_tasks if task.get("task_id")], "auto_screen_tasks": auto_screen_tasks}, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -307,6 +326,7 @@ async def screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _
             use_position_skills=payload.use_position_skills,
             use_candidate_memory=payload.use_candidate_memory,
             custom_requirements=payload.custom_requirements or "",
+            force_one_pass=payload.force_one_pass,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -322,6 +342,26 @@ async def start_screen_candidate(candidate_id: int, payload: CandidateScreenRequ
             _run_recruitment_service_call,
             "start_screen_candidate",
             candidate_id,
+            _session.get("id") or "unknown",
+            skill_ids=payload.skill_ids,
+            use_position_skills=payload.use_position_skills,
+            use_candidate_memory=payload.use_candidate_memory,
+            custom_requirements=payload.custom_requirements or "",
+        )
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.post("/candidates/screen/batch-start")
+async def batch_start_screen_candidates(payload: CandidateScreenBatchStartRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+    try:
+        data = await run_in_threadpool(
+            _run_recruitment_service_call,
+            "batch_start_screen_candidates",
+            payload.candidate_ids,
             _session.get("id") or "unknown",
             skill_ids=payload.skill_ids,
             use_position_skills=payload.use_position_skills,
