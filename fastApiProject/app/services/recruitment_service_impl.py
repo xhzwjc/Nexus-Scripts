@@ -1094,7 +1094,7 @@ def _build_business_normalized_score_payload(score_payload: Any) -> Dict[str, An
         "concerns": _normalize_score_text_items(normalized.get("concerns"), limit=5),
         "recommendation": _compact_recommendation(normalized.get("recommendation")),
         "suggested_status": normalized.get("suggested_status"),
-        "dimensions": _normalize_score_dimensions((score_payload or {}).get("dimensions"), limit=12),
+        "dimensions": sanitize_dimensions((score_payload or {}).get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
     }
 
 
@@ -1610,7 +1610,7 @@ def _build_score_compat_payload(normalized_score: Dict[str, Any], score_enhancem
     missing_core_labels = [str(item or "").strip() for item in score_enhancements.get("missing_core_labels") or [] if str(item or "").strip()]
     return {
         **normalized_payload,
-        "dimensions": _normalize_score_dimensions(score_enhancements.get("dimensions"), limit=12),
+        "dimensions": sanitize_dimensions(score_enhancements.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
         "dimensions_mode": score_enhancements.get("dimensions_mode"),
         "missing_core_labels": missing_core_labels,
         "score_cap_reason": score_enhancements.get("score_cap_reason"),
@@ -1655,7 +1655,7 @@ def _build_authoritative_fallback_score_payload(
         strict_payload["match_percent"] = derived_match_percent
     return {
         **strict_payload,
-        "dimensions": normalized_dimensions,
+        "dimensions": sanitize_dimensions(normalized_dimensions, SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
         "dimensions_mode": fallback_result.get("dimensions_mode"),
         "missing_core_labels": list(fallback_result.get("missing_core_labels") or []),
         "score_cap_reason": fallback_result.get("score_cap_reason"),
@@ -1674,7 +1674,7 @@ def _build_score_log_snapshot(
         "score": _build_score_compat_payload(normalized_score, score_enhancements),
         "score_enhancements": {
             **score_enhancements,
-            "dimensions": _normalize_score_dimensions(score_enhancements.get("dimensions"), limit=12),
+            "dimensions": sanitize_dimensions(score_enhancements.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
             "missing_core_labels": list(score_enhancements.get("missing_core_labels") or []),
             "risk_flags": list(score_enhancements.get("risk_flags") or []),
             "score_quality_warnings": _normalize_score_warning_items(score_enhancements.get("score_quality_warnings"), limit=8),
@@ -5907,11 +5907,11 @@ class RecruitmentService:
         )
         logger.debug("Screening user prompt preview candidate_id=%s: %s", candidate.id, truncate_text(prompt, 2000))
         request_hash = self._build_request_hash("resume_screening", candidate.id, resume_file.id, related_skill_ids, memory_source, custom_requirements)
-        log_row = self._get_ai_task_log_row(existing_task_id) if existing_task_id else self._create_ai_task_log("resume_score", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=resume_file.id, memory_source=memory_source, request_hash=request_hash)
+        log_row = self._get_ai_task_log_row(existing_task_id) if existing_task_id else self._create_ai_task_log("resume_screening_debug", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=resume_file.id, memory_source=memory_source, request_hash=request_hash)
         task: Optional[Dict[str, Any]] = None
         try:
             self._raise_if_cancelled(cancel_control)
-            self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在执行兼容 one-pass 初筛", output_snapshot=_build_screening_task_progress_snapshot("scoring", message="正在执行兼容 one-pass 初筛"))
+            self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在执行 debug one-pass 初筛", output_snapshot=_build_screening_task_progress_snapshot("scoring", message="正在执行 debug one-pass 初筛"))
             task = self.ai_gateway.generate_json(
                 task_type="resume_score",
                 system_prompt=RESUME_SCREENING_SYSTEM_PROMPT,
@@ -6782,6 +6782,7 @@ class RecruitmentService:
             use_position_skills=False,
             use_candidate_memory=False,
             custom_requirements=custom_requirements,
+            force_one_pass=False,
             existing_task_id=task_id,
             cancel_control=cancel_control,
             task_skill_snapshots=task_skill_snapshots,
@@ -6860,54 +6861,184 @@ class RecruitmentService:
                 "skill_resolution_source": skill_resolution_source,
                 "skill_resolution_detail": skill_resolution_detail,
             }
+        parse_row: Optional[RecruitmentResumeParseResult] = None
+        score_row: Optional[RecruitmentCandidateScore] = None
         had_existing_parse = False
+
+        def load_run_logs() -> Tuple[Optional[RecruitmentAITaskLog], Optional[RecruitmentAITaskLog]]:
+            return (
+                self._get_latest_screening_run_task(screening_run_id, task_type="resume_parse", parent_task_id=root_log.id),
+                self._get_latest_screening_run_task(screening_run_id, task_type="resume_score", parent_task_id=root_log.id),
+            )
+
+        def build_root_validation_meta(
+            *,
+            parse_log: Optional[RecruitmentAITaskLog],
+            score_log: Optional[RecruitmentAITaskLog],
+            fallback_state: str,
+            fallback_valid: bool,
+            fallback_reasons: Optional[Sequence[Any]] = None,
+            fallback_summary: Optional[str] = None,
+        ) -> Dict[str, Any]:
+            source_meta: Dict[str, Any] = {}
+            for log in [score_log, parse_log]:
+                decoded = _decode_ai_task_json_text(getattr(log, "validation_meta_json", None), None) if log else None
+                if isinstance(decoded, dict):
+                    source_meta = decoded
+                    break
+            validation_warnings = _normalize_score_warning_items(source_meta.get("validation_warnings"), limit=12)
+            invalid_result_reasons = _normalize_score_warning_items(source_meta.get("invalid_result_reasons") or fallback_reasons, limit=12)
+            invalid_result_summary = str(source_meta.get("invalid_result_summary") or fallback_summary or "").strip() or None
+            model_schema_violation_reason = str(source_meta.get("model_schema_violation_reason") or "").strip() or None
+            screening_result_valid = source_meta.get("screening_result_valid") if isinstance(source_meta.get("screening_result_valid"), bool) else fallback_valid
+            screening_result_state = str(source_meta.get("screening_result_state") or fallback_state or "").strip() or fallback_state
+            if not invalid_result_summary:
+                invalid_result_summary = _build_invalid_result_summary(
+                    invalid_result_reasons=invalid_result_reasons,
+                    validation_warnings=validation_warnings,
+                    model_schema_violation_reason=model_schema_violation_reason,
+                ) or None
+            result: Dict[str, Any] = {
+                "validation_warnings": validation_warnings,
+                "invalid_result_reasons": invalid_result_reasons,
+                "invalid_result_summary": invalid_result_summary,
+                "model_schema_violation": bool(source_meta.get("model_schema_violation")),
+                "model_schema_violation_reason": model_schema_violation_reason,
+                "screening_result_valid": screening_result_valid,
+                "screening_result_state": screening_result_state,
+                "parse_strategy": "parse_then_score",
+            }
+            if "final_response_source" in source_meta:
+                result["final_response_source"] = source_meta.get("final_response_source")
+            if "primary_model_call_succeeded" in source_meta:
+                result["primary_model_call_succeeded"] = bool(source_meta.get("primary_model_call_succeeded"))
+            return result
+
+        def finish_root_task(
+            *,
+            candidate_ref: RecruitmentCandidate,
+            status: str,
+            stage: str,
+            output_summary: str,
+            error_message: Optional[str] = None,
+            fallback_state: str,
+            fallback_valid: bool,
+            fallback_reasons: Optional[Sequence[Any]] = None,
+            fallback_summary: Optional[str] = None,
+        ) -> None:
+            parse_log, score_log = load_run_logs()
+            timing_breakdown = self._build_screening_run_timing_breakdown(root_log=root_log, parse_log=parse_log, score_log=score_log)
+            validation_meta = build_root_validation_meta(
+                parse_log=parse_log,
+                score_log=score_log,
+                fallback_state=fallback_state,
+                fallback_valid=fallback_valid,
+                fallback_reasons=fallback_reasons,
+                fallback_summary=fallback_summary,
+            )
+            persisted_result_refs = self._build_screening_persisted_result_refs(
+                candidate=candidate_ref,
+                parse_row=parse_row,
+                score_row=score_row,
+                screening_result_valid=validation_meta.get("screening_result_valid") if isinstance(validation_meta.get("screening_result_valid"), bool) else None,
+            )
+            self._finish_ai_task_log(
+                root_log,
+                status=status,
+                stage=stage,
+                output_summary=output_summary,
+                output_snapshot={
+                    **build_root_task_snapshot_extra(
+                        reused_existing_parse=had_existing_parse,
+                        parse_log=parse_log,
+                        score_log=score_log,
+                    ),
+                    "stage": stage,
+                    "run_completed": status in TERMINAL_AI_TASK_STATUSES,
+                    "timing_breakdown": timing_breakdown,
+                    "persisted_result_refs": persisted_result_refs,
+                },
+                error_message=error_message,
+                memory_source=memory_source,
+                related_skill_ids=related_skill_ids,
+                related_skill_snapshots=skill_snapshots,
+                screening_run_id=screening_run_id,
+                root_task_id=root_task_id,
+                skill_resolution_source=skill_resolution_source,
+                skill_resolution_detail=skill_resolution_detail,
+                score_rule_snapshot=score_rule_snapshot,
+                validation_meta=validation_meta,
+                persisted_result_refs=persisted_result_refs,
+                timing_breakdown=timing_breakdown,
+            )
         try:
             parse_row = self._get_current_parse_result(candidate)
             had_existing_parse = parse_row is not None
-            run_one_pass = force_one_pass or not had_existing_parse
-            if run_one_pass:
-                parse_row, score_row = self._screen_candidate_with_single_ai_call(
-                    candidate,
-                    actor_id,
-                    skill_rows,
-                    memory_source,
-                    prepared_custom_requirements,
-                    skill_snapshots=skill_snapshots,
-                    existing_task_id=root_log.id,
-                    cancel_control=cancel_control,
+            if force_one_pass:
+                logger.info(
+                    "force_one_pass requested for screen_candidate candidate_id=%s but standard parse->score path is enforced; request ignored",
+                    candidate.id,
                 )
-            else:
+            parse_log_for_root: Optional[RecruitmentAITaskLog] = None
+            if not parse_row:
                 self._update_ai_task_log(
                     root_log,
                     status="running",
-                    stage="scoring",
-                    output_summary="正在根据解析结果进行评分",
+                    stage="parsing",
+                    output_summary="正在解析最新简历",
                     output_snapshot=_build_screening_task_progress_snapshot(
-                        "scoring",
-                        message="正在根据解析结果进行评分",
-                        extra={
-                            **build_root_task_snapshot_extra(
-                                reused_existing_parse=had_existing_parse,
-                            ),
-                            "parse_result_id": parse_row.id,
-                        },
+                        "parsing",
+                        message="正在解析最新简历",
+                        extra=build_root_task_snapshot_extra(
+                            reused_existing_parse=had_existing_parse,
+                        ),
                     ),
                 )
-                score_row = self._score_candidate(
+                parse_row = self._parse_latest_resume(
                     candidate,
-                    parse_row,
                     actor_id,
-                    skill_rows,
-                    memory_source,
-                    prepared_custom_requirements,
-                    skill_snapshots=skill_snapshots,
                     screening_run_id=screening_run_id,
                     parent_task_id=root_log.id,
                     root_task_id=root_task_id,
-                    skill_resolution_source=skill_resolution_source,
-                    skill_resolution_detail=skill_resolution_detail,
-                    cancel_control=cancel_control,
                 )
+                parse_log_for_root = self._get_latest_screening_run_task(
+                    screening_run_id,
+                    task_type="resume_parse",
+                    parent_task_id=root_log.id,
+                )
+                candidate = self._get_candidate(candidate_id)
+            self._update_ai_task_log(
+                root_log,
+                status="running",
+                stage="scoring",
+                output_summary="正在根据解析结果进行评分",
+                output_snapshot=_build_screening_task_progress_snapshot(
+                    "scoring",
+                    message="正在根据解析结果进行评分",
+                    extra={
+                        **build_root_task_snapshot_extra(
+                            reused_existing_parse=had_existing_parse,
+                            parse_log=parse_log_for_root,
+                        ),
+                        "parse_result_id": parse_row.id,
+                    },
+                ),
+            )
+            score_row = self._score_candidate(
+                candidate,
+                parse_row,
+                actor_id,
+                skill_rows,
+                memory_source,
+                prepared_custom_requirements,
+                skill_snapshots=skill_snapshots,
+                screening_run_id=screening_run_id,
+                parent_task_id=root_log.id,
+                root_task_id=root_task_id,
+                skill_resolution_source=skill_resolution_source,
+                skill_resolution_detail=skill_resolution_detail,
+                cancel_control=cancel_control,
+            )
             self._save_screening_workflow_memory(
                 candidate=candidate,
                 actor_id=actor_id,
@@ -6917,113 +7048,53 @@ class RecruitmentService:
                 related_skill_ids=related_skill_ids,
                 custom_requirements=prepared_custom_requirements,
             )
-            if run_one_pass:
-                return self.get_candidate_detail(candidate.id)
             self.db.refresh(root_log)
-            parse_log = self._get_latest_screening_run_task(screening_run_id, task_type="resume_parse", parent_task_id=root_log.id)
-            score_log = self._get_latest_screening_run_task(screening_run_id, task_type="resume_score", parent_task_id=root_log.id)
-            timing_breakdown = self._build_screening_run_timing_breakdown(root_log=root_log, parse_log=parse_log, score_log=score_log)
-            score_validation_meta = _decode_ai_task_json_text(score_log.validation_meta_json, None) if score_log else None
-            score_screening_result_valid = None
-            if isinstance(score_validation_meta, dict) and isinstance(score_validation_meta.get("screening_result_valid"), bool):
-                score_screening_result_valid = bool(score_validation_meta.get("screening_result_valid"))
-            persisted_result_refs = self._build_screening_persisted_result_refs(
-                candidate=candidate,
-                parse_row=parse_row,
-                score_row=score_row,
-                screening_result_valid=score_screening_result_valid,
-            )
+            parse_log, score_log = load_run_logs()
             root_final_status = score_log.status if score_log and score_log.status in TERMINAL_AI_TASK_STATUSES else "success"
             root_final_stage = "completed" if root_final_status in {"success", "fallback"} else "failed"
-            self._finish_ai_task_log(
-                root_log,
+            finish_root_task(
+                candidate_ref=candidate,
                 status=root_final_status,
                 stage=root_final_stage,
                 output_summary=score_log.output_summary if score_log and score_log.output_summary else "初筛流程已完成",
-                output_snapshot={
-                    **build_root_task_snapshot_extra(
-                        reused_existing_parse=had_existing_parse,
-                        parse_log=parse_log,
-                        score_log=score_log,
-                    ),
-                    "stage": root_final_stage,
-                    "run_completed": root_final_status in TERMINAL_AI_TASK_STATUSES,
-                    "timing_breakdown": timing_breakdown,
-                    "persisted_result_refs": persisted_result_refs,
-                },
-                memory_source=memory_source,
-                related_skill_ids=related_skill_ids,
-                related_skill_snapshots=skill_snapshots,
-                screening_run_id=screening_run_id,
-                root_task_id=root_task_id,
-                skill_resolution_source=skill_resolution_source,
-                skill_resolution_detail=skill_resolution_detail,
-                score_rule_snapshot=score_rule_snapshot,
-                validation_meta=score_validation_meta,
-                persisted_result_refs=persisted_result_refs,
-                timing_breakdown=timing_breakdown,
                 error_message=score_log.error_message if score_log and root_final_status not in {"success", "fallback"} else None,
+                fallback_state="success" if root_final_status in {"success", "fallback"} else root_final_status,
+                fallback_valid=root_final_status in {"success", "fallback"},
+                fallback_reasons=[score_log.error_message] if score_log and score_log.error_message and root_final_status not in {"success", "fallback"} else [],
+                fallback_summary=score_log.output_summary if score_log and root_final_status not in {"success", "fallback"} else None,
             )
             return self.get_candidate_detail(candidate.id)
         except RecruitmentTaskCancelled:
             self.db.rollback()
-            self._finish_ai_task_log(
-                root_log,
+            candidate = self._get_candidate(candidate_id)
+            finish_root_task(
+                candidate_ref=candidate,
                 status="cancelled",
                 stage="cancelled",
                 output_summary="初筛流程已停止",
-                output_snapshot={
-                    **build_root_task_snapshot_extra(
-                        reused_existing_parse=had_existing_parse,
-                        parse_log=self._get_latest_screening_run_task(screening_run_id, task_type="resume_parse", parent_task_id=root_log.id),
-                        score_log=self._get_latest_screening_run_task(screening_run_id, task_type="resume_score", parent_task_id=root_log.id),
-                    ),
-                    "stage": "cancelled",
-                },
                 error_message="任务已被用户停止。",
-                memory_source=memory_source,
-                related_skill_ids=related_skill_ids,
-                related_skill_snapshots=skill_snapshots,
-                screening_run_id=screening_run_id,
-                root_task_id=root_task_id,
-                skill_resolution_source=skill_resolution_source,
-                skill_resolution_detail=skill_resolution_detail,
-                score_rule_snapshot=score_rule_snapshot,
-                persisted_result_refs=self._build_screening_persisted_result_refs(candidate=candidate),
-                timing_breakdown=self._build_screening_run_timing_breakdown(root_log=root_log, parse_log=self._get_latest_screening_run_task(screening_run_id, task_type="resume_parse", parent_task_id=root_log.id), score_log=self._get_latest_screening_run_task(screening_run_id, task_type="resume_score", parent_task_id=root_log.id)),
+                fallback_state="cancelled",
+                fallback_valid=False,
+                fallback_reasons=["任务已被用户停止。"],
+                fallback_summary="任务已被用户停止。",
             )
             raise
         except Exception as exc:
             self.db.rollback()
+            candidate = self._get_candidate(candidate_id)
             failure_status, failure_message = _classify_screening_task_failure(exc)
-            parse_log = self._get_latest_screening_run_task(screening_run_id, task_type="resume_parse", parent_task_id=root_log.id)
-            score_log = self._get_latest_screening_run_task(screening_run_id, task_type="resume_score", parent_task_id=root_log.id)
-            self._finish_ai_task_log(
-                root_log,
+            finish_root_task(
+                candidate_ref=candidate,
                 status=failure_status,
                 stage="failed",
                 output_summary=failure_message,
-                output_snapshot={
-                    **build_root_task_snapshot_extra(
-                        reused_existing_parse=had_existing_parse,
-                        parse_log=parse_log,
-                        score_log=score_log,
-                    ),
-                    "stage": "failed",
-                    "failure_status": failure_status,
-                },
                 error_message=failure_message,
-                memory_source=memory_source,
-                related_skill_ids=related_skill_ids,
-                related_skill_snapshots=skill_snapshots,
-                screening_run_id=screening_run_id,
-                root_task_id=root_task_id,
-                skill_resolution_source=skill_resolution_source,
-                skill_resolution_detail=skill_resolution_detail,
-                score_rule_snapshot=score_rule_snapshot,
-                validation_meta={"validation_warnings": [], "invalid_result_reasons": [failure_message], "screening_result_valid": False, "screening_result_state": failure_status},
-                persisted_result_refs=self._build_screening_persisted_result_refs(candidate=candidate),
-                timing_breakdown=self._build_screening_run_timing_breakdown(root_log=root_log, parse_log=parse_log, score_log=score_log),
+                fallback_state=failure_status,
+                fallback_valid=False,
+                fallback_reasons=[failure_message],
+                fallback_summary=_build_invalid_result_summary(
+                    invalid_result_reasons=[failure_message],
+                ) or failure_message,
             )
             raise
 

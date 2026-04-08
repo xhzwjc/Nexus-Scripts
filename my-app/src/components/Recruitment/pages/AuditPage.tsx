@@ -787,7 +787,7 @@ export function AuditPage({
                                     ) : null}
                                     <Field label="状态解释">
                                         <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                            <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedValidationMeta || selectedLogOutputRecord || {}, "暂无状态解释")}</pre>
+                                            <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedValidationMeta, "暂无状态解释")}</pre>
                                         </div>
                                     </Field>
                                     <Field label="最终写库结果">

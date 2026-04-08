@@ -9,6 +9,7 @@ from app.services.recruitment_prompts import (
 from app.services.recruitment_service_impl import (
     RecruitmentService,
     SCREENING_PAYLOAD_SCHEMA_CONFIG,
+    _build_score_compat_payload,
     _build_dimension_concern_summary,
     _build_dimension_reason_summary,
     _classify_screening_score_validity,
@@ -121,11 +122,17 @@ def test_batch_start_screen_candidates_reports_queued_and_skipped_counts():
 
 def test_screen_candidate_prefers_existing_parse_before_score():
     service = RecruitmentService(Mock())
-    candidate = SimpleNamespace(id=5, position_id=9, latest_resume_file_id=12, updated_by=None)
+    candidate = SimpleNamespace(id=5, position_id=9, latest_resume_file_id=12, updated_by=None, status="screening_passed", match_percent=80, ai_recommended_status="screening_passed")
     parse_row = SimpleNamespace(id=31, resume_file_id=12, status="success")
     score_row = SimpleNamespace(id=41)
     root_log = SimpleNamespace(id=91, screening_run_id="run-91", root_task_id=91, validation_meta_json=None, error_message=None)
-    score_log = SimpleNamespace(id=41, status="success", output_summary="初筛完成", validation_meta_json=None, error_message=None)
+    score_log = SimpleNamespace(
+        id=41,
+        status="success",
+        output_summary="初筛完成",
+        validation_meta_json='{"validation_warnings":[],"invalid_result_reasons":[],"screening_result_valid":true,"screening_result_state":"success"}',
+        error_message=None,
+    )
 
     service._get_candidate = Mock(return_value=candidate)
     service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
@@ -134,9 +141,9 @@ def test_screen_candidate_prefers_existing_parse_before_score():
     service._update_ai_task_log = Mock(return_value=root_log)
     service._get_current_parse_result = Mock(return_value=parse_row)
     service._score_candidate = Mock(return_value=score_row)
-    service._get_latest_screening_run_task = Mock(side_effect=[None, score_log])
-    service._build_screening_run_timing_breakdown = Mock(return_value={})
-    service._build_screening_persisted_result_refs = Mock(return_value={})
+    service._get_latest_screening_run_task = Mock(side_effect=[None, score_log, None, score_log])
+    service._build_screening_run_timing_breakdown = Mock(return_value={"total_duration_ms": 1000})
+    service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41})
     service._finish_ai_task_log = Mock(return_value=root_log)
     service._screen_candidate_with_single_ai_call = Mock(side_effect=AssertionError("should not call one-pass"))
     service._save_screening_workflow_memory = Mock()
@@ -149,30 +156,62 @@ def test_screen_candidate_prefers_existing_parse_before_score():
     service._screen_candidate_with_single_ai_call.assert_not_called()
 
 
-def test_screen_candidate_uses_one_pass_when_parse_missing():
+def test_screen_candidate_uses_parse_then_score_as_default_path_when_parse_missing():
     service = RecruitmentService(Mock())
     candidate = SimpleNamespace(id=5, position_id=9, latest_resume_file_id=12, updated_by=None)
     parse_row = SimpleNamespace(id=31, resume_file_id=12, status="success")
     score_row = SimpleNamespace(id=41)
     root_log = SimpleNamespace(id=91, screening_run_id="run-91", root_task_id=91, validation_meta_json=None, error_message=None)
+    parse_log = SimpleNamespace(id=32, status="success")
+    score_log = SimpleNamespace(
+        id=41,
+        status="success",
+        output_summary="初筛完成",
+        error_message=None,
+        validation_meta_json='{"validation_warnings":[],"invalid_result_reasons":[],"screening_result_valid":true,"screening_result_state":"success"}',
+    )
 
-    service._get_candidate = Mock(return_value=candidate)
+    service._get_candidate = Mock(side_effect=[candidate, candidate])
     service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
     service._prepare_screening_task_context = Mock(return_value=([], [], ""))
     service._ensure_screening_root_task = Mock(return_value=root_log)
+    service._update_ai_task_log = Mock(return_value=root_log)
     service._get_current_parse_result = Mock(return_value=None)
-    service._parse_latest_resume = Mock(side_effect=AssertionError("should not call parse-only path"))
-    service._score_candidate = Mock(side_effect=AssertionError("should not call score-only path"))
-    service._screen_candidate_with_single_ai_call = Mock(return_value=(parse_row, score_row))
+    service._parse_latest_resume = Mock(return_value=parse_row)
+    service._score_candidate = Mock(return_value=score_row)
+    service._screen_candidate_with_single_ai_call = Mock(side_effect=AssertionError("should not call one-pass"))
+    service._get_latest_screening_run_task = Mock(side_effect=[parse_log, parse_log, score_log, parse_log, score_log])
+    service._build_screening_run_timing_breakdown = Mock(return_value={"total_duration_ms": 1200})
+    service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41})
+    service._finish_ai_task_log = Mock(return_value=root_log)
     service._save_screening_workflow_memory = Mock()
     service.get_candidate_detail = Mock(return_value={"candidate": {"id": 5}})
 
-    payload = service.screen_candidate(5, "tester")
+    payload = service.screen_candidate(5, "tester", force_one_pass=False)
 
     assert payload == {"candidate": {"id": 5}}
-    service._screen_candidate_with_single_ai_call.assert_called_once()
-    service._parse_latest_resume.assert_not_called()
-    service._score_candidate.assert_not_called()
+    service._parse_latest_resume.assert_called_once()
+    service._score_candidate.assert_called_once()
+    service._screen_candidate_with_single_ai_call.assert_not_called()
+
+
+def test_run_queued_screening_task_forces_non_one_pass_path():
+    service = RecruitmentService(Mock())
+    log_row = SimpleNamespace(
+        id=91,
+        status="queued",
+        related_candidate_id=5,
+        related_skill_snapshots_json="[]",
+        memory_source="task_snapshot",
+    )
+    service._get_ai_task_log_row = Mock(return_value=log_row)
+    service.screen_candidate = Mock(return_value={"candidate": {"id": 5}})
+
+    payload = service._run_queued_screening_task(91, "tester")
+
+    assert payload == {"candidate": {"id": 5}}
+    service.screen_candidate.assert_called_once()
+    assert service.screen_candidate.call_args.kwargs["force_one_pass"] is False
 
 
 def test_resume_score_prompt_uses_score_only_schema():
@@ -341,6 +380,117 @@ Python BLE
     assert sanitized["projects"] == model_parse["projects"]
     assert sanitized["summary"] == model_parse["summary"]
     assert "raw_text" not in sanitized
+
+
+def test_root_task_completed_snapshot_contains_timing_and_persisted_refs():
+    service = RecruitmentService(Mock())
+    candidate = SimpleNamespace(id=5, position_id=9, latest_resume_file_id=12, updated_by=None, status="screening_passed", match_percent=81, ai_recommended_status="screening_passed")
+    parse_row = SimpleNamespace(id=31, resume_file_id=12, status="success")
+    score_row = SimpleNamespace(id=41)
+    root_log = SimpleNamespace(id=91, screening_run_id="run-91", root_task_id=91, validation_meta_json=None, error_message=None)
+    score_log = SimpleNamespace(
+        id=41,
+        status="success",
+        output_summary="初筛完成",
+        error_message=None,
+        validation_meta_json='{"validation_warnings":[],"invalid_result_reasons":[],"screening_result_valid":true,"screening_result_state":"success"}',
+    )
+
+    service._get_candidate = Mock(return_value=candidate)
+    service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
+    service._prepare_screening_task_context = Mock(return_value=([], [], ""))
+    service._ensure_screening_root_task = Mock(return_value=root_log)
+    service._update_ai_task_log = Mock(return_value=root_log)
+    service._get_current_parse_result = Mock(return_value=parse_row)
+    service._score_candidate = Mock(return_value=score_row)
+    service._get_latest_screening_run_task = Mock(side_effect=[None, score_log, None, score_log])
+    service._build_screening_run_timing_breakdown = Mock(return_value={"total_duration_ms": 1234})
+    service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41, "candidate_status_after": "screening_passed"})
+    service._finish_ai_task_log = Mock(return_value=root_log)
+    service._screen_candidate_with_single_ai_call = Mock(side_effect=AssertionError("should not call one-pass"))
+    service._save_screening_workflow_memory = Mock()
+    service.get_candidate_detail = Mock(return_value={"candidate": {"id": 5}})
+
+    service.screen_candidate(5, "tester", force_one_pass=False)
+
+    kwargs = service._finish_ai_task_log.call_args.kwargs
+    assert kwargs["timing_breakdown"] == {"total_duration_ms": 1234}
+    assert kwargs["persisted_result_refs"] == {"parse_result_id": 31, "score_result_id": 41, "candidate_status_after": "screening_passed"}
+
+
+def test_root_validation_meta_does_not_embed_full_parsed_resume_and_score():
+    service = RecruitmentService(Mock())
+    candidate = SimpleNamespace(id=5, position_id=9, latest_resume_file_id=12, updated_by=None, status="screening_passed", match_percent=81, ai_recommended_status="screening_passed")
+    parse_row = SimpleNamespace(id=31, resume_file_id=12, status="success")
+    score_row = SimpleNamespace(id=41)
+    root_log = SimpleNamespace(id=91, screening_run_id="run-91", root_task_id=91, validation_meta_json=None, error_message=None)
+    score_log = SimpleNamespace(
+        id=41,
+        status="success",
+        output_summary="初筛完成",
+        error_message=None,
+        validation_meta_json='{"validation_warnings":["已自动校正"],"invalid_result_reasons":[],"invalid_result_summary":null,"model_schema_violation":false,"model_schema_violation_reason":null,"screening_result_valid":true,"screening_result_state":"success"}',
+    )
+
+    service._get_candidate = Mock(return_value=candidate)
+    service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
+    service._prepare_screening_task_context = Mock(return_value=([], [], ""))
+    service._ensure_screening_root_task = Mock(return_value=root_log)
+    service._update_ai_task_log = Mock(return_value=root_log)
+    service._get_current_parse_result = Mock(return_value=parse_row)
+    service._score_candidate = Mock(return_value=score_row)
+    service._get_latest_screening_run_task = Mock(side_effect=[None, score_log, None, score_log])
+    service._build_screening_run_timing_breakdown = Mock(return_value={"total_duration_ms": 1234})
+    service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41})
+    service._finish_ai_task_log = Mock(return_value=root_log)
+    service._screen_candidate_with_single_ai_call = Mock(side_effect=AssertionError("should not call one-pass"))
+    service._save_screening_workflow_memory = Mock()
+    service.get_candidate_detail = Mock(return_value={"candidate": {"id": 5}})
+
+    service.screen_candidate(5, "tester", force_one_pass=False)
+
+    validation_meta = service._finish_ai_task_log.call_args.kwargs["validation_meta"]
+    assert "parsed_resume" not in validation_meta
+    assert "score" not in validation_meta
+    assert "raw_response_text" not in validation_meta
+    assert validation_meta["parse_strategy"] == "parse_then_score"
+
+
+def test_final_score_dimensions_do_not_leak_weight_text_or_is_core():
+    normalized_score = {
+        "total_score": 8.1,
+        "match_percent": 81,
+        "advantages": ["经验匹配"],
+        "concerns": ["自动化能力待核实"],
+        "recommendation": "建议安排初试",
+        "suggested_status": "screening_passed",
+    }
+    score_enhancements = {
+        "dimensions": [
+            {
+                "label": "IoT通信协议",
+                "score": 2.6,
+                "max_score": 2.5,
+                "reason": "命中",
+                "evidence": ["BLE 协议测试"],
+                "is_inferred": False,
+                "weight_text": "25%",
+                "is_core": True,
+            }
+        ],
+        "dimensions_mode": "strict",
+        "missing_core_labels": [],
+        "score_cap_reason": None,
+        "derived_total_score_from_dimensions": 8.1,
+        "derived_match_percent_from_dimensions": 81,
+        "score_quality_warnings": [],
+        "repair_reason": None,
+        "report_markdown": None,
+    }
+
+    score_payload = _build_score_compat_payload(normalized_score, score_enhancements)
+
+    assert set(score_payload["dimensions"][0].keys()) == {"label", "score", "max_score", "reason", "evidence", "is_inferred"}
 
 
 def test_recommendation_matches_screening_passed_semantically():
