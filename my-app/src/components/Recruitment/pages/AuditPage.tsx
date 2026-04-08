@@ -54,6 +54,7 @@ import {
     statusBadgeClass,
 } from "../utils";
 import {resolveAuditNoticePresentation} from "./auditNotice";
+import {buildScreeningFlowAuditView} from "./auditFlowDetails";
 
 type AuditListDisplayColumnWidths = {
     taskType: number;
@@ -68,6 +69,10 @@ type VirtualAuditRowMetric = {
     logId: number;
     start: number;
     size: number;
+};
+
+type AuditTaskLogWithRunLogs = AITaskLog & {
+    run_logs?: AITaskLog[] | null;
 };
 
 const AUDIT_LIST_ESTIMATED_ROW_HEIGHT = 54;
@@ -95,11 +100,46 @@ function labelForAuditLogTask(log?: AITaskLog | null) {
     if (!log) {
         return labelForTaskType();
     }
+    if (log.task_type === "screening_flow") {
+        return "初筛流程";
+    }
     const isRootScreeningLog = Boolean(log.screening_run_id) && (
         (typeof log.root_task_id === "number" && log.id === log.root_task_id)
         || (log.root_task_id == null && log.parent_task_id == null && log.task_type === "resume_score")
     );
     return isRootScreeningLog ? "初筛流程" : labelForTaskType(log.task_type);
+}
+
+function isUserVisibleAuditLog(log: AITaskLog) {
+    if (log.task_type === "screening_flow") {
+        return true;
+    }
+    if (log.task_type === "resume_parse") {
+        return !log.screening_run_id && (log.parent_task_id == null);
+    }
+    if (log.task_type === "resume_score") {
+        return !log.screening_run_id && (log.parent_task_id == null);
+    }
+    return true;
+}
+
+function labelForFlowStageStatus(status?: string | null) {
+    switch (status) {
+        case "pending":
+            return "待执行";
+        case "running":
+            return "执行中";
+        case "completed":
+            return "已完成";
+        case "reused":
+            return "已复用";
+        case "failed":
+            return "失败";
+        case "cancelled":
+            return "已停止";
+        default:
+            return status || "-";
+    }
 }
 
 function formatDurationValue(value: unknown) {
@@ -195,7 +235,33 @@ export function AuditPage({
         () => toRecord(selectedLogOutputSnapshot),
         [selectedLogOutputSnapshot],
     );
+    const visibleAuditLogs = React.useMemo(
+        () => aiLogs.filter(isUserVisibleAuditLog),
+        [aiLogs],
+    );
+    const auditTaskTypeOptions = React.useMemo(
+        () => ({
+            screening_flow: "初筛流程",
+            ...aiTaskLabels,
+        }),
+        [],
+    );
+    const selectedLogRunLogs = React.useMemo(() => {
+        const detail = selectedLogDetail as AuditTaskLogWithRunLogs | null;
+        return Array.isArray(detail?.run_logs)
+            ? detail.run_logs.filter((item): item is AITaskLog => Boolean(item) && typeof item === "object")
+            : [];
+    }, [selectedLogDetail]);
     const selectedRunLogs = React.useMemo(() => {
+        if (selectedLogRunLogs.length) {
+            return selectedLogRunLogs
+                .slice()
+                .sort((left, right) => {
+                    const leftTime = new Date(left.created_at || 0).getTime();
+                    const rightTime = new Date(right.created_at || 0).getTime();
+                    return leftTime - rightTime || left.id - right.id;
+                });
+        }
         if (!selectedLogDetail?.screening_run_id) {
             return selectedLogDetail ? [selectedLogDetail] : [];
         }
@@ -206,7 +272,7 @@ export function AuditPage({
                 const rightTime = new Date(right.created_at || 0).getTime();
                 return leftTime - rightTime || left.id - right.id;
             });
-    }, [aiLogs, selectedLogDetail]);
+    }, [aiLogs, selectedLogDetail, selectedLogRunLogs]);
     const selectedScoreRuleSnapshot = React.useMemo(
         () => toRecordList(selectedLogDetail?.score_rule_snapshot || selectedLogOutputRecord?.score_rule_snapshot),
         [selectedLogDetail?.score_rule_snapshot, selectedLogOutputRecord],
@@ -278,6 +344,18 @@ export function AuditPage({
         () => toRecord(selectedLogDetail?.persisted_result_refs || selectedLogOutputRecord?.persisted_result_refs),
         [selectedLogDetail?.persisted_result_refs, selectedLogOutputRecord],
     );
+    const selectedFlowAuditView = React.useMemo(
+        () => selectedLogDetail?.task_type === "screening_flow"
+            ? buildScreeningFlowAuditView(selectedLogDetail, selectedRunLogs)
+            : null,
+        [selectedLogDetail, selectedRunLogs],
+    );
+    const selectedFlowStages = React.useMemo(
+        () => selectedFlowAuditView?.stages || [],
+        [selectedFlowAuditView],
+    );
+    const selectedParseDetailLog = selectedFlowAuditView?.parseDetailLog || null;
+    const selectedScoreDetailLog = selectedFlowAuditView?.scoreDetailLog || null;
     const selectedSkillResolutionDetail = React.useMemo(
         () => toRecord(selectedLogDetail?.skill_resolution_detail || selectedLogOutputRecord?.skill_resolution_detail),
         [selectedLogDetail?.skill_resolution_detail, selectedLogOutputRecord],
@@ -299,6 +377,48 @@ export function AuditPage({
         }
         return "本任务应使用 Skills，但本次未解析到有效 Skills";
     }, [selectedLogDetail, selectedSkillNames]);
+    const isSelectedScreeningFlow = selectedLogDetail?.task_type === "screening_flow";
+
+    function renderStageModelDetails(label: string, log: AITaskLog | null, emptyText: string) {
+        return (
+            <Field label={label}>
+                <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                        <InfoTile label="来源日志" value={log ? `#${log.id} / ${labelForAuditLogTask(log)}` : "未记录"}/>
+                        <InfoTile label="阶段" value={log ? labelForScreeningTaskStage(log.stage) : "未记录"}/>
+                        <InfoTile label="状态" value={log ? labelForTaskExecutionStatus(log.status) : "未记录"}/>
+                        <InfoTile label="耗时" value={formatDurationValue(log?.duration_ms)}/>
+                    </div>
+                    {log ? (
+                        <>
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                                <pre className="whitespace-pre-wrap break-words">{log.prompt_snapshot || "暂无 Prompt 快照"}</pre>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                                <pre className="whitespace-pre-wrap break-words">{log.full_request_snapshot || "暂无完整模型请求"}</pre>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                                <pre className="whitespace-pre-wrap break-words">{log.raw_response_text || "暂无模型原始响应"}</pre>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                                <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.parsed_response_json, "暂无解析后 JSON")}</pre>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                                <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.sanitized_response_json, "暂无清洗后 JSON")}</pre>
+                            </div>
+                            <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                                <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.output_snapshot, log.output_summary || "暂无完整输出")}</pre>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                            {emptyText}
+                        </div>
+                    )}
+                </div>
+            </Field>
+        );
+    }
 
     const mergedAuditListScrollRef = React.useCallback((node: HTMLDivElement | null) => {
         setAuditListViewportEl(node);
@@ -357,7 +477,19 @@ export function AuditPage({
 
     React.useEffect(() => {
         setAuditListMeasuredRowHeights({});
-    }, [aiLogs, auditListTableWidth]);
+    }, [visibleAuditLogs, auditListTableWidth]);
+
+    React.useEffect(() => {
+        if (!visibleAuditLogs.length) {
+            if (selectedLogId != null) {
+                setSelectedLogId(null);
+            }
+            return;
+        }
+        if (selectedLogId == null || !visibleAuditLogs.some((item) => item.id === selectedLogId)) {
+            setSelectedLogId(visibleAuditLogs[0].id);
+        }
+    }, [selectedLogId, setSelectedLogId, visibleAuditLogs]);
 
     React.useEffect(() => {
         const rowObservers = auditListRowObserversRef.current;
@@ -369,7 +501,7 @@ export function AuditPage({
 
     const auditListVirtualMetrics = React.useMemo(() => {
         let totalHeight = 0;
-        const metrics: VirtualAuditRowMetric[] = aiLogs.map((log) => {
+        const metrics: VirtualAuditRowMetric[] = visibleAuditLogs.map((log) => {
             const size = auditListMeasuredRowHeights[log.id] || AUDIT_LIST_ESTIMATED_ROW_HEIGHT;
             const metric = {
                 logId: log.id,
@@ -413,14 +545,14 @@ export function AuditPage({
             startIndex,
             endIndex,
         };
-    }, [aiLogs, auditListMeasuredRowHeights, auditListScrollTop, auditListViewportHeight]);
+    }, [visibleAuditLogs, auditListMeasuredRowHeights, auditListScrollTop, auditListViewportHeight]);
 
     const visibleAuditLogWindow = React.useMemo(() => {
         if (auditListVirtualMetrics.endIndex < auditListVirtualMetrics.startIndex) {
             return [];
         }
-        return aiLogs.slice(auditListVirtualMetrics.startIndex, auditListVirtualMetrics.endIndex + 1);
-    }, [aiLogs, auditListVirtualMetrics.endIndex, auditListVirtualMetrics.startIndex]);
+        return visibleAuditLogs.slice(auditListVirtualMetrics.startIndex, auditListVirtualMetrics.endIndex + 1);
+    }, [visibleAuditLogs, auditListVirtualMetrics.endIndex, auditListVirtualMetrics.startIndex]);
 
     const createAuditRowMeasureRef = React.useCallback((logId: number) => {
         return (node: HTMLTableRowElement | null) => {
@@ -488,7 +620,7 @@ export function AuditPage({
                             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr]">
                                 <NativeSelect value={logTaskTypeFilter} onChange={(event) => setLogTaskTypeFilter(event.target.value)}>
                                     <option value="all">全部任务类型</option>
-                                    {Object.entries(aiTaskLabels).map(([value, label]) => (
+                                    {Object.entries(auditTaskTypeOptions).map(([value, label]) => (
                                         <option key={value} value={value}>
                                             {label}
                                         </option>
@@ -543,7 +675,7 @@ export function AuditPage({
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {aiLogs.length ? (
+                                                {visibleAuditLogs.length ? (
                                                     <>
                                                         {auditListVirtualMetrics.topSpacerHeight > 0 ? (
                                                             <TableRow aria-hidden="true" className="border-0">
@@ -655,7 +787,31 @@ export function AuditPage({
                                     </div>
                                     <Field label="任务链路">
                                         <div className="space-y-3">
-                                            {selectedRunLogs.length ? selectedRunLogs.map((log) => (
+                                            {selectedFlowAuditView?.inferredFromChildTerminal ? (
+                                                <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                                                    主流程状态未及时收口，已按子阶段结果推断展示。
+                                                </div>
+                                            ) : null}
+                                            {selectedFlowStages.length ? selectedFlowStages.map((stage) => (
+                                                <div key={stage.key} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
+                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                        <div className="space-y-1">
+                                                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                                {stage.title}
+                                                            </p>
+                                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                                {stage.detail}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <Badge variant="outline" className="rounded-full">{formatDurationValue(stage.duration)}</Badge>
+                                                            <Badge className={cn("rounded-full border", statusBadgeClass("task", stage.status === "failed" ? "failed" : stage.status === "cancelled" ? "cancelled" : stage.status === "running" ? "running" : "success"))}>
+                                                                {labelForFlowStageStatus(stage.status)}
+                                                            </Badge>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )) : selectedRunLogs.length ? selectedRunLogs.map((log) => (
                                                 <div key={log.id} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
                                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                                         <div className="space-y-1">
@@ -795,36 +951,68 @@ export function AuditPage({
                                             <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedPersistedResultRefs, "暂无最终写库结果")}</pre>
                                         </div>
                                     </Field>
-                                    <Field label="Prompt Snapshot">
-                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                            <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.prompt_snapshot || "暂无 Prompt 快照"}</pre>
-                                        </div>
-                                    </Field>
-                                    <Field label="完整模型请求">
-                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                            <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.full_request_snapshot || "暂无完整模型请求"}</pre>
-                                        </div>
-                                    </Field>
-                                    <Field label="模型原始响应">
-                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                            <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.raw_response_text || "暂无模型原始响应"}</pre>
-                                        </div>
-                                    </Field>
-                                    <Field label="解析后 JSON">
-                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                            <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.parsed_response_json, "暂无解析后 JSON")}</pre>
-                                        </div>
-                                    </Field>
-                                    <Field label="清洗后 JSON">
-                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                            <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.sanitized_response_json, "暂无清洗后 JSON")}</pre>
-                                        </div>
-                                    </Field>
-                                    <Field label="完整输出">
-                                        <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                            <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.output_snapshot, selectedLogDetail.output_summary || "暂无完整输出")}</pre>
-                                        </div>
-                                    </Field>
+                                    {isSelectedScreeningFlow ? (
+                                        <>
+                                            {renderStageModelDetails(
+                                                "阶段1：简历解析详情",
+                                                selectedParseDetailLog,
+                                                selectedFlowStages[0]?.status === "reused"
+                                                    ? "本次复用了已有解析结果，无单独解析模型调用。"
+                                                    : "当前暂无简历解析阶段的模型明细。",
+                                            )}
+                                            {renderStageModelDetails(
+                                                "阶段2：初筛评分详情",
+                                                selectedScoreDetailLog,
+                                                "当前暂无初筛评分阶段的模型明细。",
+                                            )}
+                                            <Field label="阶段3：结果写库详情">
+                                                <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
+                                                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                                        <InfoTile label="parse_result_id" value={String(selectedPersistedResultRefs?.parse_result_id || "未记录")}/>
+                                                        <InfoTile label="score_result_id" value={String(selectedPersistedResultRefs?.score_result_id || "未记录")}/>
+                                                        <InfoTile label="最终来源" value={String(selectedValidationMeta?.final_response_source || selectedLogOutputRecord?.final_response_source || "未记录")}/>
+                                                        <InfoTile label="候选人状态" value={String(selectedPersistedResultRefs?.candidate_status_after || "未记录")}/>
+                                                    </div>
+                                                    <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                                                        <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedPersistedResultRefs, "暂无最终写库结果")}</pre>
+                                                    </div>
+                                                </div>
+                                            </Field>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Field label="Prompt Snapshot">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                    <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.prompt_snapshot || "暂无 Prompt 快照"}</pre>
+                                                </div>
+                                            </Field>
+                                            <Field label="完整模型请求">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                    <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.full_request_snapshot || "暂无完整模型请求"}</pre>
+                                                </div>
+                                            </Field>
+                                            <Field label="模型原始响应">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                    <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.raw_response_text || "暂无模型原始响应"}</pre>
+                                                </div>
+                                            </Field>
+                                            <Field label="解析后 JSON">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                    <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.parsed_response_json, "暂无解析后 JSON")}</pre>
+                                                </div>
+                                            </Field>
+                                            <Field label="清洗后 JSON">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                    <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.sanitized_response_json, "暂无清洗后 JSON")}</pre>
+                                                </div>
+                                            </Field>
+                                            <Field label="完整输出">
+                                                <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                                                    <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.output_snapshot, selectedLogDetail.output_summary || "暂无完整输出")}</pre>
+                                                </div>
+                                            </Field>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </div>
