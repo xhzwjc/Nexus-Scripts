@@ -18,19 +18,47 @@ logger = logging.getLogger(__name__)
 
 JSON_REPAIR_MAX_ROUNDS = 3
 JSON_RETRYABLE_MIN_EMPTY_LENGTH = 32
+SCREENING_TOTAL_TIMEOUT_SECONDS = 300
+SCREENING_STAGE_MIN_TIMEOUT_SECONDS = 20
+REQUEST_HEADER_SNAPSHOT_LIMIT = 20
+OPENAI_STREAM_JSON_TASK_WHITELIST: frozenset[str] = frozenset()
 
 
 class RecruitmentAIJSONParseError(RuntimeError):
-    def __init__(self, message: str, *, raw_response_text: str = "", provider_payload: Any = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        raw_response_text: str = "",
+        provider_payload: Any = None,
+        error_code: str = "json_parse_failed",
+        debug_meta: Optional[Dict[str, Any]] = None,
+    ):
         super().__init__(message)
         self.raw_response_text = raw_response_text or ""
         self.provider_payload = provider_payload
+        self.error_code = str(error_code or "json_parse_failed").strip() or "json_parse_failed"
+        self.debug_meta = dict(debug_meta or {})
 
 
 class RecruitmentAITimeoutError(RuntimeError):
     def __init__(self, message: str, *, last_error: Optional[Exception] = None):
         super().__init__(message)
         self.last_error = last_error
+
+
+class RecruitmentAIScreeningTotalTimeoutError(RecruitmentAITimeoutError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        total_timeout_seconds: float,
+        remaining_budget_seconds: Optional[float] = None,
+        last_error: Optional[Exception] = None,
+    ):
+        super().__init__(message, last_error=last_error)
+        self.total_timeout_seconds = float(total_timeout_seconds)
+        self.remaining_budget_seconds = remaining_budget_seconds
 
 
 class RecruitmentAIRetryExhaustedError(RuntimeError):
@@ -344,6 +372,123 @@ def _resolve_openai_json_response_format(config: "RecruitmentLLMRuntimeConfig", 
     return None
 
 
+def _compact_response_headers(headers: Any) -> Dict[str, str]:
+    if headers is None:
+        return {}
+    try:
+        items = list(headers.items())
+    except Exception:
+        return {}
+    result: Dict[str, str] = {}
+    for key, value in items[:REQUEST_HEADER_SNAPSHOT_LIMIT]:
+        normalized_key = str(key or "").strip()
+        normalized_value = _truncate(str(value or "").strip(), 240)
+        if normalized_key:
+            result[normalized_key] = normalized_value
+    return result
+
+
+def _derive_primary_timeout_seconds(config: "RecruitmentLLMRuntimeConfig") -> float:
+    raw_value = config.extra_config.get("read_timeout_seconds")
+    try:
+        numeric = float(raw_value)
+    except (TypeError, ValueError):
+        numeric = float(SCREENING_TOTAL_TIMEOUT_SECONDS)
+    return numeric
+
+
+def _compute_effective_stage_timeout(
+    remaining_budget_seconds: Optional[float],
+    configured_timeout_seconds: Optional[float],
+) -> float:
+    try:
+        configured_timeout = float(configured_timeout_seconds)
+    except (TypeError, ValueError):
+        configured_timeout = float(SCREENING_TOTAL_TIMEOUT_SECONDS)
+    configured_timeout = max(1.0, configured_timeout)
+    if remaining_budget_seconds is None:
+        return configured_timeout
+    try:
+        remaining_budget = float(remaining_budget_seconds)
+    except (TypeError, ValueError):
+        remaining_budget = 0.0
+    if remaining_budget <= 0 or remaining_budget < float(SCREENING_STAGE_MIN_TIMEOUT_SECONDS):
+        raise RecruitmentAIScreeningTotalTimeoutError(
+            f"初筛总耗时超过 {int(SCREENING_TOTAL_TIMEOUT_SECONDS)} 秒，已终止",
+            total_timeout_seconds=SCREENING_TOTAL_TIMEOUT_SECONDS,
+            remaining_budget_seconds=max(0.0, remaining_budget),
+        )
+    return min(configured_timeout, remaining_budget)
+
+
+def _should_stream_openai_json(config: "RecruitmentLLMRuntimeConfig", *, task_type: str) -> bool:
+    extra_config = config.extra_config or {}
+    if task_type not in OPENAI_STREAM_JSON_TASK_WHITELIST:
+        return False
+    if "use_stream_json" in extra_config:
+        return bool(extra_config.get("use_stream_json"))
+    return True
+
+
+def _classify_attempt_failure_reason(exc: Exception) -> str:
+    if isinstance(exc, RecruitmentAIJSONParseError):
+        error_code = str(getattr(exc, "error_code", "") or "").strip()
+        if error_code == "empty_response":
+            return "empty_response"
+        return "invalid_json"
+    if isinstance(exc, (RecruitmentAITimeoutError, httpx.TimeoutException)):
+        return "timeout"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return "upstream_http_error"
+    if isinstance(exc, httpx.RequestError):
+        return "upstream_http_error"
+    return "request_error"
+
+
+def _build_timeout_debug_meta(
+    *,
+    configured_timeout_seconds: Optional[float],
+    effective_timeout_seconds: Optional[float],
+    screening_total_timeout_seconds: Optional[float],
+    remaining_budget_seconds: Optional[float],
+    is_stream_mode: bool,
+) -> Dict[str, Any]:
+    return {
+        "configured_read_timeout_seconds": configured_timeout_seconds,
+        "effective_timeout_seconds": effective_timeout_seconds,
+        "screening_total_timeout_seconds": screening_total_timeout_seconds,
+        "remaining_budget_seconds": remaining_budget_seconds,
+        "is_stream_mode": is_stream_mode,
+    }
+
+
+def _clone_runtime_config_with_task_overrides(
+    config: "RecruitmentLLMRuntimeConfig",
+    *,
+    task_type: str,
+    response_mode: str,
+) -> "RecruitmentLLMRuntimeConfig":
+    extra_config = dict(config.extra_config or {})
+    if task_type in {"resume_parse", "resume_score"} and response_mode == "json":
+        try:
+            existing_timeout = float(extra_config.get("read_timeout_seconds"))
+        except (TypeError, ValueError):
+            existing_timeout = float(SCREENING_TOTAL_TIMEOUT_SECONDS)
+        extra_config["read_timeout_seconds"] = max(1.0, existing_timeout)
+        extra_config["max_retries"] = 0
+        extra_config["use_stream_json"] = False
+    return RecruitmentLLMRuntimeConfig(
+        provider=config.provider,
+        runtime_provider=config.runtime_provider,
+        model_name=config.model_name,
+        base_url=config.base_url,
+        api_key=config.api_key,
+        source=config.source,
+        api_key_masked=config.api_key_masked,
+        extra_config=extra_config,
+    )
+
+
 def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_mode: str, system_prompt: str, user_prompt: str) -> str:
     temperature = _resolve_request_temperature(config, response_mode=response_mode)
     response_format: Optional[Dict[str, str]] = None
@@ -372,6 +517,8 @@ def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_m
                 {"role": "user", "content": f"{user_prompt}\n\nPlease return valid JSON only." if response_mode == "json" else user_prompt},
             ],
         }
+        if response_mode == "json":
+            request_body["stream"] = bool(config.extra_config.get("use_stream_json", True))
         response_format = _resolve_openai_json_response_format(config, response_mode=response_mode)
         if response_format:
             request_body["response_format"] = response_format
@@ -539,9 +686,70 @@ class RecruitmentAIGateway:
 
         return self._build_runtime_config(get_provider_definition("openai-compatible"), model_name=settings.AI_MODEL_NAME, base_url=settings.AI_BASE_URL, api_key=settings.AI_API_KEY, source="env:fallback")
 
-    def _build_httpx_client(self, config: RecruitmentLLMRuntimeConfig, *, cancel_control: Optional[RecruitmentTaskControl] = None) -> httpx.Client:
+    def prepare_json_request_context(
+        self,
+        *,
+        task_type: str,
+        system_prompt: str,
+        user_prompt: str,
+        timeout_seconds_override: Optional[float] = None,
+        screening_total_timeout_seconds: Optional[float] = None,
+        remaining_budget_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        config = _clone_runtime_config_with_task_overrides(
+            self.resolve_config(task_type),
+            task_type=task_type,
+            response_mode="json",
+        )
+        configured_timeout_seconds = _derive_primary_timeout_seconds(config)
+        effective_timeout_seconds = _compute_effective_stage_timeout(
+            timeout_seconds_override if timeout_seconds_override is not None else remaining_budget_seconds,
+            configured_timeout_seconds,
+        )
+        config.extra_config["read_timeout_seconds"] = effective_timeout_seconds
+        full_request_snapshot = _build_request_snapshot(
+            config,
+            response_mode="json",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        endpoint = None
+        if config.runtime_provider == "openai-compatible":
+            endpoint = self._build_openai_compatible_endpoint(config)
+        elif config.runtime_provider == "gemini":
+            endpoint = f"{(config.base_url or 'https://generativelanguage.googleapis.com').rstrip('/')}/v1beta/models/{config.model_name}:generateContent"
+        elif config.runtime_provider == "anthropic":
+            endpoint = f"{(config.base_url or 'https://api.anthropic.com').rstrip('/')}/v1/messages"
+        max_retries = max(
+            0,
+            int(config.extra_config.get("max_retries") if "max_retries" in config.extra_config else (0 if task_type in {"resume_score", "resume_parse"} else 2)),
+        )
+        return {
+            "runtime_config": config,
+            "provider": config.provider,
+            "model_name": config.model_name,
+            "endpoint": endpoint,
+            "timeout_seconds": effective_timeout_seconds,
+            "configured_read_timeout_seconds": configured_timeout_seconds,
+            "effective_timeout_seconds": effective_timeout_seconds,
+            "screening_total_timeout_seconds": screening_total_timeout_seconds or SCREENING_TOTAL_TIMEOUT_SECONDS,
+            "remaining_budget_seconds": remaining_budget_seconds,
+            "retry_count": max_retries,
+            "is_stream_mode": config.runtime_provider == "openai-compatible" and _should_stream_openai_json(config, task_type=task_type),
+            "full_request_snapshot": full_request_snapshot,
+            "input_summary": _truncate(user_prompt, 600),
+            "prompt_snapshot": f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}",
+        }
+
+    def _build_httpx_client(
+        self,
+        config: RecruitmentLLMRuntimeConfig,
+        *,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+        read_timeout_override: Optional[float] = None,
+    ) -> httpx.Client:
         connect_timeout = float(config.extra_config.get("connect_timeout_seconds") or 10)
-        read_timeout = float(config.extra_config.get("read_timeout_seconds") or 75)
+        read_timeout = float(read_timeout_override if read_timeout_override is not None else (config.extra_config.get("read_timeout_seconds") or SCREENING_TOTAL_TIMEOUT_SECONDS))
         write_timeout = float(config.extra_config.get("write_timeout_seconds") or 20)
         pool_timeout = float(config.extra_config.get("pool_timeout_seconds") or 10)
         client = httpx.Client(
@@ -612,6 +820,47 @@ class RecruitmentAIGateway:
                 chunks.append(item["text"])
         return "\n".join(chunks).strip()
 
+    def _build_openai_compatible_messages(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        response_mode: str,
+    ) -> list[dict[str, Any]]:
+        return [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": f"{user_prompt}\n\nPlease return valid JSON only." if response_mode == "json" else user_prompt,
+            },
+        ]
+
+    def _build_openai_compatible_request_body(
+        self,
+        config: RecruitmentLLMRuntimeConfig,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        response_mode: str,
+        stream: bool,
+    ) -> Dict[str, Any]:
+        body: Dict[str, Any] = {
+            "model": config.model_name,
+            "temperature": _resolve_request_temperature(config, response_mode=response_mode),
+            "messages": self._build_openai_compatible_messages(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                response_mode=response_mode,
+            ),
+            "stream": bool(stream),
+        }
+        if stream:
+            body["stream_options"] = {"include_usage": True}
+        response_format = _resolve_openai_json_response_format(config, response_mode=response_mode)
+        if response_format:
+            body["response_format"] = response_format
+        return body
+
     def _stream_openai_compatible_completion(
         self,
         config: RecruitmentLLMRuntimeConfig,
@@ -621,28 +870,26 @@ class RecruitmentAIGateway:
         response_mode: str,
         on_delta: Optional[Callable[[str], None]] = None,
         cancel_control: Optional[RecruitmentTaskControl] = None,
+        read_timeout_override: Optional[float] = None,
+        screening_total_timeout_seconds: Optional[float] = None,
+        remaining_budget_seconds: Optional[float] = None,
     ) -> Dict[str, Any]:
         if not config.api_key:
             raise RuntimeError("Missing API key for OpenAI compatible provider")
         endpoint = self._build_openai_compatible_endpoint(config)
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": f"{user_prompt}\n\nPlease return valid JSON only." if response_mode == "json" else user_prompt,
-            },
-        ]
-        body = {
-            "model": config.model_name,
-            "temperature": _resolve_request_temperature(config, response_mode=response_mode),
-            "messages": messages,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-        response_format = _resolve_openai_json_response_format(config, response_mode=response_mode)
-        if response_format:
-            body["response_format"] = response_format
-        client = self._build_httpx_client(config, cancel_control=cancel_control)
+        configured_timeout_seconds = _derive_primary_timeout_seconds(config)
+        body = self._build_openai_compatible_request_body(
+            config,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response_mode=response_mode,
+            stream=True,
+        )
+        client = self._build_httpx_client(
+            config,
+            cancel_control=cancel_control,
+            read_timeout_override=read_timeout_override,
+        )
         headers = {
             "Authorization": f"Bearer {config.api_key}",
             "Content-Type": "application/json",
@@ -650,8 +897,13 @@ class RecruitmentAIGateway:
         chunks: list[str] = []
         raw_lines_seen: list[str] = []
         token_usage: Optional[Dict[str, Any]] = None
+        response_status_code: Optional[int] = None
+        response_headers: Dict[str, str] = {}
+        recovered_from_non_sse_body = False
         try:
             with client.stream("POST", endpoint, headers=headers, json=body) as response:
+                response_status_code = response.status_code
+                response_headers = _compact_response_headers(response.headers)
                 response.raise_for_status()
                 for raw_line in response.iter_lines():
                     if cancel_control:
@@ -708,35 +960,224 @@ class RecruitmentAIGateway:
                     raw_text = self._extract_text_from_openai_compatible_response_payload(provider_payload)
                     token_usage = token_usage or self._extract_usage_from_openai_response_payload(provider_payload)
                     if raw_text:
+                        recovered_from_non_sse_body = True
                         logger.warning(
                             "OpenAI-compatible JSON stream returned no SSE delta content; recovered content from non-SSE response body for model=%s",
                             config.model_name,
                         )
+        response_debug = {
+            "status_code": response_status_code,
+            "response_headers": response_headers,
+            "stream_raw_line_count": len(raw_lines_seen),
+            "recovered_from_non_sse_body": recovered_from_non_sse_body,
+            "raw_response_text_length": len(raw_text or ""),
+            **_build_timeout_debug_meta(
+                configured_timeout_seconds=configured_timeout_seconds,
+                effective_timeout_seconds=read_timeout_override or configured_timeout_seconds,
+                screening_total_timeout_seconds=screening_total_timeout_seconds,
+                remaining_budget_seconds=remaining_budget_seconds,
+                is_stream_mode=True,
+            ),
+        }
         if response_mode == "json":
             if not raw_text:
                 raise RecruitmentAIJSONParseError(
                     "AI screening JSON 解析失败: 模型返回了空响应内容",
                     raw_response_text="",
+                    error_code="empty_response",
+                    debug_meta=response_debug,
+                    provider_payload={
+                        "response_status_code": response_status_code,
+                        "response_headers": response_headers,
+                        "raw_lines_seen_count": len(raw_lines_seen),
+                        "recovered_from_non_sse_body": recovered_from_non_sse_body,
+                    },
                 )
             content = _parse_llm_json_response(raw_text or "{}")
             return {
                 "content": content,
                 "token_usage": token_usage,
                 "raw_response_text": raw_text,
+                "response_debug": response_debug,
             }
         return {
             "content": {"markdown": raw_text, "html": raw_text.replace("\n", "<br />")},
             "token_usage": token_usage,
+            "response_debug": response_debug,
         }
 
-    def _call_openai_compatible_json(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
-        return self._stream_openai_compatible_completion(
+    def _call_openai_compatible_json_non_stream(
+        self,
+        config: RecruitmentLLMRuntimeConfig,
+        system_prompt: str,
+        user_prompt: str,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+        *,
+        read_timeout_override: Optional[float] = None,
+        screening_total_timeout_seconds: Optional[float] = None,
+        remaining_budget_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        if not config.api_key:
+            raise RuntimeError("Missing API key for OpenAI compatible provider")
+        endpoint = self._build_openai_compatible_endpoint(config)
+        configured_timeout_seconds = _derive_primary_timeout_seconds(config)
+        body = self._build_openai_compatible_request_body(
             config,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             response_mode="json",
-            cancel_control=cancel_control,
+            stream=False,
         )
+        client = self._build_httpx_client(
+            config,
+            cancel_control=cancel_control,
+            read_timeout_override=read_timeout_override,
+        )
+        response_status_code: Optional[int] = None
+        response_headers: Dict[str, str] = {}
+        try:
+            response = client.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {config.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+            response_status_code = response.status_code
+            response_headers = _compact_response_headers(response.headers)
+            response.raise_for_status()
+            if cancel_control:
+                cancel_control.raise_if_cancelled()
+            payload = response.json()
+        except Exception as exc:
+            if cancel_control and cancel_control.is_cancelled():
+                raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+            raise
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+        if not isinstance(payload, dict):
+            raw_response_text = ""
+            try:
+                raw_response_text = str(getattr(response, "text", "") or "").strip()
+            except Exception:
+                raw_response_text = ""
+            raise RecruitmentAIJSONParseError(
+                "AI screening JSON 解析失败: 上游返回的 JSON 不是对象",
+                raw_response_text=raw_response_text,
+                error_code="invalid_provider_payload",
+                debug_meta={
+                    "status_code": response_status_code,
+                    "response_headers": response_headers,
+                    **_build_timeout_debug_meta(
+                        configured_timeout_seconds=configured_timeout_seconds,
+                        effective_timeout_seconds=read_timeout_override or configured_timeout_seconds,
+                        screening_total_timeout_seconds=screening_total_timeout_seconds,
+                        remaining_budget_seconds=remaining_budget_seconds,
+                        is_stream_mode=False,
+                    ),
+                },
+                provider_payload=payload,
+            )
+        raw_text = self._extract_text_from_openai_compatible_response_payload(payload)
+        response_debug = {
+            "status_code": response_status_code,
+            "response_headers": response_headers,
+            "stream_raw_line_count": 0,
+            "recovered_from_non_sse_body": False,
+            "raw_response_text_length": len(raw_text or ""),
+            **_build_timeout_debug_meta(
+                configured_timeout_seconds=configured_timeout_seconds,
+                effective_timeout_seconds=read_timeout_override or configured_timeout_seconds,
+                screening_total_timeout_seconds=screening_total_timeout_seconds,
+                remaining_budget_seconds=remaining_budget_seconds,
+                is_stream_mode=False,
+            ),
+        }
+        if not raw_text:
+            raise RecruitmentAIJSONParseError(
+                "AI screening JSON 解析失败: 模型返回了空响应内容",
+                raw_response_text="",
+                error_code="empty_response",
+                debug_meta=response_debug,
+                provider_payload=payload,
+            )
+        try:
+            content = _parse_llm_json_response(raw_text)
+        except RecruitmentAIJSONParseError as exc:
+            raise RecruitmentAIJSONParseError(
+                str(exc),
+                raw_response_text=raw_text,
+                provider_payload=payload,
+                error_code=getattr(exc, "error_code", "json_parse_failed"),
+                debug_meta=response_debug,
+            ) from exc
+        return {
+            "content": content,
+            "token_usage": self._extract_usage_from_openai_response_payload(payload),
+            "raw_response_text": raw_text,
+            "response_debug": response_debug,
+        }
+
+    def _call_openai_compatible_json(
+        self,
+        config: RecruitmentLLMRuntimeConfig,
+        system_prompt: str,
+        user_prompt: str,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+        *,
+        task_type: str = "",
+        read_timeout_override: Optional[float] = None,
+        screening_total_timeout_seconds: Optional[float] = None,
+        remaining_budget_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        if not _should_stream_openai_json(config, task_type=task_type):
+            return self._call_openai_compatible_json_non_stream(
+                config,
+                system_prompt,
+                user_prompt,
+                cancel_control=cancel_control,
+                read_timeout_override=read_timeout_override,
+                screening_total_timeout_seconds=screening_total_timeout_seconds,
+                remaining_budget_seconds=remaining_budget_seconds,
+            )
+        try:
+            return self._stream_openai_compatible_completion(
+                config,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                response_mode="json",
+                cancel_control=cancel_control,
+                read_timeout_override=read_timeout_override,
+                screening_total_timeout_seconds=screening_total_timeout_seconds,
+                remaining_budget_seconds=remaining_budget_seconds,
+            )
+        except RecruitmentAIJSONParseError as exc:
+            if getattr(exc, "error_code", "") != "empty_response" or task_type != "resume_parse":
+                raise
+            logger.warning(
+                "OpenAI-compatible JSON stream returned empty response for task=%s model=%s; retrying once with non-stream request",
+                task_type,
+                config.model_name,
+            )
+            recovered = self._call_openai_compatible_json_non_stream(
+                config,
+                system_prompt,
+                user_prompt,
+                cancel_control=cancel_control,
+                read_timeout_override=read_timeout_override,
+                screening_total_timeout_seconds=screening_total_timeout_seconds,
+                remaining_budget_seconds=remaining_budget_seconds,
+            )
+            response_debug = dict(recovered.get("response_debug") or {})
+            response_debug["recovered_from_stream_empty_retry"] = True
+            warnings = ["stream empty, recovered by non-stream retry"]
+            recovered["response_debug"] = response_debug
+            recovered["warnings"] = warnings
+            return recovered
 
     def _call_openai_compatible_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         return self._stream_openai_compatible_completion(
@@ -818,13 +1259,28 @@ class RecruitmentAIGateway:
                 raise
         raise RuntimeError(_format_http_error(last_error or RuntimeError("Unknown AI stream task failure")))
 
-    def _call_gemini_json(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
+    def _call_gemini_json(
+        self,
+        config: RecruitmentLLMRuntimeConfig,
+        system_prompt: str,
+        user_prompt: str,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+        *,
+        read_timeout_override: Optional[float] = None,
+        screening_total_timeout_seconds: Optional[float] = None,
+        remaining_budget_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
         if not config.api_key:
             raise RuntimeError("Missing API key for Gemini")
         base_url = (config.base_url or "https://generativelanguage.googleapis.com").rstrip("/")
         url = f"{base_url}/v1beta/models/{config.model_name}:generateContent"
         body = {"system_instruction": {"parts": [{"text": system_prompt}]}, "contents": [{"role": "user", "parts": [{"text": f"{user_prompt}\n\n请仅返回有效 JSON。"}]}], "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}}
-        client = self._build_httpx_client(config, cancel_control=cancel_control)
+        configured_timeout_seconds = _derive_primary_timeout_seconds(config)
+        client = self._build_httpx_client(
+            config,
+            cancel_control=cancel_control,
+            read_timeout_override=read_timeout_override,
+        )
         try:
             response = client.post(url, params={"key": config.api_key}, json=body)
             response.raise_for_status()
@@ -855,6 +1311,13 @@ class RecruitmentAIGateway:
             "content": content,
             "token_usage": {"prompt_tokens": usage.get("promptTokenCount"), "completion_tokens": usage.get("candidatesTokenCount"), "total_tokens": usage.get("totalTokenCount")},
             "raw_response_text": raw_text,
+            "response_debug": _build_timeout_debug_meta(
+                configured_timeout_seconds=configured_timeout_seconds,
+                effective_timeout_seconds=read_timeout_override or configured_timeout_seconds,
+                screening_total_timeout_seconds=screening_total_timeout_seconds,
+                remaining_budget_seconds=remaining_budget_seconds,
+                is_stream_mode=False,
+            ),
         }
 
     def _call_gemini_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
@@ -884,11 +1347,26 @@ class RecruitmentAIGateway:
         usage = payload.get("usageMetadata") or {}
         return {"content": {"markdown": raw_text, "html": raw_text.replace("\n", "<br />")}, "token_usage": {"prompt_tokens": usage.get("promptTokenCount"), "completion_tokens": usage.get("candidatesTokenCount"), "total_tokens": usage.get("totalTokenCount")}}
 
-    def _call_anthropic_json(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
+    def _call_anthropic_json(
+        self,
+        config: RecruitmentLLMRuntimeConfig,
+        system_prompt: str,
+        user_prompt: str,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+        *,
+        read_timeout_override: Optional[float] = None,
+        screening_total_timeout_seconds: Optional[float] = None,
+        remaining_budget_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
         if not config.api_key:
             raise RuntimeError("Missing API key for Anthropic")
         base_url = (config.base_url or "https://api.anthropic.com").rstrip("/")
-        client = self._build_httpx_client(config, cancel_control=cancel_control)
+        configured_timeout_seconds = _derive_primary_timeout_seconds(config)
+        client = self._build_httpx_client(
+            config,
+            cancel_control=cancel_control,
+            read_timeout_override=read_timeout_override,
+        )
         try:
             response = client.post(f"{base_url}/v1/messages", headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json={"model": config.model_name, "max_tokens": 4000, "temperature": 0, "system": system_prompt, "messages": [{"role": "user", "content": f"{user_prompt}\n\nReturn valid JSON only."}]})
             response.raise_for_status()
@@ -918,6 +1396,13 @@ class RecruitmentAIGateway:
             "content": content,
             "token_usage": {"prompt_tokens": usage.get("input_tokens"), "completion_tokens": usage.get("output_tokens"), "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)},
             "raw_response_text": raw_text,
+            "response_debug": _build_timeout_debug_meta(
+                configured_timeout_seconds=configured_timeout_seconds,
+                effective_timeout_seconds=read_timeout_override or configured_timeout_seconds,
+                screening_total_timeout_seconds=screening_total_timeout_seconds,
+                remaining_budget_seconds=remaining_budget_seconds,
+                is_stream_mode=False,
+            ),
         }
 
     def _call_anthropic_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
@@ -944,22 +1429,70 @@ class RecruitmentAIGateway:
         usage = payload.get("usage") or {}
         return {"content": {"markdown": raw_text, "html": raw_text.replace("\n", "<br />")}, "token_usage": {"prompt_tokens": usage.get("input_tokens"), "completion_tokens": usage.get("output_tokens"), "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)}}
 
-    def generate_json(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Optional[Callable[[], Dict[str, Any]]] = None, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
-        config = self.resolve_config(task_type)
+    def generate_json(
+        self,
+        *,
+        task_type: str,
+        system_prompt: str,
+        user_prompt: str,
+        fallback_builder: Optional[Callable[[], Dict[str, Any]]] = None,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+        runtime_config: Optional[RecruitmentLLMRuntimeConfig] = None,
+        timeout_seconds_override: Optional[float] = None,
+        screening_total_timeout_seconds: Optional[float] = None,
+        remaining_budget_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        config = _clone_runtime_config_with_task_overrides(
+            runtime_config or self.resolve_config(task_type),
+            task_type=task_type,
+            response_mode="json",
+        )
+        configured_timeout_seconds = _derive_primary_timeout_seconds(config)
+        effective_timeout_seconds = _compute_effective_stage_timeout(
+            timeout_seconds_override if timeout_seconds_override is not None else remaining_budget_seconds,
+            configured_timeout_seconds,
+        )
+        config.extra_config["read_timeout_seconds"] = effective_timeout_seconds
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
         full_request_snapshot = _build_request_snapshot(config, response_mode="json", system_prompt=system_prompt, user_prompt=user_prompt)
-        default_max_retries = 1 if task_type in {"resume_score", "resume_parse"} else 2
+        default_max_retries = 0 if task_type in {"resume_score", "resume_parse"} else 2
         max_retries = max(0, int(config.extra_config.get("max_retries") if "max_retries" in config.extra_config else default_max_retries))
         retry_delay = float(config.extra_config.get("retry_delay_seconds") or 1.2)
         last_error: Exception | None = None
+        first_attempt_failed_reason: Optional[str] = None
         for attempt in range(max_retries + 1):
             try:
                 if config.runtime_provider == "gemini":
-                    response_payload = self._call_gemini_json(config, system_prompt, user_prompt, cancel_control=cancel_control)
+                    response_payload = self._call_gemini_json(
+                        config,
+                        system_prompt,
+                        user_prompt,
+                        cancel_control=cancel_control,
+                        read_timeout_override=effective_timeout_seconds,
+                        screening_total_timeout_seconds=screening_total_timeout_seconds or SCREENING_TOTAL_TIMEOUT_SECONDS,
+                        remaining_budget_seconds=remaining_budget_seconds,
+                    )
                 elif config.runtime_provider == "anthropic":
-                    response_payload = self._call_anthropic_json(config, system_prompt, user_prompt, cancel_control=cancel_control)
+                    response_payload = self._call_anthropic_json(
+                        config,
+                        system_prompt,
+                        user_prompt,
+                        cancel_control=cancel_control,
+                        read_timeout_override=effective_timeout_seconds,
+                        screening_total_timeout_seconds=screening_total_timeout_seconds or SCREENING_TOTAL_TIMEOUT_SECONDS,
+                        remaining_budget_seconds=remaining_budget_seconds,
+                    )
                 else:
-                    response_payload = self._call_openai_compatible_json(config, system_prompt, user_prompt, cancel_control=cancel_control)
+                    response_payload = self._call_openai_compatible_json(
+                        config,
+                        system_prompt,
+                        user_prompt,
+                        cancel_control=cancel_control,
+                        task_type=task_type,
+                        read_timeout_override=effective_timeout_seconds,
+                        screening_total_timeout_seconds=screening_total_timeout_seconds or SCREENING_TOTAL_TIMEOUT_SECONDS,
+                        remaining_budget_seconds=remaining_budget_seconds,
+                    )
                 content = response_payload["content"]
                 return {
                     "content": content,
@@ -974,11 +1507,32 @@ class RecruitmentAIGateway:
                     "token_usage": response_payload.get("token_usage"),
                     "error_message": None,
                     "raw_response_text": response_payload.get("raw_response_text"),
+                    "response_debug": {
+                        **_build_timeout_debug_meta(
+                            configured_timeout_seconds=configured_timeout_seconds,
+                            effective_timeout_seconds=effective_timeout_seconds,
+                            screening_total_timeout_seconds=screening_total_timeout_seconds or SCREENING_TOTAL_TIMEOUT_SECONDS,
+                            remaining_budget_seconds=remaining_budget_seconds,
+                            is_stream_mode=bool(dict(response_payload.get("response_debug") or {}).get("is_stream_mode")),
+                        ),
+                        **dict(response_payload.get("response_debug") or {}),
+                        **({"first_attempt_failed_reason": first_attempt_failed_reason} if first_attempt_failed_reason else {}),
+                    },
+                    "warnings": list(response_payload.get("warnings") or []),
                 }
+            except RecruitmentAIScreeningTotalTimeoutError:
+                raise
             except RecruitmentTaskCancelled:
                 raise
             except Exception as exc:
                 last_error = exc
+                if attempt == 0:
+                    first_attempt_failed_reason = _classify_attempt_failure_reason(exc)
+                    if isinstance(exc, RecruitmentAIJSONParseError):
+                        exc.debug_meta = {
+                            **dict(getattr(exc, "debug_meta", {}) or {}),
+                            "first_attempt_failed_reason": first_attempt_failed_reason,
+                        }
                 if cancel_control and cancel_control.is_cancelled():
                     raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
                 if attempt < max_retries and _is_retryable_error(exc):
@@ -993,7 +1547,14 @@ class RecruitmentAIGateway:
                 logger.warning("Recruitment JSON task %s failed: %s", task_type, exc)
                 break
         if fallback_builder is None:
+            if isinstance(last_error, RecruitmentAIScreeningTotalTimeoutError):
+                raise last_error
             if isinstance(last_error, RecruitmentAIJSONParseError):
+                if first_attempt_failed_reason:
+                    last_error.debug_meta = {
+                        **dict(getattr(last_error, "debug_meta", {}) or {}),
+                        "first_attempt_failed_reason": first_attempt_failed_reason,
+                    }
                 raise last_error
             if isinstance(last_error, httpx.TimeoutException):
                 raise RecruitmentAITimeoutError(_format_http_error(last_error), last_error=last_error) from last_error

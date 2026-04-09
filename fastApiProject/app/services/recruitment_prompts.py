@@ -66,7 +66,37 @@ Rules:
 - Extract factual information only.
 - If a field is missing, use an empty string or empty list.
 - Keep list items short, deduplicated, and resume-grounded.
-- The summary must be a neutral 2-4 sentence summary.
+- Do not output the same work experience twice in different granularities. If one work experience is already captured as a complete object, do not repeat it again as a simplified duplicate row.
+- Use one unified time-field contract only:
+  - start_date
+  - end_date
+  - duration
+- Do not output start_time or end_time. Do not mix start_time/start_date or end_time/end_date.
+- For work_experiences, prefer objects shaped like:
+  - company_name
+  - position
+  - start_date
+  - end_date
+  - duration
+  - description
+- For education_experiences, prefer objects shaped like:
+  - school
+  - degree
+  - major
+  - start_date
+  - end_date
+  - duration
+- For projects, prefer objects shaped like:
+  - project_name
+  - start_date
+  - end_date
+  - duration
+  - description
+  - highlights
+- If description or highlights needs multiple points, return a real JSON array of strings.
+- Never return a Python-list string or JSON-like string such as "['xxx','yyy']" or "[\"xxx\",\"yyy\"]".
+- skills must only contain concrete, discriminative skills from the resume. Do not include generic labels such as 测试 / 网络 / web / app / sql / iot.
+- The summary must be a short neutral 1-2 sentence summary, not a long narrative.
 """
 
 SCREENING_OUTPUT_SCHEMA = """【唯一合法输出格式】
@@ -307,6 +337,8 @@ Rules:
 - Do not return any fields beyond total_score, match_percent, advantages, concerns, recommendation, suggested_status, and dimensions.
 - Do not return parsed_resume in resume_score tasks.
 - The top-level object must contain only total_score, match_percent, advantages, concerns, recommendation, suggested_status, and dimensions.
+- Return exactly one final JSON object once. Do not output a draft JSON followed by a corrected JSON.
+- Never output multiple alternative totals, multiple suggested_status values, or multiple top-level JSON variants.
 - If dimensions exist, total_score must equal the exact arithmetic sum of every dimensions.score value.
 - If dimensions exist, match_percent must equal round(total_score * 10).
 - For each dimension, follow the dimension-specific note/rubric provided in DIMENSION_RULES and the active screening skills. Do not invent extra rubric beyond the provided dimension rules.

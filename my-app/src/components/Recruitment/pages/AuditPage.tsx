@@ -354,6 +354,21 @@ export function AuditPage({
         () => selectedFlowAuditView?.stages || [],
         [selectedFlowAuditView],
     );
+    const selectedDisplayTaskStatus = selectedFlowAuditView?.effectiveRootStatus || selectedLogDetail?.status || "pending";
+    const selectedDisplayTaskStage = selectedFlowAuditView?.effectiveRootStage || selectedLogDetail?.stage || "pending";
+    const selectedDisplayTaskStatusLabel = selectedFlowAuditView?.autoRequeueScheduled
+        ? "排队重试中"
+        : labelForTaskExecutionStatus(selectedDisplayTaskStatus);
+    const selectedDisplayTaskStageLabel = selectedFlowAuditView?.autoRequeueScheduled
+        ? "等待重试"
+        : labelForScreeningTaskStage(selectedDisplayTaskStage);
+    const selectedRootNotice = selectedFlowAuditView?.rootNotice || null;
+    const selectedRootNoticeClassName = selectedFlowAuditView?.autoRequeueScheduled
+        ? "mt-3 rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100"
+        : "mt-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
+    const selectedInfraRetryCount = selectedFlowAuditView?.infraRetryCount ?? null;
+    const selectedRetryAfterSeconds = selectedFlowAuditView?.retryAfterSeconds ?? null;
+    const selectedNextRetryAt = selectedFlowAuditView?.nextRetryAt || null;
     const selectedParseDetailLog = selectedFlowAuditView?.parseDetailLog || null;
     const selectedScoreDetailLog = selectedFlowAuditView?.scoreDetailLog || null;
     const selectedSkillResolutionDetail = React.useMemo(
@@ -759,11 +774,11 @@ export function AuditPage({
                         <div className="flex h-full min-h-0 flex-1 flex-col">
                             <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-800">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <Badge className={cn("rounded-full border", statusBadgeClass("task", selectedLogDetail.status))}>
-                                        {labelForTaskExecutionStatus(selectedLogDetail.status)}
+                                    <Badge className={cn("rounded-full border", statusBadgeClass("task", selectedDisplayTaskStatus))}>
+                                        {selectedDisplayTaskStatusLabel}
                                     </Badge>
                                     <Badge variant="outline" className="rounded-full">{labelForAuditLogTask(selectedLogDetail)}</Badge>
-                                    <Badge variant="outline" className="rounded-full">{labelForScreeningTaskStage(selectedLogDetail.stage)}</Badge>
+                                    <Badge variant="outline" className="rounded-full">{selectedDisplayTaskStageLabel}</Badge>
                                 </div>
                                 <h3 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
                                     {buildLogObjectLabel(selectedLogDetail, positionMap, candidateMap, skillMap)}
@@ -771,7 +786,12 @@ export function AuditPage({
                                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                                     {labelForProvider(selectedLogDetail.model_provider)} · {selectedLogDetail.model_name || "-"} · {formatLongDateTime(selectedLogDetail.created_at)}
                                 </p>
-                                {selectedInvalidResultSummary ? (
+                                {selectedRootNotice ? (
+                                    <div className={selectedRootNoticeClassName}>
+                                        {selectedRootNotice}
+                                    </div>
+                                ) : null}
+                                {!selectedRootNotice && !selectedFlowAuditView?.autoRequeueScheduled && selectedInvalidResultSummary ? (
                                     <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
                                         {selectedInvalidResultSummary}
                                     </div>
@@ -780,11 +800,18 @@ export function AuditPage({
                             <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
                                 <div className="min-w-0 space-y-5 px-6 py-6">
                                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                        <InfoTile label="当前阶段" value={labelForScreeningTaskStage(selectedLogDetail.stage)}/>
+                                        <InfoTile label="当前阶段" value={selectedDisplayTaskStageLabel}/>
                                         <InfoTile label="Run ID" value={selectedLogDetail.screening_run_id || "未记录"}/>
                                         <InfoTile label="技能使用情况" value={selectedSkillUsageText}/>
                                         <InfoTile label="记忆来源" value={labelForMemorySource(selectedLogDetail.memory_source)}/>
                                     </div>
+                                    {selectedFlowAuditView?.autoRequeueScheduled ? (
+                                        <div className="grid gap-3 md:grid-cols-3">
+                                            <InfoTile label="已重试次数" value={selectedInfraRetryCount != null ? `${selectedInfraRetryCount}` : "未记录"}/>
+                                            <InfoTile label="下次重试间隔" value={selectedRetryAfterSeconds != null ? `${selectedRetryAfterSeconds}s` : "未记录"}/>
+                                            <InfoTile label="下次重试时间" value={selectedNextRetryAt ? formatLongDateTime(selectedNextRetryAt) : "未记录"}/>
+                                        </div>
+                                    ) : null}
                                     <Field label="任务链路">
                                         <div className="space-y-3">
                                             {selectedFlowAuditView?.inferredFromChildTerminal ? (
@@ -922,7 +949,7 @@ export function AuditPage({
                                     <InfoTile label="输入摘要" value={selectedLogDetail.input_summary || "暂无"}/>
                                     <InfoTile label="输出摘要" value={selectedLogDetail.output_summary || "暂无"}/>
                                     <InfoTile label="错误信息" value={selectedLogDetail.error_message || "无"}/>
-                                    {selectedAuditNotice.show ? (
+                                    {selectedAuditNotice.show && !selectedFlowAuditView?.autoRequeueScheduled ? (
                                         <Field label={selectedAuditNotice.title}>
                                             <div className={selectedAuditNotice.containerClassName}>
                                                 {selectedInvalidResultSummary ? (
