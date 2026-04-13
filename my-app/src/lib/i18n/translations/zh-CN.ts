@@ -1636,6 +1636,9 @@ export const zhCN: Translations = {
                     prod: '生产环境',
                     local: '本地环境',
                 },
+                cityTaxRate: '城建税税率 (%)',
+                eduSurchargeRate: '教育费附加税率 (%)',
+                localEduSurchargeRate: '地方教育附加税率 (%)',
             },
             mock: {
                 title: '模拟收入记录',
@@ -1659,6 +1662,15 @@ export const zhCN: Translations = {
                 title: '税额计算结果',
                 export: '导出 CSV',
                 total: '总税额',
+                headerTotal: '这里显示总额（含附加和增值）',
+                footer: {
+                    taxOnlyTotal: '不含增值和附加的税额总计',
+                    vatTotal: '增值总计',
+                    surchargesTotal: '附加总计',
+                    grandTotal: '综合全额总税金',
+                    warningMsg: '预警信息',
+                    calcSteps: '计算步骤：'
+                },
                 messages: {
                     limit12: '最多只能添加12个月的记录',
                     invalidAmount: '请输入有效的金额',
@@ -1685,7 +1697,11 @@ export const zhCN: Translations = {
                     monthlyTax: '当月税额',
                     actualBurden: '实际税负',
                     name: '姓名',
-                    totalTax: '总税额',
+                    totalTax: '总税费',
+                    vat: '增值税',
+                    surcharges: '附加税费',
+                    totalTaxAndFees: '单月税费合计',
+                    statisticsTotal: '统计合计',
                 },
                 fileName: '税额计算结果_{date}.csv',
             },

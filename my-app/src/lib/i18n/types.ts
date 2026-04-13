@@ -1610,6 +1610,9 @@ export interface Translations {
           prod: string;
           local: string;
         };
+        cityTaxRate: string;
+        eduSurchargeRate: string;
+        localEduSurchargeRate: string;
       };
       mock: {
         title: string;
@@ -1633,6 +1636,15 @@ export interface Translations {
         title: string;
         export: string;
         total: string;
+        headerTotal: string;
+        footer: {
+          taxOnlyTotal: string;
+          vatTotal: string;
+          surchargesTotal: string;
+          grandTotal: string;
+          warningMsg: string;
+          calcSteps: string;
+        };
         messages: {
           limit12: string;
           invalidAmount: string;
@@ -1660,6 +1672,10 @@ export interface Translations {
           actualBurden: string;
           name: string;
           totalTax: string;
+          vat: string;
+          surcharges: string;
+          totalTaxAndFees: string;
+          statisticsTotal: string;
         };
         fileName: string;
       };

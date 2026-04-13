@@ -1637,6 +1637,9 @@ export const enUS: Translations = {
                     prod: 'Production Environment',
                     local: 'Local Environment',
                 },
+                cityTaxRate: 'City Tax Rate (%)',
+                eduSurchargeRate: 'Edu Surcharge Rate (%)',
+                localEduSurchargeRate: 'Local Edu Surcharge Rate (%)',
             },
             mock: {
                 title: 'Mock Income Records',
@@ -1660,6 +1663,15 @@ export const enUS: Translations = {
                 title: 'Tax Calculation Results',
                 export: 'Export CSV',
                 total: 'Total Tax',
+                headerTotal: 'Total (incl. VAT and Surcharges)',
+                footer: {
+                    taxOnlyTotal: 'Total Tax (excl. VAT/Sur)',
+                    vatTotal: 'Total VAT',
+                    surchargesTotal: 'Total Surcharges',
+                    grandTotal: 'Grand Total Taxes & Fees',
+                    warningMsg: 'Warning Message',
+                    calcSteps: 'Calculation Steps:'
+                },
                 messages: {
                     limit12: 'Maximum 12 months records allowed',
                     invalidAmount: 'Please enter a valid amount',
@@ -1687,6 +1699,10 @@ export const enUS: Translations = {
                     actualBurden: 'Actual Burden',
                     name: 'Name',
                     totalTax: 'Total Tax',
+                    vat: 'VAT',
+                    surcharges: 'Surcharges',
+                    totalTaxAndFees: 'Total Taxes and Fees',
+                    statisticsTotal: 'Statistics Total',
                 },
                 fileName: 'Tax_Calculation_Result_{date}.csv',
             },

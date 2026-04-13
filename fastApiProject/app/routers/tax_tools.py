@@ -222,6 +222,10 @@ async def calculate_tax(
             "accumulated_other_deduction": request.accumulated_other_deduction,
             "accumulated_pension_deduction": request.accumulated_pension_deduction,
             "accumulated_donation_deduction": request.accumulated_donation_deduction,
+            "city_tax_rate": request.city_tax_rate,
+            "education_surcharge_rate": request.education_surcharge_rate,
+            "local_education_surcharge_rate": request.local_education_surcharge_rate,
+            "lang": request.lang,
         }
 
         results = calculator.calculate_tax_by_batch(**params)
@@ -229,7 +233,7 @@ async def calculate_tax(
         if results is None:
             raise ValueError("计算结果为空")
 
-        total_tax = sum(result.get('tax', 0) for result in results) if results else 0.0
+        total_tax = float(sum(result.get('tax', 0) for result in results)) if results else 0.0
         elapsed = round(_time.time() - start_time, 2)
         logger.info(f"[税额计算] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 记录数: {len(results)} | 总税额: {round(total_tax, 2)}")
         write_audit_log(

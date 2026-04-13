@@ -486,6 +486,10 @@ class TaxCalculationRequest(BaseModel):
     environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
     use_mock: bool = Field(False, description="是否使用模拟数据")
     mock_data: Optional[List[Dict]] = Field(None, description="模拟数据（仅当use_mock=True时有效）")
+    city_tax_rate: Optional[float] = Field(7.0, description="城建税税率(%)")
+    education_surcharge_rate: Optional[float] = Field(3.0, description="教育费附加税率(%)")
+    local_education_surcharge_rate: Optional[float] = Field(2.0, description="地方教育附加税率(%)")
+    lang: str = Field('zh-CN', description="语言偏好 (zh-CN 或 en-US)")
 
 
 class TaxCalculationResultItem(BaseModel):
@@ -518,6 +522,11 @@ class TaxCalculationResultItem(BaseModel):
     accumulated_tax: float = Field(..., description="累计已缴税额")
     calculation_steps: List[str] = Field(..., description="计算步骤")
     effective_tax_rate: float = Field(..., description="实际税负")
+    vat_tax: float = Field(0.0, description="增值税")
+    surcharges: float = Field(0.0, description="附加税费")
+    total_tax_and_fees: float = Field(0.0, description="税费合计(含个税+增值税+附加税)")
+    warning_msg: Optional[str] = Field(None, description="预警信息")
+    warning_level: Optional[str] = Field(None, description="预警等级: '450' | '500' | None")
 
 
 class TaxCalculationResponse(BaseModel):
