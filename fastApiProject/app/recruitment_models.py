@@ -182,6 +182,7 @@ class RecruitmentAITaskLog(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     task_type = Column(String(80), nullable=False, index=True)
     screening_run_id = Column(String(80), index=True)
+    batch_id = Column(String(80), index=True)
     parent_task_id = Column(Integer, index=True)
     root_task_id = Column(Integer, index=True)
     stage = Column(String(50), index=True)

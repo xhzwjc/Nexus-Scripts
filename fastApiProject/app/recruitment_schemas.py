@@ -101,7 +101,11 @@ class CandidateScreenRequest(BaseModel):
     use_candidate_memory: bool = True
     use_position_skills: bool = True
     custom_requirements: Optional[str] = None
-    force_one_pass: bool = False
+    force_one_pass: bool = True
+    force_fallback: bool = False
+    allow_reuse_parse: bool = True
+    allow_score_only_rerun: bool = True
+    screening_mode: str = Field("default", min_length=1, max_length=64)
 
 
 class CandidateScreenBatchStartRequest(BaseModel):
@@ -110,6 +114,19 @@ class CandidateScreenBatchStartRequest(BaseModel):
     use_candidate_memory: bool = True
     use_position_skills: bool = True
     custom_requirements: Optional[str] = None
+    force_one_pass: bool = True
+    force_fallback: bool = False
+    allow_reuse_parse: bool = True
+    allow_score_only_rerun: bool = True
+    screening_mode: str = Field("default", min_length=1, max_length=64)
+
+
+class CandidateScreenBatchQueryRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1, max_length=80)
+
+
+class CandidateScreenBatchCancelRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1, max_length=80)
 
 
 class SkillUpsertRequest(BaseModel):

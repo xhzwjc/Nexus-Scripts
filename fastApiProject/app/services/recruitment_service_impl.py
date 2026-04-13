@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import ast
+from collections import deque
 from contextlib import contextmanager
 import hashlib
 import json
 import logging
 import mimetypes
+import os
 import threading
 import time
 from datetime import datetime, timedelta
@@ -46,7 +48,7 @@ from ..recruitment_models import (
 from ..secret_crypto import decrypt_secret, encrypt_secret, mask_secret
 from .recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentAIRetryExhaustedError, RecruitmentAIScreeningTotalTimeoutError, RecruitmentAITimeoutError, SCREENING_STAGE_MIN_TIMEOUT_SECONDS, SCREENING_TOTAL_TIMEOUT_SECONDS, _parse_llm_json_response, get_provider_options
 from .recruitment_mailer import RecruitmentMailSenderRuntime, build_resume_email, load_attachment_from_path, send_email_via_smtp
-from .recruitment_prompts import INTERVIEW_QUESTION_STREAM_PREVIEW_SYSTEM_PROMPT, INTERVIEW_QUESTION_SYSTEM_PROMPT, JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, JD_GENERATION_SYSTEM_PROMPT, RESUME_PARSE_SYSTEM_PROMPT, RESUME_SCORE_SYSTEM_PROMPT, RESUME_SCREENING_SYSTEM_PROMPT
+from .recruitment_prompts import INTERVIEW_QUESTION_STREAM_PREVIEW_SYSTEM_PROMPT, INTERVIEW_QUESTION_SYSTEM_PROMPT, JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, JD_GENERATION_SYSTEM_PROMPT, RESUME_PARSE_SYSTEM_PROMPT, RESUME_SCORE_PROMPT_VERSION, RESUME_SCORE_SYSTEM_PROMPT, RESUME_SCREENING_PROMPT_VERSION, RESUME_SCREENING_SYSTEM_PROMPT
 from .recruitment_publish_adapters import build_publish_adapter
 from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl, recruitment_task_registry
 from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_interview_structured_fallback, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_interview_generation_constraints, extract_keywords, extract_resume_structured_data, extract_resume_text, extract_screening_dimension_rules, infer_interview_capability_domains, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text
@@ -67,6 +69,7 @@ STRICT_RESUME_SCORE_FIELDS = (
 )
 RAW_SCREENING_SCORE_STORAGE_FORMAT = "raw_screening_v1"
 VALID_SCREENING_SUGGESTED_STATUSES = {"screening_passed", "talent_pool", "screening_rejected"}
+VALID_SCREENING_MODES = {"default", "rerank_from_existing_parse", "fallback_parse_then_score"}
 SCREENING_PAYLOAD_SCHEMA_CONFIG = {
     "parsed_resume": {
         "basic_info_fields": ("name", "phone", "email", "years_of_experience", "education", "location"),
@@ -105,7 +108,14 @@ SKILL_TASK_KEYWORDS = {
 }
 logger = logging.getLogger(__name__)
 PROCESS_BOOTED_AT = datetime.now()
-SCREENING_WORKER_MAX_CONCURRENCY = 1
+SCREENING_WORKER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_WORKER_MAX_CONCURRENCY", "4")))
+SCREENING_PROVIDER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_PROVIDER_MAX_CONCURRENCY", "3")))
+SCREENING_PROVIDER_QPS = max(1, int(os.getenv("SCREENING_PROVIDER_QPS", "2")))
+SCREENING_BATCH_MAX_SIZE = max(1, int(os.getenv("SCREENING_BATCH_MAX_SIZE", "100")))
+SCREENING_ONE_PASS_MAX_RETRIES = max(0, int(os.getenv("SCREENING_ONE_PASS_MAX_RETRIES", "2")))
+SCREENING_FALLBACK_MAX_RETRIES = max(0, int(os.getenv("SCREENING_FALLBACK_MAX_RETRIES", "1")))
+SCREENING_PROVIDER_COOLDOWN_THRESHOLD = max(1, int(os.getenv("SCREENING_PROVIDER_COOLDOWN_THRESHOLD", "3")))
+SCREENING_PROVIDER_COOLDOWN_SECONDS = max(30, int(os.getenv("SCREENING_PROVIDER_COOLDOWN_SECONDS", "45")))
 SCREENING_LIVE_TASK_STATUSES = ("pending", "queued", "running", "cancelling")
 SCREENING_ORPHAN_STALE_MINUTES = 10
 SCREENING_ROOT_RECOVERY_GRACE_SECONDS = 8
@@ -114,6 +124,10 @@ SCREENING_HEARTBEAT_INTERVAL_SECONDS = 5
 _screening_worker_lock = threading.Lock()
 _screening_worker_active_task_ids: set[int] = set()
 _screening_enqueue_lock = threading.Lock()
+_screening_provider_lock = threading.Lock()
+_screening_provider_semaphore = threading.BoundedSemaphore(SCREENING_PROVIDER_MAX_CONCURRENCY)
+_screening_provider_recent_request_started_at: deque[float] = deque()
+_screening_provider_consecutive_retryable_failures = 0
 _screening_provider_cooldown_until: Optional[datetime] = None
 
 AI_TASK_LOG_PROMPT_LIMIT = 24000
@@ -221,7 +235,7 @@ def _classify_infra_failure(exc: Exception) -> Tuple[str, str]:
 
 
 def _is_retryable_infra_failure_code(failure_code: Optional[str]) -> bool:
-    return str(failure_code or "").strip() in {"rate_limited", "upstream_timeout"}
+    return str(failure_code or "").strip() in {"rate_limited", "upstream_timeout", "request_failed"}
 
 
 def _compute_infra_retry_delay_seconds(failure_code: str, retry_count: int) -> int:
@@ -239,13 +253,7 @@ def _compute_infra_retry_delay_seconds(failure_code: str, retry_count: int) -> i
 
 
 def _should_mark_candidate_screening_failed(failure_status: str) -> bool:
-    return str(failure_status or "").strip() not in {
-        "rate_limited",
-        "upstream_timeout",
-        "request_failed",
-        "screening_total_timeout",
-        "invalid_json_variant_conflict",
-    }
+    return False
 
 
 def _compute_screening_deadline_at(started_at: Optional[datetime] = None) -> datetime:
@@ -435,6 +443,48 @@ def _build_resume_content_hash(raw_text: Any) -> str:
     if not normalized:
         return ""
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
+
+
+def _build_json_content_hash(value: Any) -> str:
+    try:
+        normalized = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        normalized = json_dumps_safe(value)
+    normalized = str(normalized or "").strip()
+    if not normalized:
+        return ""
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:32]
+
+
+def _normalize_screening_mode(value: Any, *, force_fallback: bool = False) -> str:
+    if force_fallback:
+        return "fallback_parse_then_score"
+    normalized = str(value or "").strip()
+    if normalized in VALID_SCREENING_MODES:
+        return normalized
+    return "default"
+
+
+def _compute_screening_provider_cooldown_seconds(consecutive_failures: int) -> int:
+    if consecutive_failures <= SCREENING_PROVIDER_COOLDOWN_THRESHOLD:
+        return SCREENING_PROVIDER_COOLDOWN_SECONDS
+    scaled = SCREENING_PROVIDER_COOLDOWN_SECONDS * max(1, consecutive_failures - SCREENING_PROVIDER_COOLDOWN_THRESHOLD + 1)
+    return max(30, min(120, scaled))
+
+
+def _compute_percentile_ms(values: Sequence[int], percentile: float) -> Optional[int]:
+    normalized = sorted(int(max(0, value)) for value in values if isinstance(value, (int, float)))
+    if not normalized:
+        return None
+    if len(normalized) == 1:
+        return normalized[0]
+    rank = max(0.0, min(1.0, float(percentile))) * (len(normalized) - 1)
+    lower = int(rank)
+    upper = min(len(normalized) - 1, lower + 1)
+    if lower == upper:
+        return normalized[lower]
+    ratio = rank - lower
+    return int(round((normalized[lower] * (1 - ratio)) + (normalized[upper] * ratio)))
 
 
 RESUME_SECTION_HEADING_ALIASES = {
@@ -920,14 +970,11 @@ def _validate_screening_payload_warnings(payload: Dict[str, Any], schema_config:
 
 def sanitize_screening_payload(payload: Any, schema_config: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     sanitized_payload = _sanitize_screening_payload_structure(payload, schema_config)
-    corrected_score_payload, correction_warnings = _auto_correct_score_metrics_from_dimensions(sanitized_payload.get("score"))
-    sanitized_payload["score"] = corrected_score_payload
-    raw_model_suggested_status = _normalize_suggested_status(corrected_score_payload.get("suggested_status"))
+    raw_model_suggested_status = _normalize_suggested_status((sanitized_payload.get("score") or {}).get("suggested_status"))
     sanitize_meta = sanitized_payload.get("_sanitize_meta") if isinstance(sanitized_payload.get("_sanitize_meta"), dict) else {}
     warnings = _normalize_score_warning_items(
         [
             *(sanitize_meta.get("dimension_warnings") or []),
-            *correction_warnings,
             *_validate_screening_payload_warnings(sanitized_payload, schema_config),
         ],
         limit=12,
@@ -3869,7 +3916,6 @@ def _build_raw_screening_storage_payload(
     score_payload: Dict[str, Any],
     score_source: str,
     primary_model_call_succeeded: bool,
-    fallback_score_only_ai_called: bool,
     final_response_source: str,
     validation_warnings: Optional[Sequence[Any]] = None,
     raw_response_text: Optional[str] = None,
@@ -3888,7 +3934,6 @@ def _build_raw_screening_storage_payload(
         "debug": {
             "score_source": str(score_source or "").strip() or None,
             "primary_model_call_succeeded": bool(primary_model_call_succeeded),
-            "fallback_score_only_ai_called": bool(fallback_score_only_ai_called),
             "final_response_source": str(final_response_source or "").strip() or None,
             "score_validation_passed": not bool(normalized_validation_warnings),
             "validation_warnings": normalized_validation_warnings,
@@ -4114,6 +4159,251 @@ class RecruitmentService:
     def _raise_if_cancelled(self, cancel_control: Optional[RecruitmentTaskControl]) -> None:
         if cancel_control:
             cancel_control.raise_if_cancelled()
+
+    def _get_screening_runtime_signature(self, *, task_type: str = "resume_score") -> Dict[str, Any]:
+        runtime = self.ai_gateway.resolve_config(task_type)
+        return {
+            "provider": str(getattr(runtime, "provider", "") or "").strip() or None,
+            "model_name": str(getattr(runtime, "model_name", "") or "").strip() or None,
+            "temperature": 0,
+        }
+
+    def _build_screening_request_meta(
+        self,
+        *,
+        candidate: RecruitmentCandidate,
+        resume_file_id: int,
+        raw_resume_text: str,
+        score_rule_snapshot: Sequence[Dict[str, Any]],
+        custom_requirements: str,
+        prompt_version: str,
+        screening_mode: str,
+        request_scope: str,
+        model_task_type: str = "resume_score",
+    ) -> Dict[str, Any]:
+        position_snapshot = self._get_position_screening_payload(candidate) or {}
+        runtime_signature = self._get_screening_runtime_signature(task_type=model_task_type)
+        resume_text_hash = _build_resume_content_hash(raw_resume_text)
+        position_snapshot_hash = _build_json_content_hash(position_snapshot)
+        score_rule_snapshot_hash = _build_json_content_hash(list(score_rule_snapshot or []))
+        custom_requirements_hash = _build_resume_content_hash(custom_requirements)
+        request_hash = self._build_request_hash(
+            request_scope,
+            resume_file_id,
+            resume_text_hash,
+            candidate.position_id or 0,
+            position_snapshot_hash,
+            score_rule_snapshot_hash,
+            custom_requirements_hash,
+            prompt_version,
+            runtime_signature.get("model_name") or "",
+            runtime_signature.get("temperature") or 0,
+        )
+        return {
+            "request_hash": request_hash,
+            "request_scope": request_scope,
+            "screening_mode": screening_mode,
+            "resume_file_id": int(resume_file_id),
+            "raw_resume_text_hash": resume_text_hash,
+            "position_id": candidate.position_id,
+            "position_snapshot_hash": position_snapshot_hash,
+            "position_snapshot": position_snapshot,
+            "score_rule_snapshot_hash": score_rule_snapshot_hash,
+            "custom_requirements_hash": custom_requirements_hash,
+            "prompt_version": prompt_version,
+            "provider": runtime_signature.get("provider"),
+            "model_name": runtime_signature.get("model_name"),
+            "temperature": runtime_signature.get("temperature"),
+        }
+
+    def _extract_screening_request_meta_from_task(self, row: Optional[RecruitmentAITaskLog]) -> Dict[str, Any]:
+        if not row:
+            return {}
+        snapshot = _decode_ai_task_json_text(getattr(row, "output_snapshot", None), {})
+        if not isinstance(snapshot, dict):
+            return {}
+        request_meta = snapshot.get("request_meta")
+        return dict(request_meta) if isinstance(request_meta, dict) else {}
+
+    def _load_reusable_screening_result(
+        self,
+        *,
+        request_hash: str,
+        candidate_id: Optional[int] = None,
+        limit: int = 8,
+    ) -> Optional[Dict[str, Any]]:
+        if not request_hash:
+            return None
+        builder = self.db.query(RecruitmentAITaskLog).filter(
+            self._screening_root_task_filter(),
+            RecruitmentAITaskLog.request_hash == request_hash,
+        )
+        if candidate_id:
+            builder = builder.filter(RecruitmentAITaskLog.related_candidate_id == candidate_id)
+        rows = builder.order_by(
+            RecruitmentAITaskLog.created_at.desc(),
+            RecruitmentAITaskLog.id.desc(),
+        ).limit(max(1, limit)).all()
+        for row in rows:
+            validation_meta = _decode_ai_task_json_text(getattr(row, "validation_meta_json", None), {})
+            if not isinstance(validation_meta, dict) or validation_meta.get("screening_result_valid") is not True:
+                continue
+            persisted_refs = _decode_ai_task_json_text(getattr(row, "persisted_result_refs_json", None), {})
+            if not isinstance(persisted_refs, dict):
+                persisted_refs = {}
+            try:
+                parse_result_id = int(persisted_refs.get("parse_result_id") or 0)
+            except Exception:
+                parse_result_id = 0
+            try:
+                score_result_id = int(persisted_refs.get("score_result_id") or 0)
+            except Exception:
+                score_result_id = 0
+            if not parse_result_id or not score_result_id:
+                continue
+            parse_row = self.db.query(RecruitmentResumeParseResult).filter(
+                RecruitmentResumeParseResult.id == parse_result_id,
+            ).first()
+            score_row = self.db.query(RecruitmentCandidateScore).filter(
+                RecruitmentCandidateScore.id == score_result_id,
+            ).first()
+            if not parse_row or not score_row:
+                continue
+            return {
+                "root_log": row,
+                "parse_row": parse_row,
+                "score_row": score_row,
+                "validation_meta": validation_meta,
+                "request_meta": self._extract_screening_request_meta_from_task(row),
+            }
+        return None
+
+    def _get_latest_valid_screening_result_for_candidate(
+        self,
+        candidate_id: int,
+        *,
+        limit: int = 8,
+    ) -> Optional[Dict[str, Any]]:
+        rows = self.db.query(RecruitmentAITaskLog).filter(
+            self._screening_root_task_filter(),
+            RecruitmentAITaskLog.related_candidate_id == candidate_id,
+        ).order_by(
+            RecruitmentAITaskLog.created_at.desc(),
+            RecruitmentAITaskLog.id.desc(),
+        ).limit(max(1, limit)).all()
+        for row in rows:
+            validation_meta = _decode_ai_task_json_text(getattr(row, "validation_meta_json", None), {})
+            if isinstance(validation_meta, dict) and validation_meta.get("screening_result_valid") is True:
+                return {
+                    "root_log": row,
+                    "validation_meta": validation_meta,
+                    "request_meta": self._extract_screening_request_meta_from_task(row),
+                }
+        return None
+
+    def _should_rerank_from_existing_parse(
+        self,
+        *,
+        allow_score_only_rerun: bool,
+        parse_row: Optional[RecruitmentResumeParseResult],
+        current_request_meta: Dict[str, Any],
+        previous_request_meta: Dict[str, Any],
+    ) -> bool:
+        if not allow_score_only_rerun or not parse_row:
+            return False
+        if not current_request_meta or not previous_request_meta:
+            return False
+        stable_keys = (
+            "resume_file_id",
+            "raw_resume_text_hash",
+            "position_id",
+            "position_snapshot_hash",
+            "model_name",
+            "temperature",
+        )
+        if any(current_request_meta.get(key) != previous_request_meta.get(key) for key in stable_keys):
+            return False
+        changed_score_context = any(
+            current_request_meta.get(key) != previous_request_meta.get(key)
+            for key in ("score_rule_snapshot_hash", "custom_requirements_hash")
+        )
+        return changed_score_context
+
+    @contextmanager
+    def _acquire_screening_provider_slot(
+        self,
+        *,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+    ) -> Iterable[None]:
+        acquired = False
+        while not acquired:
+            self._raise_if_cancelled(cancel_control)
+            acquired = _screening_provider_semaphore.acquire(timeout=0.25)
+        try:
+            while True:
+                self._raise_if_cancelled(cancel_control)
+                wait_seconds = 0.0
+                with _screening_provider_lock:
+                    now = time.monotonic()
+                    while _screening_provider_recent_request_started_at and (now - _screening_provider_recent_request_started_at[0]) >= 1.0:
+                        _screening_provider_recent_request_started_at.popleft()
+                    if len(_screening_provider_recent_request_started_at) < SCREENING_PROVIDER_QPS:
+                        _screening_provider_recent_request_started_at.append(now)
+                        break
+                    wait_seconds = max(0.01, 1.0 - (now - _screening_provider_recent_request_started_at[0]))
+                time.sleep(min(wait_seconds, 0.25))
+            yield
+        finally:
+            _screening_provider_semaphore.release()
+
+    def _record_screening_provider_result(self, *, failure_code: Optional[str] = None) -> None:
+        global _screening_provider_cooldown_until
+        global _screening_provider_consecutive_retryable_failures
+        normalized_failure_code = str(failure_code or "").strip()
+        if normalized_failure_code in {"rate_limited", "upstream_timeout"}:
+            with _screening_provider_lock:
+                _screening_provider_consecutive_retryable_failures += 1
+                if _screening_provider_consecutive_retryable_failures >= SCREENING_PROVIDER_COOLDOWN_THRESHOLD:
+                    cooldown_seconds = _compute_screening_provider_cooldown_seconds(_screening_provider_consecutive_retryable_failures)
+                    next_retry_at = datetime.now() + timedelta(seconds=cooldown_seconds)
+                    if _screening_provider_cooldown_until is None or next_retry_at > _screening_provider_cooldown_until:
+                        _screening_provider_cooldown_until = next_retry_at
+            return
+        with _screening_provider_lock:
+            _screening_provider_consecutive_retryable_failures = 0
+
+    def _run_screening_provider_json_request(
+        self,
+        *,
+        task_type: str,
+        system_prompt: str,
+        user_prompt: str,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+        runtime_config: Optional[Any] = None,
+        timeout_seconds_override: Optional[float] = None,
+        screening_total_timeout_seconds: Optional[float] = None,
+        remaining_budget_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        try:
+            with self._acquire_screening_provider_slot(cancel_control=cancel_control):
+                task = self.ai_gateway.generate_json(
+                    task_type=task_type,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    cancel_control=cancel_control,
+                    runtime_config=runtime_config,
+                    timeout_seconds_override=timeout_seconds_override,
+                    screening_total_timeout_seconds=screening_total_timeout_seconds,
+                    remaining_budget_seconds=remaining_budget_seconds,
+                )
+            self._record_screening_provider_result()
+            return task
+        except RecruitmentTaskCancelled:
+            raise
+        except Exception as exc:
+            failure_code, _failure_message = _classify_infra_failure(exc)
+            self._record_screening_provider_result(failure_code=failure_code)
+            raise
 
     def _mark_ai_task_cancelled(self, task_id: int, *, actor_id: Optional[str] = None, reason: Optional[str] = None) -> None:
         row = self._get_ai_task_log_row(task_id)
@@ -4370,14 +4660,6 @@ class RecruitmentService:
             "timing_breakdown": timing_breakdown,
             "persisted_result_refs": persisted_result_refs,
         }
-        if final_status not in {"success", "fallback"} and candidate:
-            self._mark_candidate_screening_failed_if_needed(
-                candidate,
-                actor_id=getattr(row, "created_by", None) or "system",
-                reason="AI 初筛任务中断，请重新发起初筛。",
-                source="ai_screening_orphaned",
-            )
-            self.db.add(candidate)
         old_status = row.status
         self._finish_ai_task_log(
             row,
@@ -4420,19 +4702,6 @@ class RecruitmentService:
             12000,
         )
         self.db.add(row)
-        if row.task_type in {SCREENING_FLOW_TASK_TYPE, "resume_score"} and row.related_candidate_id:
-            candidate = self.db.query(RecruitmentCandidate).filter(
-                RecruitmentCandidate.id == row.related_candidate_id,
-                RecruitmentCandidate.deleted.is_(False),
-            ).first()
-            if candidate:
-                self._mark_candidate_screening_failed_if_needed(
-                    candidate,
-                    actor_id=row.created_by or "system",
-                    reason="AI 初筛任务中断，请重新发起初筛。",
-                    source="ai_screening_orphaned",
-                )
-                self.db.add(candidate)
         logger.warning(
             "Settled orphaned AI task task_id=%s task_type=%s status=%s related_candidate_id=%s",
             row.id,
@@ -4612,6 +4881,7 @@ class RecruitmentService:
                     "started_count": 0,
                     "active_count": len(_screening_worker_active_task_ids),
                     "max_concurrency": SCREENING_WORKER_MAX_CONCURRENCY,
+                    "cooldown_until": _screening_provider_cooldown_until.isoformat(),
                 }
             if _screening_provider_cooldown_until and _screening_provider_cooldown_until <= datetime.now():
                 _screening_provider_cooldown_until = None
@@ -4621,6 +4891,7 @@ class RecruitmentService:
                     "started_count": 0,
                     "active_count": len(_screening_worker_active_task_ids),
                     "max_concurrency": SCREENING_WORKER_MAX_CONCURRENCY,
+                    "cooldown_until": _screening_provider_cooldown_until.isoformat() if _screening_provider_cooldown_until else None,
                 }
             dispatch_db = SessionLocal()
             try:
@@ -4645,7 +4916,7 @@ class RecruitmentService:
                 ).order_by(
                     RecruitmentAITaskLog.created_at.asc(),
                     RecruitmentAITaskLog.id.asc(),
-                ).limit(max(available_slots * 6, 12)).all()
+                ).limit(min(SCREENING_BATCH_MAX_SIZE, max(available_slots * 4, max(available_slots, 1)))).all()
                 for row in queued_rows:
                     if row.id in _screening_worker_active_task_ids:
                         continue
@@ -4663,6 +4934,7 @@ class RecruitmentService:
             "started_count": len(scheduled_tasks),
             "active_count": len(_screening_worker_active_task_ids),
             "max_concurrency": SCREENING_WORKER_MAX_CONCURRENCY,
+            "cooldown_until": _screening_provider_cooldown_until.isoformat() if _screening_provider_cooldown_until else None,
         }
 
     def process_next_screening_task(self) -> Dict[str, int]:
@@ -5233,6 +5505,7 @@ class RecruitmentService:
         related_publish_task_id: Optional[int] = None,
         memory_source: Optional[str] = None,
         request_hash: Optional[str] = None,
+        batch_id: Optional[str] = None,
         status: str = "pending",
         screening_run_id: Optional[str] = None,
         parent_task_id: Optional[int] = None,
@@ -5247,6 +5520,7 @@ class RecruitmentService:
         row = RecruitmentAITaskLog(
             task_type=task_type,
             screening_run_id=screening_run_id,
+            batch_id=batch_id,
             parent_task_id=parent_task_id,
             root_task_id=root_task_id,
             stage=str(stage or "").strip() or None,
@@ -5325,6 +5599,7 @@ class RecruitmentService:
         output_snapshot: Optional[Any] = None,
         error_message: Optional[str] = None,
         memory_source: Optional[str] = None,
+        batch_id: Optional[str] = None,
         screening_run_id: Optional[str] = None,
         parent_task_id: Optional[int] = None,
         root_task_id: Optional[int] = None,
@@ -5374,6 +5649,8 @@ class RecruitmentService:
             row.error_message = _truncate_utf8_text(error_message, AI_TASK_LOG_SUMMARY_LIMIT)
         if memory_source is not None:
             row.memory_source = memory_source
+        if batch_id is not None:
+            row.batch_id = batch_id
         if screening_run_id is not None:
             row.screening_run_id = screening_run_id
         if parent_task_id is not None:
@@ -5424,6 +5701,7 @@ class RecruitmentService:
         error_message: Optional[str] = None,
         token_usage: Optional[Dict[str, Any]] = None,
         memory_source: Optional[str] = None,
+        batch_id: Optional[str] = None,
         related_skill_ids: Optional[Iterable[Any]] = None,
         related_skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None,
         screening_run_id: Optional[str] = None,
@@ -5469,6 +5747,8 @@ class RecruitmentService:
         row.token_usage_json = json_dumps_safe(token_usage or {}) if token_usage else None
         if memory_source is not None:
             row.memory_source = memory_source
+        if batch_id is not None:
+            row.batch_id = batch_id
         if screening_run_id is not None:
             row.screening_run_id = screening_run_id
         if parent_task_id is not None:
@@ -5621,7 +5901,13 @@ class RecruitmentService:
         next_retry_count = previous_retry_count + 1
         retry_after_seconds = _compute_infra_retry_delay_seconds(failure_code, next_retry_count)
         next_retry_at = now + timedelta(seconds=retry_after_seconds)
-        retry_message = "上游限流，稍后自动重试" if failure_code == "rate_limited" else "上游超时，稍后自动重试"
+        retry_message = (
+            "上游限流，稍后自动重试"
+            if failure_code == "rate_limited"
+            else "上游超时，稍后自动重试"
+            if failure_code == "upstream_timeout"
+            else "上游请求失败，稍后自动重试"
+        )
         global _screening_provider_cooldown_until
         if failure_code == "rate_limited":
             with _screening_worker_lock:
@@ -5768,6 +6054,7 @@ class RecruitmentService:
             "id": row.id,
             "task_type": row.task_type,
             "screening_run_id": row.screening_run_id,
+            "batch_id": getattr(row, "batch_id", None),
             "parent_task_id": row.parent_task_id,
             "root_task_id": row.root_task_id,
             "stage": row.stage,
@@ -6366,7 +6653,49 @@ class RecruitmentService:
             self.db.commit()
             self.db.refresh(candidate)
             activity = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.related_candidate_id == candidate.id).order_by(RecruitmentAITaskLog.created_at.desc(), RecruitmentAITaskLog.id.desc()).limit(50).all()
-        return {"candidate": self._serialize_candidate_summary(candidate), "resume_files": [self._serialize_resume_file(item) for item in resume_files], "parse_result": self._serialize_parse_result(parse_row) if parse_row else None, "score": self._serialize_score(score_row) if score_row else None, "workflow_memory": self._serialize_workflow_memory(workflow_memory) if workflow_memory else None, "status_history": [self._serialize_status_history(item) for item in status_history], "interview_questions": [self._serialize_interview_question(item) for item in questions], "activity": [self._serialize_ai_task_log(item) for item in activity]}
+        latest_screening_log = self.db.query(RecruitmentAITaskLog).filter(
+            self._screening_root_task_filter(),
+            RecruitmentAITaskLog.related_candidate_id == candidate.id,
+        ).order_by(
+            RecruitmentAITaskLog.created_at.desc(),
+            RecruitmentAITaskLog.id.desc(),
+        ).first()
+        latest_screening_validation_meta = _decode_ai_task_json_text(getattr(latest_screening_log, "validation_meta_json", None), {}) if latest_screening_log else {}
+        serialized_parse = self._serialize_parse_result(parse_row) if parse_row else None
+        screening_parsed_resume = None
+        if isinstance(serialized_parse, dict):
+            screening_parsed_resume = {
+                "basic_info": serialized_parse.get("basic_info") or {},
+                "work_experiences": serialized_parse.get("work_experiences") or [],
+                "education_experiences": serialized_parse.get("education_experiences") or [],
+                "skills": serialized_parse.get("skills") or [],
+                "projects": serialized_parse.get("projects") or [],
+                "summary": serialized_parse.get("summary") or "",
+            }
+        screening_score = self._serialize_score(score_row) if score_row else None
+        screening_meta = {
+            "screening_result_valid": latest_screening_validation_meta.get("screening_result_valid") if isinstance(latest_screening_validation_meta, dict) else None,
+            "screening_result_state": latest_screening_validation_meta.get("screening_result_state") if isinstance(latest_screening_validation_meta, dict) else None,
+            "parse_strategy": latest_screening_validation_meta.get("parse_strategy") if isinstance(latest_screening_validation_meta, dict) else None,
+            "final_response_source": latest_screening_validation_meta.get("final_response_source") if isinstance(latest_screening_validation_meta, dict) else None,
+            "reused_existing_parse": latest_screening_validation_meta.get("reused_existing_parse") if isinstance(latest_screening_validation_meta, dict) else None,
+            "reused_existing_score": latest_screening_validation_meta.get("reused_existing_score") if isinstance(latest_screening_validation_meta, dict) else None,
+        }
+        return {
+            "candidate": self._serialize_candidate_summary(candidate),
+            "resume_files": [self._serialize_resume_file(item) for item in resume_files],
+            "parse_result": serialized_parse,
+            "score": screening_score,
+            "screening": {
+                "parsed_resume": screening_parsed_resume,
+                "score": screening_score,
+                "meta": screening_meta,
+            },
+            "workflow_memory": self._serialize_workflow_memory(workflow_memory) if workflow_memory else None,
+            "status_history": [self._serialize_status_history(item) for item in status_history],
+            "interview_questions": [self._serialize_interview_question(item) for item in questions],
+            "activity": [self._serialize_ai_task_log(item) for item in activity],
+        }
 
     def update_candidate(self, candidate_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
@@ -6904,12 +7233,21 @@ class RecruitmentService:
         score_rule_snapshot: Sequence[Dict[str, Any]],
         existing_task_id: Optional[int] = None,
         request_hash: Optional[str] = None,
+        batch_id: Optional[str] = None,
+        request_meta: Optional[Dict[str, Any]] = None,
+        screening_mode: str = "default",
+        force_fallback: bool = False,
+        allow_reuse_parse: bool = True,
+        allow_score_only_rerun: bool = True,
     ) -> RecruitmentAITaskLog:
         related_skill_names = _dedupe_texts(item.get("name") for item in skill_snapshots if isinstance(item, dict))
         skills_applied_to_prompt = bool(score_rule_snapshot)
         prompt_rule_dimension_count = len(score_rule_snapshot)
+        request_meta_payload = dict(request_meta or {})
         if existing_task_id:
             row = self._get_ai_task_log_row(existing_task_id)
+            if request_hash:
+                row.request_hash = request_hash
             screening_run_id = row.screening_run_id or _build_screening_run_id(candidate.id)
             current_output_snapshot = _decode_ai_task_json_text(getattr(row, "output_snapshot", None), {})
             if not isinstance(current_output_snapshot, dict):
@@ -6917,6 +7255,7 @@ class RecruitmentService:
             return self._update_ai_task_log(
                 row,
                 screening_run_id=screening_run_id,
+                batch_id=batch_id,
                 parent_task_id=None,
                 root_task_id=row.root_task_id or row.id,
                 memory_source=memory_source,
@@ -6933,6 +7272,7 @@ class RecruitmentService:
                         **current_output_snapshot,
                         "screening_run_id": screening_run_id,
                         "task_type": SCREENING_FLOW_TASK_TYPE,
+                        "batch_id": batch_id or current_output_snapshot.get("batch_id"),
                         "skills_expected": True,
                         "related_skill_ids": list(related_skill_ids),
                         "related_skill_names": related_skill_names,
@@ -6942,6 +7282,11 @@ class RecruitmentService:
                         "memory_source": memory_source,
                         "skill_resolution_source": skill_resolution_source,
                         "skill_resolution_detail": skill_resolution_detail,
+                        "request_meta": request_meta_payload or current_output_snapshot.get("request_meta") or {},
+                        "screening_mode": screening_mode or current_output_snapshot.get("screening_mode") or "default",
+                        "force_fallback": bool(force_fallback),
+                        "allow_reuse_parse": bool(allow_reuse_parse),
+                        "allow_score_only_rerun": bool(allow_score_only_rerun),
                     },
                 ),
             )
@@ -6957,6 +7302,7 @@ class RecruitmentService:
             related_resume_file_id=candidate.latest_resume_file_id,
             memory_source=memory_source,
             request_hash=request_hash,
+            batch_id=batch_id,
             status="queued",
             screening_run_id=screening_run_id,
             stage="queued",
@@ -6970,6 +7316,7 @@ class RecruitmentService:
             status="queued",
             stage="queued",
             screening_run_id=screening_run_id,
+            batch_id=batch_id,
             root_task_id=row.id,
             input_summary=_truncate_utf8_text(f"{candidate.name} · {candidate.position_id or '-'}", AI_TASK_LOG_SUMMARY_LIMIT),
             output_summary="任务已入队，等待执行",
@@ -6979,6 +7326,7 @@ class RecruitmentService:
                 extra={
                     "task_type": SCREENING_FLOW_TASK_TYPE,
                     "screening_run_id": screening_run_id,
+                    "batch_id": batch_id,
                     "skills_expected": True,
                     "related_skill_ids": list(related_skill_ids),
                     "related_skill_names": related_skill_names,
@@ -6988,6 +7336,11 @@ class RecruitmentService:
                     "memory_source": memory_source,
                     "skill_resolution_source": skill_resolution_source,
                     "skill_resolution_detail": skill_resolution_detail,
+                    "request_meta": request_meta_payload,
+                    "screening_mode": screening_mode,
+                    "force_fallback": bool(force_fallback),
+                    "allow_reuse_parse": bool(allow_reuse_parse),
+                    "allow_score_only_rerun": bool(allow_score_only_rerun),
                 },
             ),
         )
@@ -7047,14 +7400,36 @@ class RecruitmentService:
             "total_duration_ms": total_duration_ms or fallback_total_duration_ms,
         }
 
-    def _screen_candidate_with_single_ai_call(self, candidate: RecruitmentCandidate, actor_id: str, skill_rows: Optional[Sequence[RecruitmentSkill]], memory_source: str, custom_requirements: str = "", *, skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None, existing_task_id: Optional[int] = None, cancel_control: Optional[RecruitmentTaskControl] = None) -> Tuple[RecruitmentResumeParseResult, RecruitmentCandidateScore]:
+    def _screen_candidate_with_single_ai_call(
+        self,
+        candidate: RecruitmentCandidate,
+        actor_id: str,
+        skill_rows: Optional[Sequence[RecruitmentSkill]],
+        memory_source: str,
+        custom_requirements: str = "",
+        *,
+        skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None,
+        existing_task_id: Optional[int] = None,
+        screening_run_id: Optional[str] = None,
+        parent_task_id: Optional[int] = None,
+        root_task_id: Optional[int] = None,
+        request_hash: Optional[str] = None,
+        request_meta: Optional[Dict[str, Any]] = None,
+        raw_text_override: Optional[str] = None,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+        deadline_at: Optional[datetime] = None,
+        batch_id: Optional[str] = None,
+    ) -> Tuple[RecruitmentResumeParseResult, RecruitmentCandidateScore]:
         if not candidate.latest_resume_file_id:
             raise ValueError("鎿嶄綔澶辫触")
         resume_file = self._get_resume_file(candidate.latest_resume_file_id)
         resume_file.parse_status = "processing"
         self.db.add(resume_file)
         self.db.commit()
-        raw_text = extract_resume_text(Path(resume_file.storage_path), resume_file.file_ext or "")
+
+        shared_flow_log = bool(screening_run_id and parent_task_id)
+        task_type = "resume_score" if shared_flow_log else SCREENING_DEBUG_TASK_TYPE
+        raw_text = str(raw_text_override or "").strip() or extract_resume_text(Path(resume_file.storage_path), resume_file.file_ext or "")
         status_rules = self._get_rule_config("default_status_rules", DEFAULT_RULE_CONFIGS["default_status_rules"])
         skill_snapshots, related_skill_ids, prepared_custom_requirements = self._prepare_screening_task_context(
             skill_rows=skill_rows,
@@ -7073,18 +7448,91 @@ class RecruitmentService:
             status_rules=status_rules,
         )
         logger.debug("Screening user prompt preview candidate_id=%s: %s", candidate.id, truncate_text(prompt, 2000))
-        request_hash = self._build_request_hash("resume_screening", candidate.id, resume_file.id, related_skill_ids, memory_source, custom_requirements)
-        log_row = self._get_ai_task_log_row(existing_task_id) if existing_task_id else self._create_ai_task_log(SCREENING_DEBUG_TASK_TYPE, created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, related_resume_file_id=resume_file.id, memory_source=memory_source, request_hash=request_hash)
+        resolved_request_hash = request_hash or self._build_request_hash("resume_screening", resume_file.id, related_skill_ids, memory_source, prepared_custom_requirements)
+        resolved_request_meta = dict(request_meta or {})
+        log_row = (
+            self._get_ai_task_log_row(existing_task_id)
+            if existing_task_id
+            else self._create_ai_task_log(
+                task_type,
+                created_by=actor_id,
+                related_position_id=candidate.position_id,
+                related_candidate_id=candidate.id,
+                related_skill_ids=related_skill_ids,
+                related_skill_snapshots=skill_snapshots,
+                related_resume_file_id=resume_file.id,
+                memory_source=memory_source,
+                request_hash=resolved_request_hash,
+                batch_id=batch_id,
+                status="running" if shared_flow_log else "pending",
+                screening_run_id=screening_run_id,
+                parent_task_id=parent_task_id,
+                root_task_id=root_task_id or parent_task_id,
+                stage="scoring",
+                timing_breakdown={"parse_duration_ms": 0, "score_duration_ms": 0, "validation_duration_ms": 0, "save_duration_ms": 0, "total_duration_ms": 0},
+            )
+        )
         task: Optional[Dict[str, Any]] = None
+        request_context: Dict[str, Any] = {}
+        started_at = time.perf_counter()
+        score_duration_ms = 0
+        validation_duration_ms = 0
+        save_duration_ms = 0
         try:
             self._raise_if_cancelled(cancel_control)
-            self._update_ai_task_log(log_row, status="running", prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在执行 debug one-pass 初筛", output_snapshot=_build_screening_task_progress_snapshot("scoring", message="正在执行 debug one-pass 初筛"))
-            task = self.ai_gateway.generate_json(
+            remaining_budget_seconds = _ensure_screening_budget_available(deadline_at) if deadline_at else None
+            request_context = self.ai_gateway.prepare_json_request_context(
+                task_type="resume_score",
+                system_prompt=RESUME_SCREENING_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                timeout_seconds_override=remaining_budget_seconds,
+                screening_total_timeout_seconds=SCREENING_TOTAL_TIMEOUT_SECONDS,
+                remaining_budget_seconds=remaining_budget_seconds,
+            )
+            self._update_ai_task_log(
+                log_row,
+                status="running",
+                stage="scoring",
+                provider=str(request_context.get("provider") or "").strip() or None,
+                model_name=str(request_context.get("model_name") or "").strip() or None,
+                prompt_snapshot=str(request_context.get("prompt_snapshot") or prompt),
+                full_request_snapshot=request_context.get("full_request_snapshot"),
+                input_summary=str(request_context.get("input_summary") or truncate_text(prompt, 600)),
+                output_summary="正在执行 one-pass 初筛",
+                output_snapshot=_build_screening_task_progress_snapshot(
+                    "scoring",
+                    message="正在执行 one-pass 初筛",
+                    extra={
+                        "task_type": task_type,
+                        "screening_run_id": screening_run_id,
+                        "parse_strategy": "combined_parse_and_score",
+                        "request_meta": resolved_request_meta,
+                        "raw_text_chars": len(str(raw_text or "")),
+                        "prompt_chars": len(prompt),
+                        "endpoint": request_context.get("endpoint"),
+                        "timeout_seconds": request_context.get("timeout_seconds"),
+                        "configured_read_timeout_seconds": request_context.get("configured_read_timeout_seconds"),
+                        "effective_timeout_seconds": request_context.get("effective_timeout_seconds"),
+                        "screening_total_timeout_seconds": request_context.get("screening_total_timeout_seconds"),
+                        "remaining_budget_seconds": request_context.get("remaining_budget_seconds"),
+                        "screening_deadline_at": deadline_at.isoformat() if deadline_at else None,
+                        "retry_count": request_context.get("retry_count"),
+                        "is_stream_mode": request_context.get("is_stream_mode"),
+                    },
+                ),
+            )
+            score_started_at = time.perf_counter()
+            task = self._run_screening_provider_json_request(
                 task_type="resume_score",
                 system_prompt=RESUME_SCREENING_SYSTEM_PROMPT,
                 user_prompt=prompt,
                 cancel_control=cancel_control,
+                runtime_config=request_context.get("runtime_config"),
+                timeout_seconds_override=request_context.get("effective_timeout_seconds"),
+                screening_total_timeout_seconds=SCREENING_TOTAL_TIMEOUT_SECONDS,
+                remaining_budget_seconds=request_context.get("remaining_budget_seconds"),
             )
+            score_duration_ms = max(0, int((time.perf_counter() - score_started_at) * 1000))
             self._raise_if_cancelled(cancel_control)
             authoritative_raw_text = str(task.get("raw_response_text") or "").strip()
             authoritative_payload = _parse_llm_json_response(authoritative_raw_text or json_dumps_safe(task.get("content") or {}))
@@ -7092,22 +7540,33 @@ class RecruitmentService:
                 authoritative_payload,
                 screening_schema_config,
             )
-            parsed_resume = sanitized_payload.get("parsed_resume") or {}
-            raw_score_payload = sanitized_payload.get("score") or {}
-            normalized_score_payload = _build_business_normalized_score_payload(raw_score_payload)
-            normalization_warnings = _build_score_normalization_warnings(
-                raw_score_payload,
-                normalized_score_payload,
-            )
-            validation_warnings = _merge_score_validation_warnings(
-                validation_meta.get("warnings"),
-                normalization_warnings=normalization_warnings,
-            )
+            parsed_resume = sanitized_payload.get("parsed_resume") if isinstance(sanitized_payload.get("parsed_resume"), dict) else {}
+            raw_score_payload = sanitized_payload.get("score") if isinstance(sanitized_payload.get("score"), dict) else {}
+            model_schema_violation = False
+            model_schema_violation_reason = None
+            validation_started_at = time.perf_counter()
+            try:
+                parsed_resume, raw_score_payload = _validate_primary_screening_response(sanitized_payload)
+                validation_warnings = _normalize_score_warning_items(validation_meta.get("warnings"), limit=12)
+            except ValueError as exc:
+                model_schema_violation = True
+                model_schema_violation_reason = str(exc)
+                validation_warnings = _normalize_score_warning_items(
+                    [*(validation_meta.get("warnings") or []), str(exc)],
+                    limit=12,
+                )
             screening_result_valid, invalid_result_reasons = _classify_screening_score_validity(
-                normalized_score_payload,
+                raw_score_payload,
                 screening_schema_config,
                 validation_warnings=validation_warnings,
             )
+            if model_schema_violation and model_schema_violation_reason:
+                screening_result_valid = False
+                invalid_result_reasons = _normalize_score_warning_items(
+                    [model_schema_violation_reason, *invalid_result_reasons],
+                    limit=12,
+                )
+            validation_duration_ms = max(0, int((time.perf_counter() - validation_started_at) * 1000))
             if validation_warnings:
                 logger.warning(
                     "Screening payload validation warnings candidate_id=%s: %s",
@@ -7115,10 +7574,9 @@ class RecruitmentService:
                     " ".join(validation_warnings),
                 )
             storage_payload = _build_raw_screening_storage_payload(
-                score_payload=normalized_score_payload,
+                score_payload=raw_score_payload,
                 score_source="primary_screening_model",
                 primary_model_call_succeeded=True,
-                fallback_score_only_ai_called=False,
                 final_response_source="primary_screening_model",
                 validation_warnings=validation_warnings,
                 raw_response_text=task.get("raw_response_text"),
@@ -7137,48 +7595,63 @@ class RecruitmentService:
         except Exception as exc:
             self.db.rollback()
             resume_file = self._get_resume_file(candidate.latest_resume_file_id)
-            failed_candidate = self._get_candidate(candidate.id)
             failure_status, failure_message = _classify_screening_task_failure(exc)
             resume_file.parse_status = failure_status
             resume_file.parse_error = failure_message
-            if _should_mark_candidate_screening_failed(failure_status):
-                self._mark_candidate_screening_failed_if_needed(
-                    failed_candidate,
-                    actor_id=actor_id,
-                    reason="AI 初筛执行失败，请重新发起初筛。",
-                    source="ai_screening_failed",
-                )
             self.db.add(resume_file)
-            self.db.add(failed_candidate)
             self.db.commit()
             logger.info(
-                "Screening completed candidate_id=%s primary_model_call_succeeded=%s fallback_score_only_ai_called=%s final_status=%s",
+                "Screening completed candidate_id=%s primary_model_call_succeeded=%s final_status=%s",
                 candidate.id,
-                False,
                 False,
                 failure_status,
             )
             self._finish_ai_task_log(
                 log_row,
                 status=failure_status,
-                provider=task.get("provider") if task else None,
-                model_name=task.get("model_name") if task else None,
-                prompt_snapshot=task.get("prompt_snapshot") if task else prompt,
-                full_request_snapshot=task.get("full_request_snapshot") if task else None,
-                input_summary=task.get("input_summary") if task else truncate_text(prompt, 600),
+                provider=task.get("provider") if task else str(request_context.get("provider") or "").strip() or None,
+                model_name=task.get("model_name") if task else str(request_context.get("model_name") or "").strip() or None,
+                prompt_snapshot=task.get("prompt_snapshot") if task else request_context.get("prompt_snapshot") or prompt,
+                full_request_snapshot=task.get("full_request_snapshot") if task else request_context.get("full_request_snapshot"),
+                input_summary=task.get("input_summary") if task else request_context.get("input_summary") or truncate_text(prompt, 600),
                 output_summary=failure_message,
-                output_snapshot=_build_screening_task_progress_snapshot("failed", message=failure_message, extra={"failure_status": failure_status}),
+                output_snapshot=_build_screening_task_progress_snapshot(
+                    "failed",
+                    message=failure_message,
+                    extra={
+                        "failure_status": failure_status,
+                        "parse_strategy": "combined_parse_and_score",
+                        "request_meta": resolved_request_meta,
+                    },
+                ),
                 error_message=failure_message,
                 token_usage=task.get("token_usage") if task else None,
                 memory_source=memory_source,
+                batch_id=batch_id,
                 related_skill_ids=related_skill_ids,
                 related_skill_snapshots=skill_snapshots,
+                screening_run_id=screening_run_id,
+                parent_task_id=parent_task_id,
+                root_task_id=root_task_id or parent_task_id,
+                validation_meta={
+                    "screening_result_valid": False,
+                    "screening_result_state": failure_status,
+                    "failure_code": failure_status,
+                    "parse_strategy": "combined_parse_and_score",
+                    "reused_existing_parse": False,
+                    "reused_existing_score": False,
+                    "request_meta": resolved_request_meta,
+                    "final_response_source": "screening_request_failed",
+                },
+                timing_breakdown={
+                    "score_duration_ms": score_duration_ms,
+                    "validation_duration_ms": validation_duration_ms,
+                    "save_duration_ms": save_duration_ms,
+                    "total_duration_ms": max(0, int((time.perf_counter() - started_at) * 1000)),
+                },
             )
             raise
-        parse_status = "success"
-        parse_error_message = None
-        parse_quality_warnings: List[str] = []
-        execution_status = "success"
+
         parse_row = RecruitmentResumeParseResult(
             candidate_id=candidate.id,
             resume_file_id=resume_file.id,
@@ -7189,8 +7662,8 @@ class RecruitmentService:
             skills_json=json_dumps_safe(parsed_resume.get("skills") or []),
             projects_json=json_dumps_safe(parsed_resume.get("projects") or []),
             summary_text=parsed_resume.get("summary") or "",
-            status=parse_status,
-            error_message=parse_error_message,
+            status="success",
+            error_message=None,
         )
         self.db.add(parse_row)
         self.db.flush()
@@ -7202,10 +7675,11 @@ class RecruitmentService:
         candidate.education = str(basic_info.get("education") or "").strip() or None
         candidate.latest_parse_result_id = parse_row.id
         candidate.updated_by = actor_id
-        resume_file.parse_status = parse_status
-        resume_file.parse_error = parse_error_message
+        resume_file.parse_status = "success"
+        resume_file.parse_error = None
         self.db.add(candidate)
         self.db.add(resume_file)
+        save_started_at = time.perf_counter()
         score_row = self._save_score_result(
             candidate,
             parse_row,
@@ -7213,38 +7687,27 @@ class RecruitmentService:
             storage_payload,
             allow_status_advance=screening_result_valid,
         )
-        final_task_status = "success"
-        final_response_source = "primary_screening_model"
+        final_task_status = "success" if screening_result_valid else "invalid_result"
+        final_response_source = "primary_screening_model" if screening_result_valid else "primary_screening_model_invalid"
         final_output_summary = _build_screening_output_summary(
             parsed_resume=parsed_resume,
-            score_payload=normalized_score_payload,
-        ) or task.get("output_summary")
-        screening_result_state = "success"
-        if not screening_result_valid:
-            self._mark_candidate_screening_failed_if_needed(
-                candidate,
-                actor_id=actor_id,
-                reason="AI 已返回结果，但初筛评分无效，请重新发起初筛。",
-                source="ai_screening_invalid",
-            )
-            final_task_status = "invalid_result"
-            final_response_source = "primary_screening_model_invalid"
-            final_output_summary = "AI 返回了无效初筛结果"
-            screening_result_state = "invalid"
+            score_payload=raw_score_payload,
+        ) or task.get("output_summary") or ("初筛流程已完成" if screening_result_valid else "AI 返回了无效初筛结果")
+        screening_result_state = "success" if screening_result_valid else "invalid"
         self.db.commit()
         self.db.refresh(parse_row)
         self.db.refresh(score_row)
         self.db.refresh(candidate)
+        save_duration_ms = max(0, int((time.perf_counter() - save_started_at) * 1000))
         if screening_result_valid:
             try:
                 self._maybe_send_auto_resume_mail_after_screening(candidate, score_row, actor_id=actor_id)
             except Exception:
                 logger.exception("Automatic screening mail dispatch failed candidate_id=%s score_id=%s", candidate.id, score_row.id)
         logger.info(
-            "Screening completed candidate_id=%s primary_model_call_succeeded=%s fallback_score_only_ai_called=%s final_response_source=%s",
+            "Screening completed candidate_id=%s primary_model_call_succeeded=%s final_response_source=%s",
             candidate.id,
             True,
-            False,
             final_response_source,
         )
         self._finish_ai_task_log(
@@ -7257,31 +7720,71 @@ class RecruitmentService:
             input_summary=task.get("input_summary"),
             output_summary=final_output_summary,
             output_snapshot={
+                "task_type": task_type,
+                "screening_run_id": screening_run_id,
+                "request_meta": resolved_request_meta,
                 "parsed_resume": {
                     **parsed_resume,
                     "raw_text_omitted": bool(raw_text),
                 },
-                "score": normalized_score_payload,
+                "score": raw_score_payload,
                 "raw_response_text": task.get("raw_response_text"),
                 "meta": {
                     "stage": "completed" if screening_result_valid else "failed",
-                    "parse_status": parse_status,
+                    "parse_status": "completed",
                     "parse_strategy": "combined_parse_and_score",
                     "reused_existing_parse": False,
+                    "reused_existing_score": False,
                     "primary_model_call_succeeded": True,
-                    "fallback_score_only_ai_called": False,
                     "final_response_source": final_response_source,
                     "screening_result_state": screening_result_state,
                     "screening_result_valid": screening_result_valid,
                     "invalid_result_reasons": invalid_result_reasons,
                     "validation_warnings": validation_warnings,
+                    "model_schema_violation": model_schema_violation,
+                    "model_schema_violation_reason": model_schema_violation_reason,
                 },
             },
             error_message=None if screening_result_valid else "AI 返回了无效初筛结果",
             token_usage=task.get("token_usage"),
             memory_source=memory_source,
+            batch_id=batch_id,
             related_skill_ids=related_skill_ids,
             related_skill_snapshots=skill_snapshots,
+            screening_run_id=screening_run_id,
+            parent_task_id=parent_task_id,
+            root_task_id=root_task_id or parent_task_id,
+            validation_meta={
+                "validation_warnings": validation_warnings,
+                "invalid_result_reasons": invalid_result_reasons,
+                "screening_result_valid": screening_result_valid,
+                "screening_result_state": screening_result_state,
+                "parse_strategy": "combined_parse_and_score",
+                "reused_existing_parse": False,
+                "reused_existing_score": False,
+                "final_response_source": final_response_source,
+                "primary_model_call_succeeded": True,
+                "raw_model_suggested_status": validation_meta.get("raw_model_suggested_status"),
+                "normalized_final_suggested_status": raw_score_payload.get("suggested_status"),
+                "model_schema_violation": model_schema_violation,
+                "model_schema_violation_reason": model_schema_violation_reason,
+                "request_meta": resolved_request_meta,
+            },
+            persisted_result_refs=self._build_screening_persisted_result_refs(
+                candidate=candidate,
+                parse_row=parse_row,
+                score_row=score_row,
+                screening_result_valid=screening_result_valid,
+                raw_model_suggested_status=validation_meta.get("raw_model_suggested_status"),
+                normalized_final_suggested_status=raw_score_payload.get("suggested_status"),
+            ),
+            timing_breakdown={
+                "parse_duration_ms": 0,
+                "score_duration_ms": score_duration_ms,
+                "validation_duration_ms": validation_duration_ms,
+                "save_duration_ms": save_duration_ms,
+                "total_duration_ms": max(0, int((time.perf_counter() - started_at) * 1000)),
+            },
         )
         return parse_row, score_row
 
@@ -7385,7 +7888,7 @@ class RecruitmentService:
                 stage="parsing",
                 message="正在解析简历...",
             ):
-                task = self.ai_gateway.generate_json(
+                task = self._run_screening_provider_json_request(
                     task_type="resume_parse",
                     system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
                     user_prompt=prompt,
@@ -7864,7 +8367,7 @@ class RecruitmentService:
                                 },
                             ),
                         )
-                    task = self.ai_gateway.generate_json(
+                    task = self._run_screening_provider_json_request(
                         task_type="resume_score",
                         system_prompt=RESUME_SCORE_SYSTEM_PROMPT,
                         user_prompt=prompt,
@@ -7914,19 +8417,14 @@ class RecruitmentService:
                 authoritative_payload,
                 screening_schema_config,
             )
-            normalized_score_payload = _build_business_normalized_score_payload(raw_score_payload)
-            normalization_warnings = _build_score_normalization_warnings(
-                raw_score_payload,
-                normalized_score_payload,
-            )
-            validation_warnings = _merge_score_validation_warnings(
+            validation_warnings = _normalize_score_warning_items(
                 [*score_helper_warnings, *score_retry_warnings, *(validation_meta.get("warnings") or [])],
-                normalization_warnings=normalization_warnings,
+                limit=12,
             )
             model_schema_violation = bool(validation_meta.get("model_schema_violation"))
             model_schema_violation_reason = str(validation_meta.get("model_schema_violation_reason") or "").strip() or None
             screening_result_valid, invalid_result_reasons = _classify_screening_score_validity(
-                normalized_score_payload,
+                raw_score_payload,
                 screening_schema_config,
                 validation_warnings=validation_warnings,
             )
@@ -7946,10 +8444,9 @@ class RecruitmentService:
                     " ".join(validation_warnings),
                 )
             storage_payload = _build_raw_screening_storage_payload(
-                score_payload=normalized_score_payload,
+                score_payload=raw_score_payload,
                 score_source="primary_score_model",
                 primary_model_call_succeeded=True,
-                fallback_score_only_ai_called=False,
                 final_response_source="primary_score_model",
                 validation_warnings=validation_warnings,
                 raw_response_text=task.get("raw_response_text"),
@@ -7978,17 +8475,11 @@ class RecruitmentService:
             final_task_status = "success"
             final_response_source = "primary_score_model"
             final_output_summary = _build_screening_output_summary(
-                score_payload=normalized_score_payload,
+                score_payload=raw_score_payload,
             ) or task.get("output_summary")
             screening_result_state = "success"
             final_error_message = None
             if not screening_result_valid:
-                self._mark_candidate_screening_failed_if_needed(
-                    candidate,
-                    actor_id=actor_id,
-                    reason="AI 已返回结果，但初筛评分无效，请重新发起初筛。",
-                    source="ai_screening_invalid",
-                )
                 final_task_status = "invalid_result"
                 final_response_source = "primary_score_model_invalid"
                 final_output_summary = f"AI 返回了无效初筛结果：{invalid_result_summary}" if invalid_result_summary else "AI 返回了无效初筛结果"
@@ -8004,10 +8495,9 @@ class RecruitmentService:
                 except Exception:
                     logger.exception("Automatic screening mail dispatch failed candidate_id=%s score_id=%s", candidate.id, score_row.id)
             logger.info(
-                "Screening completed candidate_id=%s primary_model_call_succeeded=%s fallback_score_only_ai_called=%s final_response_source=%s",
+                "Screening completed candidate_id=%s primary_model_call_succeeded=%s final_response_source=%s",
                 candidate.id,
                 True,
-                False,
                 final_response_source,
             )
             final_validation_meta = {
@@ -8024,7 +8514,7 @@ class RecruitmentService:
                 "primary_model_call_succeeded": True,
                 "raw_model_suggested_status": validation_meta.get("raw_model_suggested_status"),
                 "normalized_final_suggested_status": validation_meta.get("normalized_final_suggested_status")
-                or normalized_score_payload.get("suggested_status"),
+                or raw_score_payload.get("suggested_status"),
                 "score_model_retry_count": max(0, score_attempt - 1),
             }
             current_timing = _decode_ai_task_json_text(log_row.timing_breakdown_json, {}) if shared_flow_log else {}
@@ -8043,7 +8533,7 @@ class RecruitmentService:
                 raw_model_suggested_status=validation_meta.get("raw_model_suggested_status")
                 or (str(raw_score_payload.get("suggested_status") or "").strip() or None),
                 normalized_final_suggested_status=validation_meta.get("normalized_final_suggested_status")
-                or (str(normalized_score_payload.get("suggested_status") or "").strip() or None),
+                or (str(raw_score_payload.get("suggested_status") or "").strip() or None),
             )
             if shared_flow_log:
                 self._update_ai_task_log(
@@ -8101,7 +8591,7 @@ class RecruitmentService:
                     "model_schema_violation_reason": model_schema_violation_reason,
                     "screening_result_valid": screening_result_valid,
                     "screening_result_state": screening_result_state,
-                    "score": normalized_score_payload,
+                    "score": raw_score_payload,
                 },
                 error_message=final_error_message,
                 token_usage=task.get("token_usage"),
@@ -8191,19 +8681,11 @@ class RecruitmentService:
             failed_candidate = self._get_candidate(candidate.id)
             failure_status, failure_message = _classify_screening_task_failure(exc)
             score_failure_meta = _extract_json_parse_failure_meta(exc, default_source="score_request_failed")
-            if _should_mark_candidate_screening_failed(failure_status):
-                self._mark_candidate_screening_failed_if_needed(
-                    failed_candidate,
-                    actor_id=actor_id,
-                    reason="AI 初筛执行失败，请重新发起初筛。",
-                    source="ai_screening_failed",
-                )
             self.db.add(failed_candidate)
             self.db.commit()
             logger.info(
-                "Screening completed candidate_id=%s primary_model_call_succeeded=%s fallback_score_only_ai_called=%s final_status=%s",
+                "Screening completed candidate_id=%s primary_model_call_succeeded=%s final_status=%s",
                 candidate.id,
-                False,
                 False,
                 failure_status,
             )
@@ -8367,9 +8849,22 @@ class RecruitmentService:
             return self.get_ai_task_log(task_id)
         if not log_row.related_candidate_id:
             raise ValueError("初筛任务缺少候选人信息。")
+        task_snapshot = _decode_ai_task_json_text(getattr(log_row, "output_snapshot", None), {})
         task_skill_snapshots = json_loads_safe(log_row.related_skill_snapshots_json, [])
         task_memory_source = str(log_row.memory_source or "").strip() or "task_snapshot"
         custom_requirements = _extract_custom_requirements_from_skill_snapshots(task_skill_snapshots)
+        screening_mode = "default"
+        force_fallback = False
+        allow_reuse_parse = True
+        allow_score_only_rerun = True
+        if isinstance(task_snapshot, dict):
+            screening_mode = _normalize_screening_mode(
+                task_snapshot.get("screening_mode"),
+                force_fallback=bool(task_snapshot.get("force_fallback")),
+            )
+            force_fallback = bool(task_snapshot.get("force_fallback"))
+            allow_reuse_parse = bool(task_snapshot.get("allow_reuse_parse", True))
+            allow_score_only_rerun = bool(task_snapshot.get("allow_score_only_rerun", True))
         return self.screen_candidate(
             log_row.related_candidate_id,
             actor_id,
@@ -8377,15 +8872,43 @@ class RecruitmentService:
             use_position_skills=False,
             use_candidate_memory=False,
             custom_requirements=custom_requirements,
-            force_one_pass=False,
+            force_one_pass=True,
+            force_fallback=force_fallback,
+            allow_reuse_parse=allow_reuse_parse,
+            allow_score_only_rerun=allow_score_only_rerun,
+            screening_mode=screening_mode,
             existing_task_id=task_id,
             cancel_control=cancel_control,
             task_skill_snapshots=task_skill_snapshots,
             task_memory_source=task_memory_source,
         )
 
-    def screen_candidate(self, candidate_id: int, actor_id: str, skill_ids: Optional[Iterable[Any]] = None, use_position_skills: bool = True, use_candidate_memory: bool = True, custom_requirements: str = "", *, force_one_pass: bool = False, existing_task_id: Optional[int] = None, cancel_control: Optional[RecruitmentTaskControl] = None, task_skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None, task_memory_source: Optional[str] = None) -> Dict[str, Any]:
+    def screen_candidate(
+        self,
+        candidate_id: int,
+        actor_id: str,
+        skill_ids: Optional[Iterable[Any]] = None,
+        use_position_skills: bool = True,
+        use_candidate_memory: bool = True,
+        custom_requirements: str = "",
+        *,
+        force_one_pass: bool = True,
+        force_fallback: bool = False,
+        allow_reuse_parse: bool = True,
+        allow_score_only_rerun: bool = True,
+        screening_mode: str = "default",
+        existing_task_id: Optional[int] = None,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+        task_skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None,
+        task_memory_source: Optional[str] = None,
+    ) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
+        if not candidate.latest_resume_file_id:
+            raise ValueError("候选人暂无可用简历，无法发起初筛。")
+        normalized_screening_mode = _normalize_screening_mode(screening_mode, force_fallback=force_fallback)
+        if not force_one_pass and normalized_screening_mode == "default":
+            normalized_screening_mode = "fallback_parse_then_score"
+
         if task_skill_snapshots is not None:
             skill_rows = self._load_skill_rows(self._extract_related_skill_ids(task_skill_snapshots), enabled_only=True)
             memory_source = task_memory_source or "task_snapshot"
@@ -8408,13 +8931,96 @@ class RecruitmentService:
                 used_task_snapshot=True,
             )
         else:
-            skill_rows, memory_source, skill_resolution_source, skill_resolution_detail = self._resolve_screening_skills(candidate, skill_ids, use_position_skills=use_position_skills, use_candidate_memory=use_candidate_memory)
+            skill_rows, memory_source, skill_resolution_source, skill_resolution_detail = self._resolve_screening_skills(
+                candidate,
+                skill_ids,
+                use_position_skills=use_position_skills,
+                use_candidate_memory=use_candidate_memory,
+            )
             skill_snapshots, related_skill_ids, prepared_custom_requirements = self._prepare_screening_task_context(
                 skill_rows=skill_rows,
                 custom_requirements=custom_requirements,
             )
+
         score_rule_snapshot = _build_score_rule_snapshot(skill_snapshots)
-        request_hash = self._build_request_hash(SCREENING_FLOW_TASK_TYPE, candidate.id, candidate.latest_resume_file_id or 0, related_skill_ids, memory_source, prepared_custom_requirements)
+        parse_row: Optional[RecruitmentResumeParseResult] = self._get_current_parse_result(candidate)
+        had_existing_parse = allow_reuse_parse and self._can_reuse_existing_parse_result(candidate, parse_row)
+        if not had_existing_parse:
+            parse_row = None
+        resume_file = self._get_resume_file(candidate.latest_resume_file_id)
+        request_raw_text = (
+            str(getattr(parse_row, "raw_text", "") or "").strip()
+            if parse_row and getattr(parse_row, "raw_text", None)
+            else self._extract_resume_file_raw_text(resume_file)
+        )
+
+        default_request_meta = self._build_screening_request_meta(
+            candidate=candidate,
+            resume_file_id=candidate.latest_resume_file_id or 0,
+            raw_resume_text=request_raw_text,
+            score_rule_snapshot=score_rule_snapshot,
+            custom_requirements=prepared_custom_requirements,
+            prompt_version=RESUME_SCREENING_PROMPT_VERSION,
+            screening_mode="default",
+            request_scope="screening_one_pass",
+        )
+        cached_result = (
+            self._load_reusable_screening_result(
+                request_hash=str(default_request_meta.get("request_hash") or "").strip(),
+                candidate_id=candidate.id,
+            )
+            if normalized_screening_mode == "default"
+            else None
+        )
+        previous_valid_result = None
+        if normalized_screening_mode == "default" and not cached_result and had_existing_parse:
+            previous_valid_result = self._get_latest_valid_screening_result_for_candidate(candidate.id)
+            if previous_valid_result and self._should_rerank_from_existing_parse(
+                allow_score_only_rerun=allow_score_only_rerun,
+                parse_row=parse_row,
+                current_request_meta=default_request_meta,
+                previous_request_meta=previous_valid_result.get("request_meta") or {},
+            ):
+                normalized_screening_mode = "rerank_from_existing_parse"
+
+        if normalized_screening_mode == "rerank_from_existing_parse" and not parse_row:
+            normalized_screening_mode = "fallback_parse_then_score"
+
+        request_scope = (
+            "screening_score_only"
+            if normalized_screening_mode == "rerank_from_existing_parse"
+            else "screening_fallback"
+            if normalized_screening_mode == "fallback_parse_then_score"
+            else "screening_one_pass"
+        )
+        prompt_version = (
+            RESUME_SCORE_PROMPT_VERSION
+            if normalized_screening_mode == "rerank_from_existing_parse"
+            else f"{RESUME_SCORE_PROMPT_VERSION}:fallback"
+            if normalized_screening_mode == "fallback_parse_then_score"
+            else RESUME_SCREENING_PROMPT_VERSION
+        )
+        request_meta = (
+            default_request_meta
+            if normalized_screening_mode == "default"
+            else self._build_screening_request_meta(
+                candidate=candidate,
+                resume_file_id=candidate.latest_resume_file_id or 0,
+                raw_resume_text=request_raw_text,
+                score_rule_snapshot=score_rule_snapshot,
+                custom_requirements=prepared_custom_requirements,
+                prompt_version=prompt_version,
+                screening_mode=normalized_screening_mode,
+                request_scope=request_scope,
+            )
+        )
+        request_hash = str(request_meta.get("request_hash") or "").strip() or None
+        if not cached_result and request_hash:
+            cached_result = self._load_reusable_screening_result(
+                request_hash=request_hash,
+                candidate_id=candidate.id,
+            )
+
         root_log = self._ensure_screening_root_task(
             candidate=candidate,
             actor_id=actor_id,
@@ -8426,6 +9032,11 @@ class RecruitmentService:
             score_rule_snapshot=score_rule_snapshot,
             existing_task_id=existing_task_id,
             request_hash=request_hash,
+            request_meta=request_meta,
+            screening_mode=normalized_screening_mode,
+            force_fallback=force_fallback,
+            allow_reuse_parse=allow_reuse_parse,
+            allow_score_only_rerun=allow_score_only_rerun,
         )
         screening_run_id = root_log.screening_run_id or _build_screening_run_id(candidate.id)
         root_task_id = root_log.root_task_id or root_log.id
@@ -8437,14 +9048,24 @@ class RecruitmentService:
         related_skill_names = _dedupe_texts(item.get("name") for item in skill_snapshots if isinstance(item, dict))
         skills_applied_to_prompt = bool(score_rule_snapshot)
         prompt_rule_dimension_count = len(score_rule_snapshot)
+        parse_row = parse_row if had_existing_parse else None
+        score_row: Optional[RecruitmentCandidateScore] = None
+        batch_id = getattr(root_log, "batch_id", None)
 
         flow_state: Dict[str, Any] = {
-            "parse_strategy": "parse_then_score",
+            "parse_strategy": (
+                "rerank_from_existing_parse"
+                if normalized_screening_mode == "rerank_from_existing_parse"
+                else "fallback_parse_then_score"
+                if normalized_screening_mode == "fallback_parse_then_score"
+                else "combined_parse_and_score"
+            ),
             "parse_status": "pending",
             "score_status": "pending",
             "persist_status": "pending",
-            "reused_existing_parse": False,
-            "parse_result_id": None,
+            "reused_existing_parse": had_existing_parse,
+            "reused_existing_score": False,
+            "parse_result_id": parse_row.id if parse_row else None,
             "score_result_id": None,
             "final_response_source": None,
             "primary_model_call_succeeded": None,
@@ -8457,11 +9078,14 @@ class RecruitmentService:
                 "task_type": SCREENING_FLOW_TASK_TYPE,
                 "task_role": "root",
                 "screening_run_id": screening_run_id,
+                "batch_id": batch_id,
+                "screening_mode": normalized_screening_mode,
                 "parse_strategy": flow_state.get("parse_strategy"),
                 "parse_status": flow_state.get("parse_status"),
                 "score_status": flow_state.get("score_status"),
                 "persist_status": flow_state.get("persist_status"),
                 "reused_existing_parse": bool(flow_state.get("reused_existing_parse")),
+                "reused_existing_score": bool(flow_state.get("reused_existing_score")),
                 "parse_result_id": flow_state.get("parse_result_id"),
                 "score_result_id": flow_state.get("score_result_id"),
                 "final_response_source": flow_state.get("final_response_source"),
@@ -8479,10 +9103,11 @@ class RecruitmentService:
                 "memory_source": memory_source,
                 "skill_resolution_source": skill_resolution_source,
                 "skill_resolution_detail": skill_resolution_detail,
+                "request_meta": request_meta,
+                "force_fallback": bool(force_fallback),
+                "allow_reuse_parse": bool(allow_reuse_parse),
+                "allow_score_only_rerun": bool(allow_score_only_rerun),
             }
-        parse_row: Optional[RecruitmentResumeParseResult] = None
-        score_row: Optional[RecruitmentCandidateScore] = None
-        had_existing_parse = False
 
         def load_run_logs() -> Tuple[Optional[RecruitmentAITaskLog], Optional[RecruitmentAITaskLog]]:
             return (
@@ -8528,8 +9153,10 @@ class RecruitmentService:
                 "model_schema_violation_reason": model_schema_violation_reason,
                 "screening_result_valid": screening_result_valid,
                 "screening_result_state": screening_result_state,
-                "parse_strategy": str(source_meta.get("parse_strategy") or flow_state.get("parse_strategy") or "parse_then_score"),
+                "parse_strategy": str(source_meta.get("parse_strategy") or flow_state.get("parse_strategy") or "combined_parse_and_score"),
                 "reused_existing_parse": bool(source_meta.get("reused_existing_parse")) or bool(flow_state.get("reused_existing_parse")),
+                "reused_existing_score": bool(source_meta.get("reused_existing_score")) or bool(flow_state.get("reused_existing_score")),
+                "request_meta": dict(source_meta.get("request_meta")) if isinstance(source_meta.get("request_meta"), dict) else dict(request_meta),
             }
             if "final_response_source" in source_meta:
                 result["final_response_source"] = source_meta.get("final_response_source")
@@ -8579,15 +9206,18 @@ class RecruitmentService:
             flow_state["final_response_source"] = validation_meta.get("final_response_source") or flow_state.get("final_response_source")
             if isinstance(validation_meta.get("primary_model_call_succeeded"), bool):
                 flow_state["primary_model_call_succeeded"] = validation_meta.get("primary_model_call_succeeded")
-            source_log = score_log or parse_log
+            source_log = score_log or parse_log or root_log
+            source_output_snapshot = _decode_ai_task_json_text(getattr(source_log, "output_snapshot", None), {}) if source_log else {}
             resolved_provider = str(
                 getattr(score_log, "model_provider", None)
                 or getattr(parse_log, "model_provider", None)
+                or getattr(root_log, "model_provider", None)
                 or ""
             ).strip() or None
             resolved_model_name = str(
                 getattr(score_log, "model_name", None)
                 or getattr(parse_log, "model_name", None)
+                or getattr(root_log, "model_name", None)
                 or ""
             ).strip() or None
             resolved_prompt_snapshot = getattr(source_log, "prompt_snapshot", None) if source_log else None
@@ -8596,6 +9226,21 @@ class RecruitmentService:
             resolved_raw_response_text = getattr(source_log, "raw_response_text", None) if source_log else None
             resolved_parsed_response_json = _decode_ai_task_json_text(getattr(source_log, "parsed_response_json", None), None) if source_log else None
             resolved_sanitized_response_json = _decode_ai_task_json_text(getattr(source_log, "sanitized_response_json", None), None) if source_log else None
+            resolved_parsed_resume = (
+                source_output_snapshot.get("parsed_resume")
+                if isinstance(source_output_snapshot, dict) and isinstance(source_output_snapshot.get("parsed_resume"), dict)
+                else self._serialize_parse_result(parse_row) if parse_row else None
+            )
+            resolved_score = (
+                source_output_snapshot.get("score")
+                if isinstance(source_output_snapshot, dict) and isinstance(source_output_snapshot.get("score"), dict)
+                else self._serialize_score(score_row) if score_row else None
+            )
+            resolved_meta = (
+                source_output_snapshot.get("meta")
+                if isinstance(source_output_snapshot, dict) and isinstance(source_output_snapshot.get("meta"), dict)
+                else {}
+            )
             self._finish_ai_task_log(
                 root_log,
                 status=status,
@@ -8612,9 +9257,22 @@ class RecruitmentService:
                     "run_completed": status in TERMINAL_AI_TASK_STATUSES,
                     "timing_breakdown": timing_breakdown,
                     "persisted_result_refs": persisted_result_refs,
+                    "parsed_resume": resolved_parsed_resume,
+                    "score": resolved_score,
+                    "meta": {
+                        **resolved_meta,
+                        "screening_result_valid": validation_meta.get("screening_result_valid"),
+                        "screening_result_state": validation_meta.get("screening_result_state"),
+                        "parse_strategy": validation_meta.get("parse_strategy"),
+                        "reused_existing_parse": validation_meta.get("reused_existing_parse"),
+                        "reused_existing_score": validation_meta.get("reused_existing_score"),
+                        "final_response_source": validation_meta.get("final_response_source"),
+                        "primary_model_call_succeeded": validation_meta.get("primary_model_call_succeeded"),
+                    },
                 },
                 error_message=error_message,
                 memory_source=memory_source,
+                batch_id=batch_id,
                 related_skill_ids=related_skill_ids,
                 related_skill_snapshots=skill_snapshots,
                 screening_run_id=screening_run_id,
@@ -8639,22 +9297,13 @@ class RecruitmentService:
                 flow_state.get("score_status"),
                 flow_state.get("persist_status"),
             )
+
         try:
-            parse_row = self._get_current_parse_result(candidate)
-            had_existing_parse = self._can_reuse_existing_parse_result(candidate, parse_row)
-            flow_state["reused_existing_parse"] = had_existing_parse
-            flow_state["parse_strategy"] = "reuse_parse_then_score" if had_existing_parse else "parse_then_score"
-            if not had_existing_parse:
-                parse_row = None
-            if force_one_pass:
-                logger.info(
-                    "force_one_pass requested for screen_candidate candidate_id=%s but standard parse->score path is enforced; request ignored",
-                    candidate.id,
-                )
             self._update_ai_task_log(
                 root_log,
                 status="running",
                 stage="running",
+                batch_id=batch_id,
                 output_summary="初筛流程开始执行",
                 output_snapshot=_build_screening_task_progress_snapshot(
                     "running",
@@ -8663,25 +9312,249 @@ class RecruitmentService:
                 ),
             )
             logger.info(
-                "screening_flow started run_id=%s candidate_id=%s root_task_id=%s parse_strategy=%s",
+                "screening_flow started run_id=%s candidate_id=%s root_task_id=%s screening_mode=%s parse_strategy=%s",
                 screening_run_id,
                 candidate.id,
                 root_task_id,
+                normalized_screening_mode,
                 flow_state.get("parse_strategy"),
             )
-            logger.info(
-                "screening_flow parse started run_id=%s candidate_id=%s reused=%s",
-                screening_run_id,
-                candidate.id,
-                had_existing_parse,
+
+            if cached_result:
+                parse_row = cached_result.get("parse_row")
+                score_row = cached_result.get("score_row")
+                cached_validation_meta = cached_result.get("validation_meta") if isinstance(cached_result.get("validation_meta"), dict) else {}
+                flow_state["parse_status"] = "reused"
+                flow_state["score_status"] = "reused"
+                flow_state["persist_status"] = "completed"
+                flow_state["reused_existing_parse"] = True
+                flow_state["reused_existing_score"] = True
+                flow_state["parse_result_id"] = parse_row.id if parse_row else None
+                flow_state["score_result_id"] = score_row.id if score_row else None
+                flow_state["final_response_source"] = cached_validation_meta.get("final_response_source") or "reused_existing_result"
+                flow_state["primary_model_call_succeeded"] = cached_validation_meta.get("primary_model_call_succeeded")
+                flow_state["raw_model_suggested_status"] = cached_validation_meta.get("raw_model_suggested_status") or (score_row.suggested_status if score_row else None)
+                flow_state["normalized_final_suggested_status"] = cached_validation_meta.get("normalized_final_suggested_status") or (score_row.suggested_status if score_row else None)
+                self._update_ai_task_log(
+                    root_log,
+                    status="running",
+                    stage="saving",
+                    batch_id=batch_id,
+                    output_summary="命中可复用初筛结果，正在回填引用",
+                    output_snapshot=_build_screening_task_progress_snapshot(
+                        "saving",
+                        message="命中可复用初筛结果，正在回填引用",
+                        extra=build_root_task_snapshot_extra(),
+                    ),
+                )
+                if parse_row:
+                    candidate.latest_parse_result_id = parse_row.id
+                if score_row:
+                    candidate.latest_score_id = score_row.id
+                    candidate.match_percent = score_row.match_percent
+                    candidate.ai_recommended_status = score_row.suggested_status
+                    self._auto_advance_candidate_after_screening(candidate, actor_id=actor_id)
+                candidate.updated_by = actor_id
+                self.db.add(candidate)
+                self.db.commit()
+                self.db.refresh(candidate)
+                if parse_row and score_row:
+                    self._save_screening_workflow_memory(
+                        candidate=candidate,
+                        actor_id=actor_id,
+                        parse_row=parse_row,
+                        score_row=score_row,
+                        memory_source=memory_source,
+                        related_skill_ids=related_skill_ids,
+                        custom_requirements=prepared_custom_requirements,
+                    )
+                    candidate = self._get_candidate(candidate_id)
+                finish_root_task(
+                    candidate_ref=candidate,
+                    status="success",
+                    stage="completed",
+                    output_summary="命中可复用初筛结果，已直接返回",
+                    fallback_state="success",
+                    fallback_valid=True,
+                )
+                return self.get_candidate_detail(candidate.id)
+
+            if normalized_screening_mode == "default":
+                flow_state["parse_strategy"] = "combined_parse_and_score"
+                one_pass_attempt_limit = max(1, SCREENING_ONE_PASS_MAX_RETRIES + 1)
+                for attempt in range(1, one_pass_attempt_limit + 1):
+                    try:
+                        _ensure_screening_budget_available(screening_deadline_at)
+                        flow_state["parse_status"] = "running"
+                        flow_state["score_status"] = "running"
+                        self._update_ai_task_log(
+                            root_log,
+                            status="running",
+                            stage="scoring",
+                            batch_id=batch_id,
+                            output_summary="正在执行 one-pass 初筛",
+                            output_snapshot=_build_screening_task_progress_snapshot(
+                                "scoring",
+                                message="正在执行 one-pass 初筛",
+                                extra={
+                                    **build_root_task_snapshot_extra(),
+                                    "one_pass_attempt": attempt,
+                                },
+                            ),
+                        )
+                        parse_row, score_row = self._screen_candidate_with_single_ai_call(
+                            candidate,
+                            actor_id,
+                            skill_rows,
+                            memory_source,
+                            prepared_custom_requirements,
+                            skill_snapshots=skill_snapshots,
+                            screening_run_id=screening_run_id,
+                            parent_task_id=root_log.id,
+                            root_task_id=root_task_id,
+                            request_hash=request_hash,
+                            request_meta=request_meta,
+                            raw_text_override=request_raw_text,
+                            cancel_control=cancel_control,
+                            deadline_at=screening_deadline_at,
+                            batch_id=batch_id,
+                        )
+                        candidate = self._get_candidate(candidate_id)
+                        flow_state["parse_status"] = "completed"
+                        flow_state["persist_status"] = "completed"
+                        flow_state["parse_result_id"] = parse_row.id
+                        flow_state["score_result_id"] = score_row.id
+                        score_log_for_root = self._get_latest_screening_run_task(
+                            screening_run_id,
+                            task_type="resume_score",
+                            parent_task_id=root_log.id,
+                        )
+                        score_validation_meta = _decode_ai_task_json_text(
+                            getattr(score_log_for_root, "validation_meta_json", None),
+                            {},
+                        ) if score_log_for_root else {}
+                        if isinstance(score_validation_meta, dict):
+                            flow_state["final_response_source"] = score_validation_meta.get("final_response_source") or flow_state.get("final_response_source")
+                            if isinstance(score_validation_meta.get("primary_model_call_succeeded"), bool):
+                                flow_state["primary_model_call_succeeded"] = score_validation_meta.get("primary_model_call_succeeded")
+                            flow_state["raw_model_suggested_status"] = score_validation_meta.get("raw_model_suggested_status") or flow_state.get("raw_model_suggested_status")
+                            flow_state["normalized_final_suggested_status"] = score_validation_meta.get("normalized_final_suggested_status") or flow_state.get("normalized_final_suggested_status")
+                        screening_result_valid = score_validation_meta.get("screening_result_valid")
+                        is_valid_result = screening_result_valid if isinstance(screening_result_valid, bool) else True
+                        flow_state["score_status"] = "completed" if is_valid_result else "failed"
+                        self._save_screening_workflow_memory(
+                            candidate=candidate,
+                            actor_id=actor_id,
+                            parse_row=parse_row,
+                            score_row=score_row,
+                            memory_source=memory_source,
+                            related_skill_ids=related_skill_ids,
+                            custom_requirements=prepared_custom_requirements,
+                        )
+                        candidate = self._get_candidate(candidate_id)
+                        final_output_summary = str(
+                            getattr(score_log_for_root, "output_summary", None)
+                            or root_log.output_summary
+                            or ""
+                        ).strip() or _build_screening_output_summary(
+                            parsed_resume=self._serialize_parse_result(parse_row) if parse_row else None,
+                            score_payload=self._serialize_score(score_row) if score_row else None,
+                        ) or "初筛流程已完成"
+                        finish_root_task(
+                            candidate_ref=candidate,
+                            status="success" if is_valid_result else "invalid_result",
+                            stage="completed" if is_valid_result else "failed",
+                            output_summary=final_output_summary,
+                            error_message=(getattr(score_log_for_root, "error_message", None) or root_log.error_message) if not is_valid_result else None,
+                            fallback_state=str(score_validation_meta.get("screening_result_state") or ("success" if is_valid_result else "invalid")),
+                            fallback_valid=is_valid_result,
+                            fallback_reasons=_normalize_score_warning_items(
+                                score_validation_meta.get("invalid_result_reasons")
+                                or ([getattr(score_log_for_root, "error_message", None) or root_log.error_message] if not is_valid_result and (getattr(score_log_for_root, "error_message", None) or root_log.error_message) else []),
+                                limit=12,
+                            ),
+                            fallback_summary=final_output_summary if not is_valid_result else None,
+                        )
+                        return self.get_candidate_detail(candidate.id)
+                    except RecruitmentTaskCancelled:
+                        raise
+                    except Exception as exc:
+                        failure_status, failure_message = _classify_screening_task_failure(exc)
+                        should_retry = _is_retryable_infra_failure_code(failure_status) and attempt < one_pass_attempt_limit
+                        if should_retry:
+                            self._update_ai_task_log(
+                                root_log,
+                                status="running",
+                                stage="scoring",
+                                batch_id=batch_id,
+                                output_summary=f"one-pass 请求失败，正在进行第 {attempt + 1} 次重试",
+                                output_snapshot=_build_screening_task_progress_snapshot(
+                                    "scoring",
+                                    message=f"one-pass 请求失败，正在进行第 {attempt + 1} 次重试",
+                                    extra={
+                                        **build_root_task_snapshot_extra(),
+                                        "one_pass_attempt": attempt,
+                                        "one_pass_retry_scheduled": True,
+                                        "failure_code": failure_status,
+                                    },
+                                ),
+                            )
+                            logger.warning(
+                                "screening one-pass retry scheduled candidate_id=%s attempt=%s failure=%s",
+                                candidate.id,
+                                attempt,
+                                failure_status,
+                            )
+                            time.sleep(min(3.0, float(attempt)))
+                            continue
+                        if SCREENING_FALLBACK_MAX_RETRIES > 0:
+                            normalized_screening_mode = "fallback_parse_then_score"
+                            flow_state["parse_strategy"] = "fallback_parse_then_score"
+                            request_meta = self._build_screening_request_meta(
+                                candidate=candidate,
+                                resume_file_id=candidate.latest_resume_file_id or 0,
+                                raw_resume_text=request_raw_text,
+                                score_rule_snapshot=score_rule_snapshot,
+                                custom_requirements=prepared_custom_requirements,
+                                prompt_version=f"{RESUME_SCORE_PROMPT_VERSION}:fallback",
+                                screening_mode=normalized_screening_mode,
+                                request_scope="screening_fallback",
+                            )
+                            request_hash = str(request_meta.get("request_hash") or "").strip() or request_hash
+                            self._update_ai_task_log(
+                                root_log,
+                                status="running",
+                                stage="running",
+                                batch_id=batch_id,
+                                output_summary=f"one-pass 失败，进入降级链路：{failure_message}",
+                                output_snapshot=_build_screening_task_progress_snapshot(
+                                    "running",
+                                    message="one-pass 失败，进入 parse_then_score 降级",
+                                    extra={
+                                        **build_root_task_snapshot_extra(),
+                                        "one_pass_failure_code": failure_status,
+                                        "one_pass_failure_message": failure_message,
+                                    },
+                                ),
+                            )
+                            break
+                        raise
+
+            reused_existing_parse_for_score = bool(parse_row)
+            flow_state["reused_existing_parse"] = reused_existing_parse_for_score
+            flow_state["parse_strategy"] = (
+                "rerank_from_existing_parse"
+                if normalized_screening_mode == "rerank_from_existing_parse"
+                else "fallback_parse_then_score"
             )
-            if not parse_row:
+            if parse_row is None:
                 _ensure_screening_budget_available(screening_deadline_at)
                 flow_state["parse_status"] = "running"
                 self._update_ai_task_log(
                     root_log,
                     status="running",
                     stage="parsing",
+                    batch_id=batch_id,
                     output_summary="正在解析最新简历",
                     output_snapshot=_build_screening_task_progress_snapshot(
                         "parsing",
@@ -8706,6 +9579,7 @@ class RecruitmentService:
                     root_log,
                     status="running",
                     stage="parsing",
+                    batch_id=batch_id,
                     output_summary="已复用解析结果，准备开始评分",
                     output_snapshot=_build_screening_task_progress_snapshot(
                         "parsing",
@@ -8714,31 +9588,21 @@ class RecruitmentService:
                     ),
                     timing_breakdown={"parse_duration_ms": 0},
                 )
-            flow_state["parse_result_id"] = parse_row.id
-            logger.info(
-                "screening_flow parse completed run_id=%s candidate_id=%s parse_result_id=%s",
-                screening_run_id,
-                candidate.id,
-                parse_row.id,
-            )
+            flow_state["parse_result_id"] = parse_row.id if parse_row else None
+
             _ensure_screening_budget_available(screening_deadline_at)
             flow_state["score_status"] = "running"
             self._update_ai_task_log(
                 root_log,
                 status="running",
                 stage="scoring",
+                batch_id=batch_id,
                 output_summary="正在根据解析结果进行评分",
                 output_snapshot=_build_screening_task_progress_snapshot(
                     "scoring",
                     message="正在根据解析结果进行评分",
                     extra=build_root_task_snapshot_extra(),
                 ),
-            )
-            logger.info(
-                "screening_flow score started run_id=%s candidate_id=%s parse_result_id=%s",
-                screening_run_id,
-                candidate.id,
-                parse_row.id,
             )
             score_row = self._score_candidate(
                 candidate,
@@ -8754,7 +9618,7 @@ class RecruitmentService:
                 skill_resolution_source=skill_resolution_source,
                 skill_resolution_detail=skill_resolution_detail,
                 cancel_control=cancel_control,
-                reused_existing_parse=had_existing_parse,
+                reused_existing_parse=reused_existing_parse_for_score,
                 deadline_at=screening_deadline_at,
             )
             flow_state["score_result_id"] = score_row.id
@@ -8776,18 +9640,12 @@ class RecruitmentService:
             screening_result_valid = score_validation_meta.get("screening_result_valid")
             is_valid_result = screening_result_valid if isinstance(screening_result_valid, bool) else True
             flow_state["score_status"] = "completed" if is_valid_result else "failed"
-            logger.info(
-                "screening_flow score completed run_id=%s candidate_id=%s score_result_id=%s valid=%s",
-                screening_run_id,
-                candidate.id,
-                score_row.id,
-                is_valid_result,
-            )
             flow_state["persist_status"] = "running"
             self._update_ai_task_log(
                 root_log,
                 status="running",
                 stage="saving",
+                batch_id=batch_id,
                 output_summary="正在写入初筛结果",
                 output_snapshot=_build_screening_task_progress_snapshot(
                     "saving",
@@ -8806,8 +9664,6 @@ class RecruitmentService:
             )
             candidate = self._get_candidate(candidate_id)
             flow_state["persist_status"] = "completed"
-            root_final_status = "success" if is_valid_result else "invalid_result"
-            root_final_stage = "completed" if is_valid_result else "failed"
             final_output_summary = str(
                 getattr(score_log_for_root, "output_summary", None)
                 or root_log.output_summary
@@ -8817,18 +9673,18 @@ class RecruitmentService:
             ) or "初筛流程已完成"
             finish_root_task(
                 candidate_ref=candidate,
-                status=root_final_status,
-                stage=root_final_stage,
+                status="success" if is_valid_result else "invalid_result",
+                stage="completed" if is_valid_result else "failed",
                 output_summary=final_output_summary,
-                error_message=(getattr(score_log_for_root, "error_message", None) or root_log.error_message) if root_final_status not in {"success", "fallback"} else None,
-                fallback_state=str(score_validation_meta.get("screening_result_state") or ("success" if root_final_status in {"success", "fallback"} else root_final_status)),
-                fallback_valid=root_final_status in {"success", "fallback"},
+                error_message=(getattr(score_log_for_root, "error_message", None) or root_log.error_message) if not is_valid_result else None,
+                fallback_state=str(score_validation_meta.get("screening_result_state") or ("success" if is_valid_result else "invalid")),
+                fallback_valid=is_valid_result,
                 fallback_reasons=_normalize_score_warning_items(
                     score_validation_meta.get("invalid_result_reasons")
-                    or ([getattr(score_log_for_root, "error_message", None) or root_log.error_message] if root_final_status not in {"success", "fallback"} and (getattr(score_log_for_root, "error_message", None) or root_log.error_message) else []),
+                    or ([getattr(score_log_for_root, "error_message", None) or root_log.error_message] if not is_valid_result and (getattr(score_log_for_root, "error_message", None) or root_log.error_message) else []),
                     limit=12,
                 ),
-                fallback_summary=final_output_summary if root_final_status not in {"success", "fallback"} else None,
+                fallback_summary=final_output_summary if not is_valid_result else None,
             )
             return self.get_candidate_detail(candidate.id)
         except RecruitmentTaskCancelled:
@@ -8875,7 +9731,23 @@ class RecruitmentService:
             )
             raise
 
-    def enqueue_screen_candidate(self, candidate_id: int, actor_id: str, skill_ids: Optional[Iterable[Any]] = None, use_position_skills: bool = True, use_candidate_memory: bool = True, custom_requirements: str = "", *, dispatch: bool = True) -> Dict[str, Any]:
+    def enqueue_screen_candidate(
+        self,
+        candidate_id: int,
+        actor_id: str,
+        skill_ids: Optional[Iterable[Any]] = None,
+        use_position_skills: bool = True,
+        use_candidate_memory: bool = True,
+        custom_requirements: str = "",
+        *,
+        dispatch: bool = True,
+        force_one_pass: bool = True,
+        force_fallback: bool = False,
+        allow_reuse_parse: bool = True,
+        allow_score_only_rerun: bool = True,
+        screening_mode: str = "default",
+        batch_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         with _screening_enqueue_lock:
             candidate = self._get_candidate(candidate_id)
             if not candidate.latest_resume_file_id:
@@ -8890,14 +9762,169 @@ class RecruitmentService:
                     "related_position_id": candidate.position_id,
                     "screening_run_id": existing_live_task.screening_run_id,
                     "reused_existing_task": True,
+                    "reused_existing_result": False,
+                    "batch_id": getattr(existing_live_task, "batch_id", None) or batch_id,
                 }
+            normalized_screening_mode = _normalize_screening_mode(screening_mode, force_fallback=force_fallback)
+            if not force_one_pass and normalized_screening_mode == "default":
+                normalized_screening_mode = "fallback_parse_then_score"
             skill_rows, memory_source, skill_resolution_source, skill_resolution_detail = self._resolve_screening_skills(candidate, skill_ids, use_position_skills=use_position_skills, use_candidate_memory=use_candidate_memory)
             skill_snapshots, related_skill_ids, prepared_custom_requirements = self._prepare_screening_task_context(
                 skill_rows=skill_rows,
                 custom_requirements=custom_requirements,
             )
             score_rule_snapshot = _build_score_rule_snapshot(skill_snapshots)
-            request_hash = self._build_request_hash(SCREENING_FLOW_TASK_TYPE, candidate.id, candidate.latest_resume_file_id or 0, related_skill_ids, memory_source, prepared_custom_requirements)
+            parse_row = self._get_current_parse_result(candidate)
+            had_existing_parse = allow_reuse_parse and self._can_reuse_existing_parse_result(candidate, parse_row)
+            if not had_existing_parse:
+                parse_row = None
+            resume_file = self._get_resume_file(candidate.latest_resume_file_id)
+            request_raw_text = (
+                str(getattr(parse_row, "raw_text", "") or "").strip()
+                if parse_row and getattr(parse_row, "raw_text", None)
+                else self._extract_resume_file_raw_text(resume_file)
+            )
+            default_request_meta = self._build_screening_request_meta(
+                candidate=candidate,
+                resume_file_id=candidate.latest_resume_file_id or 0,
+                raw_resume_text=request_raw_text,
+                score_rule_snapshot=score_rule_snapshot,
+                custom_requirements=prepared_custom_requirements,
+                prompt_version=RESUME_SCREENING_PROMPT_VERSION,
+                screening_mode="default",
+                request_scope="screening_one_pass",
+            )
+            if normalized_screening_mode == "default" and had_existing_parse:
+                previous_valid_result = self._get_latest_valid_screening_result_for_candidate(candidate.id)
+                if previous_valid_result and self._should_rerank_from_existing_parse(
+                    allow_score_only_rerun=allow_score_only_rerun,
+                    parse_row=parse_row,
+                    current_request_meta=default_request_meta,
+                    previous_request_meta=previous_valid_result.get("request_meta") or {},
+                ):
+                    normalized_screening_mode = "rerank_from_existing_parse"
+            if normalized_screening_mode == "rerank_from_existing_parse" and not parse_row:
+                normalized_screening_mode = "fallback_parse_then_score"
+            request_scope = (
+                "screening_score_only"
+                if normalized_screening_mode == "rerank_from_existing_parse"
+                else "screening_fallback"
+                if normalized_screening_mode == "fallback_parse_then_score"
+                else "screening_one_pass"
+            )
+            prompt_version = (
+                RESUME_SCORE_PROMPT_VERSION
+                if normalized_screening_mode == "rerank_from_existing_parse"
+                else f"{RESUME_SCORE_PROMPT_VERSION}:fallback"
+                if normalized_screening_mode == "fallback_parse_then_score"
+                else RESUME_SCREENING_PROMPT_VERSION
+            )
+            request_meta = (
+                default_request_meta
+                if normalized_screening_mode == "default"
+                else self._build_screening_request_meta(
+                    candidate=candidate,
+                    resume_file_id=candidate.latest_resume_file_id or 0,
+                    raw_resume_text=request_raw_text,
+                    score_rule_snapshot=score_rule_snapshot,
+                    custom_requirements=prepared_custom_requirements,
+                    prompt_version=prompt_version,
+                    screening_mode=normalized_screening_mode,
+                    request_scope=request_scope,
+                )
+            )
+            request_hash = str(request_meta.get("request_hash") or "").strip() or None
+            reusable_result = (
+                self._load_reusable_screening_result(request_hash=request_hash, candidate_id=candidate.id)
+                if request_hash
+                else None
+            )
+            if reusable_result:
+                reusable_root_log = reusable_result.get("root_log")
+                reusable_parse_row = reusable_result.get("parse_row")
+                reusable_score_row = reusable_result.get("score_row")
+                reusable_validation_meta = reusable_result.get("validation_meta") if isinstance(reusable_result.get("validation_meta"), dict) else {}
+                log_row = self._ensure_screening_root_task(
+                    candidate=candidate,
+                    actor_id=actor_id,
+                    related_skill_ids=related_skill_ids,
+                    skill_snapshots=skill_snapshots,
+                    memory_source=memory_source,
+                    skill_resolution_source=skill_resolution_source,
+                    skill_resolution_detail=skill_resolution_detail,
+                    score_rule_snapshot=score_rule_snapshot,
+                    request_hash=request_hash,
+                    batch_id=batch_id,
+                    request_meta=request_meta,
+                    screening_mode=normalized_screening_mode,
+                    force_fallback=force_fallback,
+                    allow_reuse_parse=allow_reuse_parse,
+                    allow_score_only_rerun=allow_score_only_rerun,
+                )
+                self._finish_ai_task_log(
+                    log_row,
+                    status="success",
+                    stage="completed",
+                    output_summary="命中可复用初筛结果，未重复调用模型",
+                    output_snapshot={
+                        "task_type": SCREENING_FLOW_TASK_TYPE,
+                        "screening_run_id": log_row.screening_run_id,
+                        "batch_id": batch_id,
+                        "screening_mode": normalized_screening_mode,
+                        "request_meta": request_meta,
+                        "reused_existing_parse": True,
+                        "reused_existing_score": True,
+                        "parsed_resume": self._serialize_parse_result(reusable_parse_row) if reusable_parse_row else None,
+                        "score": self._serialize_score(reusable_score_row) if reusable_score_row else None,
+                        "meta": {
+                            "screening_result_valid": True,
+                            "screening_result_state": "success",
+                            "parse_strategy": reusable_validation_meta.get("parse_strategy") or "reused_existing_result",
+                            "final_response_source": reusable_validation_meta.get("final_response_source") or "reused_existing_result",
+                            "reused_existing_parse": True,
+                            "reused_existing_score": True,
+                            "primary_model_call_succeeded": reusable_validation_meta.get("primary_model_call_succeeded"),
+                        },
+                    },
+                    memory_source=memory_source,
+                    batch_id=batch_id,
+                    related_skill_ids=related_skill_ids,
+                    related_skill_snapshots=skill_snapshots,
+                    screening_run_id=log_row.screening_run_id,
+                    root_task_id=log_row.root_task_id or log_row.id,
+                    skill_resolution_source=skill_resolution_source,
+                    skill_resolution_detail=skill_resolution_detail,
+                    score_rule_snapshot=score_rule_snapshot,
+                    validation_meta={
+                        **reusable_validation_meta,
+                        "screening_result_valid": True,
+                        "screening_result_state": reusable_validation_meta.get("screening_result_state") or "success",
+                        "parse_strategy": reusable_validation_meta.get("parse_strategy") or "reused_existing_result",
+                        "reused_existing_parse": True,
+                        "reused_existing_score": True,
+                        "request_meta": request_meta,
+                    },
+                    persisted_result_refs=self._build_screening_persisted_result_refs(
+                        candidate=candidate,
+                        parse_row=reusable_parse_row,
+                        score_row=reusable_score_row,
+                        screening_result_valid=True,
+                        raw_model_suggested_status=reusable_validation_meta.get("raw_model_suggested_status"),
+                        normalized_final_suggested_status=reusable_validation_meta.get("normalized_final_suggested_status"),
+                    ),
+                    timing_breakdown={"queue_wait_ms": 0, "total_duration_ms": 0},
+                )
+                return {
+                    "task_id": log_row.id,
+                    "status": "success",
+                    "task_type": SCREENING_FLOW_TASK_TYPE,
+                    "related_candidate_id": candidate.id,
+                    "related_position_id": candidate.position_id,
+                    "screening_run_id": log_row.screening_run_id or getattr(reusable_root_log, "screening_run_id", None),
+                    "reused_existing_task": False,
+                    "reused_existing_result": True,
+                    "batch_id": batch_id,
+                }
             log_row = self._ensure_screening_root_task(
                 candidate=candidate,
                 actor_id=actor_id,
@@ -8908,6 +9935,12 @@ class RecruitmentService:
                 skill_resolution_detail=skill_resolution_detail,
                 score_rule_snapshot=score_rule_snapshot,
                 request_hash=request_hash,
+                batch_id=batch_id,
+                request_meta=request_meta,
+                screening_mode=normalized_screening_mode,
+                force_fallback=force_fallback,
+                allow_reuse_parse=allow_reuse_parse,
+                allow_score_only_rerun=allow_score_only_rerun,
             )
         if dispatch:
             self._dispatch_screening_queue()
@@ -8919,31 +9952,170 @@ class RecruitmentService:
             "related_position_id": candidate.position_id,
             "screening_run_id": log_row.screening_run_id,
             "reused_existing_task": False,
+            "reused_existing_result": False,
+            "batch_id": batch_id,
         }
 
-    def batch_start_screen_candidates(self, candidate_ids: Iterable[Any], actor_id: str, skill_ids: Optional[Iterable[Any]] = None, use_position_skills: bool = True, use_candidate_memory: bool = True, custom_requirements: str = "") -> Dict[str, Any]:
+    def batch_start_screen_candidates(
+        self,
+        candidate_ids: Iterable[Any],
+        actor_id: str,
+        skill_ids: Optional[Iterable[Any]] = None,
+        use_position_skills: bool = True,
+        use_candidate_memory: bool = True,
+        custom_requirements: str = "",
+        *,
+        force_one_pass: bool = True,
+        force_fallback: bool = False,
+        allow_reuse_parse: bool = True,
+        allow_score_only_rerun: bool = True,
+        screening_mode: str = "default",
+    ) -> Dict[str, Any]:
         tasks: List[Dict[str, Any]] = []
+        candidate_id_list = _dedupe_ints(candidate_ids)
+        batch_id = uuid.uuid4().hex[:16]
         skipped_existing_live_task_count = 0
+        duplicated_count = 0
         failed_count = 0
-        for candidate_id in _dedupe_ints(candidate_ids):
+        for candidate_id in candidate_id_list:
             try:
-                task_payload = self.enqueue_screen_candidate(candidate_id, actor_id, skill_ids=skill_ids, use_position_skills=use_position_skills, use_candidate_memory=use_candidate_memory, custom_requirements=custom_requirements, dispatch=False)
+                task_payload = self.enqueue_screen_candidate(
+                    candidate_id,
+                    actor_id,
+                    skill_ids=skill_ids,
+                    use_position_skills=use_position_skills,
+                    use_candidate_memory=use_candidate_memory,
+                    custom_requirements=custom_requirements,
+                    dispatch=False,
+                    force_one_pass=force_one_pass,
+                    force_fallback=force_fallback,
+                    allow_reuse_parse=allow_reuse_parse,
+                    allow_score_only_rerun=allow_score_only_rerun,
+                    screening_mode=screening_mode,
+                    batch_id=batch_id,
+                )
                 if task_payload.get("reused_existing_task"):
                     skipped_existing_live_task_count += 1
+                elif task_payload.get("reused_existing_result"):
+                    duplicated_count += 1
                 tasks.append(task_payload)
             except Exception:
                 failed_count += 1
         self._dispatch_screening_queue()
-        queued_count = len([item for item in tasks if not item.get("reused_existing_task")])
+        queued_count = len([item for item in tasks if not item.get("reused_existing_task") and not item.get("reused_existing_result")])
         return {
+            "batch_id": batch_id,
+            "total_count": len(candidate_id_list),
             "queued_count": queued_count,
+            "duplicated_count": duplicated_count,
             "skipped_existing_live_task_count": skipped_existing_live_task_count,
             "failed_count": failed_count,
             "task_ids": [int(item["task_id"]) for item in tasks if item.get("task_id")],
             "tasks": tasks,
         }
 
-    def start_screen_candidate(self, candidate_id: int, actor_id: str, skill_ids: Optional[Iterable[Any]] = None, use_position_skills: bool = True, use_candidate_memory: bool = True, custom_requirements: str = "") -> Dict[str, Any]:
+    def get_screening_batch_status(self, batch_id: str) -> Dict[str, Any]:
+        rows = self.db.query(RecruitmentAITaskLog).filter(
+            self._screening_root_task_filter(),
+            RecruitmentAITaskLog.batch_id == batch_id,
+        ).order_by(
+            RecruitmentAITaskLog.created_at.asc(),
+            RecruitmentAITaskLog.id.asc(),
+        ).all()
+        duration_values = [self._calculate_ai_task_duration_ms(row) or 0 for row in rows if row.status in TERMINAL_AI_TASK_STATUSES]
+        per_candidate_status: List[Dict[str, Any]] = []
+        queued = 0
+        running = 0
+        success = 0
+        failed = 0
+        invalid = 0
+        cancelled = 0
+        for row in rows:
+            validation_meta = _decode_ai_task_json_text(getattr(row, "validation_meta_json", None), {})
+            if row.status == "queued":
+                queued += 1
+            elif row.status in {"pending", "running", "cancelling"}:
+                running += 1
+            elif row.status == "success":
+                success += 1
+            elif row.status == "invalid_result":
+                invalid += 1
+            elif row.status == "cancelled":
+                cancelled += 1
+            else:
+                failed += 1
+            per_candidate_status.append(
+                {
+                    "task_id": row.id,
+                    "candidate_id": row.related_candidate_id,
+                    "position_id": row.related_position_id,
+                    "status": row.status,
+                    "stage": row.stage,
+                    "screening_run_id": row.screening_run_id,
+                    "duration_ms": self._calculate_ai_task_duration_ms(row),
+                    "screening_result_valid": validation_meta.get("screening_result_valid") if isinstance(validation_meta, dict) else None,
+                    "screening_result_state": validation_meta.get("screening_result_state") if isinstance(validation_meta, dict) else None,
+                    "failure_code": validation_meta.get("failure_code") if isinstance(validation_meta, dict) else None,
+                    "output_summary": row.output_summary,
+                    "updated_at": isoformat_or_none(row.updated_at),
+                }
+            )
+        avg_duration_ms = round(sum(duration_values) / len(duration_values), 2) if duration_values else 0
+        return {
+            "batch_id": batch_id,
+            "total": len(rows),
+            "queued": queued,
+            "running": running,
+            "success": success,
+            "failed": failed,
+            "invalid": invalid,
+            "cancelled": cancelled,
+            "avg_duration_ms": avg_duration_ms,
+            "p95_duration_ms": _compute_percentile_ms(duration_values, 95),
+            "cooldown_until": _screening_provider_cooldown_until.isoformat() if _screening_provider_cooldown_until else None,
+            "per_candidate_status": per_candidate_status,
+        }
+
+    def cancel_screening_batch(self, batch_id: str, actor_id: str) -> Dict[str, Any]:
+        rows = self.db.query(RecruitmentAITaskLog).filter(
+            self._screening_root_task_filter(),
+            RecruitmentAITaskLog.batch_id == batch_id,
+        ).order_by(
+            RecruitmentAITaskLog.created_at.asc(),
+            RecruitmentAITaskLog.id.asc(),
+        ).all()
+        cancelled_count = 0
+        already_terminal_count = 0
+        results: List[Dict[str, Any]] = []
+        for row in rows:
+            if row.status in TERMINAL_AI_TASK_STATUSES:
+                already_terminal_count += 1
+                continue
+            results.append(self.cancel_ai_task(row.id, actor_id))
+            cancelled_count += 1
+        return {
+            "batch_id": batch_id,
+            "total": len(rows),
+            "cancelled_count": cancelled_count,
+            "already_terminal_count": already_terminal_count,
+            "results": results,
+        }
+
+    def start_screen_candidate(
+        self,
+        candidate_id: int,
+        actor_id: str,
+        skill_ids: Optional[Iterable[Any]] = None,
+        use_position_skills: bool = True,
+        use_candidate_memory: bool = True,
+        custom_requirements: str = "",
+        *,
+        force_one_pass: bool = True,
+        force_fallback: bool = False,
+        allow_reuse_parse: bool = True,
+        allow_score_only_rerun: bool = True,
+        screening_mode: str = "default",
+    ) -> Dict[str, Any]:
         return self.enqueue_screen_candidate(
             candidate_id,
             actor_id,
@@ -8952,6 +10124,11 @@ class RecruitmentService:
             use_candidate_memory=use_candidate_memory,
             custom_requirements=custom_requirements,
             dispatch=True,
+            force_one_pass=force_one_pass,
+            force_fallback=force_fallback,
+            allow_reuse_parse=allow_reuse_parse,
+            allow_score_only_rerun=allow_score_only_rerun,
+            screening_mode=screening_mode,
         )
 
     def _resolve_interview_skills(self, candidate: RecruitmentCandidate, explicit_skill_ids: Optional[Iterable[Any]], *, use_candidate_memory: bool = True, use_position_skills: bool = True) -> Tuple[List[RecruitmentSkill], str]:

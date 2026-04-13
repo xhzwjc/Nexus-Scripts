@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from ..database import SessionLocal, get_db
 from ..recruitment_schemas import (
+    CandidateScreenBatchCancelRequest,
+    CandidateScreenBatchQueryRequest,
     CandidateScreenBatchStartRequest,
     CandidateStatusUpdateRequest,
     CandidateScreenRequest,
@@ -327,6 +329,10 @@ async def screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _
             use_candidate_memory=payload.use_candidate_memory,
             custom_requirements=payload.custom_requirements or "",
             force_one_pass=payload.force_one_pass,
+            force_fallback=payload.force_fallback,
+            allow_reuse_parse=payload.allow_reuse_parse,
+            allow_score_only_rerun=payload.allow_score_only_rerun,
+            screening_mode=payload.screening_mode,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -347,6 +353,11 @@ async def start_screen_candidate(candidate_id: int, payload: CandidateScreenRequ
             use_position_skills=payload.use_position_skills,
             use_candidate_memory=payload.use_candidate_memory,
             custom_requirements=payload.custom_requirements or "",
+            force_one_pass=payload.force_one_pass,
+            force_fallback=payload.force_fallback,
+            allow_reuse_parse=payload.allow_reuse_parse,
+            allow_score_only_rerun=payload.allow_score_only_rerun,
+            screening_mode=payload.screening_mode,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -356,6 +367,7 @@ async def start_screen_candidate(candidate_id: int, payload: CandidateScreenRequ
 
 
 @recruitment_router.post("/candidates/screen/batch-start")
+@recruitment_router.post("/candidates/screen/batch/start")
 async def batch_start_screen_candidates(payload: CandidateScreenBatchStartRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
     try:
         data = await run_in_threadpool(
@@ -367,6 +379,42 @@ async def batch_start_screen_candidates(payload: CandidateScreenBatchStartReques
             use_position_skills=payload.use_position_skills,
             use_candidate_memory=payload.use_candidate_memory,
             custom_requirements=payload.custom_requirements or "",
+            force_one_pass=payload.force_one_pass,
+            force_fallback=payload.force_fallback,
+            allow_reuse_parse=payload.allow_reuse_parse,
+            allow_score_only_rerun=payload.allow_score_only_rerun,
+            screening_mode=payload.screening_mode,
+        )
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.post("/candidates/screen/batch/query")
+async def query_screening_batch(payload: CandidateScreenBatchQueryRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+    try:
+        data = await run_in_threadpool(
+            _run_recruitment_service_call,
+            "get_screening_batch_status",
+            payload.batch_id,
+        )
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.post("/candidates/screen/batch/cancel")
+async def cancel_screening_batch(payload: CandidateScreenBatchCancelRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+    try:
+        data = await run_in_threadpool(
+            _run_recruitment_service_call,
+            "cancel_screening_batch",
+            payload.batch_id,
+            _session.get("id") or "unknown",
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:

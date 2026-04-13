@@ -331,6 +331,10 @@ def ensure_recruitment_schema() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN screening_run_id VARCHAR(80) NULL"))
             logger.info("Added recruitment_ai_task_logs.screening_run_id column")
+        if "batch_id" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN batch_id VARCHAR(80) NULL"))
+            logger.info("Added recruitment_ai_task_logs.batch_id column")
         if "parent_task_id" not in ai_task_columns:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN parent_task_id INTEGER NULL"))
