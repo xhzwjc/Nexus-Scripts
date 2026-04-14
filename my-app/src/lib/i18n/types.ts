@@ -1590,6 +1590,16 @@ export interface Translations {
         description: string;
         startMonth: string;
         endMonth: string;
+        selectRangePlaceholder: string;
+        selectStartHint: string;
+        selectEndHint: string;
+        clearRange: string;
+        presets: {
+          lastMonth: string;
+          last3Months: string;
+          last6Months: string;
+          yearToDate: string;
+        };
         platformCompany: string;
         platformCompanyPlaceholder: string;
         platformName: string;
@@ -1603,6 +1613,8 @@ export interface Translations {
         generating: string;
         resultTitle: string;
         resultSuffix: string;
+        totalLaborIncome: string;
+        totalServiceFee: string;
         totalRecords: string;
         table: {
           index: string;

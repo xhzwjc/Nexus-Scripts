@@ -184,6 +184,52 @@ const getFilenameFromDisposition = (cd?: string, fallback = 'report.xlsx') => {
     return fallback;
 };
 
+const TAX_QUERY_TOAST_ID = 'tax-report-query';
+const TAX_GENERATE_TOAST_ID = 'tax-report-generate';
+const PLATFORM_QUERY_TOAST_ID = 'platform-report-query';
+const PLATFORM_GENERATE_TOAST_ID = 'platform-report-generate';
+const PLATFORM_COMBINED_TOAST_ID = 'platform-report-combined';
+const TAX_REPORT_TOAST_IDS = [
+    TAX_QUERY_TOAST_ID,
+    TAX_GENERATE_TOAST_ID,
+    PLATFORM_QUERY_TOAST_ID,
+    PLATFORM_GENERATE_TOAST_ID,
+    PLATFORM_COMBINED_TOAST_ID,
+] as const;
+
+const getMonthRangeDates = (startMonth: string, endMonth: string) => {
+    const [endYear, endMonthNumber] = endMonth.split('-').map(Number);
+    const lastDay = new Date(endYear, endMonthNumber, 0).getDate();
+
+    return {
+        startDate: `${startMonth}-01`,
+        endDate: `${endMonth}-${String(lastDay).padStart(2, '0')}`,
+        rangeKey: `${startMonth.replace(/-/g, '')}_${endMonth.replace(/-/g, '')}`,
+    };
+};
+
+const formatMonthValue = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+const getLastCompletedMonthValue = () => {
+    const date = new Date();
+    date.setDate(1);
+    date.setMonth(date.getMonth() - 1);
+    return formatMonthValue(date);
+};
+
+const shiftMonthValue = (monthValue: string, delta: number) => {
+    const [year, month] = monthValue.split('-').map(Number);
+    return formatMonthValue(new Date(year, month - 1 + delta, 1));
+};
+
+const dismissTaxReportToasts = (exceptToastId?: string) => {
+    TAX_REPORT_TOAST_IDS.forEach((toastId) => {
+        if (toastId !== exceptToastId) {
+            toast.dismiss(toastId);
+        }
+    });
+};
+
 export default function TaxReportManagement({ onBack }: TaxReportManagementProps) {
     const { t } = useI18n();
     const tr = t.scripts.taxReport;
@@ -208,7 +254,6 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
     const [taxData, setTaxData] = useState<TaxData[]>([]);
     const [yearMonth, setYearMonth] = useState('');
     const [amountType, setAmountType] = useState<AmountType>(1);
-    const [amountDetails, setAmountDetails] = useState<AmountDetails>({ grandTotal: 0, breakdown: [] });
     const [platformCompany, setPlatformCompany] = useState('');
     const [creditCode, setCreditCode] = useState('');
 
@@ -235,6 +280,9 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
     const [currentPage, setCurrentPage] = useState(1);
     const [rowsPerPage, setRowsPerPage] = useState(10);
     const [pageInput, setPageInput] = useState('1');
+    const [platformCurrentPage, setPlatformCurrentPage] = useState(1);
+    const [platformRowsPerPage, setPlatformRowsPerPage] = useState(20);
+    const [platformPageInput, setPlatformPageInput] = useState('1');
 
     // 获取企业列表
     const fetchEnterprises = useCallback(async (signal?: AbortSignal) => {
@@ -274,6 +322,8 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
 
         setIsFetchingTaxData(true);
         setSearchAttempted(true);
+        dismissTaxReportToasts(TAX_QUERY_TOAST_ID);
+        toast.loading(tr.query.fetching, { id: TAX_QUERY_TOAST_ID });
         try {
             const response = await axios.post<ApiResponse<TaxData[]>>(
                 `${base}/tax/data`,
@@ -292,19 +342,19 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                 setCurrentPage(1);
                 setPageInput('1');
                 setServicePayStatusFilter(null);
-                toast.success(tr.messages.fetchSuccess);
+                toast.success(tr.messages.fetchSuccess, { id: TAX_QUERY_TOAST_ID });
             } else {
-                toast.error(response.data.message || tr.messages.fetchFail);
+                toast.error(response.data.message || tr.messages.fetchFail, { id: TAX_QUERY_TOAST_ID });
                 setTaxData([]);
             }
         } catch (err) {
             console.error(tr.messages.fetchErrorLog, err);
-            toast.error(err instanceof Error ? err.message : tr.messages.fetchError);
+            toast.error(err instanceof Error ? err.message : tr.messages.fetchError, { id: TAX_QUERY_TOAST_ID });
             setTaxData([]);
         } finally {
             setIsFetchingTaxData(false);
         }
-    }, [amountType, environment, selectedEnterpriseIds, yearMonth, tr.messages.yearMonthRequired, tr.messages.fetchSuccess, tr.messages.fetchFail, tr.messages.fetchErrorLog, tr.messages.fetchError]);
+    }, [amountType, environment, selectedEnterpriseIds, yearMonth, tr.query.fetching, tr.messages.yearMonthRequired, tr.messages.fetchSuccess, tr.messages.fetchFail, tr.messages.fetchErrorLog, tr.messages.fetchError]);
 
     // 点击“下载税务报表”前的校验
     const handleGenerateReportClick = () => {
@@ -325,7 +375,8 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
         if (!base) return;
 
         setShowDownloadConfirmDialog(false);
-        toast.info(tr.messages.generating);
+        dismissTaxReportToasts(TAX_GENERATE_TOAST_ID);
+        toast.loading(tr.messages.generating, { id: TAX_GENERATE_TOAST_ID });
         setIsGenerating(true);
         try {
             const params: GenerateReportParams = {
@@ -359,10 +410,9 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
-            window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
 
-            toast.success(tr.messages.generateSuccess.replace('{fileName}', fileName));
+            toast.success(tr.messages.generateSuccess.replace('{fileName}', fileName), { id: TAX_GENERATE_TOAST_ID });
         } catch (err) {
             console.error(tr.messages.generateErrorLog, err);
             let errorMsg = tr.messages.generateError;
@@ -383,25 +433,29 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             } else if (err instanceof Error) {
                 errorMsg = err.message;
             }
-            toast.error(errorMsg);
+            toast.error(errorMsg, { id: TAX_GENERATE_TOAST_ID });
         } finally {
             setIsGenerating(false);
         }
     }, [amountType, environment, selectedEnterpriseIds, yearMonth, platformCompany, creditCode, tr.messages.generating, tr.messages.generateSuccess, tr.messages.generateErrorLog, tr.messages.generateError, tr.messages.requestError]);
 
     // 处理企业选择
-    const handleEnterpriseSelect = (enterpriseId: number) => {
+    const handleEnterpriseSelect = useCallback((enterpriseId: number) => {
         setSelectedEnterpriseIds(prev =>
             prev.includes(enterpriseId) ? prev.filter(id => id !== enterpriseId) : [...prev, enterpriseId]
         );
-    };
+    }, []);
 
     // 全选/取消全选企业
-    const toggleSelectAllEnterprises = () => {
+    const toggleSelectAllEnterprises = useCallback(() => {
         setSelectedEnterpriseIds(
             selectedEnterpriseIds.length === enterprises.length ? [] : enterprises.map(ent => ent.id)
         );
-    };
+    }, [selectedEnterpriseIds.length, enterprises]);
+
+    const clearSelectedEnterprises = useCallback(() => {
+        setSelectedEnterpriseIds([]);
+    }, []);
 
     // 服务费状态筛选
     const handleStatusFilterChange = (value: string) => {
@@ -421,18 +475,17 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
 
         setIsFetchingPlatformData(true);
         setPlatformSearchAttempted(true);
+        dismissTaxReportToasts(PLATFORM_QUERY_TOAST_ID);
+        toast.loading(tr.platform.fetching, { id: PLATFORM_QUERY_TOAST_ID });
         try {
-            const startDate = `${platformStartMonth}-01`;
-            const endDate = `${platformEndMonth}-01`;
-            const lastDay = new Date(parseInt(platformEndMonth.split('-')[0]), parseInt(platformEndMonth.split('-')[1]), 0).getDate();
-            const endDateFull = `${platformEndMonth}-${String(lastDay).padStart(2, '0')}`;
+            const { startDate, endDate } = getMonthRangeDates(platformStartMonth, platformEndMonth);
 
             const response = await axios.get<ApiResponse<PlatformData[]>>(
                 `${base}/platform/report/data`,
                 {
                     params: {
                         start_date: startDate,
-                        end_date: endDateFull,
+                        end_date: endDate,
                         enterprise_ids: selectedEnterpriseIds.length > 0 ? selectedEnterpriseIds.join(',') : undefined,
                         amount_type: platformAmountType,
                         environment
@@ -444,19 +497,21 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             if (response.data.success) {
                 const data = (response.data.data || []) as PlatformData[];
                 setPlatformData(Array.isArray(data) ? data : []);
-                toast.success(tr.messages.platformFetchSuccess);
+                setPlatformCurrentPage(1);
+                setPlatformPageInput('1');
+                toast.success(tr.messages.platformFetchSuccess, { id: PLATFORM_QUERY_TOAST_ID });
             } else {
-                toast.error(response.data.message || tr.messages.platformFetchFail);
+                toast.error(response.data.message || tr.messages.platformFetchFail, { id: PLATFORM_QUERY_TOAST_ID });
                 setPlatformData([]);
             }
         } catch (err) {
             console.error(tr.messages.platformFetchErrorLog, err);
-            toast.error(err instanceof Error ? err.message : tr.messages.platformFetchError);
+            toast.error(err instanceof Error ? err.message : tr.messages.platformFetchError, { id: PLATFORM_QUERY_TOAST_ID });
             setPlatformData([]);
         } finally {
             setIsFetchingPlatformData(false);
         }
-    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, tr.messages.platformStartEndMonthRequired, tr.messages.platformFetchSuccess, tr.messages.platformFetchFail, tr.messages.platformFetchErrorLog, tr.messages.platformFetchError]);
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, tr.platform.fetching, tr.messages.platformStartEndMonthRequired, tr.messages.platformFetchSuccess, tr.messages.platformFetchFail, tr.messages.platformFetchErrorLog, tr.messages.platformFetchError]);
 
     // 生成平台报送报表
     const handleGeneratePlatformReport = useCallback(async () => {
@@ -473,17 +528,15 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             return;
         }
 
-        toast.info(tr.messages.platformGenerating);
+        dismissTaxReportToasts(PLATFORM_GENERATE_TOAST_ID);
+        toast.loading(tr.messages.platformGenerating, { id: PLATFORM_GENERATE_TOAST_ID });
         setIsGeneratingPlatform(true);
         try {
-            const startDate = `${platformStartMonth}-01`;
-            const endDate = `${platformEndMonth}-01`;
-            const lastDay = new Date(parseInt(platformEndMonth.split('-')[0]), parseInt(platformEndMonth.split('-')[1]), 0).getDate();
-            const endDateFull = `${platformEndMonth}-${String(lastDay).padStart(2, '0')}`;
+            const { startDate, endDate, rangeKey } = getMonthRangeDates(platformStartMonth, platformEndMonth);
 
             const params = {
                 start_date: startDate,
-                end_date: endDateFull,
+                end_date: endDate,
                 enterprise_ids: selectedEnterpriseIds.length > 0 ? selectedEnterpriseIds : undefined,
                 amount_type: platformAmountType,
                 platform_company: platformCompanyName || undefined,
@@ -506,7 +559,6 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             // 处理ZIP文件下载
             const zip = new JSZip();
             const zipContent = await zip.loadAsync(response.data);
-            const dateStr = `${platformStartMonth.replace(/-/g, '')}_${platformEndMonth.replace(/-/g, '')}`;
 
             for (const [filename, file] of Object.entries(zipContent.files)) {
                 if (!file.dir) {
@@ -522,7 +574,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                 }
             }
 
-            toast.success(`报表已生成并下载（${dateStr}）`);
+            toast.success(`报表已生成并下载（${rangeKey}）`, { id: PLATFORM_GENERATE_TOAST_ID });
         } catch (err) {
             console.error(tr.messages.platformGenerateErrorLog, err);
             let errorMsg = tr.messages.platformGenerateError;
@@ -543,11 +595,11 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             } else if (err instanceof Error) {
                 errorMsg = err.message;
             }
-            toast.error(errorMsg);
+            toast.error(errorMsg, { id: PLATFORM_GENERATE_TOAST_ID });
         } finally {
             setIsGeneratingPlatform(false);
         }
-    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateSuccess, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError]);
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError]);
 
     // 下载组合报表（用于手动复制到模板）
     const handleDownloadCombinedReport = useCallback(async () => {
@@ -564,16 +616,15 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             return;
         }
 
-        toast.info(tr.messages.platformGenerating);
+        dismissTaxReportToasts(PLATFORM_COMBINED_TOAST_ID);
+        toast.loading(tr.messages.platformGenerating, { id: PLATFORM_COMBINED_TOAST_ID });
         setIsGeneratingCombined(true);
         try {
-            const startDate = `${platformStartMonth}-01`;
-            const lastDay = new Date(parseInt(platformEndMonth.split('-')[0]), parseInt(platformEndMonth.split('-')[1]), 0).getDate();
-            const endDateFull = `${platformEndMonth}-${String(lastDay).padStart(2, '0')}`;
+            const { startDate, endDate } = getMonthRangeDates(platformStartMonth, platformEndMonth);
 
             const params = {
                 start_date: startDate,
-                end_date: endDateFull,
+                end_date: endDate,
                 enterprise_ids: selectedEnterpriseIds.length > 0 ? selectedEnterpriseIds : undefined,
                 amount_type: platformAmountType,
                 platform_company: platformCompanyName || undefined,
@@ -605,7 +656,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
 
-            toast.success(`报表已下载: ${fileName}`);
+            toast.success(`报表已下载: ${fileName}`, { id: PLATFORM_COMBINED_TOAST_ID });
         } catch (err) {
             console.error(tr.messages.platformGenerateErrorLog, err);
             let errorMsg = tr.messages.platformGenerateError;
@@ -626,11 +677,11 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             } else if (err instanceof Error) {
                 errorMsg = err.message;
             }
-            toast.error(errorMsg);
+            toast.error(errorMsg, { id: PLATFORM_COMBINED_TOAST_ID });
         } finally {
             setIsGeneratingCombined(false);
         }
-    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateSuccess, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError]);
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError]);
 
     // 初始化 + 环境变化时
     useEffect(() => {
@@ -647,11 +698,17 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
         // 重置
         setSelectedEnterpriseIds([]);
         setTaxData([]);
-        setAmountDetails({ grandTotal: 0, breakdown: [] });
         setSearchAttempted(false);
         setServicePayStatusFilter(null);
         setCurrentPage(1);
         setPageInput('1');
+        const lastCompletedMonth = getLastCompletedMonthValue();
+        setPlatformStartMonth(lastCompletedMonth);
+        setPlatformEndMonth(lastCompletedMonth);
+        setPlatformData([]);
+        setPlatformSearchAttempted(false);
+        setPlatformCurrentPage(1);
+        setPlatformPageInput('1');
 
         return () => controller.abort();
     }, [environment, fetchEnterprises]);
@@ -668,21 +725,24 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
     }, [taxData, servicePayStatusFilter]);
 
     // 金额统计（基于筛选后数据）
-    useEffect(() => {
+    const amountDetails = useMemo<AmountDetails>(() => {
         if (!filteredTaxData.length) {
-            setAmountDetails({ grandTotal: 0, breakdown: [] });
-            return;
+            return { grandTotal: 0, breakdown: [] };
         }
+
         const grandTotal = filteredTaxData.reduce((sum, item) => sum + Number(item['营业额_元'] || 0), 0);
         const breakdownMap: Record<string, number> = {};
+
         filteredTaxData.forEach(item => {
             const key = `${item.enterprise_name} (${item['税地名称']})`;
             breakdownMap[key] = (breakdownMap[key] || 0) + Number(item['营业额_元'] || 0);
         });
+
         const breakdown = Object.entries(breakdownMap)
             .map(([key, amount]) => ({ key, amount }))
             .sort((a, b) => b.amount - a.amount);
-        setAmountDetails({ grandTotal, breakdown });
+
+        return { grandTotal, breakdown };
     }, [filteredTaxData]);
 
     // 计算分页
@@ -737,16 +797,213 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
         }
     };
 
+    const platformStats = useMemo(() => {
+        return platformData.reduce(
+            (summary, item) => ({
+                totalLaborIncome: summary.totalLaborIncome + Number(item.labor_income || 0),
+                totalServiceFee: summary.totalServiceFee + Number(item.service_fee || 0),
+            }),
+            { totalLaborIncome: 0, totalServiceFee: 0 }
+        );
+    }, [platformData]);
+
+    const platformTotalPagesRaw = useMemo(
+        () => Math.ceil(platformData.length / platformRowsPerPage),
+        [platformData.length, platformRowsPerPage]
+    );
+    const platformTotalPages = platformTotalPagesRaw > 0 ? platformTotalPagesRaw : 1;
+
+    const currentPlatformData = useMemo(() => {
+        if (!platformData.length) return [];
+        const start = (platformCurrentPage - 1) * platformRowsPerPage;
+        const end = platformCurrentPage * platformRowsPerPage;
+        return platformData.slice(start, end);
+    }, [platformData, platformCurrentPage, platformRowsPerPage]);
+
+    useEffect(() => {
+        if (platformData.length === 0) {
+            if (platformCurrentPage !== 1) setPlatformCurrentPage(1);
+            if (platformPageInput !== '1') setPlatformPageInput('1');
+            return;
+        }
+
+        if (platformCurrentPage > platformTotalPages) {
+            setPlatformCurrentPage(platformTotalPages);
+        }
+    }, [platformData.length, platformTotalPages, platformCurrentPage, platformPageInput]);
+
+    useEffect(() => {
+        setPlatformPageInput(String(platformCurrentPage));
+    }, [platformCurrentPage]);
+
+    const handlePlatformNextPage = () => setPlatformCurrentPage(prev => Math.min(prev + 1, platformTotalPages));
+    const handlePlatformPrevPage = () => setPlatformCurrentPage(prev => Math.max(prev - 1, 1));
+    const handlePlatformRowsPerPageChange = (value: string) => {
+        const n = Number(value);
+        setPlatformRowsPerPage(Number.isFinite(n) && n > 0 ? n : 20);
+        setPlatformCurrentPage(1);
+    };
+    const handlePlatformPageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => setPlatformPageInput(e.target.value);
+    const handlePlatformPageInputSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            const pageNumber = parseInt(platformPageInput, 10);
+            if (!isNaN(pageNumber) && pageNumber >= 1 && pageNumber <= platformTotalPages) {
+                setPlatformCurrentPage(pageNumber);
+            } else {
+                setPlatformPageInput(String(platformCurrentPage));
+            }
+        }
+    };
+
+    const enterpriseMap = useMemo(
+        () => new Map(enterprises.map(enterprise => [enterprise.id, enterprise])),
+        [enterprises]
+    );
+    const selectedEnterpriseIdSet = useMemo(
+        () => new Set(selectedEnterpriseIds),
+        [selectedEnterpriseIds]
+    );
+
     // 已选企业名称展示
     const selectedEnterpriseNames = useMemo(() => {
         if (selectedEnterpriseIds.length === 0) {
             return tr.query.enterprise.selectAll;
         }
         return selectedEnterpriseIds.map(id => {
-            const enterprise = enterprises.find(e => e.id === id);
+            const enterprise = enterpriseMap.get(id);
             return enterprise ? enterprise.enterprise_name : `${tr.query.enterprise.id}: ${id}`;
         }).join('、');
-    }, [selectedEnterpriseIds, enterprises, tr.query.enterprise.selectAll, tr.query.enterprise.id]);
+    }, [selectedEnterpriseIds, enterpriseMap, tr.query.enterprise.selectAll, tr.query.enterprise.id]);
+
+    const lastCompletedMonth = useMemo(() => getLastCompletedMonthValue(), []);
+    const platformMonthPresets = useMemo(() => {
+        return [
+            {
+                label: tr.platform.presets.lastMonth,
+                startMonth: lastCompletedMonth,
+                endMonth: lastCompletedMonth,
+            },
+            {
+                label: tr.platform.presets.last3Months,
+                startMonth: shiftMonthValue(lastCompletedMonth, -2),
+                endMonth: lastCompletedMonth,
+            },
+            {
+                label: tr.platform.presets.last6Months,
+                startMonth: shiftMonthValue(lastCompletedMonth, -5),
+                endMonth: lastCompletedMonth,
+            },
+            {
+                label: tr.platform.presets.yearToDate,
+                startMonth: `${lastCompletedMonth.slice(0, 4)}-01`,
+                endMonth: lastCompletedMonth,
+            },
+        ];
+    }, [
+        lastCompletedMonth,
+        tr.platform.presets.lastMonth,
+        tr.platform.presets.last3Months,
+        tr.platform.presets.last6Months,
+        tr.platform.presets.yearToDate,
+    ]);
+
+    const queryEnterpriseOptions = useMemo(() => {
+        return enterprises.map((enterprise) => (
+            <div key={enterprise.id} className="flex items-center">
+                <Checkbox
+                    id={`ent-${enterprise.id}`}
+                    checked={selectedEnterpriseIdSet.has(enterprise.id)}
+                    onCheckedChange={() => handleEnterpriseSelect(enterprise.id)}
+                />
+                <Label htmlFor={`ent-${enterprise.id}`} className="ml-2 flex-1 cursor-pointer">
+                    {enterprise.enterprise_name}
+                </Label>
+                <Badge variant={[0, 2, 3, 4, 5, 7].includes(enterprise.status) ? "default" : "destructive"}>
+                    {tr.query.enterprise.status}: {enterprise.status}
+                </Badge>
+            </div>
+        ));
+    }, [enterprises, selectedEnterpriseIdSet, handleEnterpriseSelect, tr.query.enterprise.status]);
+
+    const platformEnterpriseOptions = useMemo(() => {
+        return enterprises.map((enterprise) => (
+            <div key={enterprise.id} className="flex items-center">
+                <Checkbox
+                    id={`platform-ent-${enterprise.id}`}
+                    checked={selectedEnterpriseIdSet.has(enterprise.id)}
+                    onCheckedChange={() => handleEnterpriseSelect(enterprise.id)}
+                />
+                <Label htmlFor={`platform-ent-${enterprise.id}`} className="ml-2 flex-1 cursor-pointer">
+                    {enterprise.enterprise_name}
+                </Label>
+                <Badge variant={[0, 2, 3, 4, 5, 7].includes(enterprise.status) ? "default" : "destructive"}>
+                    {tr.query.enterprise.status}: {enterprise.status}
+                </Badge>
+            </div>
+        ));
+    }, [enterprises, selectedEnterpriseIdSet, handleEnterpriseSelect, tr.query.enterprise.status]);
+
+    const taxTableRows = useMemo(() => {
+        return currentTaxData.map((item, index) => (
+            <TableRow key={`${item.身份证号 || 'id'}-${item.enterprise_id}-${index}`}>
+                <TableCell>{(currentPage - 1) * rowsPerPage + index + 1}</TableCell>
+                <TableCell>{item['纳税人姓名']}</TableCell>
+                <TableCell>{maskId(item['身份证号'])}</TableCell>
+                <TableCell>{item.enterprise_name}</TableCell>
+                <TableCell>{item['税地名称']}</TableCell>
+                <TableCell>{formatCurrency(item['营业额_元'])}</TableCell>
+                <TableCell>{formatCurrency(item['tax_amount'])}</TableCell>
+                <TableCell>
+                    <span style={{ color: item.service_pay_status === 1 ? 'red' : 'inherit' }}>
+                        {item.service_pay_status === 0 ? tr.list.serviceFeeStatus.success : tr.list.serviceFeeStatus.failed}
+                    </span>
+                </TableCell>
+                <TableCell>
+                    {Number(item.tax_amount) > 0 ? (
+                        <span style={{ color: item.tax_pay_status === 1 ? 'red' : 'inherit' }}>
+                            {item.tax_pay_status === 0 ? tr.list.serviceFeeStatus.success : tr.list.serviceFeeStatus.failed}
+                        </span>
+                    ) : (
+                        <span style={{ color: '#999' }}>{tr.table.noTaxRequired}</span>
+                    )}
+                </TableCell>
+            </TableRow>
+        ));
+    }, [currentTaxData, currentPage, rowsPerPage, tr.list.serviceFeeStatus.success, tr.list.serviceFeeStatus.failed, tr.table.noTaxRequired]);
+
+    const platformTableRows = useMemo(() => {
+        return currentPlatformData.map((item, index) => (
+            <TableRow key={`${item.credential_num}-${index}`}>
+                <TableCell>{(platformCurrentPage - 1) * platformRowsPerPage + index + 1}</TableCell>
+                <TableCell>{item.name}</TableCell>
+                <TableCell>{maskId(item.credential_num)}</TableCell>
+                <TableCell>{item.enterprise_name}</TableCell>
+                <TableCell>{formatCurrency(item.labor_income)}</TableCell>
+                <TableCell>{formatCurrency(item.service_fee)}</TableCell>
+                <TableCell>{item.trade_count}</TableCell>
+                <TableCell>{item.miniapp_id || '-'}</TableCell>
+                <TableCell>{item.mobile || '-'}</TableCell>
+            </TableRow>
+        ));
+    }, [currentPlatformData, platformCurrentPage, platformRowsPerPage]);
+
+    const selectedEnterpriseBadges = useMemo(() => {
+        return selectedEnterpriseIds.map((entId) => {
+            const enterprise = enterpriseMap.get(entId);
+            return (
+                <Badge key={entId} variant="secondary" className="flex items-center gap-1">
+                    {enterprise?.enterprise_name || `${tr.generate.preview.id} ${entId}`}
+                    <button
+                        onClick={() => handleEnterpriseSelect(entId)}
+                        className="ml-1 rounded-full hover:bg-white hover:bg-opacity-20 p-0.5"
+                        aria-label={tr.generate.preview.remove}
+                    >
+                        ×
+                    </button>
+                </Badge>
+            );
+        });
+    }, [selectedEnterpriseIds, enterpriseMap, handleEnterpriseSelect, tr.generate.preview.id, tr.generate.preview.remove]);
 
     return (
         <div className="min-h-screen colorful-background p-6">
@@ -811,10 +1068,10 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                 </div>
 
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="mb-6 w-full max-w-lg mx-auto grid grid-cols-3">
-                        <TabsTrigger value="query" className="flex-1">{tr.tabs.query}</TabsTrigger>
-                        <TabsTrigger value="generate" className="flex-1">{tr.tabs.generate}</TabsTrigger>
-                        <TabsTrigger value="platform" className="flex-1">{tr.tabs.platform}</TabsTrigger>
+                    <TabsList className="mx-auto mb-6 grid h-auto w-full max-w-4xl grid-cols-3 gap-1 p-1">
+                        <TabsTrigger value="query" className="min-h-[48px] h-auto px-4 py-2 text-center leading-snug whitespace-normal break-words">{tr.tabs.query}</TabsTrigger>
+                        <TabsTrigger value="generate" className="min-h-[48px] h-auto px-4 py-2 text-center leading-snug whitespace-normal break-words">{tr.tabs.generate}</TabsTrigger>
+                        <TabsTrigger value="platform" className="min-h-[48px] h-auto px-4 py-2 text-center leading-snug whitespace-normal break-words">{tr.tabs.platform}</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="query" className="space-y-6">
@@ -899,23 +1156,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                         ) : enterprises.length === 0 ? (
                                             <div className="text-gray-500 text-center py-6">{tr.query.enterprise.empty}</div>
                                         ) : (
-                                            enterprises.map(enterprise => (
-                                                <div key={enterprise.id} className="flex items-center">
-                                                    <Checkbox
-                                                        id={`ent-${enterprise.id}`}
-                                                        checked={selectedEnterpriseIds.includes(enterprise.id)}
-                                                        onCheckedChange={() => handleEnterpriseSelect(enterprise.id)}
-                                                    />
-                                                    <Label htmlFor={`ent-${enterprise.id}`}
-                                                        className="ml-2 flex-1 cursor-pointer">
-                                                        {enterprise.enterprise_name}
-                                                    </Label>
-                                                    <Badge
-                                                        variant={[0, 2, 3, 4, 5, 7].includes(enterprise.status) ? "default" : "destructive"}>
-                                                        {tr.query.enterprise.status}: {enterprise.status}
-                                                    </Badge>
-                                                </div>
-                                            ))
+                                            queryEnterpriseOptions
                                         )}
                                     </div>
                                 </div>
@@ -1004,37 +1245,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                                     Array.from({ length: rowsPerPage }).map((_, i) => <SkeletonRow
                                                         key={i} />)
                                                 ) : currentTaxData.length > 0 ? (
-                                                    currentTaxData.map((item, index) => (
-                                                        <TableRow
-                                                            key={`${item.身份证号 || 'id'}-${item.enterprise_id}-${index}`}>
-                                                            <TableCell>{(currentPage - 1) * rowsPerPage + index + 1}</TableCell>
-                                                            <TableCell>{item['纳税人姓名']}</TableCell>
-                                                            <TableCell>{maskId(item['身份证号'])}</TableCell>
-                                                            <TableCell>{item.enterprise_name}</TableCell>
-                                                            <TableCell>{item['税地名称']}</TableCell>
-                                                            <TableCell>{formatCurrency(item['营业额_元'])}</TableCell>
-                                                            <TableCell>{formatCurrency(item['tax_amount'])}</TableCell>
-                                                            {/*<TableCell>{formatCurrency(item['增值税_元'])}</TableCell>*/}
-                                                            {/*<TableCell>{formatCurrency(item['应纳个人经营所得税_元'])}</TableCell>*/}
-                                                            <TableCell>
-                                                                <span
-                                                                    style={{ color: item.service_pay_status === 1 ? 'red' : 'inherit' }}>
-                                                                    {item.service_pay_status === 0 ? tr.list.serviceFeeStatus.success : tr.list.serviceFeeStatus.failed}
-                                                                </span>
-                                                            </TableCell>
-                                                            <TableCell>
-                                                                {Number(item.tax_amount) > 0 ? (
-                                                                    <span
-                                                                        style={{ color: item.tax_pay_status === 1 ? 'red' : 'inherit' }}>
-                                                                        {item.tax_pay_status === 0 ? tr.list.serviceFeeStatus.success : tr.list.serviceFeeStatus.failed}
-                                                                    </span>
-                                                                ) : (
-                                                                    <span style={{ color: '#999' }}>{tr.table.noTaxRequired}</span>
-                                                                )}
-                                                            </TableCell>
-
-                                                        </TableRow>
-                                                    ))
+                                                    taxTableRows
                                                 ) : (
                                                     <TableRow>
                                                         <TableCell colSpan={9} className="h-24 text-center">
@@ -1193,24 +1404,9 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                                 className="text-gray-500 italic">{tr.generate.preview.noSelection}</div>
                                         ) : (
                                             <div className="flex flex-wrap gap-2">
-                                                {selectedEnterpriseIds.map(entId => {
-                                                    const enterprise = enterprises.find(e => e.id === entId);
-                                                    return (
-                                                        <Badge key={entId} variant="secondary"
-                                                            className="flex items-center gap-1">
-                                                            {enterprise?.enterprise_name || `${tr.generate.preview.id} ${entId}`}
-                                                            <button
-                                                                onClick={() => handleEnterpriseSelect(entId)}
-                                                                className="ml-1 rounded-full hover:bg-white hover:bg-opacity-20 p-0.5"
-                                                                aria-label={tr.generate.preview.remove}
-                                                            >
-                                                                ×
-                                                            </button>
-                                                        </Badge>
-                                                    );
-                                                })}
+                                                {selectedEnterpriseBadges}
                                                 <Button variant="ghost" size="sm"
-                                                    onClick={() => setSelectedEnterpriseIds([])} className="mt-2">
+                                                    onClick={clearSelectedEnterprises} className="mt-2">
                                                     {tr.generate.preview.clear}
                                                 </Button>
                                             </div>
@@ -1262,6 +1458,11 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                             onEndMonthChange={setPlatformEndMonth}
                                             startLabel={tr.platform.startMonth}
                                             endLabel={tr.platform.endMonth}
+                                            placeholder={tr.platform.selectRangePlaceholder}
+                                            selectStartHint={tr.platform.selectStartHint}
+                                            selectEndHint={tr.platform.selectEndHint}
+                                            clearText={tr.platform.clearRange}
+                                            presets={platformMonthPresets}
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -1338,23 +1539,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                         ) : enterprises.length === 0 ? (
                                             <div className="text-gray-500 text-center py-6">{tr.query.enterprise.empty}</div>
                                         ) : (
-                                            enterprises.map(enterprise => (
-                                                <div key={enterprise.id} className="flex items-center">
-                                                    <Checkbox
-                                                        id={`platform-ent-${enterprise.id}`}
-                                                        checked={selectedEnterpriseIds.includes(enterprise.id)}
-                                                        onCheckedChange={() => handleEnterpriseSelect(enterprise.id)}
-                                                    />
-                                                    <Label htmlFor={`platform-ent-${enterprise.id}`}
-                                                        className="ml-2 flex-1 cursor-pointer">
-                                                        {enterprise.enterprise_name}
-                                                    </Label>
-                                                    <Badge
-                                                        variant={[0, 2, 3, 4, 5, 7].includes(enterprise.status) ? "default" : "destructive"}>
-                                                        {tr.query.enterprise.status}: {enterprise.status}
-                                                    </Badge>
-                                                </div>
-                                            ))
+                                            platformEnterpriseOptions
                                         )}
                                     </div>
                                 </div>
@@ -1407,8 +1592,19 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                             <CardTitle>{tr.platform.resultTitle}</CardTitle>
                                             <CardDescription>{platformStartMonth} ~ {platformEndMonth} {tr.platform.resultSuffix}</CardDescription>
                                         </div>
-                                        <div className="text-lg font-semibold text-primary">
-                                            {tr.platform.totalRecords}: {platformData.length}
+                                        <div className="flex flex-wrap items-center justify-end gap-3">
+                                            <div className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                                                <span>{tr.platform.totalLaborIncome}</span>
+                                                <span className="ml-2 font-semibold text-slate-900">{formatCurrency(platformStats.totalLaborIncome)}</span>
+                                            </div>
+                                            <div className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                                                <span>{tr.platform.totalServiceFee}</span>
+                                                <span className="ml-2 font-semibold text-slate-900">{formatCurrency(platformStats.totalServiceFee)}</span>
+                                            </div>
+                                            <div className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                                                <span>{tr.platform.totalRecords}</span>
+                                                <span className="ml-2 font-semibold text-slate-900">{platformData.length}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </CardHeader>
@@ -1430,21 +1626,9 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                             </TableHeader>
                                             <TableBody>
                                                 {isFetchingPlatformData ? (
-                                                    Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
-                                                ) : platformData.length > 0 ? (
-                                                    platformData.map((item, index) => (
-                                                        <TableRow key={`${item.credential_num}-${index}`}>
-                                                            <TableCell>{index + 1}</TableCell>
-                                                            <TableCell>{item.name}</TableCell>
-                                                            <TableCell>{maskId(item.credential_num)}</TableCell>
-                                                            <TableCell>{item.enterprise_name}</TableCell>
-                                                            <TableCell>{formatCurrency(item.labor_income)}</TableCell>
-                                                            <TableCell>{formatCurrency(item.service_fee)}</TableCell>
-                                                            <TableCell>{item.trade_count}</TableCell>
-                                                            <TableCell>{item.miniapp_id || '-'}</TableCell>
-                                                            <TableCell>{item.mobile || '-'}</TableCell>
-                                                        </TableRow>
-                                                    ))
+                                                    Array.from({ length: Math.min(platformRowsPerPage, 10) }).map((_, i) => <SkeletonRow key={i} />)
+                                                ) : currentPlatformData.length > 0 ? (
+                                                    platformTableRows
                                                 ) : (
                                                     <TableRow>
                                                         <TableCell colSpan={9} className="h-24 text-center">
@@ -1455,6 +1639,66 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                             </TableBody>
                                         </Table>
                                     </div>
+
+                                    {platformData.length > 0 && (
+                                        <fieldset
+                                            disabled={isFetchingPlatformData}
+                                            className="flex items-center justify-between pt-4"
+                                        >
+                                            <div className="text-sm text-muted-foreground">
+                                                {tr.platform.totalRecords}: {platformData.length}
+                                            </div>
+                                            <div className="flex items-center space-x-4">
+                                                <div className="flex items-center space-x-2">
+                                                    <p className="text-sm font-medium">{tr.list.rowsPerPage}</p>
+                                                    <Select
+                                                        value={platformRowsPerPage.toString()}
+                                                        onValueChange={handlePlatformRowsPerPageChange}
+                                                    >
+                                                        <SelectTrigger className="h-8 w-[80px]">
+                                                            <SelectValue placeholder={platformRowsPerPage} />
+                                                        </SelectTrigger>
+                                                        <SelectContent side="top">
+                                                            {[10, 20, 50, 100, 500].map((pageSize) => (
+                                                                <SelectItem key={pageSize} value={`${pageSize}`}>
+                                                                    {pageSize}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className="flex items-center space-x-2">
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={handlePlatformPrevPage}
+                                                        disabled={platformCurrentPage === 1}
+                                                    >
+                                                        {t.common.prev}
+                                                    </Button>
+                                                    <div className="flex items-center text-sm font-medium">
+                                                        {t.common.pagination.prefix}
+                                                        <Input
+                                                            type="text"
+                                                            className="h-8 w-12 mx-1 text-center"
+                                                            value={platformPageInput}
+                                                            onChange={handlePlatformPageInputChange}
+                                                            onKeyDown={handlePlatformPageInputSubmit}
+                                                        />
+                                                        {t.common.pagination.suffix} {t.common.pagination.separator} {platformTotalPages}
+                                                    </div>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={handlePlatformNextPage}
+                                                        disabled={platformCurrentPage === platformTotalPages}
+                                                    >
+                                                        {t.common.next}
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        </fieldset>
+                                    )}
                                 </CardContent>
                             </Card>
                         )}

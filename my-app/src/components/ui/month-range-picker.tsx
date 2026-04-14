@@ -11,6 +11,17 @@ interface MonthRangePickerProps {
     endMonth: string
     onStartMonthChange: (value: string) => void
     onEndMonthChange: (value: string) => void
+    startLabel?: string
+    endLabel?: string
+    placeholder?: string
+    selectStartHint?: string
+    selectEndHint?: string
+    clearText?: string
+    presets?: Array<{
+        label: string
+        startMonth: string
+        endMonth: string
+    }>
     className?: string
 }
 
@@ -24,6 +35,13 @@ export function MonthRangePicker({
     endMonth,
     onStartMonthChange,
     onEndMonthChange,
+    startLabel = "开始月份",
+    endLabel = "结束月份",
+    placeholder,
+    selectStartHint = "请选择开始月份",
+    selectEndHint = "请选择结束月份",
+    clearText = "清除",
+    presets = [],
     className,
 }: MonthRangePickerProps) {
     const [open, setOpen] = React.useState(false)
@@ -39,7 +57,14 @@ export function MonthRangePicker({
             ? `${startMonth} ~ ?`
             : endMonth
                 ? `? ~ ${endMonth}`
-                : "选择月份范围"
+                : (placeholder || `${startLabel} ~ ${endLabel}`)
+
+    const applyRange = (nextStartMonth: string, nextEndMonth: string) => {
+        onStartMonthChange(nextStartMonth)
+        onEndMonthChange(nextEndMonth)
+        setSelecting("start")
+        setOpen(false)
+    }
 
     const handleMonthClick = (monthIndex: number) => {
         const monthValue = `${viewYear}-${String(monthIndex + 1).padStart(2, "0")}`
@@ -50,8 +75,8 @@ export function MonthRangePicker({
         } else {
             // 如果选择的结束月份早于开始月份，自动调整
             if (monthValue < startMonth) {
-                onEndMonthChange(startMonth)
-                onStartMonthChange(monthValue)
+            onEndMonthChange(startMonth)
+            onStartMonthChange(monthValue)
             } else {
                 onEndMonthChange(monthValue)
             }
@@ -128,8 +153,23 @@ export function MonthRangePicker({
                             )
                         })}
                     </div>
+                    {presets.length > 0 && (
+                        <div className="flex flex-wrap gap-2 border-t pt-3">
+                            {presets.map((preset) => (
+                                <Button
+                                    key={preset.label}
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => applyRange(preset.startMonth, preset.endMonth)}
+                                >
+                                    {preset.label}
+                                </Button>
+                            ))}
+                        </div>
+                    )}
                     <div className="flex items-center justify-between border-t pt-2 text-xs text-muted-foreground">
-                        <span>{selecting === "start" ? "请选择开始月份" : "请选择结束月份"}</span>
+                        <span>{selecting === "start" ? selectStartHint : selectEndHint}</span>
                         {(startMonth || endMonth) && (
                             <Button
                                 variant="ghost"
@@ -140,7 +180,7 @@ export function MonthRangePicker({
                                     onEndMonthChange("")
                                 }}
                             >
-                                清除
+                                {clearText}
                             </Button>
                         )}
                     </div>
