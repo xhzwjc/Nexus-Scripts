@@ -1658,6 +1658,8 @@ export interface Translations {
         title: string;
         description: string;
         useMock: string;
+        mockTab: string;
+        realTab: string;
         batchNo: string;
         batchNoPlaceholder: string;
         taxId: string;

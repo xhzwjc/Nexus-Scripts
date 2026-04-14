@@ -1684,6 +1684,8 @@ export const zhCN: Translations = {
                 title: '参数配置',
                 description: '填写必填项并选择运行环境',
                 useMock: '使用模拟数据',
+                mockTab: '模拟数据',
+                realTab: '真实数据',
                 batchNo: '批次号',
                 batchNoPlaceholder: '请输入批次号（可选）',
                 taxId: '身份证号',

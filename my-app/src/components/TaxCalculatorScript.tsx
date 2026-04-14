@@ -17,6 +17,7 @@ import {
 // UI Components
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -703,112 +704,174 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 <Card>
                     <CardHeader>
                         <CardTitle>{tr.config.title}</CardTitle>
-                        <CardDescription>{tr.config.description}</CardDescription>
+                        {activeMode === 'real' && <CardDescription>{tr.config.description}</CardDescription>}
                     </CardHeader>
                     <CardContent>
+                        {/* Mode Tabs */}
+                        <Tabs
+                            value={activeMode}
+                            onValueChange={(v) => setActiveMode(v as 'mock' | 'real')}
+                            className="mb-6"
+                        >
+                            <TabsList>
+                                <TabsTrigger value="mock" disabled={isCalculating}>{tr.config.mockTab}</TabsTrigger>
+                                <TabsTrigger value="real" disabled={isCalculating}>{tr.config.realTab}</TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="real" className="mt-4">
+                                {/* First row: Income Type + Year + Environment */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                                    {/* Income Type */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="income_type">{tr.config.incomeType}</Label>
+                                        <Select
+                                            value={String(params.income_type)}
+                                            onValueChange={value => setSharedParam('income_type', Number(value))}
+                                            disabled={isCalculating}
+                                        >
+                                            <SelectTrigger id="income_type">
+                                                <SelectValue placeholder={tr.config.incomeTypePlaceholder} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="1">{tr.config.incomeTypes.labor}</SelectItem>
+                                                <SelectItem value="2">{tr.config.incomeTypes.salary}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    {/* Year */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="year">{tr.config.year}</Label>
+                                        <Input
+                                            id="year"
+                                            type="number"
+                                            value={params.year > 0 ? String(params.year) : ''}
+                                            onChange={e => {
+                                                const year = parseInt(e.target.value, 10);
+                                                setSharedParam('year', isNaN(year) ? 0 : year);
+                                            }}
+                                            onBlur={() => {
+                                                setSharedParam('year', clampYear(params.year));
+                                            }}
+                                            disabled={isCalculating}
+                                            placeholder={tr.config.yearPlaceholder}
+                                        />
+                                        <p className="text-xs text-muted-foreground">{tr.config.yearHint}</p>
+                                    </div>
+
+                                    {/* Environment */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="environment">{tr.config.env}</Label>
+                                        <Select
+                                            value={realParams.environment}
+                                            onValueChange={(value: 'test' | 'prod' | 'local') => setRealParam('environment', value)}
+                                            disabled={isCalculating}
+                                        >
+                                            <SelectTrigger id="environment">
+                                                <SelectValue placeholder={tr.config.envPlaceholder} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="test">{tr.config.envs.test}</SelectItem>
+                                                <SelectItem value="prod">{tr.config.envs.prod}</SelectItem>
+                                                <SelectItem value="local">{tr.config.envs.local}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+
+                                {/* Second row: Batch No + Credential Num + Real Name */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    {/* Batch No */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="batch_no">
+                                            {tr.config.batchNo} {requiresBatchNo ? <span className="text-red-500">*</span> : ''}
+                                        </Label>
+                                        <Input
+                                            id="batch_no"
+                                            value={realParams.batch_no || ''}
+                                            onChange={e => setRealParam('batch_no', e.target.value.trim())}
+                                            placeholder={tr.config.batchNoPlaceholder}
+                                            disabled={isCalculating}
+                                        />
+                                    </div>
+
+                                    {/* Credential Num */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="credential_num">
+                                            {tr.config.taxId} {requiresCredentialNum ? <span className="text-red-500">*</span> : ''}
+                                        </Label>
+                                        <Input
+                                            id="credential_num"
+                                            value={realParams.credential_num}
+                                            onChange={e => setRealParam('credential_num', e.target.value.trim())}
+                                            placeholder={tr.config.taxIdPlaceholder}
+                                            disabled={isCalculating}
+                                        />
+                                        {credentialFormatError ? (
+                                            <p className="text-xs text-red-500 mt-1">{credentialFormatError}</p>
+                                        ) : null}
+                                    </div>
+
+                                    {/* Real Name */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="realname">{tr.config.realName}</Label>
+                                        <Input
+                                            id="realname"
+                                            value={realParams.realname}
+                                            onChange={e => setRealParam('realname', e.target.value)}
+                                            placeholder={tr.config.realNamePlaceholder}
+                                            disabled={isCalculating}
+                                        />
+                                    </div>
+                                </div>
+                            </TabsContent>
+
+                            <TabsContent value="mock" className="mt-4">
+                                {/* First row: Income Type + Year */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {/* Income Type */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="income_type_mock">{tr.config.incomeType}</Label>
+                                        <Select
+                                            value={String(params.income_type)}
+                                            onValueChange={value => setSharedParam('income_type', Number(value))}
+                                            disabled={isCalculating}
+                                        >
+                                            <SelectTrigger id="income_type_mock">
+                                                <SelectValue placeholder={tr.config.incomeTypePlaceholder} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="1">{tr.config.incomeTypes.labor}</SelectItem>
+                                                <SelectItem value="2">{tr.config.incomeTypes.salary}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    {/* Year */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="year_mock">{tr.config.year}</Label>
+                                        <Input
+                                            id="year_mock"
+                                            type="number"
+                                            value={params.year > 0 ? String(params.year) : ''}
+                                            onChange={e => {
+                                                const year = parseInt(e.target.value, 10);
+                                                setSharedParam('year', isNaN(year) ? 0 : year);
+                                            }}
+                                            onBlur={() => {
+                                                setSharedParam('year', clampYear(params.year));
+                                            }}
+                                            disabled={isCalculating}
+                                            placeholder={tr.config.yearPlaceholder}
+                                        />
+                                        <p className="text-xs text-muted-foreground">{tr.config.yearHint}</p>
+                                    </div>
+                                </div>
+                            </TabsContent>
+                        </Tabs>
+
+                        {/* Shared Config */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Mode */}
-                            <div className="space-y-2 md:col-span-2">
-                                <div className="flex items-center space-x-2">
-                                    <Checkbox
-                                        id="use_mock"
-                                        checked={activeMode === 'mock'}
-                                        onCheckedChange={checked => handleModeChange(checked === true)}
-                                        disabled={isCalculating}
-                                    />
-                                    <Label htmlFor="use_mock">{tr.config.useMock}</Label>
-                                </div>
-                            </div>
-
-                            {activeMode === 'real' && (
-                                <div className="space-y-2">
-                                    <Label htmlFor="batch_no">
-                                        {tr.config.batchNo} {requiresBatchNo ? <span className="text-red-500">*</span> : ''}
-                                    </Label>
-                                    <Input
-                                        id="batch_no"
-                                        value={realParams.batch_no || ''}
-                                        onChange={e => setRealParam('batch_no', e.target.value.trim())}
-                                        placeholder={tr.config.batchNoPlaceholder}
-                                        disabled={isCalculating}
-                                    />
-                                </div>
-                            )}
-
-                            {/* Credential Num */}
-                            {activeMode === 'real' && (
-                                <div className="space-y-2">
-                                    <Label htmlFor="credential_num">
-                                        {tr.config.taxId} {requiresCredentialNum ? <span className="text-red-500">*</span> : ''}
-                                    </Label>
-                                    <Input
-                                        id="credential_num"
-                                        value={realParams.credential_num}
-                                        onChange={e => setRealParam('credential_num', e.target.value.trim())}
-                                        placeholder={tr.config.taxIdPlaceholder}
-                                        disabled={isCalculating}
-                                    />
-                                    {credentialFormatError ? (
-                                        <p className="text-xs text-red-500 mt-1">{credentialFormatError}</p>
-                                    ) : null}
-                                </div>
-                            )}
-
-                            {/* Real Name */}
-                            {activeMode === 'real' && (
-                                <div className="space-y-2">
-                                    <Label htmlFor="realname">{tr.config.realName}</Label>
-                                    <Input
-                                        id="realname"
-                                        value={realParams.realname}
-                                        onChange={e => setRealParam('realname', e.target.value)}
-                                        placeholder={tr.config.realNamePlaceholder}
-                                        disabled={isCalculating}
-                                    />
-                                </div>
-                            )}
-
-                            {/* Income Type */}
-                            <div className="space-y-2">
-                                <Label htmlFor="income_type">{tr.config.incomeType}</Label>
-                                <Select
-                                    value={String(params.income_type)}
-                                    onValueChange={value => setSharedParam('income_type', Number(value))}
-                                    disabled={isCalculating}
-                                >
-                                    <SelectTrigger id="income_type">
-                                        <SelectValue placeholder={tr.config.incomeTypePlaceholder} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="1">{tr.config.incomeTypes.labor}</SelectItem>
-                                        <SelectItem value="2">{tr.config.incomeTypes.salary}</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            {/* Year */}
-                            <div className="space-y-2">
-                                <Label htmlFor="year">{tr.config.year}</Label>
-                                <Input
-                                    id="year"
-                                    type="number"
-                                    // Display an empty string if the year is 0 to allow the field to be cleared
-                                    value={params.year > 0 ? String(params.year) : ''}
-                                    onChange={e => {
-                                        // Parse the input, defaulting to 0 if empty or invalid
-                                        const year = parseInt(e.target.value, 10);
-                                        setSharedParam('year', isNaN(year) ? 0 : year);
-                                    }}
-                                    onBlur={() => {
-                                        // On losing focus, clamp the value to the valid range [2000, 2100]
-                                        setSharedParam('year', clampYear(params.year));
-                                    }}
-                                    disabled={isCalculating}
-                                    placeholder={tr.config.yearPlaceholder}
-                                />
-                                <p className="text-xs text-muted-foreground">{tr.config.yearHint}</p>
-                            </div>
-
                             {/* Special deduction */}
                             <div className="space-y-2">
                                 <Label htmlFor="accumulated_special_deduction">{tr.config.deduction}</Label>
@@ -829,91 +892,62 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                 />
                             </div>
 
-                            {showVatConfig ? (
-                                <>
-                                    {/* City Tax Rate */}
-                                    <div className="space-y-2">
-                                        <Label htmlFor="city_tax_rate">{tr.config.cityTaxRate}</Label>
-                                        <Input
-                                            id="city_tax_rate"
-                                            type="number"
-                                            step="0.01"
-                                            value={String(params.city_tax_rate)}
-                                            onChange={e =>
-                                                setSharedParam(
-                                                    'city_tax_rate',
-                                                    Math.max(0, Number(e.target.value) || 0)
-                                                )
-                                            }
-                                            disabled={isCalculating}
-                                            inputMode="decimal"
-                                        />
-                                    </div>
+                            {/* City Tax Rate */}
+                            <div className={`space-y-2 ${showVatConfig ? '' : 'invisible h-0 pointer-events-none'}`}>
+                                <Label htmlFor="city_tax_rate">{tr.config.cityTaxRate}</Label>
+                                <Input
+                                    id="city_tax_rate"
+                                    type="number"
+                                    step="0.01"
+                                    value={String(params.city_tax_rate)}
+                                    onChange={e =>
+                                        setSharedParam(
+                                            'city_tax_rate',
+                                            Math.max(0, Number(e.target.value) || 0)
+                                        )
+                                    }
+                                    disabled={isCalculating}
+                                    inputMode="decimal"
+                                />
+                            </div>
 
-                                    {/* Edu Surcharge Rate */}
-                                    <div className="space-y-2">
-                                        <Label htmlFor="education_surcharge_rate">{tr.config.eduSurchargeRate}</Label>
-                                        <Input
-                                            id="education_surcharge_rate"
-                                            type="number"
-                                            step="0.01"
-                                            value={String(params.education_surcharge_rate)}
-                                            onChange={e =>
-                                                setSharedParam(
-                                                    'education_surcharge_rate',
-                                                    Math.max(0, Number(e.target.value) || 0)
-                                                )
-                                            }
-                                            disabled={isCalculating}
-                                            inputMode="decimal"
-                                        />
-                                    </div>
+                            {/* Edu Surcharge Rate */}
+                            <div className={`space-y-2 ${showVatConfig ? '' : 'invisible h-0 pointer-events-none'}`}>
+                                <Label htmlFor="education_surcharge_rate">{tr.config.eduSurchargeRate}</Label>
+                                <Input
+                                    id="education_surcharge_rate"
+                                    type="number"
+                                    step="0.01"
+                                    value={String(params.education_surcharge_rate)}
+                                    onChange={e =>
+                                        setSharedParam(
+                                            'education_surcharge_rate',
+                                            Math.max(0, Number(e.target.value) || 0)
+                                        )
+                                    }
+                                    disabled={isCalculating}
+                                    inputMode="decimal"
+                                />
+                            </div>
 
-                                    {/* Local Edu Surcharge Rate */}
-                                    <div className="space-y-2">
-                                        <Label htmlFor="local_education_surcharge_rate">{tr.config.localEduSurchargeRate}</Label>
-                                        <Input
-                                            id="local_education_surcharge_rate"
-                                            type="number"
-                                            step="0.01"
-                                            value={String(params.local_education_surcharge_rate)}
-                                            onChange={e =>
-                                                setSharedParam(
-                                                    'local_education_surcharge_rate',
-                                                    Math.max(0, Number(e.target.value) || 0)
-                                                )
-                                            }
-                                            disabled={isCalculating}
-                                            inputMode="decimal"
-                                        />
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="md:col-span-2 lg:col-span-4 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-                                    {tr.config.salaryVatHint}
-                                </div>
-                            )}
-
-                            {/* Environment */}
-                            {activeMode === 'real' && (
-                                <div className="space-y-2">
-                                    <Label htmlFor="environment">{tr.config.env}</Label>
-                                    <Select
-                                        value={realParams.environment}
-                                        onValueChange={(value: 'test' | 'prod' | 'local') => setRealParam('environment', value)}
-                                        disabled={isCalculating}
-                                    >
-                                        <SelectTrigger id="environment">
-                                            <SelectValue placeholder={tr.config.envPlaceholder} />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="test">{tr.config.envs.test}</SelectItem>
-                                            <SelectItem value="prod">{tr.config.envs.prod}</SelectItem>
-                                            <SelectItem value="local">{tr.config.envs.local}</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            )}
+                            {/* Local Edu Surcharge Rate */}
+                            <div className={`space-y-2 ${showVatConfig ? '' : 'invisible h-0 pointer-events-none'}`}>
+                                <Label htmlFor="local_education_surcharge_rate">{tr.config.localEduSurchargeRate}</Label>
+                                <Input
+                                    id="local_education_surcharge_rate"
+                                    type="number"
+                                    step="0.01"
+                                    value={String(params.local_education_surcharge_rate)}
+                                    onChange={e =>
+                                        setSharedParam(
+                                            'local_education_surcharge_rate',
+                                            Math.max(0, Number(e.target.value) || 0)
+                                        )
+                                    }
+                                    disabled={isCalculating}
+                                    inputMode="decimal"
+                                />
+                            </div>
                         </div>
 
                         {/* Mock Records */}

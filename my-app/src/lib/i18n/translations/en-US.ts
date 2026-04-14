@@ -1685,6 +1685,8 @@ export const enUS: Translations = {
                 title: 'Configuration',
                 description: 'Fill in required fields and select environment',
                 useMock: 'Use Mock Data',
+                mockTab: 'Mock Data',
+                realTab: 'Real Data',
                 batchNo: 'Batch No.',
                 batchNoPlaceholder: 'Enter Batch No. (Optional)',
                 taxId: 'ID Number',
