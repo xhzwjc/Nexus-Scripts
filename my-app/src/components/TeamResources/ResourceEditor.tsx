@@ -8,7 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Plus, Save, Trash2, ArrowLeft, Building2, Database, Globe, Key, Upload, X, GripVertical, Download } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
 import { authenticatedFetch } from '@/lib/auth';
 import {

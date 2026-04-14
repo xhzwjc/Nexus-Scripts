@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { ArrowLeft, Play, FileText, Folder, Loader2, Download, AlertTriangle } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { getApiBaseUrl } from '../lib/api';
 import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '@/lib/i18n';

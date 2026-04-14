@@ -1,4 +1,4 @@
-import {toast} from 'sonner';
+import {toast} from '@/lib/toast';
 
 let cachedBaseUrl: string | null = null;
 let missingEnvWarned = false;

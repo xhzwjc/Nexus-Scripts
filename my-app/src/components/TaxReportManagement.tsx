@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import JSZip from 'jszip';
 import {
     Search,
@@ -186,12 +186,14 @@ const getFilenameFromDisposition = (cd?: string, fallback = 'report.xlsx') => {
 
 const TAX_QUERY_TOAST_ID = 'tax-report-query';
 const TAX_GENERATE_TOAST_ID = 'tax-report-generate';
+const ENTERPRISE_QUERY_TOAST_ID = 'tax-report-enterprises';
 const PLATFORM_QUERY_TOAST_ID = 'platform-report-query';
 const PLATFORM_GENERATE_TOAST_ID = 'platform-report-generate';
 const PLATFORM_COMBINED_TOAST_ID = 'platform-report-combined';
 const TAX_REPORT_TOAST_IDS = [
     TAX_QUERY_TOAST_ID,
     TAX_GENERATE_TOAST_ID,
+    ENTERPRISE_QUERY_TOAST_ID,
     PLATFORM_QUERY_TOAST_ID,
     PLATFORM_GENERATE_TOAST_ID,
     PLATFORM_COMBINED_TOAST_ID,
@@ -233,6 +235,22 @@ const dismissTaxReportToasts = (exceptToastId?: string) => {
 export default function TaxReportManagement({ onBack }: TaxReportManagementProps) {
     const { t } = useI18n();
     const tr = t.scripts.taxReport;
+
+    const resetToastFlow = useCallback((loadingToastId: (typeof TAX_REPORT_TOAST_IDS)[number]) => {
+        dismissTaxReportToasts(loadingToastId);
+    }, []);
+
+    const publishToastFlowResult = useCallback((
+        loadingToastId: (typeof TAX_REPORT_TOAST_IDS)[number],
+        type: 'success' | 'error',
+        message: string,
+    ) => {
+        if (type === 'success') {
+            toast.success(message, { id: loadingToastId });
+            return;
+        }
+        toast.error(message, { id: loadingToastId });
+    }, []);
 
     // 环境和基础状态
     const [environment, setEnvironment] = useState('prod');
@@ -285,11 +303,20 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
     const [platformPageInput, setPlatformPageInput] = useState('1');
 
     // 获取企业列表
-    const fetchEnterprises = useCallback(async (signal?: AbortSignal) => {
+    const fetchEnterprises = useCallback(async (
+        signal?: AbortSignal,
+        options?: { showLoadingToast?: boolean; showSuccessToast?: boolean },
+    ) => {
         const base = getApiBaseUrl();
         if (!base) return;
 
+        const showLoadingToast = options?.showLoadingToast === true;
+        const showSuccessToast = options?.showSuccessToast === true;
         setIsFetchingEnterprises(true);
+        if (showLoadingToast) {
+            resetToastFlow(ENTERPRISE_QUERY_TOAST_ID);
+            toast.loading(tr.query.enterprise.loading, { id: ENTERPRISE_QUERY_TOAST_ID });
+        }
         try {
             const response = await axios.get<ApiResponse<Enterprise[]>>(
                 `${base}/enterprises/list`,
@@ -297,18 +324,31 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             );
             if (response.data.success) {
                 setEnterprises(response.data.data || []);
-                toast.success(tr.messages.enterpriseUpdateSuccess);
+                if (showSuccessToast) {
+                    publishToastFlowResult(ENTERPRISE_QUERY_TOAST_ID, 'success', tr.messages.enterpriseUpdateSuccess);
+                } else if (showLoadingToast) {
+                    toast.dismiss(ENTERPRISE_QUERY_TOAST_ID);
+                }
             } else {
-                toast.error(response.data.message || tr.messages.enterpriseUpdateFail);
+                publishToastFlowResult(ENTERPRISE_QUERY_TOAST_ID, 'error', response.data.message || tr.messages.enterpriseUpdateFail);
             }
         } catch (err) {
             if (axios.isCancel(err)) return;
             console.error(tr.messages.enterpriseErrorLog, err);
-            toast.error(err instanceof Error ? err.message : tr.messages.enterpriseError);
+            publishToastFlowResult(ENTERPRISE_QUERY_TOAST_ID, 'error', err instanceof Error ? err.message : tr.messages.enterpriseError);
         } finally {
             setIsFetchingEnterprises(false);
         }
-    }, [environment, tr.messages.enterpriseUpdateSuccess, tr.messages.enterpriseUpdateFail, tr.messages.enterpriseErrorLog, tr.messages.enterpriseError]);
+    }, [
+        environment,
+        tr.query.enterprise.loading,
+        tr.messages.enterpriseUpdateSuccess,
+        tr.messages.enterpriseUpdateFail,
+        tr.messages.enterpriseErrorLog,
+        tr.messages.enterpriseError,
+        publishToastFlowResult,
+        resetToastFlow,
+    ]);
 
     // 获取税务数据
     const fetchTaxData = useCallback(async () => {
@@ -322,7 +362,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
 
         setIsFetchingTaxData(true);
         setSearchAttempted(true);
-        dismissTaxReportToasts(TAX_QUERY_TOAST_ID);
+        resetToastFlow(TAX_QUERY_TOAST_ID);
         toast.loading(tr.query.fetching, { id: TAX_QUERY_TOAST_ID });
         try {
             const response = await axios.post<ApiResponse<TaxData[]>>(
@@ -342,19 +382,19 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                 setCurrentPage(1);
                 setPageInput('1');
                 setServicePayStatusFilter(null);
-                toast.success(tr.messages.fetchSuccess, { id: TAX_QUERY_TOAST_ID });
+                publishToastFlowResult(TAX_QUERY_TOAST_ID, 'success', tr.messages.fetchSuccess);
             } else {
-                toast.error(response.data.message || tr.messages.fetchFail, { id: TAX_QUERY_TOAST_ID });
+                publishToastFlowResult(TAX_QUERY_TOAST_ID, 'error', response.data.message || tr.messages.fetchFail);
                 setTaxData([]);
             }
         } catch (err) {
             console.error(tr.messages.fetchErrorLog, err);
-            toast.error(err instanceof Error ? err.message : tr.messages.fetchError, { id: TAX_QUERY_TOAST_ID });
+            publishToastFlowResult(TAX_QUERY_TOAST_ID, 'error', err instanceof Error ? err.message : tr.messages.fetchError);
             setTaxData([]);
         } finally {
             setIsFetchingTaxData(false);
         }
-    }, [amountType, environment, selectedEnterpriseIds, yearMonth, tr.query.fetching, tr.messages.yearMonthRequired, tr.messages.fetchSuccess, tr.messages.fetchFail, tr.messages.fetchErrorLog, tr.messages.fetchError]);
+    }, [amountType, environment, selectedEnterpriseIds, yearMonth, tr.query.fetching, tr.messages.yearMonthRequired, tr.messages.fetchSuccess, tr.messages.fetchFail, tr.messages.fetchErrorLog, tr.messages.fetchError, publishToastFlowResult, resetToastFlow]);
 
     // 点击“下载税务报表”前的校验
     const handleGenerateReportClick = () => {
@@ -375,7 +415,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
         if (!base) return;
 
         setShowDownloadConfirmDialog(false);
-        dismissTaxReportToasts(TAX_GENERATE_TOAST_ID);
+        resetToastFlow(TAX_GENERATE_TOAST_ID);
         toast.loading(tr.messages.generating, { id: TAX_GENERATE_TOAST_ID });
         setIsGenerating(true);
         try {
@@ -412,7 +452,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
 
-            toast.success(tr.messages.generateSuccess.replace('{fileName}', fileName), { id: TAX_GENERATE_TOAST_ID });
+            publishToastFlowResult(TAX_GENERATE_TOAST_ID, 'success', tr.messages.generateSuccess.replace('{fileName}', fileName));
         } catch (err) {
             console.error(tr.messages.generateErrorLog, err);
             let errorMsg = tr.messages.generateError;
@@ -433,11 +473,11 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             } else if (err instanceof Error) {
                 errorMsg = err.message;
             }
-            toast.error(errorMsg, { id: TAX_GENERATE_TOAST_ID });
+            publishToastFlowResult(TAX_GENERATE_TOAST_ID, 'error', errorMsg);
         } finally {
             setIsGenerating(false);
         }
-    }, [amountType, environment, selectedEnterpriseIds, yearMonth, platformCompany, creditCode, tr.messages.generating, tr.messages.generateSuccess, tr.messages.generateErrorLog, tr.messages.generateError, tr.messages.requestError]);
+    }, [amountType, environment, selectedEnterpriseIds, yearMonth, platformCompany, creditCode, tr.messages.generating, tr.messages.generateSuccess, tr.messages.generateErrorLog, tr.messages.generateError, tr.messages.requestError, publishToastFlowResult, resetToastFlow]);
 
     // 处理企业选择
     const handleEnterpriseSelect = useCallback((enterpriseId: number) => {
@@ -475,7 +515,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
 
         setIsFetchingPlatformData(true);
         setPlatformSearchAttempted(true);
-        dismissTaxReportToasts(PLATFORM_QUERY_TOAST_ID);
+        resetToastFlow(PLATFORM_QUERY_TOAST_ID);
         toast.loading(tr.platform.fetching, { id: PLATFORM_QUERY_TOAST_ID });
         try {
             const { startDate, endDate } = getMonthRangeDates(platformStartMonth, platformEndMonth);
@@ -499,19 +539,19 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                 setPlatformData(Array.isArray(data) ? data : []);
                 setPlatformCurrentPage(1);
                 setPlatformPageInput('1');
-                toast.success(tr.messages.platformFetchSuccess, { id: PLATFORM_QUERY_TOAST_ID });
+                publishToastFlowResult(PLATFORM_QUERY_TOAST_ID, 'success', tr.messages.platformFetchSuccess);
             } else {
-                toast.error(response.data.message || tr.messages.platformFetchFail, { id: PLATFORM_QUERY_TOAST_ID });
+                publishToastFlowResult(PLATFORM_QUERY_TOAST_ID, 'error', response.data.message || tr.messages.platformFetchFail);
                 setPlatformData([]);
             }
         } catch (err) {
             console.error(tr.messages.platformFetchErrorLog, err);
-            toast.error(err instanceof Error ? err.message : tr.messages.platformFetchError, { id: PLATFORM_QUERY_TOAST_ID });
+            publishToastFlowResult(PLATFORM_QUERY_TOAST_ID, 'error', err instanceof Error ? err.message : tr.messages.platformFetchError);
             setPlatformData([]);
         } finally {
             setIsFetchingPlatformData(false);
         }
-    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, tr.platform.fetching, tr.messages.platformStartEndMonthRequired, tr.messages.platformFetchSuccess, tr.messages.platformFetchFail, tr.messages.platformFetchErrorLog, tr.messages.platformFetchError]);
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, tr.platform.fetching, tr.messages.platformStartEndMonthRequired, tr.messages.platformFetchSuccess, tr.messages.platformFetchFail, tr.messages.platformFetchErrorLog, tr.messages.platformFetchError, publishToastFlowResult, resetToastFlow]);
 
     // 生成平台报送报表
     const handleGeneratePlatformReport = useCallback(async () => {
@@ -528,7 +568,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             return;
         }
 
-        dismissTaxReportToasts(PLATFORM_GENERATE_TOAST_ID);
+        resetToastFlow(PLATFORM_GENERATE_TOAST_ID);
         toast.loading(tr.messages.platformGenerating, { id: PLATFORM_GENERATE_TOAST_ID });
         setIsGeneratingPlatform(true);
         try {
@@ -574,7 +614,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                 }
             }
 
-            toast.success(`报表已生成并下载（${rangeKey}）`, { id: PLATFORM_GENERATE_TOAST_ID });
+            publishToastFlowResult(PLATFORM_GENERATE_TOAST_ID, 'success', `报表已生成并下载（${rangeKey}）`);
         } catch (err) {
             console.error(tr.messages.platformGenerateErrorLog, err);
             let errorMsg = tr.messages.platformGenerateError;
@@ -595,11 +635,11 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             } else if (err instanceof Error) {
                 errorMsg = err.message;
             }
-            toast.error(errorMsg, { id: PLATFORM_GENERATE_TOAST_ID });
+            publishToastFlowResult(PLATFORM_GENERATE_TOAST_ID, 'error', errorMsg);
         } finally {
             setIsGeneratingPlatform(false);
         }
-    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError]);
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError, publishToastFlowResult, resetToastFlow]);
 
     // 下载组合报表（用于手动复制到模板）
     const handleDownloadCombinedReport = useCallback(async () => {
@@ -616,7 +656,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             return;
         }
 
-        dismissTaxReportToasts(PLATFORM_COMBINED_TOAST_ID);
+        resetToastFlow(PLATFORM_COMBINED_TOAST_ID);
         toast.loading(tr.messages.platformGenerating, { id: PLATFORM_COMBINED_TOAST_ID });
         setIsGeneratingCombined(true);
         try {
@@ -656,7 +696,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
 
-            toast.success(`报表已下载: ${fileName}`, { id: PLATFORM_COMBINED_TOAST_ID });
+            publishToastFlowResult(PLATFORM_COMBINED_TOAST_ID, 'success', `报表已下载: ${fileName}`);
         } catch (err) {
             console.error(tr.messages.platformGenerateErrorLog, err);
             let errorMsg = tr.messages.platformGenerateError;
@@ -677,17 +717,17 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
             } else if (err instanceof Error) {
                 errorMsg = err.message;
             }
-            toast.error(errorMsg, { id: PLATFORM_COMBINED_TOAST_ID });
+            publishToastFlowResult(PLATFORM_COMBINED_TOAST_ID, 'error', errorMsg);
         } finally {
             setIsGeneratingCombined(false);
         }
-    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError]);
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError, publishToastFlowResult, resetToastFlow]);
 
     // 初始化 + 环境变化时
     useEffect(() => {
         const controller = new AbortController();
 
-        fetchEnterprises(controller.signal);
+        fetchEnterprises(controller.signal, { showLoadingToast: false, showSuccessToast: false });
 
         const now = new Date();
         now.setMonth(now.getMonth() - 1);
@@ -1058,7 +1098,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                         <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => fetchEnterprises(new AbortController().signal)}
+                            onClick={() => fetchEnterprises(new AbortController().signal, { showLoadingToast: true, showSuccessToast: true })}
                             disabled={isFetchingEnterprises}
                             aria-label={tr.query.enterprise.loading}
                         >

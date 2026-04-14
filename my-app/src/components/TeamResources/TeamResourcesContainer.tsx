@@ -5,7 +5,7 @@ import { ResourceEditor } from './ResourceEditor';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ResourceGroup, INITIAL_RESOURCE_DATA } from '@/lib/team-resources-data';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
 import { TeamResourceSkeleton } from './TeamResourceSkeleton';
 import { authenticatedFetch, getStoredScriptHubSession } from '@/lib/auth';
