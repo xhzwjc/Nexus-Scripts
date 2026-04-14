@@ -1457,6 +1457,7 @@ export interface Translations {
       tabs: {
         query: string;
         generate: string;
+        platform: string;
       };
       query: {
         title: string;
@@ -1534,6 +1535,16 @@ export interface Translations {
         enterpriseErrorLog: string;
         fetchErrorLog: string;
         generateErrorLog: string;
+        platformStartEndMonthRequired: string;
+        platformFetchSuccess: string;
+        platformFetchFail: string;
+        platformFetchError: string;
+        platformFetchErrorLog: string;
+        platformNoDataForReport: string;
+        platformGenerating: string;
+        platformGenerateSuccess: string;
+        platformGenerateError: string;
+        platformGenerateErrorLog: string;
       };
       generate: {
         title: string;
@@ -1572,6 +1583,55 @@ export interface Translations {
             history: string;
             sheets: string;
           };
+        };
+      };
+      platform: {
+        title: string;
+        description: string;
+        startMonth: string;
+        endMonth: string;
+        platformCompany: string;
+        platformCompanyPlaceholder: string;
+        platformName: string;
+        platformNamePlaceholder: string;
+        creditCode: string;
+        creditCodePlaceholder: string;
+        enterpriseSelect: string;
+        fetch: string;
+        fetching: string;
+        download: string;
+        generating: string;
+        resultTitle: string;
+        resultSuffix: string;
+        totalRecords: string;
+        table: {
+          index: string;
+          name: string;
+          idCard: string;
+          enterprise: string;
+          taxLand: string;
+          turnover: string;
+          tax: string;
+          serviceFeeStatus: string;
+          taxStatus: string;
+          noTaxRequired: string;
+          noData: string;
+          laborIncome: string;
+          serviceFee: string;
+          tradeCount: string;
+          miniAppId: string;
+          mobile: string;
+        };
+        messages: {
+          startEndMonthRequired: string;
+          fetchSuccess: string;
+          fetchFail: string;
+          fetchError: string;
+          noDataForReport: string;
+          generating: string;
+          generateSuccess: string;
+          generateError: string;
+          generateErrorLog: string;
         };
       };
     };

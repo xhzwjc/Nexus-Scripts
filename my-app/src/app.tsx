@@ -405,7 +405,7 @@ function AppContent() {
     return (
         <div className="colorful-background flex h-screen overflow-hidden text-slate-600 font-sans relative">
             {/* <ClothBackground /> */}
-            <Toaster richColors position="top-right" />
+            <Toaster richColors position="top-right" newestOnTop={true} />
 
             {/* 锁屏遮罩 */}
             {isLocked && (
