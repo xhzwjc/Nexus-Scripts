@@ -1685,6 +1685,7 @@ export interface Translations {
         cityTaxRate: string;
         eduSurchargeRate: string;
         localEduSurchargeRate: string;
+        salaryVatHint: string;
       };
       mock: {
         title: string;

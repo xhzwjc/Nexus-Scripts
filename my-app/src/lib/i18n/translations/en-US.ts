@@ -1712,6 +1712,7 @@ export const enUS: Translations = {
                 cityTaxRate: 'City Tax Rate (%)',
                 eduSurchargeRate: 'Edu Surcharge Rate (%)',
                 localEduSurchargeRate: 'Local Edu Surcharge Rate (%)',
+                salaryVatHint: 'Wages and salaries are not subject to VAT, so VAT and surcharges are not calculated here.',
             },
             mock: {
                 title: 'Mock Income Records',
@@ -1735,7 +1736,7 @@ export const enUS: Translations = {
                 title: 'Tax Calculation Results',
                 export: 'Export CSV',
                 total: 'Total Tax',
-                headerTotal: 'Total (incl. VAT and Surcharges)',
+                headerTotal: 'Total Taxes and Fees',
                 footer: {
                     taxOnlyTotal: 'Total Tax (excl. VAT/Sur)',
                     vatTotal: 'Total VAT',

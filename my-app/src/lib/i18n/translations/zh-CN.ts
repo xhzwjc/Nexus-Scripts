@@ -1711,6 +1711,7 @@ export const zhCN: Translations = {
                 cityTaxRate: '城建税税率 (%)',
                 eduSurchargeRate: '教育费附加税率 (%)',
                 localEduSurchargeRate: '地方教育附加税率 (%)',
+                salaryVatHint: '工资薪金不属于增值税应税收入，这里不计算增值税和附加税。',
             },
             mock: {
                 title: '模拟收入记录',
@@ -1734,7 +1735,7 @@ export const zhCN: Translations = {
                 title: '税额计算结果',
                 export: '导出 CSV',
                 total: '总税额',
-                headerTotal: '这里显示总额（含附加和增值）',
+                headerTotal: '这里显示税费总额',
                 footer: {
                     taxOnlyTotal: '不含增值和附加的税额总计',
                     vatTotal: '增值总计',

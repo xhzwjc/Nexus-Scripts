@@ -36,8 +36,8 @@ CALC_TRANSLATIONS: Dict[str, Dict[str, str]] = {
         'current_tax': '本次应缴税额',
         'monthly_paid_total': '当月已缴税额（含本次）',
         'effective_rate': '实际税负',
-        'vat_trigger': '单月金额超过10万，计算增值税',
-        'surcharge_label': '及附加税',
+        'vat_trigger': '劳务报酬当月累计金额超过10万，本次增值税',
+        'surcharge_label': '，本次附加税费',
         'warning_450': '结算金额达450万，已触发预警',
         'warning_500': '结算金额达500万，超出预警限额',
         'income_labor': '劳务报酬',
@@ -64,8 +64,8 @@ CALC_TRANSLATIONS: Dict[str, Dict[str, str]] = {
         'current_tax': 'Current Tax Payable',
         'monthly_paid_total': 'Monthly Tax Paid (Incl. This)',
         'effective_rate': 'Effective Tax Rate',
-        'vat_trigger': 'Monthly amount >100k, VAT calculated',
-        'surcharge_label': ' and surcharges',
+        'vat_trigger': 'Labor monthly cumulative amount >100k, current VAT',
+        'surcharge_label': ', current surcharges',
         'warning_450': 'Settlement reached CNY 4.5M, warning triggered',
         'warning_500': 'Settlement reached CNY 5M, exceeded warning limit',
         'income_labor': 'Labor Remuneration',
@@ -408,6 +408,7 @@ class TaxCalculator:
                 if month_key not in monthly_accumulators:
                     monthly_accumulators[month_key] = {
                         'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
+                        'paid_vat': Decimal('0.00'), 'paid_surcharges': Decimal('0.00'),
                         'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': ""
                     }
 
@@ -430,6 +431,7 @@ class TaxCalculator:
                     precise_tax_at_month_end=Decimal('0.00')
                     monthly_accumulators[month_key] = {
                         'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
+                        'paid_vat': Decimal('0.00'), 'paid_surcharges': Decimal('0.00'),
                         'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason
                     }
 
@@ -481,11 +483,6 @@ class TaxCalculator:
                 accum['paid_tax'] += current_tax
                 accumulated_tax = (accumulated_tax - paid_tax_this_month_previously) + accum['paid_tax']
 
-                if record['bill_amount'] == 0:
-                    effective_tax_rate = Decimal('0.00')
-                else:
-                    effective_tax_rate = (current_tax / record['bill_amount'] * Decimal('100')).quantize(Decimal('0.01'))
-
                 calculation_steps = []
                 if accum['reset_reason']:
                     calculation_steps.append(f"{_t['reset_reason']}: {accum['reset_reason']}")
@@ -518,19 +515,32 @@ class TaxCalculator:
                     f"{_t['prev_paid']}: {paid_tax_this_month_previously:.2f}",
                     f"{_t['current_tax']}: {accumulated_total_tax_unrounded:.4f} - {prev_total_paid_tax:.4f} \u2248 {current_tax:.2f}",
                     f"{_t['monthly_paid_total']}: {accum['paid_tax']:.2f}",
-                    f"{_t['effective_rate']}: {effective_tax_rate}%"
                 ])
 
                 vat_tax = Decimal('0.00')
                 surcharges = Decimal('0.00')
                 total_tax_and_fees = current_tax
 
-                if record['bill_amount'] > Decimal('100000'):
-                    not_included_tax_sales = record['bill_amount'] / Decimal('1.01')
-                    vat_tax = (not_included_tax_sales * Decimal('0.01')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-                    surcharges = (vat_tax * (city_tax_rate + education_surcharge_rate + local_education_surcharge_rate) / Decimal('100') * Decimal('0.5')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                if income_type == 1 and accum['total_amount'] > Decimal('100000'):
+                    prev_paid_vat = accum['paid_vat']
+                    prev_paid_surcharges = accum['paid_surcharges']
+                    not_included_tax_sales = accum['total_amount'] / Decimal('1.01')
+                    monthly_vat_total = (not_included_tax_sales * Decimal('0.01')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    monthly_surcharge_total = (monthly_vat_total * (city_tax_rate + education_surcharge_rate + local_education_surcharge_rate) / Decimal('100') * Decimal('0.5')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    vat_tax = max(Decimal('0.00'), monthly_vat_total - prev_paid_vat)
+                    surcharges = max(Decimal('0.00'), monthly_surcharge_total - prev_paid_surcharges)
+                    accum['paid_vat'] += vat_tax
+                    accum['paid_surcharges'] += surcharges
                     total_tax_and_fees = current_tax + vat_tax + surcharges
-                    calculation_steps.append(f"{_t['vat_trigger']}: {vat_tax:.2f}{_t['surcharge_label']}: {surcharges:.2f}")
+                    calculation_steps.append(
+                        f"{_t['vat_trigger']}: {accum['total_amount']:.2f} -> {vat_tax:.2f}{_t['surcharge_label']}: {surcharges:.2f}"
+                    )
+
+                if record['bill_amount'] == 0:
+                    effective_tax_rate = Decimal('0.00')
+                else:
+                    effective_tax_rate = (total_tax_and_fees / record['bill_amount'] * Decimal('100')).quantize(Decimal('0.01'))
+                calculation_steps.append(f"{_t['effective_rate']}: {effective_tax_rate}%")
 
                 warning_msg = None
                 warning_level = None
