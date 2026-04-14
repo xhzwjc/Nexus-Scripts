@@ -7,6 +7,7 @@ import { enUS } from './translations/en-US';
 
 const LANGUAGE_STORAGE_KEY = 'i18n_language';
 const DEFAULT_LANGUAGE: Language = 'zh-CN';
+let currentLanguageRef: Language = DEFAULT_LANGUAGE;
 
 // Translation map
 const translations: Record<Language, Translations> = {
@@ -39,15 +40,23 @@ export function I18nProvider({ children, defaultLanguage }: I18nProviderProps) {
         const savedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY) as Language | null;
         if (savedLanguage && (savedLanguage === 'zh-CN' || savedLanguage === 'en-US')) {
             setLanguageState(savedLanguage);
+            currentLanguageRef = savedLanguage;
+        } else {
+            currentLanguageRef = defaultLanguage || DEFAULT_LANGUAGE;
         }
         setIsInitialized(true);
-    }, []);
+    }, [defaultLanguage]);
 
     // Set language and persist to localStorage
     const setLanguage = useCallback((lang: Language) => {
         setLanguageState(lang);
+        currentLanguageRef = lang;
         localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
     }, []);
+
+    useEffect(() => {
+        currentLanguageRef = language;
+    }, [language]);
 
     // Get current translations
     const t = useMemo(() => translations[language], [language]);
@@ -77,6 +86,10 @@ export function useI18n(): I18nContextType {
         throw new Error('useI18n must be used within an I18nProvider');
     }
     return context;
+}
+
+export function getCurrentLanguage(): Language {
+    return currentLanguageRef;
 }
 
 // Export types

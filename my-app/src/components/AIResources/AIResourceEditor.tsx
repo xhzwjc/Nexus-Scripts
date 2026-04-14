@@ -7,7 +7,7 @@ import * as LucideIcons from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AIResource, AICategory, AIResourcesData } from '@/lib/ai-resources-data';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
 import { authenticatedFetch } from '@/lib/auth';
 

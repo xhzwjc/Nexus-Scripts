@@ -4,6 +4,7 @@ import type {
     PositionSummary,
     RecruitmentSkill,
 } from "@/lib/recruitment-api";
+import {getCurrentLanguage} from "@/lib/i18n";
 
 import {
     aiTaskLabels,
@@ -23,6 +24,201 @@ import {
     type ResumeMailFormState,
     type SkillFormState,
 } from "./types";
+
+type RecruitmentUiLocale = {
+    dateLocale: string;
+    unknownError: string;
+    unknownStatus: string;
+    genericLabels: {
+        pending: string;
+        running: string;
+        completed: string;
+        failed: string;
+        stopped: string;
+        fallbackCompleted: string;
+        queueing: string;
+        stopping: string;
+    };
+    jdGenerationStatusLabels: Record<string, string>;
+    taskExecutionStatusLabels: Record<string, string>;
+    screeningTaskStageLabels: Record<string, string>;
+    skillResolutionSourceLabels: Record<string, string>;
+    resumeMailDispatchStatusLabels: Record<string, string>;
+    objectLabels: {
+        candidate: string;
+        position: string;
+        skill: string;
+        systemTask: string;
+    };
+};
+
+const zhRecruitmentUiLocale: RecruitmentUiLocale = {
+    dateLocale: "zh-CN",
+    unknownError: "未知错误",
+    unknownStatus: "未知状态",
+    genericLabels: {
+        pending: "待执行",
+        running: "执行中",
+        completed: "已完成",
+        failed: "失败",
+        stopped: "已停止",
+        fallbackCompleted: "兜底完成",
+        queueing: "排队中",
+        stopping: "停止中",
+    },
+    jdGenerationStatusLabels: {
+        pending: "排队中",
+        running: "生成中",
+        generating: "生成中",
+        cancelling: "停止中",
+        cancelled: "已停止",
+        syncing: "同步中",
+        success: "已完成",
+        fallback: "已完成",
+        failed: "失败",
+        queued: "排队中",
+        default: "待生成",
+    },
+    taskExecutionStatusLabels: {
+        success: "已完成",
+        fallback: "兜底完成",
+        running: "执行中",
+        cancelling: "停止中",
+        cancelled: "已停止",
+        queued: "排队中",
+        pending: "待执行",
+        invalid_result: "结果无效",
+        json_parse_failed: "JSON 失败",
+        rate_limited: "接口限流",
+        upstream_timeout: "接口超时",
+        request_failed: "请求失败",
+        timeout: "超时",
+        retry_exhausted: "重试耗尽",
+        failed: "失败",
+    },
+    screeningTaskStageLabels: {
+        queued: "已入队",
+        parsing: "解析中",
+        parsed: "解析完成",
+        scoring: "评分中",
+        validating: "校验中",
+        saving: "保存中",
+        completed: "已完成",
+        failed: "失败",
+        cancelled: "已停止",
+    },
+    skillResolutionSourceLabels: {
+        position_binding: "岗位绑定",
+        candidate_memory: "候选人工作记忆",
+        explicit_request: "显式指定",
+        task_snapshot: "任务快照",
+        none: "未命中",
+        default: "未记录",
+    },
+    resumeMailDispatchStatusLabels: {
+        sent: "已发送",
+        failed: "发送失败",
+        pending: "发送中",
+        skipped_no_recipient_source: "跳过：未配置任何收件人来源",
+        skipped_global_disabled: "跳过：使用全局收件人但全局能力未开启",
+        skipped_status_not_allowed: "跳过：状态未命中允许列表",
+        skipped_duplicate_blocked: "跳过：重复发送已拦截",
+        skipped_no_recipients: "跳过：无有效收件人",
+        skipped_no_sender: "跳过：无可用发件箱",
+    },
+    objectLabels: {
+        candidate: "候选人",
+        position: "岗位",
+        skill: "Skill",
+        systemTask: "系统任务",
+    },
+};
+
+const enRecruitmentUiLocale: RecruitmentUiLocale = {
+    dateLocale: "en-US",
+    unknownError: "Unknown error",
+    unknownStatus: "Unknown status",
+    genericLabels: {
+        pending: "Pending",
+        running: "Running",
+        completed: "Completed",
+        failed: "Failed",
+        stopped: "Stopped",
+        fallbackCompleted: "Fallback Completed",
+        queueing: "Queued",
+        stopping: "Stopping",
+    },
+    jdGenerationStatusLabels: {
+        pending: "Queued",
+        running: "Generating",
+        generating: "Generating",
+        cancelling: "Stopping",
+        cancelled: "Stopped",
+        syncing: "Syncing",
+        success: "Completed",
+        fallback: "Completed",
+        failed: "Failed",
+        queued: "Queued",
+        default: "Pending",
+    },
+    taskExecutionStatusLabels: {
+        success: "Completed",
+        fallback: "Fallback Completed",
+        running: "Running",
+        cancelling: "Stopping",
+        cancelled: "Stopped",
+        queued: "Queued",
+        pending: "Pending",
+        invalid_result: "Invalid Result",
+        json_parse_failed: "JSON Failed",
+        rate_limited: "Rate Limited",
+        upstream_timeout: "Upstream Timeout",
+        request_failed: "Request Failed",
+        timeout: "Timed Out",
+        retry_exhausted: "Retries Exhausted",
+        failed: "Failed",
+    },
+    screeningTaskStageLabels: {
+        queued: "Queued",
+        parsing: "Parsing",
+        parsed: "Parsed",
+        scoring: "Scoring",
+        validating: "Validating",
+        saving: "Saving",
+        completed: "Completed",
+        failed: "Failed",
+        cancelled: "Stopped",
+    },
+    skillResolutionSourceLabels: {
+        position_binding: "Position Binding",
+        candidate_memory: "Candidate Memory",
+        explicit_request: "Explicit Request",
+        task_snapshot: "Task Snapshot",
+        none: "No Match",
+        default: "Unrecorded",
+    },
+    resumeMailDispatchStatusLabels: {
+        sent: "Sent",
+        failed: "Send Failed",
+        pending: "Sending",
+        skipped_no_recipient_source: "Skipped: no recipient source configured",
+        skipped_global_disabled: "Skipped: global recipient mode is disabled",
+        skipped_status_not_allowed: "Skipped: status not allowed",
+        skipped_duplicate_blocked: "Skipped: duplicate delivery blocked",
+        skipped_no_recipients: "Skipped: no valid recipients",
+        skipped_no_sender: "Skipped: no sender available",
+    },
+    objectLabels: {
+        candidate: "Candidate",
+        position: "Position",
+        skill: "Skill",
+        systemTask: "System Task",
+    },
+};
+
+function getRecruitmentUiLocale(): RecruitmentUiLocale {
+    return getCurrentLanguage() === "en-US" ? enRecruitmentUiLocale : zhRecruitmentUiLocale;
+}
 
 export function formatNavBadgeCount(count?: number): string | null {
     if (typeof count !== "number" || !Number.isFinite(count)) {
@@ -213,7 +409,7 @@ export function formatDateTime(value?: string | null) {
     if (Number.isNaN(date.getTime())) {
         return value;
     }
-    return new Intl.DateTimeFormat("zh-CN", {
+    return new Intl.DateTimeFormat(getRecruitmentUiLocale().dateLocale, {
         month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
@@ -229,7 +425,7 @@ export function formatLongDateTime(value?: string | null) {
     if (Number.isNaN(date.getTime())) {
         return value;
     }
-    return new Intl.DateTimeFormat("zh-CN", {
+    return new Intl.DateTimeFormat(getRecruitmentUiLocale().dateLocale, {
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -567,7 +763,7 @@ export function formatActionError(error: unknown) {
             return String(error);
         }
     }
-    return "未知错误";
+    return getRecruitmentUiLocale().unknownError;
 }
 
 export function toggleIdInList(current: number[], targetId: number, nextChecked?: boolean) {
@@ -620,108 +816,23 @@ export function extractPublishText(markdown?: string | null, publishText?: strin
 }
 
 export function labelForJDGenerationStatus(status?: string | null) {
-    switch (status) {
-        case "pending":
-            return "排队中";
-        case "running":
-        case "generating":
-            return "生成中";
-        case "cancelling":
-            return "停止中";
-        case "cancelled":
-            return "已停止";
-        case "syncing":
-            return "同步中";
-        case "success":
-            return "已完成";
-        case "fallback":
-            return "已完成";
-        case "failed":
-            return "失败";
-        case "queued":
-            return "排队中";
-        default:
-            return "待生成";
-    }
+    const locale = getRecruitmentUiLocale();
+    return locale.jdGenerationStatusLabels[status || ""] || locale.jdGenerationStatusLabels.default;
 }
 
 export function labelForTaskExecutionStatus(status?: string | null) {
-    switch (status) {
-        case "success":
-            return "已完成";
-        case "fallback":
-            return "兜底完成";
-        case "running":
-            return "执行中";
-        case "cancelling":
-            return "停止中";
-        case "cancelled":
-            return "已停止";
-        case "queued":
-            return "排队中";
-        case "pending":
-            return "待执行";
-        case "invalid_result":
-            return "结果无效";
-        case "json_parse_failed":
-            return "JSON 失败";
-        case "rate_limited":
-            return "接口限流";
-        case "upstream_timeout":
-            return "接口超时";
-        case "request_failed":
-            return "请求失败";
-        case "timeout":
-            return "超时";
-        case "retry_exhausted":
-            return "重试耗尽";
-        case "failed":
-            return "失败";
-        default:
-            return status || "-";
-    }
+    const locale = getRecruitmentUiLocale();
+    return locale.taskExecutionStatusLabels[status || ""] || status || "-";
 }
 
 export function labelForScreeningTaskStage(stage?: string | null) {
-    switch (stage) {
-        case "queued":
-            return "已入队";
-        case "parsing":
-            return "解析中";
-        case "parsed":
-            return "解析完成";
-        case "scoring":
-            return "评分中";
-        case "validating":
-            return "校验中";
-        case "saving":
-            return "保存中";
-        case "completed":
-            return "已完成";
-        case "failed":
-            return "失败";
-        case "cancelled":
-            return "已停止";
-        default:
-            return stage || "-";
-    }
+    const locale = getRecruitmentUiLocale();
+    return locale.screeningTaskStageLabels[stage || ""] || stage || "-";
 }
 
 export function labelForSkillResolutionSource(source?: string | null) {
-    switch (source) {
-        case "position_binding":
-            return "岗位绑定";
-        case "candidate_memory":
-            return "候选人工作记忆";
-        case "explicit_request":
-            return "显式指定";
-        case "task_snapshot":
-            return "任务快照";
-        case "none":
-            return "未命中";
-        default:
-            return source || "未记录";
-    }
+    const locale = getRecruitmentUiLocale();
+    return locale.skillResolutionSourceLabels[source || ""] || source || locale.skillResolutionSourceLabels.default;
 }
 
 export function isToday(value?: string | null) {
@@ -786,11 +897,11 @@ export function statusBadgeClass(kind: "position" | "candidate" | "task", value?
 }
 
 export function labelForPositionStatus(status?: string | null) {
-    return positionStatusLabels[status || ""] || status || "未知状态";
+    return positionStatusLabels[status || ""] || status || getRecruitmentUiLocale().unknownStatus;
 }
 
 export function labelForCandidateStatus(status?: string | null) {
-    return candidateStatusLabels[status || ""] || status || "未知状态";
+    return candidateStatusLabels[status || ""] || status || getRecruitmentUiLocale().unknownStatus;
 }
 
 function resolveCandidateMatchPercentForDisplay(candidate?: CandidateSummary | null) {
@@ -833,16 +944,8 @@ export function labelForProvider(provider?: string | null) {
 }
 
 export function labelForResumeMailDispatchStatus(status?: string | null) {
-    if (status === "sent") return "已发送";
-    if (status === "failed") return "发送失败";
-    if (status === "pending") return "发送中";
-    if (status === "skipped_no_recipient_source") return "跳过：未配置任何收件人来源";
-    if (status === "skipped_global_disabled") return "跳过：使用全局收件人但全局能力未开启";
-    if (status === "skipped_status_not_allowed") return "跳过：状态未命中允许列表";
-    if (status === "skipped_duplicate_blocked") return "跳过：重复发送已拦截";
-    if (status === "skipped_no_recipients") return "跳过：无有效收件人";
-    if (status === "skipped_no_sender") return "跳过：无可用发件箱";
-    return status || "未知状态";
+    const locale = getRecruitmentUiLocale();
+    return locale.resumeMailDispatchStatusLabels[status || ""] || status || locale.unknownStatus;
 }
 
 export function buildLogObjectLabel(
@@ -851,14 +954,15 @@ export function buildLogObjectLabel(
     candidateMap: Map<number, CandidateSummary>,
     skillMap: Map<number, RecruitmentSkill>,
 ) {
+    const locale = getRecruitmentUiLocale();
     if (log.related_candidate_id) {
-        return candidateMap.get(log.related_candidate_id)?.name || `候选人 #${log.related_candidate_id}`;
+        return candidateMap.get(log.related_candidate_id)?.name || `${locale.objectLabels.candidate} #${log.related_candidate_id}`;
     }
     if (log.related_position_id) {
-        return positionMap.get(log.related_position_id)?.title || `岗位 #${log.related_position_id}`;
+        return positionMap.get(log.related_position_id)?.title || `${locale.objectLabels.position} #${log.related_position_id}`;
     }
     if (log.related_skill_id) {
-        return skillMap.get(log.related_skill_id)?.name || `Skill #${log.related_skill_id}`;
+        return skillMap.get(log.related_skill_id)?.name || `${locale.objectLabels.skill} #${log.related_skill_id}`;
     }
-    return "系统任务";
+    return locale.objectLabels.systemTask;
 }

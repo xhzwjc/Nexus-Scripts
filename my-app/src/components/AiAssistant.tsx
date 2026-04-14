@@ -8,7 +8,7 @@ import { domToPng } from 'modern-screenshot';
 import { allScripts } from '@/lib/config';
 import { getScriptHubAuthHeaderRecord } from '@/lib/auth';
 import { getApiBaseUrl } from '@/lib/api';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 interface Message {
     id: string;

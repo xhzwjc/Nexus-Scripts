@@ -4,7 +4,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import httpx
 from sqlalchemy.orm import Session
@@ -22,6 +22,25 @@ SCREENING_TOTAL_TIMEOUT_SECONDS = 300
 SCREENING_STAGE_MIN_TIMEOUT_SECONDS = 20
 REQUEST_HEADER_SNAPSHOT_LIMIT = 20
 OPENAI_STREAM_JSON_TASK_WHITELIST: frozenset[str] = frozenset()
+STRICT_JSON_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass"})
+STRICT_JSON_RECOVERY_RETRY_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass"})
+STRICT_SCORE_REQUIRED_FIELDS: tuple[str, ...] = (
+    "total_score",
+    "match_percent",
+    "advantages",
+    "concerns",
+    "recommendation",
+    "suggested_status",
+    "dimensions",
+)
+STRICT_PARSE_PRIMARY_FIELDS: tuple[str, ...] = (
+    "basic_info",
+    "work_experiences",
+    "education_experiences",
+    "skills",
+    "projects",
+    "summary",
+)
 
 
 class RecruitmentAIJSONParseError(RuntimeError):
@@ -305,6 +324,383 @@ def _parse_llm_json_response(raw_text: str) -> Dict[str, Any]:
         ) from exc
 
 
+def _strip_reasoning_blocks(value: Any) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    text = re.sub(r"<think\b[^>]*>.*?</think>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    return text
+
+
+def _extract_balanced_json_candidate_from_index(value: str, start: int) -> Optional[str]:
+    if start < 0 or start >= len(value):
+        return None
+    opener = value[start]
+    if opener not in "{[":
+        return None
+    stack: list[str] = ["}" if opener == "{" else "]"]
+    in_string = False
+    escape = False
+    for index in range(start + 1, len(value)):
+        char = value[index]
+        if escape:
+            escape = False
+            continue
+        if char == "\\":
+            escape = True
+            continue
+        if char == "\"":
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char == "{":
+            stack.append("}")
+        elif char == "[":
+            stack.append("]")
+        elif char in "}]" and stack and char == stack[-1]:
+            stack.pop()
+            if not stack:
+                candidate = value[start:index + 1].strip()
+                return candidate or None
+    return None
+
+
+def _extract_top_level_json_candidates(raw_text: Any, *, limit: int = 6) -> List[str]:
+    text = _normalize_json_candidate_text(_strip_reasoning_blocks(raw_text))
+    if not text:
+        return []
+    candidate_ranges: List[tuple[int, int, str]] = []
+    for index, char in enumerate(text):
+        if char not in "{[":
+            continue
+        candidate = _extract_balanced_json_candidate_from_index(text, index)
+        if not candidate:
+            continue
+        end = index + len(candidate)
+        candidate_ranges.append((index, end, candidate.strip()))
+    candidate_ranges.sort(key=lambda item: (item[0], -(item[1] - item[0])))
+    top_level_ranges: List[tuple[int, int, str]] = []
+    seen: set[str] = set()
+    for start, end, candidate in candidate_ranges:
+        if not candidate or candidate in seen:
+            continue
+        if any(start >= kept_start and end <= kept_end for kept_start, kept_end, _kept in top_level_ranges):
+            continue
+        seen.add(candidate)
+        top_level_ranges.append((start, end, candidate))
+        if len(top_level_ranges) >= limit:
+            break
+    candidates = [candidate for _start, _end, candidate in sorted(top_level_ranges, key=lambda item: item[0])]
+    fallback_candidate = _extract_json_candidate(text).strip()
+    if fallback_candidate and fallback_candidate not in seen:
+        candidates.append(fallback_candidate)
+    return candidates[:limit]
+
+
+def _parse_numeric_score(value: Any) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_status_token(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _normalize_dimension_label_set(dimensions: Any) -> tuple[str, ...]:
+    labels: List[str] = []
+    for item in dimensions if isinstance(dimensions, list) else []:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        labels.append(label)
+    return tuple(sorted(dict.fromkeys(labels)))
+
+
+def _has_meaningful_field(payload: Dict[str, Any], field: str) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    value = payload.get(field)
+    if isinstance(value, list):
+        return len(value) > 0
+    if isinstance(value, dict):
+        return len(value) > 0
+    return bool(str(value or "").strip()) if value is not None else False
+
+
+def _build_resume_score_candidate_record(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    payload = record.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    has_top_level_score_fields = any(field in payload for field in STRICT_SCORE_REQUIRED_FIELDS)
+    has_parsed_resume = isinstance(payload.get("parsed_resume"), dict)
+    nested_score = payload.get("score") if isinstance(payload.get("score"), dict) else None
+    source = "score_only"
+    score_payload = payload
+    source_priority = 3
+    if has_parsed_resume and nested_score:
+        source = "nested_score"
+        score_payload = nested_score or {}
+        source_priority = 1
+    elif has_parsed_resume and has_top_level_score_fields:
+        source = "embedded_top_level_score"
+        source_priority = 2
+    completeness = sum(1 for field in STRICT_SCORE_REQUIRED_FIELDS if _has_meaningful_field(score_payload, field))
+    if completeness <= 0:
+        return None
+    return {
+        **record,
+        "score_payload": score_payload if isinstance(score_payload, dict) else {},
+        "source": source,
+        "source_priority": source_priority,
+        "completeness": completeness,
+        "dimension_labels": _normalize_dimension_label_set((score_payload or {}).get("dimensions")),
+        "normalized_status": _normalize_status_token((score_payload or {}).get("suggested_status")),
+        "normalized_total_score": (
+            round(_parse_numeric_score((score_payload or {}).get("total_score")) + 1e-9, 1)
+            if _parse_numeric_score((score_payload or {}).get("total_score")) is not None
+            else None
+        ),
+    }
+
+
+def _select_resume_score_candidate(records: Sequence[Dict[str, Any]], *, raw_text: str) -> Dict[str, Any]:
+    score_records = [item for item in (_build_resume_score_candidate_record(record) for record in records) if item]
+    if not score_records:
+        raise RecruitmentAIJSONParseError(
+            "AI screening JSON 解析失败: 未找到合法的 score-only JSON 候选",
+            raw_response_text=raw_text,
+            error_code="json_parse_failed",
+            debug_meta={
+                "candidate_count": len(records),
+                "parsed_candidate_count": len(records),
+                "task_type": "resume_score",
+            },
+        )
+    best_priority = max(item.get("source_priority") or 0 for item in score_records)
+    preferred_records = [item for item in score_records if (item.get("source_priority") or 0) == best_priority]
+    status_set = {item.get("normalized_status") for item in preferred_records if item.get("normalized_status")}
+    total_score_set = {item.get("normalized_total_score") for item in preferred_records if item.get("normalized_total_score") is not None}
+    dimension_label_sets = {item.get("dimension_labels") for item in preferred_records if item.get("dimension_labels")}
+    reasons: List[str] = []
+    if len(status_set) > 1:
+        reasons.append("suggested_status 在同次模型返回中发生漂移")
+    if len(total_score_set) > 1:
+        reasons.append("total_score 在同次模型返回中发生漂移")
+    if len(dimension_label_sets) > 1:
+        reasons.append("dimensions label 集在同次模型返回中发生漂移")
+    if reasons:
+        raise RecruitmentAIJSONParseError(
+            f"AI screening JSON 存在冲突版本：{'；'.join(reasons)}",
+            raw_response_text=raw_text,
+            error_code="invalid_json_variant_conflict",
+            debug_meta={
+                "task_type": "resume_score",
+                "candidate_count": len(records),
+                "parsed_candidate_count": len(score_records),
+                "preferred_candidate_count": len(preferred_records),
+                "preferred_sources": [item.get("source") for item in preferred_records],
+                "variant_statuses": sorted(status_set),
+                "variant_total_scores": sorted(total_score_set),
+                "variant_dimension_labels": [list(item) for item in sorted(dimension_label_sets)],
+                "reasons": reasons,
+            },
+        )
+    selected = max(
+        preferred_records,
+        key=lambda item: ((item.get("completeness") or 0), len(str(item.get("candidate_text") or ""))),
+    )
+    warnings: List[str] = []
+    if len(records) > 1:
+        warnings.append(f"resume_score 检测到 {len(records)} 个顶层 JSON 候选，已选用最完整的 score-only 对象")
+    if selected.get("source") != "score_only":
+        warnings.append("resume_score 未直接返回 score-only JSON，已安全提取 score 字段继续处理")
+    return {
+        "content": dict(selected.get("score_payload") or {}),
+        "warnings": warnings,
+        "debug_meta": {
+            "candidate_count": len(records),
+            "parsed_candidate_count": len(score_records),
+            "selected_candidate_index": selected.get("index"),
+            "selected_candidate_source": selected.get("source"),
+            "selected_candidate_completeness": selected.get("completeness"),
+        },
+    }
+
+
+def _select_resume_parse_candidate(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    def completeness(payload: Dict[str, Any]) -> int:
+        score = 0
+        for field in STRICT_PARSE_PRIMARY_FIELDS:
+            if _has_meaningful_field(payload, field):
+                score += 1
+        if isinstance(payload.get("basic_info"), dict):
+            score += sum(1 for item in payload.get("basic_info", {}).values() if str(item or "").strip())
+        return score
+
+    selected = max(
+        records,
+        key=lambda item: (completeness(item.get("payload") or {}), len(str(item.get("candidate_text") or ""))),
+    )
+    warnings = []
+    if len(records) > 1:
+        warnings.append(f"resume_parse 检测到 {len(records)} 个顶层 JSON 候选，已跳过异常片段并选用最完整对象")
+    return {
+        "content": dict(selected.get("payload") or {}),
+        "warnings": warnings,
+        "debug_meta": {
+            "candidate_count": len(records),
+            "parsed_candidate_count": len(records),
+            "selected_candidate_index": selected.get("index"),
+            "selected_candidate_source": "top_level_object",
+        },
+    }
+
+
+def _select_one_pass_candidate(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    def completeness(payload: Dict[str, Any]) -> tuple[int, int, int]:
+        parsed_resume = payload.get("parsed_resume") if isinstance(payload.get("parsed_resume"), dict) else {}
+        nested_score = payload.get("score") if isinstance(payload.get("score"), dict) else {}
+        top_level_score_fields = sum(1 for field in STRICT_SCORE_REQUIRED_FIELDS if _has_meaningful_field(payload, field))
+        nested_score_fields = sum(1 for field in STRICT_SCORE_REQUIRED_FIELDS if _has_meaningful_field(nested_score, field))
+        parsed_resume_fields = sum(1 for field in STRICT_PARSE_PRIMARY_FIELDS if _has_meaningful_field(parsed_resume, field))
+        return (
+            1 if isinstance(payload.get("parsed_resume"), dict) else 0,
+            nested_score_fields or top_level_score_fields,
+            parsed_resume_fields,
+        )
+
+    eligible = []
+    for record in records:
+        payload = record.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if not isinstance(payload.get("parsed_resume"), dict):
+            continue
+        if not isinstance(payload.get("score"), dict) and not any(field in payload for field in STRICT_SCORE_REQUIRED_FIELDS):
+            continue
+        eligible.append(record)
+    selected_pool = eligible or list(records)
+    selected = max(
+        selected_pool,
+        key=lambda item: (*completeness(item.get("payload") or {}), len(str(item.get("candidate_text") or ""))),
+    )
+    warnings: List[str] = []
+    if len(records) > 1:
+        warnings.append(f"one-pass 检测到 {len(records)} 个顶层 JSON 候选，已选用 parsed_resume + score 最完整的对象")
+    return {
+        "content": dict(selected.get("payload") or {}),
+        "warnings": warnings,
+        "debug_meta": {
+            "candidate_count": len(records),
+            "parsed_candidate_count": len(records),
+            "selected_candidate_index": selected.get("index"),
+            "selected_candidate_source": "top_level_object",
+        },
+    }
+
+
+def _parse_strict_json_response(
+    raw_text: str,
+    *,
+    task_type: str,
+    provider_payload: Any = None,
+    response_debug: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    candidate_texts = _extract_top_level_json_candidates(raw_text, limit=6)
+    stripped_raw_text = str(raw_text or "").strip()
+    if not candidate_texts and stripped_raw_text:
+        candidate_texts = [stripped_raw_text]
+    parsed_records: List[Dict[str, Any]] = []
+    parse_errors: List[Dict[str, Any]] = []
+    for index, candidate_text in enumerate(candidate_texts):
+        try:
+            parsed_payload = _parse_llm_json_response(candidate_text)
+        except RecruitmentAIJSONParseError as exc:
+            parse_errors.append(
+                {
+                    "candidate_index": index,
+                    "error_code": getattr(exc, "error_code", "json_parse_failed"),
+                    "error_message": str(exc),
+                    "repaired_candidate": dict(getattr(exc, "provider_payload", {}) or {}).get("repaired_candidate"),
+                }
+            )
+            continue
+        if not isinstance(parsed_payload, dict):
+            parse_errors.append(
+                {
+                    "candidate_index": index,
+                    "error_code": "invalid_json_root_type",
+                    "error_message": "解析后的 JSON 根节点不是对象",
+                }
+            )
+            continue
+        parsed_records.append(
+            {
+                "index": index,
+                "candidate_text": candidate_text,
+                "payload": parsed_payload,
+            }
+        )
+    if not parsed_records:
+        debug_meta = {
+            **dict(response_debug or {}),
+            "task_type": task_type,
+            "candidate_count": len(candidate_texts),
+            "parsed_candidate_count": 0,
+            "candidate_parse_errors": parse_errors,
+        }
+        provider_payload_snapshot = (
+            {
+                "provider_payload": provider_payload,
+                "candidate_parse_errors": parse_errors,
+                "candidate_texts": candidate_texts,
+            }
+            if provider_payload is not None
+            else {"candidate_parse_errors": parse_errors, "candidate_texts": candidate_texts}
+        )
+        raise RecruitmentAIJSONParseError(
+            "AI screening JSON 解析失败: 未找到可解析的 JSON 对象",
+            raw_response_text=raw_text,
+            error_code="json_parse_failed",
+            debug_meta=debug_meta,
+            provider_payload=provider_payload_snapshot,
+        )
+    if task_type == "resume_score":
+        selected = _select_resume_score_candidate(parsed_records, raw_text=raw_text)
+    elif task_type == "resume_parse":
+        selected = _select_resume_parse_candidate(parsed_records)
+    else:
+        selected = _select_one_pass_candidate(parsed_records)
+    return {
+        "content": selected.get("content") or {},
+        "warnings": list(selected.get("warnings") or []),
+        "debug_meta": {
+            **dict(response_debug or {}),
+            **dict(selected.get("debug_meta") or {}),
+            "task_type": task_type,
+            "candidate_count": len(candidate_texts),
+            "parsed_candidate_count": len(parsed_records),
+            "candidate_parse_errors": parse_errors,
+        },
+    }
+
+
+def _should_retry_strict_json_recovery(task_type: str, exc: Exception) -> bool:
+    if task_type not in STRICT_JSON_RECOVERY_RETRY_TASK_TYPES:
+        return False
+    if not isinstance(exc, RecruitmentAIJSONParseError):
+        return False
+    error_code = str(getattr(exc, "error_code", "") or "json_parse_failed").strip() or "json_parse_failed"
+    return error_code in {"json_parse_failed", "invalid_provider_payload", "empty_response", "invalid_json_variant_conflict"}
+
+
 def _dump_request_snapshot(value: Dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
 
@@ -361,7 +757,9 @@ def _resolve_openai_json_response_format(config: "RecruitmentLLMRuntimeConfig", 
         return None
     provider = (config.provider or "").strip().lower()
     model_name = (config.model_name or "").strip().lower()
-    openai_model_prefixes = ("gpt-", "o1", "o3", "o4", "gpt-4.1", "gpt-5")
+    if bool((config.extra_config or {}).get("force_json_object_response")) and config.runtime_provider == "openai-compatible":
+        return {"type": "json_object"}
+    openai_model_prefixes = ("gpt-", "o1", "o3", "o4", "gpt-4.1", "gpt-5", "minimax-", "abab")
     glm_model_prefixes = ("glm-",)
     if provider == "openai" and model_name.startswith(openai_model_prefixes):
         return {"type": "json_object"}
@@ -469,7 +867,7 @@ def _clone_runtime_config_with_task_overrides(
     response_mode: str,
 ) -> "RecruitmentLLMRuntimeConfig":
     extra_config = dict(config.extra_config or {})
-    if task_type in {"resume_parse", "resume_score"} and response_mode == "json":
+    if task_type in STRICT_JSON_TASK_TYPES and response_mode == "json":
         try:
             existing_timeout = float(extra_config.get("read_timeout_seconds"))
         except (TypeError, ValueError):
@@ -477,6 +875,7 @@ def _clone_runtime_config_with_task_overrides(
         extra_config["read_timeout_seconds"] = max(1.0, existing_timeout)
         extra_config["max_retries"] = 0
         extra_config["use_stream_json"] = False
+        extra_config["force_json_object_response"] = True
     return RecruitmentLLMRuntimeConfig(
         provider=config.provider,
         runtime_provider=config.runtime_provider,
@@ -722,7 +1121,7 @@ class RecruitmentAIGateway:
             endpoint = f"{(config.base_url or 'https://api.anthropic.com').rstrip('/')}/v1/messages"
         max_retries = max(
             0,
-            int(config.extra_config.get("max_retries") if "max_retries" in config.extra_config else (0 if task_type in {"resume_score", "resume_parse"} else 2)),
+            int(config.extra_config.get("max_retries") if "max_retries" in config.extra_config else (0 if task_type in STRICT_JSON_TASK_TYPES else 2)),
         )
         return {
             "runtime_config": config,
@@ -868,6 +1267,7 @@ class RecruitmentAIGateway:
         system_prompt: str,
         user_prompt: str,
         response_mode: str,
+        task_type: str = "",
         on_delta: Optional[Callable[[str], None]] = None,
         cancel_control: Optional[RecruitmentTaskControl] = None,
         read_timeout_override: Optional[float] = None,
@@ -993,12 +1393,31 @@ class RecruitmentAIGateway:
                         "recovered_from_non_sse_body": recovered_from_non_sse_body,
                     },
                 )
-            content = _parse_llm_json_response(raw_text or "{}")
+            if task_type in STRICT_JSON_TASK_TYPES:
+                strict_json_result = _parse_strict_json_response(
+                    raw_text,
+                    task_type=task_type or "",
+                    response_debug=response_debug,
+                    provider_payload={
+                        "response_status_code": response_status_code,
+                        "response_headers": response_headers,
+                        "raw_lines_seen_count": len(raw_lines_seen),
+                        "recovered_from_non_sse_body": recovered_from_non_sse_body,
+                    },
+                )
+                content = strict_json_result.get("content") or {}
+                debug_meta = dict(strict_json_result.get("debug_meta") or response_debug)
+                warnings = list(strict_json_result.get("warnings") or [])
+            else:
+                content = _parse_llm_json_response(raw_text or "{}")
+                debug_meta = response_debug
+                warnings = []
             return {
                 "content": content,
                 "token_usage": token_usage,
                 "raw_response_text": raw_text,
-                "response_debug": response_debug,
+                "response_debug": debug_meta,
+                "warnings": warnings,
             }
         return {
             "content": {"markdown": raw_text, "html": raw_text.replace("\n", "<br />")},
@@ -1013,6 +1432,7 @@ class RecruitmentAIGateway:
         user_prompt: str,
         cancel_control: Optional[RecruitmentTaskControl] = None,
         *,
+        task_type: str = "",
         read_timeout_override: Optional[float] = None,
         screening_total_timeout_seconds: Optional[float] = None,
         remaining_budget_seconds: Optional[float] = None,
@@ -1105,21 +1525,26 @@ class RecruitmentAIGateway:
                 debug_meta=response_debug,
                 provider_payload=payload,
             )
-        try:
-            content = _parse_llm_json_response(raw_text)
-        except RecruitmentAIJSONParseError as exc:
-            raise RecruitmentAIJSONParseError(
-                str(exc),
-                raw_response_text=raw_text,
+        if task_type in STRICT_JSON_TASK_TYPES:
+            strict_json_result = _parse_strict_json_response(
+                raw_text,
+                task_type=task_type or "",
                 provider_payload=payload,
-                error_code=getattr(exc, "error_code", "json_parse_failed"),
-                debug_meta=response_debug,
-            ) from exc
+                response_debug=response_debug,
+            )
+            content = strict_json_result.get("content") or {}
+            debug_meta = dict(strict_json_result.get("debug_meta") or response_debug)
+            warnings = list(strict_json_result.get("warnings") or [])
+        else:
+            content = _parse_llm_json_response(raw_text)
+            debug_meta = response_debug
+            warnings = []
         return {
             "content": content,
             "token_usage": self._extract_usage_from_openai_response_payload(payload),
             "raw_response_text": raw_text,
-            "response_debug": response_debug,
+            "response_debug": debug_meta,
+            "warnings": warnings,
         }
 
     def _call_openai_compatible_json(
@@ -1140,6 +1565,7 @@ class RecruitmentAIGateway:
                 system_prompt,
                 user_prompt,
                 cancel_control=cancel_control,
+                task_type=task_type,
                 read_timeout_override=read_timeout_override,
                 screening_total_timeout_seconds=screening_total_timeout_seconds,
                 remaining_budget_seconds=remaining_budget_seconds,
@@ -1150,6 +1576,7 @@ class RecruitmentAIGateway:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 response_mode="json",
+                task_type=task_type,
                 cancel_control=cancel_control,
                 read_timeout_override=read_timeout_override,
                 screening_total_timeout_seconds=screening_total_timeout_seconds,
@@ -1168,6 +1595,7 @@ class RecruitmentAIGateway:
                 system_prompt,
                 user_prompt,
                 cancel_control=cancel_control,
+                task_type=task_type,
                 read_timeout_override=read_timeout_override,
                 screening_total_timeout_seconds=screening_total_timeout_seconds,
                 remaining_budget_seconds=remaining_budget_seconds,
@@ -1266,6 +1694,7 @@ class RecruitmentAIGateway:
         user_prompt: str,
         cancel_control: Optional[RecruitmentTaskControl] = None,
         *,
+        task_type: str = "",
         read_timeout_override: Optional[float] = None,
         screening_total_timeout_seconds: Optional[float] = None,
         remaining_budget_seconds: Optional[float] = None,
@@ -1298,26 +1727,34 @@ class RecruitmentAIGateway:
                 pass
         parts = payload.get("candidates", [{}])[0].get("content", {}).get("parts", [])
         raw_text = "\n".join([part.get("text", "") for part in parts if part.get("text")]).strip() or "{}"
-        try:
-            content = _parse_llm_json_response(raw_text)
-        except RecruitmentAIJSONParseError as exc:
-            raise RecruitmentAIJSONParseError(
-                str(exc),
-                raw_response_text=raw_text,
-                provider_payload=payload,
-            ) from exc
         usage = payload.get("usageMetadata") or {}
+        response_debug = _build_timeout_debug_meta(
+            configured_timeout_seconds=configured_timeout_seconds,
+            effective_timeout_seconds=read_timeout_override or configured_timeout_seconds,
+            screening_total_timeout_seconds=screening_total_timeout_seconds,
+            remaining_budget_seconds=remaining_budget_seconds,
+            is_stream_mode=False,
+        )
+        if task_type in STRICT_JSON_TASK_TYPES:
+            strict_json_result = _parse_strict_json_response(
+                raw_text,
+                task_type=task_type or "",
+                provider_payload=payload,
+                response_debug=response_debug,
+            )
+            content = strict_json_result.get("content") or {}
+            debug_meta = dict(strict_json_result.get("debug_meta") or response_debug)
+            warnings = list(strict_json_result.get("warnings") or [])
+        else:
+            content = _parse_llm_json_response(raw_text)
+            debug_meta = response_debug
+            warnings = []
         return {
             "content": content,
             "token_usage": {"prompt_tokens": usage.get("promptTokenCount"), "completion_tokens": usage.get("candidatesTokenCount"), "total_tokens": usage.get("totalTokenCount")},
             "raw_response_text": raw_text,
-            "response_debug": _build_timeout_debug_meta(
-                configured_timeout_seconds=configured_timeout_seconds,
-                effective_timeout_seconds=read_timeout_override or configured_timeout_seconds,
-                screening_total_timeout_seconds=screening_total_timeout_seconds,
-                remaining_budget_seconds=remaining_budget_seconds,
-                is_stream_mode=False,
-            ),
+            "response_debug": debug_meta,
+            "warnings": warnings,
         }
 
     def _call_gemini_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
@@ -1354,6 +1791,7 @@ class RecruitmentAIGateway:
         user_prompt: str,
         cancel_control: Optional[RecruitmentTaskControl] = None,
         *,
+        task_type: str = "",
         read_timeout_override: Optional[float] = None,
         screening_total_timeout_seconds: Optional[float] = None,
         remaining_budget_seconds: Optional[float] = None,
@@ -1383,26 +1821,34 @@ class RecruitmentAIGateway:
             except Exception:
                 pass
         raw_text = self._extract_text_from_anthropic(payload) or "{}"
-        try:
-            content = _parse_llm_json_response(raw_text)
-        except RecruitmentAIJSONParseError as exc:
-            raise RecruitmentAIJSONParseError(
-                str(exc),
-                raw_response_text=raw_text,
-                provider_payload=payload,
-            ) from exc
         usage = payload.get("usage") or {}
+        response_debug = _build_timeout_debug_meta(
+            configured_timeout_seconds=configured_timeout_seconds,
+            effective_timeout_seconds=read_timeout_override or configured_timeout_seconds,
+            screening_total_timeout_seconds=screening_total_timeout_seconds,
+            remaining_budget_seconds=remaining_budget_seconds,
+            is_stream_mode=False,
+        )
+        if task_type in STRICT_JSON_TASK_TYPES:
+            strict_json_result = _parse_strict_json_response(
+                raw_text,
+                task_type=task_type or "",
+                provider_payload=payload,
+                response_debug=response_debug,
+            )
+            content = strict_json_result.get("content") or {}
+            debug_meta = dict(strict_json_result.get("debug_meta") or response_debug)
+            warnings = list(strict_json_result.get("warnings") or [])
+        else:
+            content = _parse_llm_json_response(raw_text)
+            debug_meta = response_debug
+            warnings = []
         return {
             "content": content,
             "token_usage": {"prompt_tokens": usage.get("input_tokens"), "completion_tokens": usage.get("output_tokens"), "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)},
             "raw_response_text": raw_text,
-            "response_debug": _build_timeout_debug_meta(
-                configured_timeout_seconds=configured_timeout_seconds,
-                effective_timeout_seconds=read_timeout_override or configured_timeout_seconds,
-                screening_total_timeout_seconds=screening_total_timeout_seconds,
-                remaining_budget_seconds=remaining_budget_seconds,
-                is_stream_mode=False,
-            ),
+            "response_debug": debug_meta,
+            "warnings": warnings,
         }
 
     def _call_anthropic_text(self, config: RecruitmentLLMRuntimeConfig, system_prompt: str, user_prompt: str, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
@@ -1455,12 +1901,16 @@ class RecruitmentAIGateway:
         config.extra_config["read_timeout_seconds"] = effective_timeout_seconds
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
         full_request_snapshot = _build_request_snapshot(config, response_mode="json", system_prompt=system_prompt, user_prompt=user_prompt)
-        default_max_retries = 0 if task_type in {"resume_score", "resume_parse"} else 2
+        default_max_retries = 0 if task_type in STRICT_JSON_TASK_TYPES else 2
         max_retries = max(0, int(config.extra_config.get("max_retries") if "max_retries" in config.extra_config else default_max_retries))
         retry_delay = float(config.extra_config.get("retry_delay_seconds") or 1.2)
         last_error: Exception | None = None
         first_attempt_failed_reason: Optional[str] = None
-        for attempt in range(max_retries + 1):
+        strict_json_recovery_retry_count = 0
+        strict_json_recovery_budget = 1 if task_type in STRICT_JSON_RECOVERY_RETRY_TASK_TYPES else 0
+        standard_retry_attempts = 0
+        request_attempt_limit = max_retries + 1 + strict_json_recovery_budget
+        for _request_attempt in range(request_attempt_limit):
             try:
                 if config.runtime_provider == "gemini":
                     response_payload = self._call_gemini_json(
@@ -1468,6 +1918,7 @@ class RecruitmentAIGateway:
                         system_prompt,
                         user_prompt,
                         cancel_control=cancel_control,
+                        task_type=task_type,
                         read_timeout_override=effective_timeout_seconds,
                         screening_total_timeout_seconds=screening_total_timeout_seconds or SCREENING_TOTAL_TIMEOUT_SECONDS,
                         remaining_budget_seconds=remaining_budget_seconds,
@@ -1478,6 +1929,7 @@ class RecruitmentAIGateway:
                         system_prompt,
                         user_prompt,
                         cancel_control=cancel_control,
+                        task_type=task_type,
                         read_timeout_override=effective_timeout_seconds,
                         screening_total_timeout_seconds=screening_total_timeout_seconds or SCREENING_TOTAL_TIMEOUT_SECONDS,
                         remaining_budget_seconds=remaining_budget_seconds,
@@ -1517,8 +1969,16 @@ class RecruitmentAIGateway:
                         ),
                         **dict(response_payload.get("response_debug") or {}),
                         **({"first_attempt_failed_reason": first_attempt_failed_reason} if first_attempt_failed_reason else {}),
+                        **({"strict_json_recovery_retry_count": strict_json_recovery_retry_count} if strict_json_recovery_retry_count else {}),
                     },
-                    "warnings": list(response_payload.get("warnings") or []),
+                    "warnings": [
+                        *list(response_payload.get("warnings") or []),
+                        *(
+                            ["strict JSON 首次解析失败，已自动进行一次同 prompt 恢复重试"]
+                            if strict_json_recovery_retry_count
+                            else []
+                        ),
+                    ],
                 }
             except RecruitmentAIScreeningTotalTimeoutError:
                 raise
@@ -1526,7 +1986,7 @@ class RecruitmentAIGateway:
                 raise
             except Exception as exc:
                 last_error = exc
-                if attempt == 0:
+                if _request_attempt == 0:
                     first_attempt_failed_reason = _classify_attempt_failure_reason(exc)
                     if isinstance(exc, RecruitmentAIJSONParseError):
                         exc.debug_meta = {
@@ -1535,8 +1995,17 @@ class RecruitmentAIGateway:
                         }
                 if cancel_control and cancel_control.is_cancelled():
                     raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
-                if attempt < max_retries and _is_retryable_error(exc):
-                    sleep_seconds = retry_delay * (attempt + 1)
+                if _should_retry_strict_json_recovery(task_type, exc) and strict_json_recovery_retry_count < 1:
+                    strict_json_recovery_retry_count += 1
+                    logger.warning(
+                        "Recruitment JSON task %s hit malformed strict JSON, retrying once with the same prompt: %s",
+                        task_type,
+                        exc,
+                    )
+                    continue
+                if standard_retry_attempts < max_retries and _is_retryable_error(exc):
+                    sleep_seconds = retry_delay * (standard_retry_attempts + 1)
+                    standard_retry_attempts += 1
                     logger.warning("Recruitment JSON task %s hit retryable error, retrying in %.1fs: %s", task_type, sleep_seconds, exc)
                     if cancel_control:
                         if cancel_control.wait(sleep_seconds):
@@ -1550,10 +2019,11 @@ class RecruitmentAIGateway:
             if isinstance(last_error, RecruitmentAIScreeningTotalTimeoutError):
                 raise last_error
             if isinstance(last_error, RecruitmentAIJSONParseError):
-                if first_attempt_failed_reason:
+                if first_attempt_failed_reason or strict_json_recovery_retry_count:
                     last_error.debug_meta = {
                         **dict(getattr(last_error, "debug_meta", {}) or {}),
-                        "first_attempt_failed_reason": first_attempt_failed_reason,
+                        **({"first_attempt_failed_reason": first_attempt_failed_reason} if first_attempt_failed_reason else {}),
+                        **({"strict_json_recovery_retry_count": strict_json_recovery_retry_count} if strict_json_recovery_retry_count else {}),
                     }
                 raise last_error
             if isinstance(last_error, httpx.TimeoutException):

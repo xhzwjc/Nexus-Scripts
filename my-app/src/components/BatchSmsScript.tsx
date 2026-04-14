@@ -41,7 +41,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Textarea } from './ui/textarea';
 import { Checkbox } from './ui/checkbox';
 import axios, { AxiosError, AxiosHeaders, AxiosInstance } from 'axios';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { getApiBaseUrl } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { getScriptHubAuthHeaderRecord, getStoredScriptHubSession, requestScriptHubSession } from '@/lib/auth';

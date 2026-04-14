@@ -21,7 +21,7 @@ import {
     ChevronRight,
     ChevronDown
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import CryptoJS from 'crypto-js';
 import { useI18n } from '@/lib/i18n';
 

@@ -21,7 +21,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { Card, CardHeader, CardTitle, CardDescription } from './ui/card';
 
 import { Button } from './ui/button';

@@ -15,7 +15,7 @@ import {
     Trash2,
     UserCog,
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 import { authenticatedFetch, clearScriptHubSession, getStoredScriptHubSession, validateStoredScriptHubSession } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';

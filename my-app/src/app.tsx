@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Toaster, toast } from 'sonner';
+import { Toaster } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
 import dynamic from 'next/dynamic';
@@ -57,6 +57,7 @@ import { ConfirmDialog } from './components/ui/ConfirmDialog';
 
 // i18n
 import { I18nProvider, useI18n } from './lib/i18n';
+import { toast } from './lib/toast';
 
 // 类型和配置导入
 import type { ViewType } from './lib/types';
@@ -405,7 +406,7 @@ function AppContent() {
     return (
         <div className="colorful-background flex h-screen overflow-hidden text-slate-600 font-sans relative">
             {/* <ClothBackground /> */}
-            <Toaster richColors position="top-right" />
+            <Toaster richColors position="top-right" visibleToasts={2} />
 
             {/* 锁屏遮罩 */}
             {isLocked && (

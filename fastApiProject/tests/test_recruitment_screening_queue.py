@@ -16,9 +16,11 @@ from app.services.recruitment_prompts import (
 from app.services.recruitment_service_impl import (
     RAW_SCREENING_SCORE_STORAGE_FORMAT,
     RecruitmentService,
+    SCREENING_ONE_PASS_TASK_TYPE,
     SCREENING_PAYLOAD_SCHEMA_CONFIG,
     SCREENING_FLOW_TASK_TYPE,
     SCREENING_WORKER_MAX_CONCURRENCY,
+    _build_screening_schema_config,
     _detect_score_json_variant_conflict,
     _build_score_compat_payload,
     _build_dimension_concern_summary,
@@ -26,10 +28,12 @@ from app.services.recruitment_service_impl import (
     _classify_screening_score_validity,
     _extract_json_parse_failure_meta,
     _extract_model_score_payload_with_meta,
+    _select_one_pass_json_candidate,
     _prepare_resume_text_for_parse_prompt,
     _sanitize_ai_parsed_resume,
     _sanitize_ai_parsed_resume_with_meta,
     _validate_screening_payload_warnings,
+    sanitize_screening_payload,
     sanitize_screening_score_payload,
     sanitize_dimensions,
 )
@@ -39,6 +43,99 @@ def _build_http_status_error(status_code: int, text: str = "") -> httpx.HTTPStat
     request = httpx.Request("POST", "https://example.test/v1/chat/completions")
     response = httpx.Response(status_code, request=request, text=text)
     return httpx.HTTPStatusError(f"{status_code} error", request=request, response=response)
+
+
+def _build_openai_json_http_response(raw_text: str) -> Mock:
+    response = Mock()
+    response.status_code = 200
+    response.headers = {"content-type": "application/json"}
+    response.raise_for_status = Mock()
+    response.json = Mock(
+        return_value={
+            "choices": [
+                {
+                    "message": {
+                        "content": raw_text,
+                    }
+                }
+            ]
+        }
+    )
+    response.text = json.dumps(response.json.return_value, ensure_ascii=False)
+    return response
+
+
+def _build_screening_rule_skill_snapshots() -> list[dict[str, str]]:
+    return [
+        {
+            "name": "IoT 初筛规则",
+            "content": """
+| 维度 | 权重 | 满分 | 说明 |
+| --- | --- | --- | --- |
+| IoT协议 | 30% | 5 | 核心第一优先，必须提供与 BLE / Zigbee 相关的简历原文证据 |
+| 自动化测试 | 20% | 3 | 需要体现自动化脚本或测试平台经验 |
+| 文档输出能力 | 10% | 2 | 需要体现测试方案、报告或文档交付能力 |
+""".strip(),
+        }
+    ]
+
+
+def _build_query_mock(*, all_value=None, first_value=None) -> Mock:
+    query = Mock()
+    query.filter.return_value = query
+    query.order_by.return_value = query
+    query.limit.return_value = query
+    query.all.return_value = all_value
+    query.first.return_value = first_value
+    return query
+
+
+def _build_ai_task_log_row(**overrides) -> SimpleNamespace:
+    payload = {
+        "id": 1,
+        "task_type": "resume_score",
+        "screening_run_id": "run-1",
+        "batch_id": None,
+        "parent_task_id": None,
+        "root_task_id": None,
+        "stage": "completed",
+        "stage_started_at": datetime(2026, 4, 14, 12, 0, 0),
+        "stage_completed_at": datetime(2026, 4, 14, 12, 0, 5),
+        "related_position_id": 3,
+        "related_candidate_id": 7,
+        "related_skill_id": None,
+        "related_skill_ids_json": "[]",
+        "related_skill_snapshots_json": json.dumps([{"name": "IoT 初筛规则", "content": "X" * 40000}], ensure_ascii=False),
+        "related_resume_file_id": 11,
+        "related_publish_task_id": None,
+        "memory_source": "position_binding",
+        "skill_resolution_source": "position_binding",
+        "skill_resolution_detail_json": json.dumps({"source": "position_binding", "note": "Y" * 40000}, ensure_ascii=False),
+        "score_rule_snapshot_json": json.dumps([{"label": "IoT协议", "rule": "Z" * 40000}], ensure_ascii=False),
+        "timing_breakdown_json": json.dumps({"score_duration_ms": 87583, "total_duration_ms": 87583}, ensure_ascii=False),
+        "request_hash": "hash-1",
+        "model_provider": "openai-compatible",
+        "model_name": "minimax",
+        "prompt_snapshot": "P" * 40000,
+        "input_summary": "input " * 2000,
+        "output_summary": "output " * 2000,
+        "output_snapshot": json.dumps({"raw": "O" * 50000, "nested": {"more": "N" * 50000}}, ensure_ascii=False),
+        "raw_response_text": "R" * 50000,
+        "parsed_response_json": json.dumps({"score": {"recommendation": "K" * 50000}}, ensure_ascii=False),
+        "sanitized_response_json": json.dumps({"score": {"dimensions": [{"label": "IoT协议", "reason": "Q" * 50000}]}}, ensure_ascii=False),
+        "validation_meta_json": json.dumps({"validation_warnings": ["W" * 50000]}, ensure_ascii=False),
+        "persisted_result_refs_json": json.dumps({"candidate_status_after": "pending_screening"}, ensure_ascii=False),
+        "duration_ms": 87583,
+        "status": "success",
+        "error_message": None,
+        "token_usage_json": json.dumps({"total_tokens": 1234}, ensure_ascii=False),
+        "created_by": "tester",
+        "created_at": datetime(2026, 4, 14, 12, 0, 0),
+        "updated_at": datetime(2026, 4, 14, 12, 1, 28),
+        "full_request_snapshot": json.dumps({"messages": ["M" * 40000]}, ensure_ascii=False),
+    }
+    payload.update(overrides)
+    return SimpleNamespace(**payload)
 
 
 def test_sanitize_dimensions_preserves_evidence_list():
@@ -93,6 +190,326 @@ def test_classify_screening_score_validity_marks_rule_text_evidence_invalid():
     assert any("Skill/JD 规则文本" in item for item in reasons)
 
 
+def test_one_pass_salvages_top_level_suggested_status_and_dimensions():
+    skill_snapshots = _build_screening_rule_skill_snapshots()
+    schema_config = _build_screening_schema_config(skill_snapshots)
+    payload = {
+        "parsed_resume": {
+            "basic_info": {
+                "name": "王欢",
+                "phone": "",
+                "email": "",
+                "years_of_experience": "5年",
+                "education": "本科",
+                "location": "上海",
+            },
+            "summary": "",
+            "work_experiences": [],
+            "education_experiences": [],
+            "skills": [],
+            "projects": [],
+        },
+        "score": {
+            "total_score": 5.0,
+            "match_percent": 50,
+            "advantages": ["有 IoT 协议测试经验"],
+            "concerns": ["自动化经验还需补充"],
+            "recommendation": "建议保留观察",
+            "suggested_status": "",
+            "dimensions": [],
+        },
+        "suggested_status": "talent_pool",
+        "dimensions": [
+            {
+                "label": "IoT协议",
+                "score": 5.0,
+                "max_score": 5.0,
+                "reason": "命中核心要求",
+                "evidence": ["负责 BLE 协议联调与测试"],
+                "is_inferred": False,
+            },
+            {
+                "label": "自动化测试",
+                "score": 0.0,
+                "max_score": 3.0,
+                "reason": "简历未提及",
+                "evidence": [],
+                "is_inferred": False,
+            },
+            {
+                "label": "文档输出能力",
+                "score": 0.0,
+                "max_score": 2.0,
+                "reason": "简历未提及",
+                "evidence": [],
+                "is_inferred": False,
+            },
+        ],
+    }
+
+    sanitized_payload, meta = sanitize_screening_payload(
+        payload,
+        schema_config,
+        one_pass_compat=True,
+        skill_snapshots=skill_snapshots,
+    )
+    valid, reasons = _classify_screening_score_validity(
+        sanitized_payload["score"],
+        schema_config,
+        validation_warnings=meta["warnings"],
+    )
+
+    assert sanitized_payload["score"]["suggested_status"] == "talent_pool"
+    assert [item["label"] for item in sanitized_payload["score"]["dimensions"]] == ["IoT协议", "自动化测试", "文档输出能力"]
+    assert any("top-level stray score 字段" in item for item in meta["warnings"])
+    assert valid is True
+    assert reasons == []
+
+
+def test_one_pass_backfills_missing_required_dimensions_as_zero_score():
+    skill_snapshots = _build_screening_rule_skill_snapshots()
+    schema_config = _build_screening_schema_config(skill_snapshots)
+    payload = {
+        "parsed_resume": {
+            "basic_info": {
+                "name": "王欢",
+                "phone": "",
+                "email": "",
+                "years_of_experience": "5年",
+                "education": "本科",
+                "location": "上海",
+            },
+            "summary": "",
+            "work_experiences": [],
+            "education_experiences": [],
+            "skills": [],
+            "projects": [],
+        },
+        "score": {
+            "total_score": 8.0,
+            "match_percent": 80,
+            "advantages": ["有 BLE 协议测试经验"],
+            "concerns": ["文档能力待确认"],
+            "recommendation": "建议保留观察",
+            "suggested_status": "talent_pool",
+            "dimensions": [
+                {
+                    "label": "IoT协议",
+                    "score": 5.0,
+                    "max_score": 5.0,
+                    "reason": "命中核心要求",
+                    "evidence": ["负责 BLE 协议联调与测试"],
+                    "is_inferred": False,
+                }
+            ],
+        },
+    }
+
+    sanitized_payload, meta = sanitize_screening_payload(
+        payload,
+        schema_config,
+        one_pass_compat=True,
+        skill_snapshots=skill_snapshots,
+    )
+    dimensions = sanitized_payload["score"]["dimensions"]
+
+    assert [item["label"] for item in dimensions] == ["IoT协议", "自动化测试", "文档输出能力"]
+    assert dimensions[1]["score"] == 0.0
+    assert dimensions[1]["reason"] == "简历未提及"
+    assert dimensions[1]["evidence"] == []
+    assert dimensions[2]["score"] == 0.0
+    assert sanitized_payload["score"]["total_score"] == 5.0
+    assert sanitized_payload["score"]["match_percent"] == 50
+    assert any("已按规则补零" in item for item in meta["warnings"])
+    assert any("score.total_score 已按 dimensions 自动校正" == item for item in meta["warnings"])
+    assert any("score.match_percent 已按 total_score 自动校正" == item for item in meta["warnings"])
+
+
+def test_one_pass_derives_suggested_status_when_missing_but_score_is_complete():
+    skill_snapshots = _build_screening_rule_skill_snapshots()
+    schema_config = _build_screening_schema_config(skill_snapshots)
+    payload = {
+        "parsed_resume": {
+            "basic_info": {
+                "name": "王欢",
+                "phone": "",
+                "email": "",
+                "years_of_experience": "5年",
+                "education": "本科",
+                "location": "上海",
+            },
+            "summary": "",
+            "work_experiences": [],
+            "education_experiences": [],
+            "skills": [],
+            "projects": [],
+        },
+        "score": {
+            "total_score": 8.0,
+            "match_percent": 80,
+            "advantages": ["IoT 协议和自动化基础较好"],
+            "concerns": ["文档能力需面试确认"],
+            "recommendation": "建议安排首面",
+            "suggested_status": "",
+            "dimensions": [
+                {
+                    "label": "IoT协议",
+                    "score": 5.0,
+                    "max_score": 5.0,
+                    "reason": "命中核心要求",
+                    "evidence": ["负责 BLE 协议联调与测试"],
+                    "is_inferred": False,
+                },
+                {
+                    "label": "自动化测试",
+                    "score": 3.0,
+                    "max_score": 3.0,
+                    "reason": "有自动化平台经验",
+                    "evidence": ["使用 Python 编写自动化测试脚本"],
+                    "is_inferred": False,
+                },
+                {
+                    "label": "文档输出能力",
+                    "score": 0.0,
+                    "max_score": 2.0,
+                    "reason": "简历未提及",
+                    "evidence": [],
+                    "is_inferred": False,
+                },
+            ],
+        },
+    }
+
+    sanitized_payload, meta = sanitize_screening_payload(
+        payload,
+        schema_config,
+        one_pass_compat=True,
+        skill_snapshots=skill_snapshots,
+    )
+
+    assert meta["raw_model_suggested_status"] is None
+    assert meta["normalized_final_suggested_status"] == "screening_passed"
+    assert sanitized_payload["score"]["suggested_status"] == "screening_passed"
+    assert any("已按最终分数规则自动推导" in item for item in meta["warnings"])
+
+
+def test_one_pass_selects_usable_candidate_over_empty_shell_score():
+    skill_snapshots = _build_screening_rule_skill_snapshots()
+    schema_config = _build_screening_schema_config(skill_snapshots)
+    empty_shell = {
+        "parsed_resume": {
+            "basic_info": {"name": "王欢", "education": "本科", "years_of_experience": "5年"},
+            "summary": "",
+            "work_experiences": [],
+            "education_experiences": [],
+            "skills": [],
+            "projects": [],
+        },
+        "score": {
+            "total_score": 0,
+            "match_percent": 0,
+            "advantages": [],
+            "concerns": [],
+            "recommendation": "",
+            "suggested_status": "",
+            "dimensions": [],
+        },
+    }
+    usable = {
+        "parsed_resume": {
+            "basic_info": {"name": "王欢", "education": "本科", "years_of_experience": "5年"},
+            "summary": "",
+            "work_experiences": [],
+            "education_experiences": [],
+            "skills": [],
+            "projects": [],
+        },
+        "score": {
+            "total_score": 8.0,
+            "match_percent": 80,
+            "advantages": ["IoT 协议经验较强"],
+            "concerns": ["文档能力待确认"],
+            "recommendation": "建议安排首面",
+            "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "IoT协议", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["负责 BLE 协议联调"], "is_inferred": False},
+                {"label": "自动化测试", "score": 3.0, "max_score": 3.0, "reason": "命中", "evidence": ["使用 Python 编写自动化脚本"], "is_inferred": False},
+                {"label": "文档输出能力", "score": 0.0, "max_score": 2.0, "reason": "简历未提及", "evidence": [], "is_inferred": False},
+            ],
+        },
+    }
+
+    selected, meta = _select_one_pass_json_candidate(
+        f"{json.dumps(empty_shell, ensure_ascii=False)}\n{json.dumps(usable, ensure_ascii=False)}",
+        {},
+        schema_config=schema_config,
+        skill_snapshots=skill_snapshots,
+    )
+
+    assert selected["score"]["recommendation"] == "建议安排首面"
+    assert meta["selected_candidate_index"] == 1
+    assert meta["selected_candidate_empty_score"] is False
+
+
+def test_one_pass_selects_more_salvageable_candidate_over_empty_shell_score():
+    skill_snapshots = _build_screening_rule_skill_snapshots()
+    schema_config = _build_screening_schema_config(skill_snapshots)
+    empty_shell = {
+        "parsed_resume": {
+            "basic_info": {"name": "王欢", "education": "本科", "years_of_experience": "5年"},
+            "summary": "",
+            "work_experiences": [],
+            "education_experiences": [],
+            "skills": [],
+            "projects": [],
+        },
+        "score": {
+            "total_score": 0,
+            "match_percent": 0,
+            "advantages": [],
+            "concerns": [],
+            "recommendation": "",
+            "suggested_status": "",
+            "dimensions": [],
+        },
+    }
+    salvageable = {
+        "parsed_resume": {
+            "basic_info": {"name": "王欢", "education": "本科", "years_of_experience": "5年"},
+            "summary": "",
+            "work_experiences": [],
+            "education_experiences": [],
+            "skills": [],
+            "projects": [],
+        },
+        "score": {
+            "total_score": 8.0,
+            "match_percent": 80,
+            "advantages": ["IoT 协议经验较强"],
+            "concerns": ["文档能力待确认"],
+            "recommendation": "",
+            "suggested_status": "screening_passed",
+            "dimensions": [
+                {"label": "IoT协议", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["负责 BLE 协议联调"], "is_inferred": False},
+                {"label": "自动化测试", "score": 3.0, "max_score": 3.0, "reason": "命中", "evidence": ["使用 Python 编写自动化脚本"], "is_inferred": False},
+                {"label": "文档输出能力", "score": 0.0, "max_score": 2.0, "reason": "简历未提及", "evidence": [], "is_inferred": False},
+            ],
+        },
+    }
+
+    selected, meta = _select_one_pass_json_candidate(
+        f"{json.dumps(empty_shell, ensure_ascii=False)}\n{json.dumps(salvageable, ensure_ascii=False)}",
+        {},
+        schema_config=schema_config,
+        skill_snapshots=skill_snapshots,
+    )
+
+    assert selected["score"]["suggested_status"] == "screening_passed"
+    assert selected["score"]["recommendation"] == ""
+    assert meta["selected_candidate_index"] == 1
+    assert meta["selected_candidate_validity_rank"] == 1
+
+
 def test_enqueue_screen_candidate_reuses_existing_live_task():
     service = RecruitmentService(Mock())
     service._get_candidate = Mock(return_value=SimpleNamespace(id=7, position_id=3, latest_resume_file_id=11))
@@ -101,6 +518,7 @@ def test_enqueue_screen_candidate_reuses_existing_live_task():
     payload = service.enqueue_screen_candidate(7, "tester")
 
     assert payload == {
+        "batch_id": None,
         "task_id": 101,
         "status": "running",
         "task_type": SCREENING_FLOW_TASK_TYPE,
@@ -108,6 +526,7 @@ def test_enqueue_screen_candidate_reuses_existing_live_task():
         "related_position_id": 3,
         "screening_run_id": "run-101",
         "reused_existing_task": True,
+        "reused_existing_result": False,
     }
 
 
@@ -359,6 +778,110 @@ def test_resume_parse_uses_openai_non_stream_json_by_default():
     gateway._stream_openai_compatible_completion.assert_not_called()
 
 
+def test_resume_score_selects_valid_candidate_after_think_and_broken_json_prefix():
+    gateway = RecruitmentAIGateway(Mock())
+    config = RecruitmentLLMRuntimeConfig(
+        provider="glm",
+        runtime_provider="openai-compatible",
+        model_name="glm-5",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={"read_timeout_seconds": 45, "use_stream_json": False},
+    )
+    client = Mock()
+    client.post = Mock(
+        return_value=_build_openai_json_http_response(
+            """
+<think>先分析岗位要求，再组织 JSON</think>
+{"total_score":8.3,"match_percent":83,"advantages":["旧版本"]
+说明：上面那段作废，请以下面的最终 JSON 为准。
+{"total_score":7.8,"match_percent":78,"advantages":["基础匹配较好"],"concerns":["仍需面试核实"],"recommendation":"建议继续评估","suggested_status":"talent_pool","dimensions":[{"label":"基础匹配","score":7.8,"max_score":10.0,"reason":"命中","evidence":["测试经验"],"is_inferred":false}]}
+""".strip()
+        )
+    )
+    client.close = Mock()
+    gateway._build_httpx_client = Mock(return_value=client)
+
+    payload = gateway._call_openai_compatible_json_non_stream(
+        config,
+        "SYSTEM",
+        "USER",
+        task_type="resume_score",
+    )
+
+    assert payload["content"]["total_score"] == 7.8
+    assert payload["content"]["match_percent"] == 78
+    assert payload["content"]["suggested_status"] == "talent_pool"
+
+
+def test_resume_score_recovers_missing_comma_json_in_non_stream_mode():
+    gateway = RecruitmentAIGateway(Mock())
+    config = RecruitmentLLMRuntimeConfig(
+        provider="glm",
+        runtime_provider="openai-compatible",
+        model_name="glm-5",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={"read_timeout_seconds": 45, "use_stream_json": False},
+    )
+    client = Mock()
+    client.post = Mock(
+        return_value=_build_openai_json_http_response(
+            '{"total_score":7.8 "match_percent":78,"advantages":["基础匹配较好"],"concerns":["仍需面试核实"],"recommendation":"建议继续评估","suggested_status":"talent_pool","dimensions":[{"label":"基础匹配","score":7.8,"max_score":10.0,"reason":"命中","evidence":["测试经验"],"is_inferred":false}]}'
+        )
+    )
+    client.close = Mock()
+    gateway._build_httpx_client = Mock(return_value=client)
+
+    payload = gateway._call_openai_compatible_json_non_stream(
+        config,
+        "SYSTEM",
+        "USER",
+        task_type="resume_score",
+    )
+
+    assert payload["content"]["total_score"] == 7.8
+    assert payload["content"]["match_percent"] == 78
+
+
+def test_resume_score_rejects_conflicting_multiple_valid_candidates():
+    gateway = RecruitmentAIGateway(Mock())
+    config = RecruitmentLLMRuntimeConfig(
+        provider="glm",
+        runtime_provider="openai-compatible",
+        model_name="glm-5",
+        base_url="https://example.test/v1",
+        api_key="secret",
+        source="test",
+        api_key_masked="***",
+        extra_config={"read_timeout_seconds": 45, "use_stream_json": False},
+    )
+    raw_text = """
+{"total_score":7.8,"match_percent":78,"advantages":["基础匹配较好"],"concerns":["仍需面试核实"],"recommendation":"建议继续评估","suggested_status":"talent_pool","dimensions":[{"label":"基础匹配","score":7.8,"max_score":10.0,"reason":"命中","evidence":["测试经验"],"is_inferred":false}]}
+{"total_score":8.1,"match_percent":81,"advantages":["基础匹配较好"],"concerns":["仍需面试核实"],"recommendation":"建议继续评估","suggested_status":"screening_passed","dimensions":[{"label":"自动化测试","score":8.1,"max_score":10.0,"reason":"命中","evidence":["自动化经验"],"is_inferred":false}]}
+""".strip()
+    client = Mock()
+    client.post = Mock(return_value=_build_openai_json_http_response(raw_text))
+    client.close = Mock()
+    gateway._build_httpx_client = Mock(return_value=client)
+
+    try:
+        gateway._call_openai_compatible_json_non_stream(
+            config,
+            "SYSTEM",
+            "USER",
+            task_type="resume_score",
+        )
+        assert False, "expected invalid_json_variant_conflict"
+    except RecruitmentAIJSONParseError as exc:
+        assert exc.error_code == "invalid_json_variant_conflict"
+        assert "suggested_status" in "".join(exc.debug_meta.get("reasons") or []) or "漂移" in str(exc)
+
+
 def test_generate_json_records_first_attempt_failed_reason_after_retry():
     gateway = RecruitmentAIGateway(Mock())
     gateway.resolve_config = Mock(
@@ -392,6 +915,109 @@ def test_generate_json_records_first_attempt_failed_reason_after_retry():
     )
 
     assert payload["response_debug"]["first_attempt_failed_reason"] == "timeout"
+
+
+def test_generate_json_strict_json_retries_once_for_resume_score_and_then_succeeds():
+    gateway = RecruitmentAIGateway(Mock())
+    gateway.resolve_config = Mock(
+        return_value=RecruitmentLLMRuntimeConfig(
+            provider="glm",
+            runtime_provider="openai-compatible",
+            model_name="glm-5",
+            base_url="https://example.test/v1",
+            api_key="secret",
+            source="test",
+            api_key_masked="***",
+            extra_config={"read_timeout_seconds": 45, "max_retries": 0, "use_stream_json": False},
+        )
+    )
+    gateway._call_openai_compatible_json = Mock(
+        side_effect=[
+            RecruitmentAIJSONParseError(
+                "AI screening JSON 解析失败: Expecting ',' delimiter",
+                raw_response_text='{"total_score":7.8 "match_percent":78}',
+                error_code="json_parse_failed",
+                debug_meta={"is_stream_mode": False},
+            ),
+            {
+                "content": {
+                    "total_score": 7.8,
+                    "match_percent": 78,
+                    "advantages": ["基础匹配较好"],
+                    "concerns": ["仍需面试核实"],
+                    "recommendation": "建议继续评估",
+                    "suggested_status": "talent_pool",
+                    "dimensions": [
+                        {
+                            "label": "基础匹配",
+                            "score": 7.8,
+                            "max_score": 10.0,
+                            "reason": "命中",
+                            "evidence": ["测试经验"],
+                            "is_inferred": False,
+                        }
+                    ],
+                },
+                "token_usage": None,
+                "raw_response_text": '{"total_score":7.8,"match_percent":78}',
+                "response_debug": {"is_stream_mode": False},
+                "warnings": [],
+            },
+        ]
+    )
+
+    payload = gateway.generate_json(
+        task_type="resume_score",
+        system_prompt="SYSTEM",
+        user_prompt="USER",
+    )
+
+    assert gateway._call_openai_compatible_json.call_count == 2
+    assert payload["response_debug"]["strict_json_recovery_retry_count"] == 1
+    assert "strict JSON 首次解析失败，已自动进行一次同 prompt 恢复重试" in payload["warnings"]
+
+
+def test_generate_json_strict_json_retry_is_bounded_to_once():
+    gateway = RecruitmentAIGateway(Mock())
+    gateway.resolve_config = Mock(
+        return_value=RecruitmentLLMRuntimeConfig(
+            provider="glm",
+            runtime_provider="openai-compatible",
+            model_name="glm-5",
+            base_url="https://example.test/v1",
+            api_key="secret",
+            source="test",
+            api_key_masked="***",
+            extra_config={"read_timeout_seconds": 45, "max_retries": 0, "use_stream_json": False},
+        )
+    )
+    gateway._call_openai_compatible_json = Mock(
+        side_effect=[
+            RecruitmentAIJSONParseError(
+                "AI screening JSON 解析失败: bad json",
+                raw_response_text='{"total_score":7.8 "match_percent":78}',
+                error_code="json_parse_failed",
+                debug_meta={"is_stream_mode": False},
+            ),
+            RecruitmentAIJSONParseError(
+                "AI screening JSON 解析失败: still bad",
+                raw_response_text='{"total_score":7.8 "match_percent":78}',
+                error_code="json_parse_failed",
+                debug_meta={"is_stream_mode": False},
+            ),
+        ]
+    )
+
+    try:
+        gateway.generate_json(
+            task_type="resume_score",
+            system_prompt="SYSTEM",
+            user_prompt="USER",
+        )
+        assert False, "expected bounded strict json retry failure"
+    except RecruitmentAIJSONParseError as exc:
+        assert gateway._call_openai_compatible_json.call_count == 2
+        assert exc.debug_meta["strict_json_recovery_retry_count"] == 1
 
 
 def test_openai_non_stream_json_rejects_non_dict_payload():
@@ -507,7 +1133,8 @@ def test_parse_latest_resume_prelogs_request_snapshot_and_passes_cancel_control(
             "warnings": [],
         }
     )
-    cancel_control = object()
+    cancel_control = Mock()
+    cancel_control.raise_if_cancelled = Mock()
 
     with patch("app.services.recruitment_service_impl.extract_resume_text", return_value="李四\nBLE 测试"), \
             patch("app.services.recruitment_service_impl._sanitize_ai_parsed_resume_with_meta", return_value=(sanitized_resume, [])):
@@ -661,6 +1288,7 @@ def test_screen_candidate_reranks_from_existing_parse_when_mode_explicit():
     service._parse_latest_resume = Mock(return_value=parse_row)
     service._score_candidate = Mock(return_value=score_row)
     service._get_latest_screening_run_task = Mock(side_effect=lambda screening_run_id, **kwargs: score_log if kwargs.get("task_type") == "resume_score" else None)
+    service._get_latest_screening_score_run_task = Mock(return_value=score_log)
     service._build_screening_run_timing_breakdown = Mock(return_value={"total_duration_ms": 1000})
     service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41})
     service._finish_ai_task_log = Mock(return_value=root_log)
@@ -722,6 +1350,7 @@ def test_screen_candidate_uses_one_pass_as_default_path_when_parse_missing():
     service._score_candidate = Mock(return_value=score_row)
     service._screen_candidate_with_single_ai_call = Mock(return_value=(parse_row, score_row))
     service._get_latest_screening_run_task = Mock(side_effect=lambda screening_run_id, **kwargs: score_log if kwargs.get("task_type") == "resume_score" else None)
+    service._get_latest_screening_score_run_task = Mock(return_value=score_log)
     service._build_screening_run_timing_breakdown = Mock(return_value={"total_duration_ms": 1200})
     service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41})
     service._finish_ai_task_log = Mock(return_value=root_log)
@@ -741,6 +1370,242 @@ def test_screen_candidate_uses_one_pass_as_default_path_when_parse_missing():
     assert service._screen_candidate_with_single_ai_call.call_args.kwargs["root_task_id"] == root_log.id
     assert service._screen_candidate_with_single_ai_call.call_args.kwargs["cancel_control"] is cancel_control
     assert service._screen_candidate_with_single_ai_call.call_args.kwargs["deadline_at"] is not None
+
+
+def test_one_pass_task_type_is_not_resume_score():
+    db = Mock()
+    db.add = Mock()
+    db.commit = Mock()
+    db.flush = Mock()
+    db.refresh = Mock()
+    service = RecruitmentService(db)
+    candidate = SimpleNamespace(
+        id=5,
+        position_id=9,
+        latest_resume_file_id=12,
+        name="王欢",
+        phone=None,
+        email=None,
+        years_of_experience=None,
+        education=None,
+        latest_parse_result_id=None,
+        updated_by=None,
+    )
+    resume_file = SimpleNamespace(id=12, storage_path="/tmp/resume.pdf", file_ext=".pdf", parse_status=None, parse_error=None)
+    log_row = SimpleNamespace(id=91)
+    score_row = SimpleNamespace(id=41)
+
+    service._get_resume_file = Mock(return_value=resume_file)
+    service._get_rule_config = Mock(return_value={"pass_threshold": 75.0, "pool_threshold": 55.0})
+    service._prepare_screening_task_context = Mock(return_value=([], [], ""))
+    service._build_resume_screening_prompt = Mock(return_value="screening prompt")
+    service._build_request_hash = Mock(return_value="hash")
+    service._create_ai_task_log = Mock(return_value=log_row)
+    service.ai_gateway.prepare_json_request_context = Mock(return_value={
+        "provider": "openai-compatible",
+        "model_name": "gpt-4o-mini",
+        "prompt_snapshot": "snapshot",
+        "full_request_snapshot": "{}",
+        "input_summary": "summary",
+        "endpoint": "https://example.test/v1/chat/completions",
+        "timeout_seconds": 30,
+        "configured_read_timeout_seconds": 30,
+        "effective_timeout_seconds": 30,
+        "screening_total_timeout_seconds": 300,
+        "remaining_budget_seconds": 30,
+        "retry_count": 0,
+        "is_stream_mode": False,
+        "runtime_config": object(),
+    })
+    service._update_ai_task_log = Mock(return_value=log_row)
+    service._run_screening_provider_json_request = Mock(return_value={
+        "provider": "openai-compatible",
+        "model_name": "gpt-4o-mini",
+        "prompt_snapshot": "snapshot",
+        "full_request_snapshot": "{}",
+        "input_summary": "summary",
+        "output_summary": "output",
+        "token_usage": {},
+        "raw_response_text": json.dumps(
+            {
+                "parsed_resume": {
+                    "basic_info": {
+                        "name": "王欢",
+                        "phone": "",
+                        "email": "",
+                        "years_of_experience": "5年",
+                        "education": "本科",
+                        "location": "上海",
+                    },
+                    "summary": "",
+                    "work_experiences": [],
+                    "education_experiences": [],
+                    "skills": [],
+                    "projects": [],
+                },
+                "score": {
+                    "total_score": 5.0,
+                    "match_percent": 50,
+                    "advantages": ["有 IoT 测试经验"],
+                    "concerns": ["自动化经验待确认"],
+                    "recommendation": "建议保留观察",
+                    "suggested_status": "talent_pool",
+                    "dimensions": [],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        "content": {},
+    })
+    service._save_score_result = Mock(return_value=score_row)
+    service._finish_ai_task_log = Mock(return_value=log_row)
+    service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41})
+    service._maybe_send_auto_resume_mail_after_screening = Mock()
+
+    service._screen_candidate_with_single_ai_call(candidate, "tester", [], "position", raw_text_override="候选人简历")
+
+    assert service.ai_gateway.prepare_json_request_context.call_args.kwargs["task_type"] == SCREENING_ONE_PASS_TASK_TYPE
+    assert service._run_screening_provider_json_request.call_args.kwargs["task_type"] == SCREENING_ONE_PASS_TASK_TYPE
+
+
+def test_one_pass_persists_normalized_total_score_and_match_percent():
+    db = Mock()
+    db.commit = Mock()
+    db.flush = Mock()
+    db.refresh = Mock()
+    db.add = Mock()
+    service = RecruitmentService(db)
+    candidate = SimpleNamespace(
+        id=5,
+        position_id=9,
+        latest_resume_file_id=12,
+        name="王欢",
+        phone=None,
+        email=None,
+        years_of_experience=None,
+        education=None,
+        latest_parse_result_id=None,
+        latest_score_id=None,
+        match_percent=None,
+        ai_recommended_status=None,
+        status="pending_screening",
+        updated_by=None,
+    )
+    resume_file = SimpleNamespace(id=12, storage_path="/tmp/resume.pdf", file_ext=".pdf", parse_status=None, parse_error=None)
+    log_row = SimpleNamespace(id=91)
+    service._get_resume_file = Mock(return_value=resume_file)
+    service._get_rule_config = Mock(return_value={"pass_threshold": 75.0, "pool_threshold": 55.0})
+    skill_snapshots = _build_screening_rule_skill_snapshots()
+    service._prepare_screening_task_context = Mock(return_value=(skill_snapshots, [], ""))
+    service._build_resume_screening_prompt = Mock(return_value="screening prompt")
+    service._build_request_hash = Mock(return_value="hash")
+    service._create_ai_task_log = Mock(return_value=log_row)
+    service.ai_gateway.prepare_json_request_context = Mock(return_value={
+        "provider": "openai-compatible",
+        "model_name": "gpt-4o-mini",
+        "prompt_snapshot": "snapshot",
+        "full_request_snapshot": "{}",
+        "input_summary": "summary",
+        "endpoint": "https://example.test/v1/chat/completions",
+        "timeout_seconds": 30,
+        "configured_read_timeout_seconds": 30,
+        "effective_timeout_seconds": 30,
+        "screening_total_timeout_seconds": 300,
+        "remaining_budget_seconds": 30,
+        "retry_count": 0,
+        "is_stream_mode": False,
+        "runtime_config": object(),
+    })
+    service._update_ai_task_log = Mock(return_value=log_row)
+    service._run_screening_provider_json_request = Mock(return_value={
+        "provider": "openai-compatible",
+        "model_name": "gpt-4o-mini",
+        "prompt_snapshot": "snapshot",
+        "full_request_snapshot": "{}",
+        "input_summary": "summary",
+        "output_summary": "output",
+        "token_usage": {},
+        "raw_response_text": json.dumps(
+            {
+                "parsed_resume": {
+                    "basic_info": {
+                        "name": "王欢",
+                        "phone": "",
+                        "email": "",
+                        "years_of_experience": "5年",
+                        "education": "本科",
+                        "location": "上海",
+                    },
+                    "summary": "",
+                    "work_experiences": [],
+                    "education_experiences": [],
+                    "skills": [],
+                    "projects": [],
+                },
+                "score": {
+                    "total_score": 8.3,
+                    "match_percent": 83,
+                    "advantages": ["IoT 协议经验较强"],
+                    "concerns": ["文档能力待确认"],
+                    "recommendation": "建议保留观察",
+                    "suggested_status": "talent_pool",
+                    "dimensions": [
+                        {
+                            "label": "IoT协议",
+                            "score": 5.0,
+                            "max_score": 5.0,
+                            "reason": "命中核心要求",
+                            "evidence": ["负责 BLE 协议联调与测试"],
+                            "is_inferred": False,
+                        },
+                        {
+                            "label": "自动化测试",
+                            "score": 2.8,
+                            "max_score": 3.0,
+                            "reason": "具备自动化经验",
+                            "evidence": ["使用 Python 编写自动化测试脚本"],
+                            "is_inferred": False,
+                        },
+                        {
+                            "label": "文档输出能力",
+                            "score": 0.0,
+                            "max_score": 2.0,
+                            "reason": "简历未提及",
+                            "evidence": [],
+                            "is_inferred": False,
+                        },
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        "content": {},
+    })
+    service._finish_ai_task_log = Mock(return_value=log_row)
+    service._maybe_send_auto_resume_mail_after_screening = Mock()
+    service._auto_advance_candidate_after_screening = Mock()
+
+    _parse_row, score_row = service._screen_candidate_with_single_ai_call(
+        candidate,
+        "tester",
+        [],
+        "position",
+        raw_text_override="候选人简历",
+    )
+
+    stored_payload = json.loads(score_row.score_json)
+    finish_kwargs = service._finish_ai_task_log.call_args.kwargs
+
+    assert score_row.total_score == 7.8
+    assert score_row.match_percent == 78
+    assert stored_payload["_storage_format"] == RAW_SCREENING_SCORE_STORAGE_FORMAT
+    assert stored_payload["score"]["total_score"] == 7.8
+    assert stored_payload["score"]["match_percent"] == 78
+    assert candidate.match_percent == 78
+    assert finish_kwargs["output_snapshot"]["score"]["total_score"] == 7.8
+    assert finish_kwargs["output_snapshot"]["score"]["match_percent"] == 78
+    assert finish_kwargs["persisted_result_refs"]["candidate_match_percent_after"] == 78
+    assert "score.total_score 已按 dimensions 自动校正" in finish_kwargs["validation_meta"]["validation_warnings"]
 
 
 def test_screen_candidate_reuses_cached_result_without_model_call():
@@ -793,6 +1658,7 @@ def test_screen_candidate_reuses_cached_result_without_model_call():
     service._ensure_screening_root_task = Mock(return_value=root_log)
     service._update_ai_task_log = Mock(return_value=root_log)
     service._get_latest_screening_run_task = Mock(return_value=None)
+    service._get_latest_screening_score_run_task = Mock(return_value=None)
     service._build_screening_run_timing_breakdown = Mock(return_value={"total_duration_ms": 10})
     service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41})
     service._finish_ai_task_log = Mock(return_value=root_log)
@@ -813,17 +1679,47 @@ def test_screen_candidate_reuses_cached_result_without_model_call():
     service._score_candidate.assert_not_called()
 
 
-def test_invalid_one_pass_result_does_not_trigger_second_model_repair():
+def test_invalid_one_pass_result_triggers_controlled_score_only_salvage_when_allowed():
     service = RecruitmentService(Mock())
     candidate = SimpleNamespace(id=5, position_id=9, latest_resume_file_id=12, updated_by=None, status="pending_screening", match_percent=None, ai_recommended_status=None)
     parse_row = SimpleNamespace(id=31, resume_file_id=12, status="success")
-    score_row = SimpleNamespace(id=41)
-    score_log = SimpleNamespace(
+    one_pass_score_row = SimpleNamespace(
+        id=41,
+        score_json=json.dumps(
+            {
+                "_storage_format": RAW_SCREENING_SCORE_STORAGE_FORMAT,
+                "score": {
+                    "total_score": 8.0,
+                    "match_percent": 80,
+                    "advantages": ["IoT 协议经验较强"],
+                    "concerns": ["文档能力待确认"],
+                    "recommendation": "",
+                    "suggested_status": "screening_passed",
+                    "dimensions": [
+                        {"label": "IoT协议", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["负责 BLE 协议联调"], "is_inferred": False},
+                        {"label": "自动化测试", "score": 3.0, "max_score": 3.0, "reason": "命中", "evidence": ["使用 Python 编写自动化脚本"], "is_inferred": False},
+                        {"label": "文档输出能力", "score": 0.0, "max_score": 2.0, "reason": "简历未提及", "evidence": [], "is_inferred": False},
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        ),
+    )
+    salvaged_score_row = SimpleNamespace(id=42, match_percent=86, suggested_status="screening_passed")
+    one_pass_invalid_log = SimpleNamespace(
         id=92,
-        validation_meta_json='{"screening_result_valid":false,"screening_result_state":"invalid","parse_strategy":"combined_parse_and_score","invalid_result_reasons":["total_score mismatch"],"final_response_source":"primary_screening_model_invalid","primary_model_call_succeeded":true}',
+        validation_meta_json='{"screening_result_valid":false,"screening_result_state":"invalid","parse_strategy":"combined_parse_and_score","invalid_result_reasons":["score.recommendation 缺失或无效"],"final_response_source":"primary_screening_model_invalid","primary_model_call_succeeded":true}',
         output_summary="AI 返回了无效初筛结果",
         error_message="AI 返回了无效初筛结果",
         status="invalid_result",
+        output_snapshot=None,
+    )
+    salvage_success_log = SimpleNamespace(
+        id=93,
+        validation_meta_json='{"screening_result_valid":true,"screening_result_state":"success","parse_strategy":"reuse_parse_then_score","reused_existing_parse":true,"final_response_source":"primary_score_model","primary_model_call_succeeded":true,"raw_model_suggested_status":"screening_passed","normalized_final_suggested_status":"screening_passed"}',
+        output_summary="score-only salvage 成功",
+        error_message=None,
+        status="success",
         output_snapshot=None,
     )
     root_log = SimpleNamespace(
@@ -850,22 +1746,135 @@ def test_invalid_one_pass_result_does_not_trigger_second_model_repair():
     service._ensure_screening_root_task = Mock(return_value=root_log)
     service._update_ai_task_log = Mock(return_value=root_log)
     service._get_current_parse_result = Mock(return_value=None)
-    service._screen_candidate_with_single_ai_call = Mock(return_value=(parse_row, score_row))
-    service._score_candidate = Mock(side_effect=AssertionError("should not do score-only repair"))
-    service._get_latest_screening_run_task = Mock(side_effect=lambda screening_run_id, **kwargs: score_log if kwargs.get("task_type") == "resume_score" else None)
+    service._parse_latest_resume = Mock()
+    service._screen_candidate_with_single_ai_call = Mock(return_value=(parse_row, one_pass_score_row))
+    current_score_log = {"value": one_pass_invalid_log}
+
+    def _score_candidate_salvage(*args, **kwargs):
+        current_score_log["value"] = salvage_success_log
+        candidate.status = "screening_passed"
+        candidate.match_percent = 86
+        candidate.ai_recommended_status = "screening_passed"
+        candidate.latest_score_id = 42
+        return salvaged_score_row
+
+    service._score_candidate = Mock(side_effect=_score_candidate_salvage)
+    service._get_latest_screening_run_task = Mock(return_value=None)
+    service._get_latest_screening_score_run_task = Mock(side_effect=lambda *args, **kwargs: current_score_log["value"])
     service._build_screening_run_timing_breakdown = Mock(return_value={"total_duration_ms": 1200})
-    service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41})
+    service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 42})
     service._finish_ai_task_log = Mock(return_value=root_log)
     service._save_screening_workflow_memory = Mock()
+    service._get_rule_config = Mock(return_value={"pass_threshold": 75.0, "pool_threshold": 55.0})
     service._serialize_parse_result = Mock(return_value={"basic_info": {}, "work_experiences": [], "education_experiences": [], "skills": [], "projects": [], "summary": ""})
-    service._serialize_score = Mock(return_value={"score_result_id": 41})
-    service.get_candidate_detail = Mock(return_value={"candidate": {"id": 5}})
+    service._serialize_score = Mock(return_value={"score_result_id": 42})
+    service.get_candidate_detail = Mock(return_value={"candidate": {"id": 5, "status": "screening_passed"}})
 
     payload = service.screen_candidate(5, "tester")
 
-    assert payload == {"candidate": {"id": 5}}
-    service._score_candidate.assert_not_called()
+    assert payload == {"candidate": {"id": 5, "status": "screening_passed"}}
+    service._screen_candidate_with_single_ai_call.assert_called_once()
+    service._score_candidate.assert_called_once()
+    service._parse_latest_resume.assert_not_called()
+    assert service._score_candidate.call_args.kwargs["reused_existing_parse"] is True
+    assert service._finish_ai_task_log.call_args.kwargs["status"] == "success"
+    assert service._finish_ai_task_log.call_args.kwargs["validation_meta"]["final_response_source"] == "primary_screening_model_salvaged"
+    assert candidate.status == "screening_passed"
+
+
+def test_invalid_one_pass_result_keeps_invalid_when_salvage_fails():
+    service = RecruitmentService(Mock())
+    candidate = SimpleNamespace(id=5, position_id=9, latest_resume_file_id=12, updated_by=None, status="pending_screening", match_percent=None, ai_recommended_status=None)
+    parse_row = SimpleNamespace(id=31, resume_file_id=12, status="success")
+    one_pass_score_row = SimpleNamespace(
+        id=41,
+        score_json=json.dumps(
+            {
+                "_storage_format": RAW_SCREENING_SCORE_STORAGE_FORMAT,
+                "score": {
+                    "total_score": 8.0,
+                    "match_percent": 80,
+                    "advantages": ["IoT 协议经验较强"],
+                    "concerns": ["文档能力待确认"],
+                    "recommendation": "",
+                    "suggested_status": "screening_passed",
+                    "dimensions": [
+                        {"label": "IoT协议", "score": 5.0, "max_score": 5.0, "reason": "命中", "evidence": ["负责 BLE 协议联调"], "is_inferred": False},
+                        {"label": "自动化测试", "score": 3.0, "max_score": 3.0, "reason": "命中", "evidence": ["使用 Python 编写自动化脚本"], "is_inferred": False},
+                        {"label": "文档输出能力", "score": 0.0, "max_score": 2.0, "reason": "简历未提及", "evidence": [], "is_inferred": False},
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        ),
+    )
+    one_pass_invalid_log = SimpleNamespace(
+        id=92,
+        validation_meta_json='{"screening_result_valid":false,"screening_result_state":"invalid","parse_strategy":"combined_parse_and_score","invalid_result_reasons":["score.recommendation 缺失或无效"],"final_response_source":"primary_screening_model_invalid","primary_model_call_succeeded":true}',
+        output_summary="AI 返回了无效初筛结果",
+        error_message="AI 返回了无效初筛结果",
+        status="invalid_result",
+        output_snapshot=None,
+    )
+    salvage_failed_log = SimpleNamespace(
+        id=93,
+        validation_meta_json='{"screening_result_valid":false,"screening_result_state":"request_failed","failure_code":"request_failed","final_response_source":"score_request_failed","primary_model_call_succeeded":false}',
+        output_summary="score-only salvage 失败",
+        error_message="score-only salvage 失败",
+        status="request_failed",
+        output_snapshot=None,
+    )
+    root_log = SimpleNamespace(
+        id=91,
+        screening_run_id="run-91",
+        root_task_id=91,
+        validation_meta_json=None,
+        error_message=None,
+        output_summary="初筛进行中",
+        timing_breakdown_json="{}",
+        output_snapshot=None,
+        batch_id=None,
+    )
+
+    service._get_candidate = Mock(return_value=candidate)
+    service._can_reuse_existing_parse_result = Mock(return_value=False)
+    service._get_resume_file = Mock(return_value=SimpleNamespace(id=12))
+    service._extract_resume_file_raw_text = Mock(return_value="候选人简历")
+    service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
+    service._prepare_screening_task_context = Mock(return_value=([], [], ""))
+    service._build_screening_request_meta = Mock(return_value={"request_hash": "hash"})
+    service._load_reusable_screening_result = Mock(return_value=None)
+    service._get_latest_valid_screening_result_for_candidate = Mock(return_value=None)
+    service._ensure_screening_root_task = Mock(return_value=root_log)
+    service._update_ai_task_log = Mock(return_value=root_log)
+    service._get_current_parse_result = Mock(return_value=None)
+    service._parse_latest_resume = Mock()
+    service._screen_candidate_with_single_ai_call = Mock(return_value=(parse_row, one_pass_score_row))
+    current_score_log = {"value": one_pass_invalid_log}
+
+    def _score_candidate_salvage_fail(*args, **kwargs):
+        current_score_log["value"] = salvage_failed_log
+        raise RuntimeError("score-only salvage exploded")
+
+    service._score_candidate = Mock(side_effect=_score_candidate_salvage_fail)
+    service._get_latest_screening_run_task = Mock(return_value=None)
+    service._get_latest_screening_score_run_task = Mock(side_effect=lambda *args, **kwargs: current_score_log["value"])
+    service._build_screening_run_timing_breakdown = Mock(return_value={"parse_duration_ms": None, "score_duration_ms": 800, "total_duration_ms": 1200})
+    service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41})
+    service._finish_ai_task_log = Mock(return_value=root_log)
+    service._save_screening_workflow_memory = Mock()
+    service._get_rule_config = Mock(return_value={"pass_threshold": 75.0, "pool_threshold": 55.0})
+    service._serialize_parse_result = Mock(return_value={"basic_info": {}, "work_experiences": [], "education_experiences": [], "skills": [], "projects": [], "summary": ""})
+    service._serialize_score = Mock(return_value={"score_result_id": 41})
+    service.get_candidate_detail = Mock(return_value={"candidate": {"id": 5, "status": "pending_screening"}})
+
+    payload = service.screen_candidate(5, "tester")
+
+    assert payload == {"candidate": {"id": 5, "status": "pending_screening"}}
+    service._score_candidate.assert_called_once()
     assert service._finish_ai_task_log.call_args.kwargs["status"] == "invalid_result"
+    assert service._finish_ai_task_log.call_args.kwargs["validation_meta"]["parse_strategy"] == "combined_parse_and_score"
+    assert candidate.status == "pending_screening"
 
 
 def test_fallback_parse_then_score_does_not_bind_parse_or_score_directly_to_root_log():
@@ -906,6 +1915,7 @@ def test_fallback_parse_then_score_does_not_bind_parse_or_score_directly_to_root
     service._parse_latest_resume = Mock(return_value=parse_row)
     service._score_candidate = Mock(return_value=score_row)
     service._get_latest_screening_run_task = Mock(side_effect=lambda screening_run_id, **kwargs: score_log if kwargs.get("task_type") == "resume_score" else None)
+    service._get_latest_screening_score_run_task = Mock(return_value=score_log)
     service._build_screening_run_timing_breakdown = Mock(return_value={"total_duration_ms": 1200})
     service._build_screening_persisted_result_refs = Mock(return_value={"parse_result_id": 31, "score_result_id": 41})
     service._finish_ai_task_log = Mock(return_value=root_log)
@@ -953,6 +1963,7 @@ def test_finish_root_task_called_when_parse_raises():
     service._parse_latest_resume = Mock(side_effect=RuntimeError("parse exploded"))
     service._score_candidate = Mock()
     service._get_latest_screening_run_task = Mock(return_value=None)
+    service._get_latest_screening_score_run_task = Mock(return_value=None)
     service._build_screening_run_timing_breakdown = Mock(return_value={"total_duration_ms": 120})
     service._build_screening_persisted_result_refs = Mock(return_value={})
     service._finish_ai_task_log = Mock(return_value=root_log)
@@ -1081,6 +2092,88 @@ def test_finish_root_task_called_when_score_raises():
     kwargs = service._finish_ai_task_log.call_args.kwargs
     assert kwargs["status"] == "failed"
     assert kwargs["stage"] == "failed"
+
+
+def test_screen_candidate_keeps_parse_result_and_closes_root_when_score_json_parse_still_fails_after_bounded_retry():
+    service = RecruitmentService(Mock())
+    candidate = SimpleNamespace(
+        id=5,
+        position_id=9,
+        latest_resume_file_id=12,
+        latest_parse_result_id=31,
+        latest_score_id=None,
+        updated_by=None,
+        status="pending_screening",
+        match_percent=None,
+        ai_recommended_status=None,
+    )
+    parse_row = SimpleNamespace(id=31, resume_file_id=12, status="success", raw_text="候选人简历")
+    root_log = SimpleNamespace(
+        id=91,
+        screening_run_id="run-91",
+        root_task_id=91,
+        validation_meta_json=None,
+        error_message=None,
+        output_summary=None,
+        timing_breakdown_json="{}",
+        output_snapshot='{"parse_strategy":"fallback_parse_then_score"}',
+    )
+    score_log = SimpleNamespace(
+        id=92,
+        status="json_parse_failed",
+        output_summary="AI screening JSON 解析失败: malformed score payload",
+        error_message="AI screening JSON 解析失败: malformed score payload",
+        validation_meta_json='{"screening_result_valid":false,"screening_result_state":"json_parse_failed","final_response_source":"score_json_parse_failed","failure_code":"json_parse_failed"}',
+        model_provider="GLM",
+        model_name="glm-5",
+        prompt_snapshot="SYSTEM:\\nUSER",
+        full_request_snapshot='{"stream":false}',
+        input_summary="PROMPT",
+        raw_response_text='{"total_score":7.8 "match_percent":78}',
+        parsed_response_json=None,
+        sanitized_response_json=None,
+    )
+
+    service._get_candidate = Mock(return_value=candidate)
+    service._can_reuse_existing_parse_result = Mock(return_value=True)
+    service._get_resume_file = Mock(return_value=SimpleNamespace(id=12))
+    service._extract_resume_file_raw_text = Mock(return_value="候选人简历")
+    service._resolve_screening_skills = Mock(return_value=([], "position", "position_binding", {}))
+    service._prepare_screening_task_context = Mock(return_value=([], [], ""))
+    service._build_screening_request_meta = Mock(return_value={"request_hash": "hash"})
+    service._load_reusable_screening_result = Mock(return_value=None)
+    service._get_latest_valid_screening_result_for_candidate = Mock(return_value=None)
+    service._ensure_screening_root_task = Mock(return_value=root_log)
+    service._update_ai_task_log = Mock(return_value=root_log)
+    service._get_current_parse_result = Mock(return_value=parse_row)
+    service._parse_latest_resume = Mock()
+    service._score_candidate = Mock(
+        side_effect=RecruitmentAIJSONParseError(
+            "AI screening JSON 解析失败: malformed score payload",
+            raw_response_text='{"total_score":7.8 "match_percent":78}',
+            error_code="json_parse_failed",
+            debug_meta={"strict_json_recovery_retry_count": 1},
+        )
+    )
+    service._get_latest_screening_run_task = Mock(return_value=None)
+    service._get_latest_screening_score_run_task = Mock(return_value=score_log)
+    service._build_screening_run_timing_breakdown = Mock(return_value={"score_duration_ms": 900, "total_duration_ms": 1234})
+    service._finish_ai_task_log = Mock(return_value=root_log)
+    service._serialize_parse_result = Mock(return_value={"basic_info": {}, "work_experiences": [], "education_experiences": [], "skills": [], "projects": [], "summary": ""})
+
+    try:
+        service.screen_candidate(5, "tester", force_one_pass=False)
+        assert False, "screen_candidate should raise score json parse failure"
+    except RecruitmentAIJSONParseError as exc:
+        assert exc.error_code == "json_parse_failed"
+
+    kwargs = service._finish_ai_task_log.call_args.kwargs
+    assert kwargs["status"] == "json_parse_failed"
+    assert kwargs["stage"] == "failed"
+    assert kwargs["persisted_result_refs"]["parse_result_id"] == 31
+    assert kwargs["persisted_result_refs"]["score_result_id"] is None
+    assert kwargs["validation_meta"]["failure_code"] == "json_parse_failed"
+    assert candidate.status == "pending_screening"
 
 
 def test_settle_orphaned_screening_flow_marks_stale_running_root_failed():
@@ -1308,7 +2401,7 @@ def test_dispatch_screening_queue_skips_tasks_before_next_retry_at():
         payload = service._dispatch_screening_queue()
 
     assert payload["started_count"] == 1
-    assert payload["max_concurrency"] == 1
+    assert payload["max_concurrency"] == SCREENING_WORKER_MAX_CONCURRENCY
     assert service._start_background_ai_task.call_args.args[0] == 302
 
 
@@ -1349,10 +2442,10 @@ def test_batch_screening_queue_respects_single_concurrency():
             patch("app.services.recruitment_service_impl._screening_worker_active_task_ids", set()):
         payload = service._dispatch_screening_queue()
 
-    assert payload["started_count"] == 1
-    assert payload["active_count"] == 1
-    assert payload["max_concurrency"] == 1
-    service._start_background_ai_task.assert_called_once()
+    assert payload["started_count"] == SCREENING_WORKER_MAX_CONCURRENCY
+    assert payload["active_count"] == SCREENING_WORKER_MAX_CONCURRENCY
+    assert payload["max_concurrency"] == SCREENING_WORKER_MAX_CONCURRENCY
+    assert service._start_background_ai_task.call_count == SCREENING_WORKER_MAX_CONCURRENCY
 
 
 def test_infra_failure_does_not_mark_candidate_screening_failed():
@@ -1409,7 +2502,7 @@ def test_run_queued_screening_task_defaults_to_one_pass_path():
     assert service.screen_candidate.call_args.kwargs["cancel_control"] is cancel_control
 
 
-def test_score_candidate_retries_once_when_score_json_variant_conflict_detected():
+def test_score_candidate_uses_gateway_strict_json_recovery_result_without_second_model_repair():
     service = RecruitmentService(Mock())
     candidate = SimpleNamespace(
         id=5,
@@ -1473,70 +2566,55 @@ def test_score_candidate_retries_once_when_score_json_variant_conflict_detected(
     }
     service.ai_gateway.prepare_json_request_context = Mock(return_value=dict(request_context))
     service.ai_gateway.generate_json = Mock(
-        side_effect=[
-            {
-                "provider": "glm",
-                "model_name": "glm-5",
-                "prompt_snapshot": "SYSTEM\\nUSER",
-                "full_request_snapshot": "{\"stream\": false}",
-                "input_summary": "PROMPT",
-                "raw_response_text": json.dumps(
+        return_value={
+            "provider": "glm",
+            "model_name": "glm-5",
+            "prompt_snapshot": "SYSTEM\\nUSER",
+            "full_request_snapshot": "{\"stream\": false}",
+            "input_summary": "PROMPT",
+            "raw_response_text": json.dumps(
+                {
+                    "total_score": 8.1,
+                    "match_percent": 81,
+                    "advantages": ["基础匹配较好"],
+                    "concerns": ["仍需面试核实"],
+                    "recommendation": "建议继续评估",
+                    "suggested_status": "screening_passed",
+                    "dimensions": [
+                        {
+                            "label": "基础匹配",
+                            "score": 8.1,
+                            "max_score": 10.0,
+                            "reason": "命中",
+                            "evidence": ["测试经验"],
+                            "is_inferred": False,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            "content": {
+                "total_score": 8.1,
+                "match_percent": 81,
+                "advantages": ["基础匹配较好"],
+                "concerns": ["仍需面试核实"],
+                "recommendation": "建议继续评估",
+                "suggested_status": "screening_passed",
+                "dimensions": [
                     {
-                        "total_score": 7.8,
-                        "match_percent": 78,
-                        "advantages": ["基础匹配较好"],
-                        "concerns": ["仍需面试核实"],
-                        "recommendation": "建议继续评估",
-                        "suggested_status": "screening_passed",
-                        "dimensions": [
-                            {
-                                "label": "基础匹配",
-                                "score": 8.1,
-                                "max_score": 10.0,
-                                "reason": "命中",
-                                "evidence": ["测试经验"],
-                                "is_inferred": False,
-                            }
-                        ],
-                    },
-                    ensure_ascii=False,
-                ),
-                "content": {},
-                "token_usage": None,
-                "response_debug": {"is_stream_mode": False},
+                        "label": "基础匹配",
+                        "score": 8.1,
+                        "max_score": 10.0,
+                        "reason": "命中",
+                        "evidence": ["测试经验"],
+                        "is_inferred": False,
+                    }
+                ],
             },
-            {
-                "provider": "glm",
-                "model_name": "glm-5",
-                "prompt_snapshot": "SYSTEM\\nUSER",
-                "full_request_snapshot": "{\"stream\": false}",
-                "input_summary": "PROMPT",
-                "raw_response_text": json.dumps(
-                    {
-                        "total_score": 8.1,
-                        "match_percent": 81,
-                        "advantages": ["基础匹配较好"],
-                        "concerns": ["仍需面试核实"],
-                        "recommendation": "建议继续评估",
-                        "suggested_status": "screening_passed",
-                        "dimensions": [
-                            {
-                                "label": "基础匹配",
-                                "score": 8.1,
-                                "max_score": 10.0,
-                                "reason": "命中",
-                                "evidence": ["测试经验"],
-                                "is_inferred": False,
-                            }
-                        ],
-                    },
-                    ensure_ascii=False,
-                ),
-                "content": {},
-                "token_usage": None,
-                "response_debug": {"is_stream_mode": False},
-            },
-        ]
+            "token_usage": None,
+            "response_debug": {"is_stream_mode": False, "strict_json_recovery_retry_count": 1},
+            "warnings": ["strict JSON 首次解析失败，已自动进行一次同 prompt 恢复重试"],
+        }
     )
 
     payload = service._score_candidate(
@@ -1554,9 +2632,10 @@ def test_score_candidate_retries_once_when_score_json_variant_conflict_detected(
     )
 
     assert payload is score_row
-    assert service.ai_gateway.generate_json.call_count == 2
+    assert service.ai_gateway.generate_json.call_count == 1
     final_validation_meta = service._update_ai_task_log.call_args_list[-1].kwargs["validation_meta"]
-    assert "score JSON 首次返回存在冲突版本，已自动进行一次 non-stream 重试" in final_validation_meta["validation_warnings"]
+    assert "strict JSON 首次解析失败，已自动进行一次同 prompt 恢复重试" in final_validation_meta["validation_warnings"]
+    assert final_validation_meta["score_model_retry_count"] == 1
     assert final_validation_meta["screening_result_valid"] is True
 
 
@@ -1924,6 +3003,67 @@ Python 脚本
     assert "projects.description 为字符串化列表，已归一" in warnings
 
 
+def test_parse_sanitize_drops_pseudo_work_items_filters_extra_generic_skills_and_enriches_education():
+    raw_text = """王欢
+上海智联科技有限公司 测试工程师 2022-01 ~ 2024-01
+负责 BLE 设备联调、Postman 接口测试、Linux 常用命令排查、MySQL增删改查。
+上海交通大学 硕士 电子信息
+技能：Postman接口测试、Linux常用命令、MySQL增删改查、Xmind测试思维导图
+项目：智能网关项目，负责接口联调与测试报告输出。
+"""
+    model_parse = {
+        "basic_info": {"name": "王欢", "education": "硕士"},
+        "work_experiences": [
+            {
+                "company_name": "上海智联科技有限公司",
+                "position": "测试工程师",
+                "duration": "2022-01 ~ 2024-01",
+                "description": "['负责 BLE 联调', '输出测试报告']",
+            },
+            {
+                "company_name": "深度参与整机测试，负责关键软件",
+                "position": "负责关键软件测试",
+                "duration": "",
+            },
+            {
+                "company_name": "建立新机软件",
+                "position": "",
+                "description": "['职责碎片']",
+            },
+        ],
+        "education_experiences": [
+            {"school": "上海交通大学", "degree": "硕士", "major": "电子信息"},
+        ],
+        "skills": ["质量", "沟通", "硬件", "驱动", "测试", "iot", "MySQL增删改查", "Linux常用命令", "Postman接口测试", "Xmind测试思维导图"],
+        "projects": [
+            {
+                "project_name": "智能网关项目",
+                "description": "['接口联调', '输出测试报告']",
+                "highlights": "['Postman接口测试', 'Linux常用命令']",
+            }
+        ],
+        "summary": "具备智能硬件测试经验。",
+    }
+
+    with patch("app.services.recruitment_service_impl.extract_resume_structured_data", return_value={"basic_info": {}, "work_experiences": [], "education_experiences": [], "skills": [], "projects": [], "summary": ""}):
+        sanitized, warnings = _sanitize_ai_parsed_resume_with_meta(model_parse, raw_text, "王欢")
+
+    assert sanitized["work_experiences"] == [
+        {
+            "company_name": "上海智联科技有限公司",
+            "position": "测试工程师",
+            "duration": "2022-01 ~ 2024-01",
+            "description": ["负责 BLE 联调", "输出测试报告"],
+        }
+    ]
+    assert sanitized["skills"] == ["MySQL增删改查", "Linux常用命令", "Postman接口测试", "Xmind测试思维导图"]
+    assert sanitized["projects"][0]["description"] == ["接口联调", "输出测试报告"]
+    assert sanitized["projects"][0]["highlights"] == ["Postman接口测试", "Linux常用命令"]
+    assert sanitized["basic_info"]["education"] == "上海交通大学 硕士 电子信息"
+    assert "work_experiences 中存在结构异常的工作经历条目，已过滤" in warnings
+    assert "skills 存在泛词污染，已过滤" in warnings
+
+
 def test_root_task_completed_snapshot_contains_timing_and_persisted_refs():
     service = RecruitmentService(Mock())
     candidate = SimpleNamespace(id=5, position_id=9, latest_resume_file_id=12, updated_by=None, status="screening_passed", match_percent=81, ai_recommended_status="screening_passed")
@@ -1973,6 +3113,138 @@ def test_root_task_completed_snapshot_contains_timing_and_persisted_refs():
     kwargs = service._finish_ai_task_log.call_args.kwargs
     assert kwargs["timing_breakdown"] == {"total_duration_ms": 1234}
     assert kwargs["persisted_result_refs"] == {"parse_result_id": 31, "score_result_id": 41, "candidate_status_after": "screening_passed"}
+
+
+def test_build_screening_run_timing_breakdown_uses_child_total_when_root_total_is_too_small():
+    service = RecruitmentService(Mock())
+    created_at = datetime.now() - timedelta(seconds=90)
+    root_log = SimpleNamespace(
+        created_at=created_at,
+        updated_at=created_at + timedelta(seconds=1),
+        stage_started_at=created_at + timedelta(milliseconds=200),
+        stage_completed_at=created_at + timedelta(seconds=1),
+        duration_ms=1000,
+        status="success",
+        timing_breakdown_json='{"parse_duration_ms":0,"total_duration_ms":1000}',
+        output_snapshot='{"parse_strategy":"combined_parse_and_score"}',
+        validation_meta_json="{}",
+    )
+    score_log = SimpleNamespace(
+        created_at=created_at + timedelta(milliseconds=200),
+        updated_at=created_at + timedelta(seconds=88),
+        stage_started_at=created_at + timedelta(milliseconds=200),
+        stage_completed_at=created_at + timedelta(seconds=88),
+        duration_ms=87883,
+        timing_breakdown_json='{"score_duration_ms":87583,"validation_duration_ms":200,"save_duration_ms":100,"total_duration_ms":87883}',
+    )
+
+    timing = service._build_screening_run_timing_breakdown(
+        root_log=root_log,
+        parse_log=None,
+        score_log=score_log,
+    )
+
+    assert timing["parse_duration_ms"] is None
+    assert timing["score_duration_ms"] == 87583
+    assert timing["total_duration_ms"] >= 87883
+
+
+def test_build_screening_run_timing_breakdown_does_not_fake_zero_parse_duration_for_one_pass():
+    service = RecruitmentService(Mock())
+    created_at = datetime.now() - timedelta(seconds=10)
+    root_log = SimpleNamespace(
+        created_at=created_at,
+        updated_at=created_at + timedelta(seconds=9),
+        stage_started_at=created_at + timedelta(milliseconds=100),
+        stage_completed_at=created_at + timedelta(seconds=9),
+        duration_ms=9000,
+        status="success",
+        timing_breakdown_json='{"parse_duration_ms":0,"score_duration_ms":8200,"validation_duration_ms":300,"save_duration_ms":200,"total_duration_ms":9000}',
+        output_snapshot='{"parse_strategy":"combined_parse_and_score"}',
+        validation_meta_json="{}",
+    )
+    score_log = SimpleNamespace(
+        created_at=created_at + timedelta(milliseconds=100),
+        updated_at=created_at + timedelta(seconds=9),
+        stage_started_at=created_at + timedelta(milliseconds=100),
+        stage_completed_at=created_at + timedelta(seconds=9),
+        duration_ms=8700,
+        timing_breakdown_json='{"parse_duration_ms":null,"score_duration_ms":8200,"validation_duration_ms":300,"save_duration_ms":200,"total_duration_ms":8700}',
+    )
+
+    timing = service._build_screening_run_timing_breakdown(
+        root_log=root_log,
+        parse_log=None,
+        score_log=score_log,
+    )
+
+    assert timing["parse_duration_ms"] is None
+    assert timing["total_duration_ms"] >= timing["score_duration_ms"]
+
+
+def test_get_candidate_detail_compacts_heavy_payload_and_survives_activity_failures():
+    db = Mock()
+    service = RecruitmentService(db)
+    candidate = SimpleNamespace(id=7, latest_parse_result_id=31, latest_score_id=41)
+    parse_row = SimpleNamespace(
+        id=31,
+        candidate_id=7,
+        resume_file_id=11,
+        raw_text="A" * 50000,
+        basic_info_json=json.dumps({"name": "王欢", "education": "本科"}, ensure_ascii=False),
+        work_experiences_json=json.dumps([{"company_name": "上海某科技有限公司", "description": "D" * 40000}], ensure_ascii=False),
+        education_experiences_json="[]",
+        skills_json=json.dumps(["Postman接口测试", "Linux常用命令"], ensure_ascii=False),
+        projects_json="[]",
+        summary_text="S" * 30000,
+        status="success",
+        error_message=None,
+        created_at=datetime(2026, 4, 14, 12, 0, 0),
+    )
+    score_row = SimpleNamespace(id=41)
+    bad_log = _build_ai_task_log_row(id=1, task_type="resume_score")
+    good_log = _build_ai_task_log_row(id=2, task_type=SCREENING_FLOW_TASK_TYPE)
+
+    db.query.side_effect = [
+        _build_query_mock(all_value=[]),
+        _build_query_mock(first_value=parse_row),
+        _build_query_mock(first_value=score_row),
+        _build_query_mock(all_value=[]),
+        _build_query_mock(all_value=[]),
+        _build_query_mock(all_value=[bad_log, good_log]),
+        _build_query_mock(first_value=None),
+    ]
+
+    service._get_candidate = Mock(return_value=candidate)
+    service._get_workflow_memory = Mock(return_value=None)
+    service._serialize_candidate_summary = Mock(
+        return_value={
+            "id": 7,
+            "name": "王欢",
+            "position_screening_skills": [{"id": 1, "name": "IoT 初筛规则", "content": "C" * 50000}],
+        }
+    )
+    service._serialize_score = Mock(return_value={"id": 41, "total_score": 7.8, "match_percent": 78})
+    service._settle_orphaned_live_task = Mock(side_effect=[RuntimeError("settle failed"), False])
+
+    original_serialize_ai_task_log = service._serialize_ai_task_log
+
+    def _serialize_with_failure(row, **kwargs):
+        if row.id == 1:
+            raise RuntimeError("serialize failed")
+        return original_serialize_ai_task_log(row, **kwargs)
+
+    service._serialize_ai_task_log = Mock(side_effect=_serialize_with_failure)
+
+    payload = service.get_candidate_detail(7)
+
+    assert payload["candidate"]["position_screening_skills"][0]["content"].endswith("...")
+    assert payload["parse_result"]["raw_text"].endswith("...")
+    assert payload["activity_meta"]["returned_count"] == 2
+    assert payload["activity"][0]["validation_meta"]["detail_log_serialization_failed"] is True
+    assert payload["activity"][0]["output_summary"] == "该条日志序列化失败，已返回精简兜底信息。"
+    assert payload["activity"][1]["raw_response_text"].endswith("...")
+    assert payload["activity"][1]["output_snapshot"]["raw"].endswith("...")
 
 
 def test_root_task_completed_inherits_model_from_score_log():

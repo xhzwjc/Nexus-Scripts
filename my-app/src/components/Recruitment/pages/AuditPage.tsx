@@ -9,6 +9,7 @@ import type {
     PositionSummary,
     RecruitmentSkill,
 } from "@/lib/recruitment-api";
+import {getCurrentLanguage, useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
@@ -78,6 +79,118 @@ type AuditTaskLogWithRunLogs = AITaskLog & {
 const AUDIT_LIST_ESTIMATED_ROW_HEIGHT = 54;
 const AUDIT_LIST_OVERSCAN = 8;
 
+function getAuditPageLocale(language = getCurrentLanguage()) {
+    const isZh = language !== "en-US";
+    return {
+        retryQueued: isZh ? "排队重试中" : "Retry Queued",
+        waitingRetry: isZh ? "等待重试" : "Waiting to Retry",
+        noTaskSelected: isZh ? "未选择任务" : "No task selected",
+        parseNoSkills: isZh ? "本任务为简历解析，不使用岗位初筛 Skills" : "Resume parsing does not use screening skills",
+        skillsUsed: (names: string[]) => (isZh ? `本任务已使用 Skills：${names.join("、")}` : `Skills used: ${names.join(", ")}`),
+        skillsExpectedButMissing: isZh ? "本任务应使用 Skills，但本次未解析到有效 Skills" : "Skills were expected but none were resolved",
+        unrecorded: isZh ? "未记录" : "Unrecorded",
+        promptSnapshotMissing: isZh ? "暂无 Prompt 快照" : "No prompt snapshot",
+        fullRequestMissing: isZh ? "暂无完整模型请求" : "No full model request",
+        rawResponseMissing: isZh ? "暂无模型原始响应" : "No raw model response",
+        parsedJsonMissing: isZh ? "暂无解析后 JSON" : "No parsed JSON",
+        sanitizedJsonMissing: isZh ? "暂无清洗后 JSON" : "No sanitized JSON",
+        outputMissing: isZh ? "暂无完整输出" : "No full output",
+        filterBarTitle: isZh ? "任务筛选条" : "Task Filter Bar",
+        filterBarDesc: isZh ? "按任务类型和状态收拢 AI 任务，便于排查与复盘。" : "Filter AI tasks by type and status for debugging and review.",
+        refreshing: isZh ? "刷新中..." : "Refreshing...",
+        refreshTasks: isZh ? "刷新任务" : "Refresh Tasks",
+        expandFilters: isZh ? "展开筛选" : "Expand Filters",
+        collapseFilters: isZh ? "收起筛选" : "Collapse Filters",
+        allTaskTypes: isZh ? "全部任务类型" : "All Task Types",
+        allStatuses: isZh ? "全部状态" : "All Statuses",
+        auditCenterTitle: isZh ? "任务审计中心" : "Task Audit Center",
+        auditCenterDesc: isZh ? "展示任务类型、关联对象、状态、使用模型和执行时间。" : "Show task type, related object, status, model, and execution time.",
+        loadingAuditLogs: isZh ? "正在加载 AI 审计日志" : "Loading AI audit logs",
+        taskType: isZh ? "任务类型" : "Task Type",
+        relatedObject: isZh ? "关联对象" : "Related Object",
+        status: isZh ? "状态" : "Status",
+        model: isZh ? "模型" : "Model",
+        duration: isZh ? "耗时" : "Duration",
+        time: isZh ? "时间" : "Time",
+        noAuditLogs: isZh ? "暂无 AI 审计记录" : "No AI Audit Logs",
+        noAuditLogsDesc: isZh ? "当招聘模块调用模型后，这里会沉淀成可追踪的任务日志。" : "Audit logs will appear here after recruiting tasks call the model.",
+        loadingLogDetail: isZh ? "正在加载日志详情" : "Loading log details",
+        currentStage: isZh ? "当前阶段" : "Current Stage",
+        runId: "Run ID",
+        skillUsage: isZh ? "技能使用情况" : "Skill Usage",
+        memorySource: isZh ? "记忆来源" : "Memory Source",
+        retryCount: isZh ? "已重试次数" : "Retry Count",
+        retryAfter: isZh ? "下次重试间隔" : "Next Retry Delay",
+        nextRetryTime: isZh ? "下次重试时间" : "Next Retry Time",
+        taskFlow: isZh ? "任务链路" : "Task Flow",
+        inferredTerminal: isZh ? "主流程状态未及时收口，已按子阶段结果推断展示。" : "The root flow did not settle in time; the UI is showing an inferred terminal state from child stages.",
+        noRunFlow: isZh ? "本次未找到同 run 的任务链路。" : "No task flow was found for this run.",
+        skillResolution: isZh ? "Skills 解析结果" : "Skill Resolution",
+        sourceLine: (skillSource: string, memorySource: string) => (isZh ? `来源：${skillSource} · 记忆源：${memorySource}` : `Source: ${skillSource} · Memory: ${memorySource}`),
+        dimensionCount: isZh ? "提炼维度数" : "Derived Dimensions",
+        notApplicable: isZh ? "不适用" : "N/A",
+        injectedPrompt: isZh ? "已注入评分 Prompt" : "Injected into Score Prompt",
+        yes: isZh ? "是" : "Yes",
+        no: isZh ? "否" : "No",
+        source: isZh ? "来源" : "Source",
+        noSkillResolutionDetail: isZh ? "暂无 Skills 解析详情" : "No skill resolution details",
+        noSkillContent: isZh ? "暂无内容" : "No content",
+        scoreRuleSnapshot: isZh ? "评分维度快照" : "Score Rule Snapshot",
+        pointsSuffix: isZh ? " 分" : " pts",
+        sourceSkillMissing: isZh ? "未记录来源 Skill" : "Source skill missing",
+        coreDimension: isZh ? "核心维度" : "Core Dimension",
+        nonCoreDimension: isZh ? "非核心维度" : "Non-core Dimension",
+        noNotes: isZh ? "暂无说明" : "No notes",
+        noRuleSnapshot: isZh ? "本次未记录评分维度快照。" : "No score rule snapshot was recorded.",
+        timingBreakdown: isZh ? "耗时拆解" : "Timing Breakdown",
+        queueWait: isZh ? "排队等待" : "Queue Wait",
+        parseDuration: isZh ? "简历解析" : "Resume Parse",
+        scoreDuration: isZh ? "模型评分" : "Model Score",
+        validationDuration: isZh ? "结果校验" : "Validation",
+        saveDuration: isZh ? "结果保存" : "Save",
+        totalDuration: isZh ? "总耗时" : "Total Duration",
+        inputSummary: isZh ? "输入摘要" : "Input Summary",
+        outputSummary: isZh ? "输出摘要" : "Output Summary",
+        errorMessage: isZh ? "错误信息" : "Error Message",
+        none: isZh ? "无" : "None",
+        schemaViolation: isZh ? "Schema 违规" : "Schema violation",
+        stateExplanation: isZh ? "状态解释" : "State Explanation",
+        noStateExplanation: isZh ? "暂无状态解释" : "No state explanation",
+        persistedResults: isZh ? "最终写库结果" : "Persisted Result",
+        noPersistedResults: isZh ? "暂无最终写库结果" : "No persisted result",
+        parseStageDetail: isZh ? "阶段1：简历解析详情" : "Stage 1: Resume Parse Detail",
+        parseReusedDetail: isZh ? "本次复用了已有解析结果，无单独解析模型调用。" : "An existing parse result was reused, so there was no separate parsing model call.",
+        noParseDetail: isZh ? "当前暂无简历解析阶段的模型明细。" : "No model details for the parse stage are available.",
+        scoreStageDetail: isZh ? "阶段2：初筛评分详情" : "Stage 2: Screening Score Detail",
+        noScoreDetail: isZh ? "当前暂无初筛评分阶段的模型明细。" : "No model details for the scoring stage are available.",
+        saveStageDetail: isZh ? "阶段3：结果写库详情" : "Stage 3: Persist Detail",
+        finalSource: isZh ? "最终来源" : "Final Source",
+        candidateStatus: isZh ? "候选人状态" : "Candidate Status",
+        fullModelRequest: isZh ? "完整模型请求" : "Full Model Request",
+        modelRawResponse: isZh ? "模型原始响应" : "Raw Model Response",
+        parsedJson: isZh ? "解析后 JSON" : "Parsed JSON",
+        sanitizedJson: isZh ? "清洗后 JSON" : "Sanitized JSON",
+        fullOutput: isZh ? "完整输出" : "Full Output",
+        selectTaskRecord: isZh ? "请选择一条任务记录" : "Select a Task Record",
+        selectTaskRecordDesc: isZh ? "左侧点开任务后，这里会展示输入摘要、输出摘要、错误信息和 Skill 使用情况。" : "Select a task on the left to view its input, output, errors, and skill usage.",
+        sourceLog: isZh ? "来源日志" : "Source Log",
+        stage: isZh ? "阶段" : "Stage",
+    };
+}
+
+function getAuditLocale() {
+    const isZh = getCurrentLanguage() !== "en-US";
+    return {
+        screeningFlow: isZh ? "初筛流程" : "Screening Flow",
+        pending: isZh ? "待执行" : "Pending",
+        running: isZh ? "执行中" : "Running",
+        completed: isZh ? "已完成" : "Completed",
+        reused: isZh ? "已复用" : "Reused",
+        failed: isZh ? "失败" : "Failed",
+        cancelled: isZh ? "已停止" : "Stopped",
+    };
+}
+
 function toRecord(value: unknown) {
     return value && typeof value === "object" && !Array.isArray(value)
         ? value as Record<string, unknown>
@@ -97,17 +210,18 @@ function readStringList(value: unknown) {
 }
 
 function labelForAuditLogTask(log?: AITaskLog | null) {
+    const locale = getAuditLocale();
     if (!log) {
         return labelForTaskType();
     }
     if (log.task_type === "screening_flow") {
-        return "初筛流程";
+        return locale.screeningFlow;
     }
     const isRootScreeningLog = Boolean(log.screening_run_id) && (
         (typeof log.root_task_id === "number" && log.id === log.root_task_id)
         || (log.root_task_id == null && log.parent_task_id == null && log.task_type === "resume_score")
     );
-    return isRootScreeningLog ? "初筛流程" : labelForTaskType(log.task_type);
+    return isRootScreeningLog ? locale.screeningFlow : labelForTaskType(log.task_type);
 }
 
 function isUserVisibleAuditLog(log: AITaskLog) {
@@ -124,19 +238,20 @@ function isUserVisibleAuditLog(log: AITaskLog) {
 }
 
 function labelForFlowStageStatus(status?: string | null) {
+    const locale = getAuditLocale();
     switch (status) {
         case "pending":
-            return "待执行";
+            return locale.pending;
         case "running":
-            return "执行中";
+            return locale.running;
         case "completed":
-            return "已完成";
+            return locale.completed;
         case "reused":
-            return "已复用";
+            return locale.reused;
         case "failed":
-            return "失败";
+            return locale.failed;
         case "cancelled":
-            return "已停止";
+            return locale.cancelled;
         default:
             return status || "-";
     }
@@ -220,6 +335,8 @@ export function AuditPage({
     auditListScrollRef,
     auditListHorizontalRailRef,
 }: AuditPageProps) {
+    const { language } = useI18n();
+    const tr = React.useMemo(() => getAuditPageLocale(language), [language]);
     const [auditListViewportEl, setAuditListViewportEl] = React.useState<HTMLDivElement | null>(null);
     const [auditListScrollTop, setAuditListScrollTop] = React.useState(0);
     const [auditListViewportHeight, setAuditListViewportHeight] = React.useState(0);
@@ -241,10 +358,10 @@ export function AuditPage({
     );
     const auditTaskTypeOptions = React.useMemo(
         () => ({
-            screening_flow: "初筛流程",
+            screening_flow: getAuditLocale().screeningFlow,
             ...aiTaskLabels,
         }),
-        [],
+        [language],
     );
     const selectedLogRunLogs = React.useMemo(() => {
         const detail = selectedLogDetail as AuditTaskLogWithRunLogs | null;
@@ -357,10 +474,10 @@ export function AuditPage({
     const selectedDisplayTaskStatus = selectedFlowAuditView?.effectiveRootStatus || selectedLogDetail?.status || "pending";
     const selectedDisplayTaskStage = selectedFlowAuditView?.effectiveRootStage || selectedLogDetail?.stage || "pending";
     const selectedDisplayTaskStatusLabel = selectedFlowAuditView?.autoRequeueScheduled
-        ? "排队重试中"
+        ? tr.retryQueued
         : labelForTaskExecutionStatus(selectedDisplayTaskStatus);
     const selectedDisplayTaskStageLabel = selectedFlowAuditView?.autoRequeueScheduled
-        ? "等待重试"
+        ? tr.waitingRetry
         : labelForScreeningTaskStage(selectedDisplayTaskStage);
     const selectedRootNotice = selectedFlowAuditView?.rootNotice || null;
     const selectedRootNoticeClassName = selectedFlowAuditView?.autoRequeueScheduled
@@ -382,16 +499,16 @@ export function AuditPage({
     ), [selectedLogSkillSnapshots, selectedSkillResolutionDetail]);
     const selectedSkillUsageText = React.useMemo(() => {
         if (!selectedLogDetail) {
-            return "未选择任务";
+            return tr.noTaskSelected;
         }
         if (selectedLogDetail.task_type === "resume_parse") {
-            return "本任务为简历解析，不使用岗位初筛 Skills";
+            return tr.parseNoSkills;
         }
         if (selectedSkillNames.length > 0) {
-            return `本任务已使用 Skills：${selectedSkillNames.join("、")}`;
+            return tr.skillsUsed(selectedSkillNames);
         }
-        return "本任务应使用 Skills，但本次未解析到有效 Skills";
-    }, [selectedLogDetail, selectedSkillNames]);
+        return tr.skillsExpectedButMissing;
+    }, [selectedLogDetail, selectedSkillNames, tr]);
     const isSelectedScreeningFlow = selectedLogDetail?.task_type === "screening_flow";
 
     function renderStageModelDetails(label: string, log: AITaskLog | null, emptyText: string) {
@@ -399,30 +516,30 @@ export function AuditPage({
             <Field label={label}>
                 <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                        <InfoTile label="来源日志" value={log ? `#${log.id} / ${labelForAuditLogTask(log)}` : "未记录"}/>
-                        <InfoTile label="阶段" value={log ? labelForScreeningTaskStage(log.stage) : "未记录"}/>
-                        <InfoTile label="状态" value={log ? labelForTaskExecutionStatus(log.status) : "未记录"}/>
-                        <InfoTile label="耗时" value={formatDurationValue(log?.duration_ms)}/>
+                        <InfoTile label={tr.sourceLog} value={log ? `#${log.id} / ${labelForAuditLogTask(log)}` : tr.unrecorded}/>
+                        <InfoTile label={tr.stage} value={log ? labelForScreeningTaskStage(log.stage) : tr.unrecorded}/>
+                        <InfoTile label={tr.status} value={log ? labelForTaskExecutionStatus(log.status) : tr.unrecorded}/>
+                        <InfoTile label={tr.duration} value={formatDurationValue(log?.duration_ms)}/>
                     </div>
                     {log ? (
                         <>
                             <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
-                                <pre className="whitespace-pre-wrap break-words">{log.prompt_snapshot || "暂无 Prompt 快照"}</pre>
+                                <pre className="whitespace-pre-wrap break-words">{log.prompt_snapshot || tr.promptSnapshotMissing}</pre>
                             </div>
                             <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
-                                <pre className="whitespace-pre-wrap break-words">{log.full_request_snapshot || "暂无完整模型请求"}</pre>
+                                <pre className="whitespace-pre-wrap break-words">{log.full_request_snapshot || tr.fullRequestMissing}</pre>
                             </div>
                             <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
-                                <pre className="whitespace-pre-wrap break-words">{log.raw_response_text || "暂无模型原始响应"}</pre>
+                                <pre className="whitespace-pre-wrap break-words">{log.raw_response_text || tr.rawResponseMissing}</pre>
                             </div>
                             <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
-                                <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.parsed_response_json, "暂无解析后 JSON")}</pre>
+                                <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.parsed_response_json, tr.parsedJsonMissing)}</pre>
                             </div>
                             <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
-                                <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.sanitized_response_json, "暂无清洗后 JSON")}</pre>
+                                <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.sanitized_response_json, tr.sanitizedJsonMissing)}</pre>
                             </div>
                             <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
-                                <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.output_snapshot, log.output_summary || "暂无完整输出")}</pre>
+                                <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(log.output_snapshot, log.output_summary || tr.outputMissing)}</pre>
                             </div>
                         </>
                     ) : (
@@ -612,13 +729,13 @@ export function AuditPage({
                     <div className="flex flex-col gap-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="min-w-0">
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">任务筛选条</p>
-                                <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{auditFiltersCollapsed ? auditFilterSummary : "按任务类型和状态收拢 AI 任务，便于排查与复盘。"}</p>
+                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{tr.filterBarTitle}</p>
+                                <p className="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{auditFiltersCollapsed ? auditFilterSummary : tr.filterBarDesc}</p>
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 <Button variant="outline" onClick={() => void refreshLogsWithFeedback()} disabled={logsLoading}>
                                     {logsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> : <RefreshCw className="h-4 w-4"/>}
-                                    {logsLoading ? "刷新中..." : "刷新任务"}
+                                    {logsLoading ? tr.refreshing : tr.refreshTasks}
                                 </Button>
                                 <Button
                                     type="button"
@@ -627,14 +744,14 @@ export function AuditPage({
                                     onClick={() => setAuditFiltersCollapsed((current) => !current)}
                                 >
                                     {auditFiltersCollapsed ? <ChevronDown className="h-4 w-4"/> : <ChevronUp className="h-4 w-4"/>}
-                                    {auditFiltersCollapsed ? "展开筛选" : "收起筛选"}
+                                    {auditFiltersCollapsed ? tr.expandFilters : tr.collapseFilters}
                                 </Button>
                             </div>
                         </div>
                         {!auditFiltersCollapsed ? (
                             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr]">
                                 <NativeSelect value={logTaskTypeFilter} onChange={(event) => setLogTaskTypeFilter(event.target.value)}>
-                                    <option value="all">全部任务类型</option>
+                                    <option value="all">{tr.allTaskTypes}</option>
                                     {Object.entries(auditTaskTypeOptions).map(([value, label]) => (
                                         <option key={value} value={value}>
                                             {label}
@@ -642,7 +759,7 @@ export function AuditPage({
                                     ))}
                                 </NativeSelect>
                                 <NativeSelect value={logStatusFilter} onChange={(event) => setLogStatusFilter(event.target.value)}>
-                                    <option value="all">全部状态</option>
+                                    <option value="all">{tr.allStatuses}</option>
                                     <option value="pending">pending</option>
                                     <option value="queued">queued</option>
                                     <option value="success">success</option>
@@ -665,12 +782,12 @@ export function AuditPage({
             <div className="grid min-h-0 items-stretch gap-6 overflow-hidden xl:grid-cols-[minmax(0,1fr)_minmax(540px,42%)] 2xl:grid-cols-[minmax(0,1fr)_minmax(680px,45%)]">
                 <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden")}>
                     <CardHeader className="pb-0">
-                        <CardTitle className="text-lg">任务审计中心</CardTitle>
-                        <CardDescription>展示任务类型、关联对象、状态、使用模型和执行时间。</CardDescription>
+                        <CardTitle className="text-lg">{tr.auditCenterTitle}</CardTitle>
+                        <CardDescription>{tr.auditCenterDesc}</CardDescription>
                     </CardHeader>
                     <CardContent className="flex min-h-0 flex-1 flex-col pt-6">
                         {logsLoading ? (
-                            <LoadingCard label="正在加载 AI 审计日志"/>
+                            <LoadingCard label={tr.loadingAuditLogs}/>
                         ) : (
                             <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
                                 <div
@@ -681,12 +798,12 @@ export function AuditPage({
                                         <Table className="table-fixed" style={{width: auditListTableWidth, minWidth: auditListTableWidth}}>
                                             <TableHeader>
                                                 <TableRow>
-                                                    <TableHead style={{width: auditListDisplayColumnWidths.taskType, minWidth: auditListDisplayColumnWidths.taskType, maxWidth: auditListDisplayColumnWidths.taskType}} className="whitespace-nowrap">任务类型</TableHead>
-                                                    <TableHead style={{width: auditListDisplayColumnWidths.object, minWidth: auditListDisplayColumnWidths.object, maxWidth: auditListDisplayColumnWidths.object}} className="whitespace-nowrap">关联对象</TableHead>
-                                                    <TableHead style={{width: auditListDisplayColumnWidths.status, minWidth: auditListDisplayColumnWidths.status, maxWidth: auditListDisplayColumnWidths.status}} className="whitespace-nowrap">状态</TableHead>
-                                                    <TableHead style={{width: auditListDisplayColumnWidths.model, minWidth: auditListDisplayColumnWidths.model, maxWidth: auditListDisplayColumnWidths.model}} className="whitespace-nowrap">模型</TableHead>
-                                                    <TableHead style={{width: auditListDisplayColumnWidths.duration, minWidth: auditListDisplayColumnWidths.duration, maxWidth: auditListDisplayColumnWidths.duration}} className="whitespace-nowrap">耗时</TableHead>
-                                                    <TableHead style={{width: auditListDisplayColumnWidths.time, minWidth: auditListDisplayColumnWidths.time, maxWidth: auditListDisplayColumnWidths.time}} className="whitespace-nowrap text-right">时间</TableHead>
+                                                    <TableHead style={{width: auditListDisplayColumnWidths.taskType, minWidth: auditListDisplayColumnWidths.taskType, maxWidth: auditListDisplayColumnWidths.taskType}} className="whitespace-nowrap">{tr.taskType}</TableHead>
+                                                    <TableHead style={{width: auditListDisplayColumnWidths.object, minWidth: auditListDisplayColumnWidths.object, maxWidth: auditListDisplayColumnWidths.object}} className="whitespace-nowrap">{tr.relatedObject}</TableHead>
+                                                    <TableHead style={{width: auditListDisplayColumnWidths.status, minWidth: auditListDisplayColumnWidths.status, maxWidth: auditListDisplayColumnWidths.status}} className="whitespace-nowrap">{tr.status}</TableHead>
+                                                    <TableHead style={{width: auditListDisplayColumnWidths.model, minWidth: auditListDisplayColumnWidths.model, maxWidth: auditListDisplayColumnWidths.model}} className="whitespace-nowrap">{tr.model}</TableHead>
+                                                    <TableHead style={{width: auditListDisplayColumnWidths.duration, minWidth: auditListDisplayColumnWidths.duration, maxWidth: auditListDisplayColumnWidths.duration}} className="whitespace-nowrap">{tr.duration}</TableHead>
+                                                    <TableHead style={{width: auditListDisplayColumnWidths.time, minWidth: auditListDisplayColumnWidths.time, maxWidth: auditListDisplayColumnWidths.time}} className="whitespace-nowrap text-right">{tr.time}</TableHead>
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
@@ -748,7 +865,7 @@ export function AuditPage({
                                                 ) : (
                                                     <TableRow>
                                                         <TableCell colSpan={6}>
-                                                            <EmptyState title="暂无 AI 审计记录" description="当招聘模块调用模型后，这里会沉淀成可追踪的任务日志。"/>
+                                                            <EmptyState title={tr.noAuditLogs} description={tr.noAuditLogsDesc}/>
                                                         </TableCell>
                                                     </TableRow>
                                                 )}
@@ -770,7 +887,7 @@ export function AuditPage({
                 </Card>
 
                 <Card className={cn(panelClass, "min-h-0 overflow-hidden")}>
-                    {logDetailLoading ? <LoadingPanel label="正在加载日志详情"/> : selectedLogDetail ? (
+                    {logDetailLoading ? <LoadingPanel label={tr.loadingLogDetail}/> : selectedLogDetail ? (
                         <div className="flex h-full min-h-0 flex-1 flex-col">
                             <div className="border-b border-slate-200/80 px-6 py-5 dark:border-slate-800">
                                 <div className="flex flex-wrap items-center gap-2">
@@ -800,23 +917,23 @@ export function AuditPage({
                             <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
                                 <div className="min-w-0 space-y-5 px-6 py-6">
                                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                        <InfoTile label="当前阶段" value={selectedDisplayTaskStageLabel}/>
-                                        <InfoTile label="Run ID" value={selectedLogDetail.screening_run_id || "未记录"}/>
-                                        <InfoTile label="技能使用情况" value={selectedSkillUsageText}/>
-                                        <InfoTile label="记忆来源" value={labelForMemorySource(selectedLogDetail.memory_source)}/>
+                                        <InfoTile label={tr.currentStage} value={selectedDisplayTaskStageLabel}/>
+                                        <InfoTile label={tr.runId} value={selectedLogDetail.screening_run_id || tr.unrecorded}/>
+                                        <InfoTile label={tr.skillUsage} value={selectedSkillUsageText}/>
+                                        <InfoTile label={tr.memorySource} value={labelForMemorySource(selectedLogDetail.memory_source)}/>
                                     </div>
                                     {selectedFlowAuditView?.autoRequeueScheduled ? (
                                         <div className="grid gap-3 md:grid-cols-3">
-                                            <InfoTile label="已重试次数" value={selectedInfraRetryCount != null ? `${selectedInfraRetryCount}` : "未记录"}/>
-                                            <InfoTile label="下次重试间隔" value={selectedRetryAfterSeconds != null ? `${selectedRetryAfterSeconds}s` : "未记录"}/>
-                                            <InfoTile label="下次重试时间" value={selectedNextRetryAt ? formatLongDateTime(selectedNextRetryAt) : "未记录"}/>
+                                            <InfoTile label={tr.retryCount} value={selectedInfraRetryCount != null ? `${selectedInfraRetryCount}` : tr.unrecorded}/>
+                                            <InfoTile label={tr.retryAfter} value={selectedRetryAfterSeconds != null ? `${selectedRetryAfterSeconds}s` : tr.unrecorded}/>
+                                            <InfoTile label={tr.nextRetryTime} value={selectedNextRetryAt ? formatLongDateTime(selectedNextRetryAt) : tr.unrecorded}/>
                                         </div>
                                     ) : null}
-                                    <Field label="任务链路">
+                                    <Field label={tr.taskFlow}>
                                         <div className="space-y-3">
                                             {selectedFlowAuditView?.inferredFromChildTerminal ? (
                                                 <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-                                                    主流程状态未及时收口，已按子阶段结果推断展示。
+                                                    {tr.inferredTerminal}
                                                 </div>
                                             ) : null}
                                             {selectedFlowStages.length ? selectedFlowStages.map((stage) => (
@@ -859,34 +976,34 @@ export function AuditPage({
                                                 </div>
                                             )) : (
                                                 <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                                                    本次未找到同 run 的任务链路。
+                                                    {tr.noRunFlow}
                                                 </div>
                                             )}
                                         </div>
                                     </Field>
-                                    <Field label="Skills 解析结果">
+                                    <Field label={tr.skillResolution}>
                                         <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm dark:border-slate-800 dark:bg-slate-900">
                                             <p className="font-medium text-slate-900 dark:text-slate-100">{selectedSkillUsageText}</p>
                                             <p className="text-slate-500 dark:text-slate-400">
-                                                来源：{labelForSkillResolutionSource(selectedLogDetail.skill_resolution_source)} · 记忆源：{labelForMemorySource(selectedLogDetail.memory_source)}
+                                                {tr.sourceLine(labelForSkillResolutionSource(selectedLogDetail.skill_resolution_source), labelForMemorySource(selectedLogDetail.memory_source))}
                                             </p>
                                             <div className="grid gap-3 md:grid-cols-3">
                                                 <InfoTile
-                                                    label="提炼维度数"
-                                                    value={selectedLogDetail.task_type === "resume_parse" ? "不适用" : `${selectedPromptRuleDimensionCount} 个`}
+                                                    label={tr.dimensionCount}
+                                                    value={selectedLogDetail.task_type === "resume_parse" ? tr.notApplicable : `${selectedPromptRuleDimensionCount}${language === "en-US" ? "" : " 个"}`}
                                                 />
                                                 <InfoTile
-                                                    label="已注入评分 Prompt"
-                                                    value={selectedLogDetail.task_type === "resume_parse" ? "不适用" : selectedSkillsAppliedToPrompt ? "是" : "否"}
+                                                    label={tr.injectedPrompt}
+                                                    value={selectedLogDetail.task_type === "resume_parse" ? tr.notApplicable : selectedSkillsAppliedToPrompt ? tr.yes : tr.no}
                                                 />
                                                 <InfoTile
-                                                    label="来源"
+                                                    label={tr.source}
                                                     value={`${labelForSkillResolutionSource(selectedLogDetail.skill_resolution_source)} / ${labelForMemorySource(selectedLogDetail.memory_source)}`}
                                                 />
                                             </div>
                                             {selectedSkillResolutionDetail ? (
                                                 <pre className="whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">
-                                                    {formatStructuredValue(selectedSkillResolutionDetail, "暂无 Skills 解析详情")}
+                                                    {formatStructuredValue(selectedSkillResolutionDetail, tr.noSkillResolutionDetail)}
                                                 </pre>
                                             ) : null}
                                             {selectedLogSkillSnapshots.length ? (
@@ -906,49 +1023,49 @@ export function AuditPage({
                                                                     </div>
                                                                 ) : null}
                                                             </div>
-                                                            <pre className="mt-3 whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">{skill.content || "暂无内容"}</pre>
+                                                            <pre className="mt-3 whitespace-pre-wrap break-words text-xs leading-6 text-slate-600 dark:text-slate-300">{skill.content || tr.noSkillContent}</pre>
                                                         </div>
                                                     ))}
                                                 </div>
                                             ) : null}
                                         </div>
                                     </Field>
-                                    <Field label="评分维度快照">
+                                    <Field label={tr.scoreRuleSnapshot}>
                                         <div className="space-y-3">
                                             {selectedScoreRuleSnapshot.length ? selectedScoreRuleSnapshot.map((item, index) => (
                                                 <div key={`${item.label || "rule"}-${index}`} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-sm dark:border-slate-800 dark:bg-slate-900">
                                                     <p className="font-semibold text-slate-900 dark:text-slate-100">
-                                                        {String(item.label || "-")} · {String(item.max_score || "-")} 分
+                                                        {String(item.label || "-")} · {String(item.max_score || "-")}{tr.pointsSuffix}
                                                     </p>
                                                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                        {String(item.skill_name || "未记录来源 Skill")} · {item.is_core ? "核心维度" : "非核心维度"}
+                                                        {String(item.skill_name || tr.sourceSkillMissing)} · {item.is_core ? tr.coreDimension : tr.nonCoreDimension}
                                                     </p>
-                                                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{String(item.note || "暂无说明")}</p>
+                                                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{String(item.note || tr.noNotes)}</p>
                                                 </div>
                                             )) : (
                                                 <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                                                    本次未记录评分维度快照。
+                                                    {tr.noRuleSnapshot}
                                                 </div>
                                             )}
                                         </div>
                                     </Field>
-                                    <Field label="耗时拆解">
+                                    <Field label={tr.timingBreakdown}>
                                         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                                             {[
-                                                ["排队等待", selectedTimingBreakdown?.queue_wait_ms],
-                                                ["简历解析", selectedTimingBreakdown?.parse_duration_ms],
-                                                ["模型评分", selectedTimingBreakdown?.score_duration_ms],
-                                                ["结果校验", selectedTimingBreakdown?.validation_duration_ms],
-                                                ["结果保存", selectedTimingBreakdown?.save_duration_ms],
-                                                ["总耗时", selectedTimingBreakdown?.total_duration_ms ?? selectedLogDetail.duration_ms],
+                                                [tr.queueWait, selectedTimingBreakdown?.queue_wait_ms],
+                                                [tr.parseDuration, selectedTimingBreakdown?.parse_duration_ms],
+                                                [tr.scoreDuration, selectedTimingBreakdown?.score_duration_ms],
+                                                [tr.validationDuration, selectedTimingBreakdown?.validation_duration_ms],
+                                                [tr.saveDuration, selectedTimingBreakdown?.save_duration_ms],
+                                                [tr.totalDuration, selectedTimingBreakdown?.total_duration_ms ?? selectedLogDetail.duration_ms],
                                             ].map(([label, value]) => (
                                                 <InfoTile key={String(label)} label={String(label)} value={formatDurationValue(value)}/>
                                             ))}
                                         </div>
                                     </Field>
-                                    <InfoTile label="输入摘要" value={selectedLogDetail.input_summary || "暂无"}/>
-                                    <InfoTile label="输出摘要" value={selectedLogDetail.output_summary || "暂无"}/>
-                                    <InfoTile label="错误信息" value={selectedLogDetail.error_message || "无"}/>
+                                    <InfoTile label={tr.inputSummary} value={selectedLogDetail.input_summary || tr.unrecorded}/>
+                                    <InfoTile label={tr.outputSummary} value={selectedLogDetail.output_summary || tr.unrecorded}/>
+                                    <InfoTile label={tr.errorMessage} value={selectedLogDetail.error_message || tr.none}/>
                                     {selectedAuditNotice.show && !selectedFlowAuditView?.autoRequeueScheduled ? (
                                         <Field label={selectedAuditNotice.title}>
                                             <div className={selectedAuditNotice.containerClassName}>
@@ -956,7 +1073,7 @@ export function AuditPage({
                                                     <p className="font-medium">{selectedInvalidResultSummary}</p>
                                                 ) : null}
                                                 {selectedAuditNotice.showSchemaReason && selectedModelSchemaViolationReason ? (
-                                                    <p>Schema 违规：{selectedModelSchemaViolationReason}</p>
+                                                    <p>{tr.schemaViolation}: {selectedModelSchemaViolationReason}</p>
                                                 ) : null}
                                                 {selectedAuditNotice.showInvalidReasons && selectedInvalidResultReasons.length ? (
                                                     <div className="space-y-1">
@@ -968,40 +1085,40 @@ export function AuditPage({
                                             </div>
                                         </Field>
                                     ) : null}
-                                    <Field label="状态解释">
+                                    <Field label={tr.stateExplanation}>
                                         <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                            <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedValidationMeta, "暂无状态解释")}</pre>
+                                            <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedValidationMeta, tr.noStateExplanation)}</pre>
                                         </div>
                                     </Field>
-                                    <Field label="最终写库结果">
+                                    <Field label={tr.persistedResults}>
                                         <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                            <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedPersistedResultRefs, "暂无最终写库结果")}</pre>
+                                            <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedPersistedResultRefs, tr.noPersistedResults)}</pre>
                                         </div>
                                     </Field>
                                     {isSelectedScreeningFlow ? (
                                         <>
                                             {renderStageModelDetails(
-                                                "阶段1：简历解析详情",
+                                                tr.parseStageDetail,
                                                 selectedParseDetailLog,
                                                 selectedFlowStages[0]?.status === "reused"
-                                                    ? "本次复用了已有解析结果，无单独解析模型调用。"
-                                                    : "当前暂无简历解析阶段的模型明细。",
+                                                    ? tr.parseReusedDetail
+                                                    : tr.noParseDetail,
                                             )}
                                             {renderStageModelDetails(
-                                                "阶段2：初筛评分详情",
+                                                tr.scoreStageDetail,
                                                 selectedScoreDetailLog,
-                                                "当前暂无初筛评分阶段的模型明细。",
+                                                tr.noScoreDetail,
                                             )}
-                                            <Field label="阶段3：结果写库详情">
+                                            <Field label={tr.saveStageDetail}>
                                                 <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
                                                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                                        <InfoTile label="parse_result_id" value={String(selectedPersistedResultRefs?.parse_result_id || "未记录")}/>
-                                                        <InfoTile label="score_result_id" value={String(selectedPersistedResultRefs?.score_result_id || "未记录")}/>
-                                                        <InfoTile label="最终来源" value={String(selectedValidationMeta?.final_response_source || selectedLogOutputRecord?.final_response_source || "未记录")}/>
-                                                        <InfoTile label="候选人状态" value={String(selectedPersistedResultRefs?.candidate_status_after || "未记录")}/>
+                                                        <InfoTile label="parse_result_id" value={String(selectedPersistedResultRefs?.parse_result_id || tr.unrecorded)}/>
+                                                        <InfoTile label="score_result_id" value={String(selectedPersistedResultRefs?.score_result_id || tr.unrecorded)}/>
+                                                        <InfoTile label={tr.finalSource} value={String(selectedValidationMeta?.final_response_source || selectedLogOutputRecord?.final_response_source || tr.unrecorded)}/>
+                                                        <InfoTile label={tr.candidateStatus} value={String(selectedPersistedResultRefs?.candidate_status_after || tr.unrecorded)}/>
                                                     </div>
                                                     <div className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
-                                                        <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedPersistedResultRefs, "暂无最终写库结果")}</pre>
+                                                        <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedPersistedResultRefs, tr.noPersistedResults)}</pre>
                                                     </div>
                                                 </div>
                                             </Field>
@@ -1010,32 +1127,32 @@ export function AuditPage({
                                         <>
                                             <Field label="Prompt Snapshot">
                                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                                    <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.prompt_snapshot || "暂无 Prompt 快照"}</pre>
+                                                    <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.prompt_snapshot || tr.promptSnapshotMissing}</pre>
                                                 </div>
                                             </Field>
-                                            <Field label="完整模型请求">
+                                            <Field label={tr.fullModelRequest}>
                                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                                    <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.full_request_snapshot || "暂无完整模型请求"}</pre>
+                                                    <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.full_request_snapshot || tr.fullRequestMissing}</pre>
                                                 </div>
                                             </Field>
-                                            <Field label="模型原始响应">
+                                            <Field label={tr.modelRawResponse}>
                                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                                    <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.raw_response_text || "暂无模型原始响应"}</pre>
+                                                    <pre className="whitespace-pre-wrap break-words">{selectedLogDetail.raw_response_text || tr.rawResponseMissing}</pre>
                                                 </div>
                                             </Field>
-                                            <Field label="解析后 JSON">
+                                            <Field label={tr.parsedJson}>
                                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                                    <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.parsed_response_json, "暂无解析后 JSON")}</pre>
+                                                    <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.parsed_response_json, tr.parsedJsonMissing)}</pre>
                                                 </div>
                                             </Field>
-                                            <Field label="清洗后 JSON">
+                                            <Field label={tr.sanitizedJson}>
                                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                                    <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.sanitized_response_json, "暂无清洗后 JSON")}</pre>
+                                                    <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.sanitized_response_json, tr.sanitizedJsonMissing)}</pre>
                                                 </div>
                                             </Field>
-                                            <Field label="完整输出">
+                                            <Field label={tr.fullOutput}>
                                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                                                    <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.output_snapshot, selectedLogDetail.output_summary || "暂无完整输出")}</pre>
+                                                    <pre className="whitespace-pre-wrap break-words">{formatStructuredValue(selectedLogDetail.output_snapshot, selectedLogDetail.output_summary || tr.outputMissing)}</pre>
                                                 </div>
                                             </Field>
                                         </>
@@ -1044,7 +1161,7 @@ export function AuditPage({
                             </div>
                         </div>
                     ) : (
-                        <EmptyState title="请选择一条任务记录" description="左侧点开任务后，这里会展示输入摘要、输出摘要、错误信息和 Skill 使用情况。"/>
+                        <EmptyState title={tr.selectTaskRecord} description={tr.selectTaskRecordDesc}/>
                     )}
                 </Card>
             </div>

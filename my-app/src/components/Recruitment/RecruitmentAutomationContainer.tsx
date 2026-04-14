@@ -29,7 +29,7 @@ import {
     Users,
     Wand2,
 } from "lucide-react";
-import {toast} from "sonner";
+import {toast} from "@/lib/toast";
 
 import {authenticatedFetch, getStoredScriptHubSession} from "@/lib/auth";
 import {
@@ -70,6 +70,7 @@ import {
     type ResumeUploadResponse,
     type RecruitmentTaskStartResponse,
 } from "@/lib/recruitment-api";
+import {useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
@@ -118,6 +119,7 @@ import {
     positionStatusLabels,
     providerLabels,
     type RecruitmentPage,
+    getRecruitmentToastLocale,
     type ResumeMailDialogMode,
     type ResumeMailFormState,
     type SkillFormState,
@@ -206,7 +208,11 @@ interface RecruitmentAutomationContainerProps {
 export default function RecruitmentAutomationContainer({onBack}: RecruitmentAutomationContainerProps) {
     type PositionFormErrors = Partial<Record<"title" | "headcount", string>>;
 
+    const {language} = useI18n();
+    const isZh = language === "zh-CN";
     const sessionUser = useMemo(() => getStoredScriptHubSession()?.user ?? null, []);
+    const recruitmentToast = useMemo(() => getRecruitmentToastLocale(language), [language]);
+    const recruitmentToastEntities = recruitmentToast.entities;
     const jdGenerationInFlightRef = useRef(false);
     const screeningLaunchInFlightRef = useRef(false);
     const taskMonitorTimersRef = useRef<Map<number, number>>(new Map());
@@ -261,6 +267,130 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         sessionUser?.permissions["ai-recruitment-manage"]
         || sessionUser?.permissions["rbac-manage"],
     );
+    const recruitmentUiText = useMemo(() => ({
+        loadingWorkspace: isZh ? "正在加载招聘工作台..." : "Loading recruiting workspace...",
+        back: isZh ? "返回" : "Back",
+        refresh: isZh ? "刷新" : "Refresh",
+        refreshing: isZh ? "刷新中..." : "Refreshing...",
+        uploadResume: isZh ? "上传简历" : "Upload Resume",
+        createPosition: isZh ? "新建岗位" : "New Position",
+        openAssistantDrawer: isZh ? "打开 AI 助手" : "Open AI Assistant",
+        manageSettings: isZh ? "管理设置" : "Management Settings",
+        settingsSkillsTitle: isZh ? "Skill 管理" : "Skill Settings",
+        settingsSkillsDescription: isZh ? "维护招聘评估和题目生成所用的 Skills。" : "Manage the skills used for screening and interview-question generation.",
+        settingsModelsTitle: isZh ? "模型配置" : "Model Settings",
+        settingsModelsDescription: isZh ? "按任务类型管理 provider、model、base URL 和 key。" : "Manage provider, model, base URL, and API key by task type.",
+        settingsMailTitle: isZh ? "邮件中心" : "Mail Center",
+        settingsMailDescription: isZh ? "维护发件箱、收件人和简历邮件发送记录。" : "Manage sender accounts, recipients, and resume delivery records.",
+        workSections: isZh ? "工作分区" : "Work Areas",
+        workspaceTitle: isZh ? "工作台" : "Workspace",
+        workspaceDescription: isZh ? "首页指标、待办、快捷操作与近期活动" : "Overview metrics, to-dos, quick actions, and recent activity",
+        positionsTitle: isZh ? "岗位管理" : "Positions",
+        positionsDescription: isZh ? "岗位列表 + 详情工作区 + JD 版本" : "Position list, detail workspace, and JD versions",
+        candidatesTitle: isZh ? "候选人" : "Candidates",
+        candidatesDescription: isZh ? "ATS 列表、筛选、状态推进与档案查看" : "ATS list, filtering, status updates, and candidate profiles",
+        auditTitle: isZh ? "审计中心" : "Audit Center",
+        auditDescription: isZh ? "看 AI 处理记录、模型、错误与留痕" : "Inspect AI task logs, models, errors, and audit traces",
+        assistantNavTitle: isZh ? "招聘助手" : "Recruiting Assistant",
+        assistantNavDescription: isZh ? "自然语言驱动岗位、候选人和 Skill 上下文" : "Natural-language workspace for positions, candidates, and skill context",
+        quickAddPosition: isZh ? "新增岗位" : "Add Position",
+        pendingScreeningCandidates: isZh ? "待筛候选人" : "Pending Screening",
+        pendingInterviewCandidates: isZh ? "待安排面试" : "Pending Interview",
+        pendingScreeningShort: isZh ? "待筛" : "Queue",
+        pendingInterviewShort: isZh ? "待面" : "Intv",
+        todayTodos: isZh ? "今日待办" : "Today's To-Dos",
+        pendingPublish: isZh ? "待发布" : "Pending Publish",
+        pendingScreening: isZh ? "待初筛" : "Pending Screening",
+        pendingInterview: isZh ? "待面试" : "Pending Interview",
+        pendingDecision: isZh ? "待决策" : "Pending Decision",
+        preferredInterviewSkillFromMemory: isZh ? "工作记忆中的面试题 Skills" : "Interview skills from workflow memory",
+        positionBoundSkills: isZh ? "岗位绑定 Skills" : "Position-bound skills",
+        noConfiguredSkills: isZh ? "未配置 Skills" : "No skills configured",
+        screeningMemorySkills: isZh ? "初筛工作记忆 Skills" : "Screening skills from workflow memory",
+        interviewMemorySkills: isZh ? "面试题工作记忆 Skills" : "Interview skills from workflow memory",
+        manualSelectedSkills: isZh ? "手动选择 Skills" : "Manually selected skills",
+        unspecifiedCandidate: isZh ? "未指定候选人" : "No candidate selected",
+        candidateWithId: (id: number) => (isZh ? `候选人 #${id}` : `Candidate #${id}`),
+        modelUnrecognized: isZh ? "暂未识别" : "Unrecognized",
+        resendResumeMailTitle: isZh ? "再次发送简历邮件" : "Resend Resume Email",
+        sendResumeMailTitle: isZh ? "发送简历邮件" : "Send Resume Email",
+        resendResumeMailDescription: (dispatchId: number | null) => (
+            isZh
+                ? `已基于发送记录 #${dispatchId || "-"} 预填内容。你可以修改收件人、标题和正文后再次发送。`
+                : `The form has been prefilled from dispatch #${dispatchId || "-"}. You can edit recipients, subject, and body before sending again.`
+        ),
+        sendResumeMailDescription: isZh
+            ? "支持单个或批量发送给一个或多个收件人。上方可直接填写收件人邮箱，下方可快捷勾选内部收件人。邮件标题和正文都允许留空，留空时由系统按默认模板生成。"
+            : "Send one or many resumes to one or more recipients. You can enter email addresses directly or choose internal recipients below. Subject and body may be left blank to use the default template.",
+        sending: isZh ? "发送中..." : "Sending...",
+        resend: isZh ? "再次发送" : "Send Again",
+        sendResume: isZh ? "发送简历" : "Send Resume",
+        sentCountSummary: (count: number, latestSentAt?: string | null) => (
+            latestSentAt
+                ? (isZh ? `已发送 ${count} 次 · 最近 ${formatDateTime(latestSentAt)}` : `${count} sent · latest ${formatDateTime(latestSentAt)}`)
+                : (isZh ? `已发送 ${count} 次` : `${count} sent`)
+        ),
+        allPositions: isZh ? "全部岗位" : "All positions",
+        specifiedPosition: isZh ? "指定岗位" : "Specific position",
+        allStatuses: isZh ? "全部状态" : "All statuses",
+        allMatchPercent: isZh ? "全部匹配度" : "All match scores",
+        above80: isZh ? "80% 以上" : "80%+",
+        above60: isZh ? "60% 以上" : "60%+",
+        above40: isZh ? "40% 以上" : "40%+",
+        allSources: isZh ? "全部来源" : "All sources",
+        allTime: isZh ? "全部时间" : "All time",
+        today: isZh ? "今天" : "Today",
+        last7Days: isZh ? "近 7 天" : "Last 7 days",
+        last30Days: isZh ? "近 30 天" : "Last 30 days",
+        noKeyword: isZh ? "无关键词" : "No keyword",
+        keywordPrefix: isZh ? "关键词" : "Keyword",
+        allTaskTypes: isZh ? "全部任务类型" : "All task types",
+        queueJoined: isZh ? "已将初筛任务加入队列" : "Screening task added to the queue",
+        screeningStopped: isZh ? "已停止初筛" : "Screening stopped",
+        screeningFailed: (error: string) => (isZh ? `初筛失败：${error}` : `Screening failed: ${error}`),
+        batchScreening: isZh ? "批量初筛" : "Batch screening",
+        screening: isZh ? "初筛" : "Screening",
+        createPublishTask: isZh ? "创建发布任务" : "Create Publish Task",
+        publishTaskDesc: isZh ? "首期保留 mock / adapter 架构，不把平台发布能力写死在业务主流程里。" : "The first version keeps a mock / adapter architecture so platform publishing is not hard-wired into the core workflow.",
+        targetPlatform: isZh ? "目标平台" : "Target Platform",
+        executionMode: isZh ? "执行模式" : "Execution Mode",
+        bossDirect: isZh ? "BOSS 直聘" : "Boss Zhipin",
+        zhilian: isZh ? "智联招聘" : "Zhaopin",
+        cancel: isZh ? "取消" : "Cancel",
+        createTask: isZh ? "创建任务" : "Create Task",
+        allowedAutoMailStatuses: isZh ? "允许自动发送的候选人状态" : "Candidate statuses eligible for auto-send",
+        reservedTemplateId: isZh ? "自动发送模板 ID（预留）" : "Auto-send Template ID (reserved)",
+        reservedTemplatePlaceholder: isZh ? "为空时使用系统默认模板" : "Use the system default template when left empty",
+        dedupMode: isZh ? "重复发送策略" : "Duplicate-send strategy",
+        dedupOncePerCandidatePerStatus: isZh ? "同候选人同状态仅一次" : "Once per candidate per status",
+        dedupOncePerCandidate: isZh ? "同候选人仅一次" : "Once per candidate",
+        assistantLabel: isZh ? "招聘助手" : "Recruiting Assistant",
+        assistantWorkspaceHint: isZh ? "在工作台里快速切上下文、带着推荐问题打开完整助手。" : "Switch context quickly from the workspace and jump into the full assistant with suggested prompts.",
+        open: isZh ? "打开" : "Open",
+        collapse: isZh ? "收起" : "Collapse",
+        more: isZh ? "更多" : "More",
+        openFullAssistant: isZh ? "打开完整助手" : "Open Full Assistant",
+        assistantContextShort: isZh ? "上下文" : "Context",
+        currentPosition: isZh ? "当前岗位" : "Current Position",
+        activeSkills: isZh ? "激活 Skills" : "Active Skills",
+        currentModel: isZh ? "当前模型" : "Current Model",
+        unspecifiedPosition: isZh ? "未指定岗位" : "No position selected",
+        skillCount: (count: number) => (isZh ? `${count} 项` : `${count} selected`),
+        noSwitchableModel: isZh ? "暂无可切换模型" : "No switchable model available",
+        stopBatchScreeningCompleted: (count: number) => (
+            isZh ? `已停止 ${count} 个批量初筛任务` : `Stopped ${count} batch screening task(s)`
+        ),
+        stopBatchScreeningRequested: isZh ? "批量初筛停止请求已发送" : "Batch screening stop request sent",
+        noScreeningTarget: recruitmentToast.noCandidatesSelected,
+        noScreeningQueued: recruitmentToast.noScreeningQueued,
+    }), [isZh, recruitmentToast]);
+    const localizeCandidateStatusValue = useCallback((value?: string | null, fallback?: string | null) => {
+        const normalized = String(value || "").trim();
+        if (!normalized) {
+            return fallback || "";
+        }
+        return candidateStatusLabels[normalized] || fallback || normalized;
+    }, []);
 
     const [activePage, setActivePage] = useState<RecruitmentPage>("workspace");
     const [assistantOpen, setAssistantOpen] = useState(false);
@@ -407,10 +537,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         autoActivate: true,
     });
 
+    const assistantIntroText = isZh
+        ? "我是招聘助手。你可以直接让我生成 JD、查看岗位候选人、重新初筛某位候选人并追加硬性条件，或者说明这次对话实际使用了哪些 Skills。"
+        : "I'm your recruiting assistant. I can generate a JD, inspect candidates for the current position, re-screen a candidate with stricter requirements, or explain which skills were used in this conversation.";
+    const localizedInitialInterviewRoundName = isZh ? "初试" : "Round 1";
+
     const [candidateEditor, setCandidateEditor] = useState<CandidateEditorState>(emptyCandidateEditor);
     const [statusUpdateReason, setStatusUpdateReason] = useState("");
     const [pendingStatus, setPendingStatus] = useState<string | null>(null); // ← 新增
-    const [interviewRoundName, setInterviewRoundName] = useState("初试");
+    const [interviewRoundName, setInterviewRoundName] = useState(localizedInitialInterviewRoundName);
     const [interviewCustomRequirements, setInterviewCustomRequirements] = useState("");
     const [selectedInterviewSkillIds, setSelectedInterviewSkillIds] = useState<number[]>([]);
 
@@ -421,10 +556,26 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         {
             id: "intro",
             role: "assistant",
-            content: "我是招聘助手。你可以直接让我生成 JD、查看岗位候选人、重新初筛某位候选人并追加硬性条件，或者说明这次对话实际使用了哪些 Skills。",
+            content: assistantIntroText,
             createdAt: new Date().toISOString(),
         },
     ]);
+
+    useEffect(() => {
+        setInterviewRoundName((current) => (
+            current === "初试" || current === "Round 1" || !current
+                ? localizedInitialInterviewRoundName
+                : current
+        ));
+    }, [localizedInitialInterviewRoundName]);
+
+    useEffect(() => {
+        setChatMessages((current) => (
+            current.length === 1 && current[0]?.id === "intro"
+                ? [{...current[0], content: assistantIntroText}]
+                : current
+        ));
+    }, [assistantIntroText]);
 
     const assistantScrollAnchorRef = useRef<HTMLDivElement | null>(null);
     const assistantScrollAreaRef = useRef<HTMLDivElement | null>(null);
@@ -520,13 +671,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }, [llmConfigs]);
     const chatContextCandidateLabel = useMemo(() => {
         if (!chatContext.candidate_id) {
-            return "未指定候选人";
+            return recruitmentUiText.unspecifiedCandidate;
         }
-        return candidateMap.get(chatContext.candidate_id)?.name || `候选人 #${chatContext.candidate_id}`;
-    }, [candidateMap, chatContext.candidate_id]);
+        return candidateMap.get(chatContext.candidate_id)?.name || recruitmentUiText.candidateWithId(chatContext.candidate_id);
+    }, [candidateMap, chatContext.candidate_id, recruitmentUiText]);
     const assistantModelLabel = assistantActiveLLMConfig
         ? `${labelForProvider(assistantActiveLLMConfig.resolved_provider || assistantActiveLLMConfig.provider)} / ${assistantActiveLLMConfig.resolved_model_name || assistantActiveLLMConfig.model_name}`
-        : "暂未识别";
+        : recruitmentUiText.modelUnrecognized;
     const buildOptimisticChatContext = useCallback((
         nextPositionId: number | null,
         nextSkillIds: number[],
@@ -576,10 +727,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return (candidateDetail?.activity || []).filter((item) => item.task_type !== "chat_orchestrator");
     }, [candidateDetail?.activity]);
     const preferredInterviewSkillSourceLabel = workflowInterviewSkillIds.length
-        ? "工作记忆中的面试题 Skills"
+        ? recruitmentUiText.preferredInterviewSkillFromMemory
         : (positionInterviewSkillIds.length
-                ? "岗位绑定 Skills"
-                : "未配置 Skills");
+                ? recruitmentUiText.positionBoundSkills
+                : recruitmentUiText.noConfiguredSkills);
     const effectiveScreeningSkillIds = useMemo(() => {
         if (positionScreeningSkillIds.length) {
             return resolveTaskSkillIds(positionScreeningSkillIds, "screening", skillMap);
@@ -590,8 +741,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return [];
     }, [positionScreeningSkillIds, skillMap, workflowScreeningSkillIds]);
     const effectiveScreeningSkillSourceLabel = positionScreeningSkillIds.length
-        ? "岗位绑定 Skills"
-        : (workflowScreeningSkillIds.length ? "初筛工作记忆 Skills" : "未配置 Skills");
+        ? recruitmentUiText.positionBoundSkills
+        : (workflowScreeningSkillIds.length ? recruitmentUiText.screeningMemorySkills : recruitmentUiText.noConfiguredSkills);
     const autoInterviewSkillIds = useMemo(() => {
         if (positionInterviewSkillIds.length) {
             return resolveTaskSkillIds(positionInterviewSkillIds, "interview", skillMap);
@@ -602,12 +753,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return [];
     }, [positionInterviewSkillIds, skillMap, workflowInterviewSkillIds]);
     const autoInterviewSkillSourceLabel = positionInterviewSkillIds.length
-        ? "岗位绑定 Skills"
+        ? recruitmentUiText.positionBoundSkills
         : workflowInterviewSkillIds.length
-            ? "面试题工作记忆 Skills"
-            : "未配置 Skills";
+            ? recruitmentUiText.interviewMemorySkills
+            : recruitmentUiText.noConfiguredSkills;
     const effectiveInterviewSkillIds = interviewSkillSelectionDirty ? selectedInterviewSkillIds : autoInterviewSkillIds;
-    const effectiveInterviewSkillSourceLabel = interviewSkillSelectionDirty ? "手动选择 Skills" : autoInterviewSkillSourceLabel;
+    const effectiveInterviewSkillSourceLabel = interviewSkillSelectionDirty ? recruitmentUiText.manualSelectedSkills : autoInterviewSkillSourceLabel;
     useEffect(() => {
         if (assistantContextSkillIds.length === chatContext.skill_ids.length) {
             return;
@@ -686,22 +837,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         });
         return stats;
     }, [resumeMailDispatches]);
-    const resumeMailDialogTitle = resumeMailDialogMode === "resend" ? "再次发送简历邮件" : "发送简历邮件";
+    const resumeMailDialogTitle = resumeMailDialogMode === "resend" ? recruitmentUiText.resendResumeMailTitle : recruitmentUiText.sendResumeMailTitle;
     const resumeMailDialogDescription = resumeMailDialogMode === "resend"
-        ? `已基于发送记录 #${resumeMailSourceDispatchId || "-"} 预填内容。你可以修改收件人、标题和正文后再次发送。`
-        : "支持单个或批量发送给一个或多个收件人。上方可直接填写收件人邮箱，下方可快捷勾选内部收件人。邮件标题和正文都允许留空，留空时由系统按默认模板生成。";
+        ? recruitmentUiText.resendResumeMailDescription(resumeMailSourceDispatchId)
+        : recruitmentUiText.sendResumeMailDescription;
     const resumeMailSubmitLabel = resumeMailSubmitting
-        ? (resumeMailDialogMode === "resend" ? "发送中..." : "发送中...")
-        : (resumeMailDialogMode === "resend" ? "再次发送" : "发送简历");
+        ? recruitmentUiText.sending
+        : (resumeMailDialogMode === "resend" ? recruitmentUiText.resend : recruitmentUiText.sendResume);
 
     function getCandidateResumeMailSummary(candidateId: number) {
         const stat = candidateResumeMailStats.get(candidateId);
         if (!stat || stat.sentCount <= 0) {
             return null;
         }
-        return stat.latestSentAt
-            ? `已发送 ${stat.sentCount} 次 · 最近 ${formatDateTime(stat.latestSentAt)}`
-            : `已发送 ${stat.sentCount} 次`;
+        return recruitmentUiText.sentCountSummary(stat.sentCount, stat.latestSentAt);
     }
 
     const sourceOptions = useMemo(() => {
@@ -749,7 +898,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             label: labelForCandidateStatus(status),
             items: visibleCandidates.filter((candidate) => candidate.status === status),
         }));
-    }, [metadata, visibleCandidates]);
+    }, [language, metadata, visibleCandidates]);
 
     const candidateListDisplayColumnWidths = useMemo(() => (
         expandTableColumnWidths(
@@ -791,25 +940,27 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const recentLogs = aiLogs.slice(0, 6);
     const candidateFilterSummary = useMemo(() => {
         const positionLabel = candidatePositionFilter === "all"
-            ? "全部岗位"
-            : (positions.find((position) => String(position.id) === candidatePositionFilter)?.title || "指定岗位");
+            ? recruitmentUiText.allPositions
+            : (positions.find((position) => String(position.id) === candidatePositionFilter)?.title || recruitmentUiText.specifiedPosition);
         const statusLabel = candidateStatusFilter === "all"
-            ? "全部状态"
+            ? recruitmentUiText.allStatuses
             : (candidateStatusLabels[candidateStatusFilter] || candidateStatusFilter);
         const matchLabel = ({
-            all: "全部匹配度",
-            "80+": "80% 以上",
-            "60+": "60% 以上",
-            "40+": "40% 以上",
+            all: recruitmentUiText.allMatchPercent,
+            "80+": recruitmentUiText.above80,
+            "60+": recruitmentUiText.above60,
+            "40+": recruitmentUiText.above40,
         } as Record<string, string>)[candidateMatchFilter] || candidateMatchFilter;
-        const sourceLabel = candidateSourceFilter === "all" ? "全部来源" : candidateSourceFilter;
+        const sourceLabel = candidateSourceFilter === "all" ? recruitmentUiText.allSources : candidateSourceFilter;
         const timeLabel = ({
-            all: "全部时间",
-            today: "今天",
-            "7d": "近 7 天",
-            "30d": "近 30 天",
+            all: recruitmentUiText.allTime,
+            today: recruitmentUiText.today,
+            "7d": recruitmentUiText.last7Days,
+            "30d": recruitmentUiText.last30Days,
         } as Record<string, string>)[candidateTimeFilter] || candidateTimeFilter;
-        const keywordLabel = candidateQuery.trim() ? `关键词：${candidateQuery.trim()}` : "无关键词";
+        const keywordLabel = candidateQuery.trim()
+            ? `${recruitmentUiText.keywordPrefix}: ${candidateQuery.trim()}`
+            : recruitmentUiText.noKeyword;
         return [positionLabel, statusLabel, matchLabel, sourceLabel, timeLabel, keywordLabel].join(" · ");
     }, [
         candidateMatchFilter,
@@ -818,15 +969,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         candidateSourceFilter,
         candidateStatusFilter,
         candidateTimeFilter,
+        language,
         positions,
+        recruitmentUiText,
     ]);
     const auditFilterSummary = useMemo(() => {
         const taskTypeLabel = logTaskTypeFilter === "all"
-            ? "全部任务类型"
+            ? recruitmentUiText.allTaskTypes
             : (aiTaskLabels[logTaskTypeFilter] || logTaskTypeFilter);
-        const statusLabel = logStatusFilter === "all" ? "全部状态" : logStatusFilter;
+        const statusLabel = logStatusFilter === "all" ? recruitmentUiText.allStatuses : logStatusFilter;
         return `${taskTypeLabel} · ${statusLabel}`;
-    }, [logStatusFilter, logTaskTypeFilter]);
+    }, [language, logStatusFilter, logTaskTypeFilter, recruitmentUiText]);
 
     useEffect(() => {
         if (!canManageRecruitment && (
@@ -1152,7 +1305,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     useEffect(() => {
         const current = positionDetail?.current_jd_version;
         setJdDraft({
-            title: current?.title || `${positionDetail?.position.title || "岗位"} JD`,
+            title: current?.title || `${positionDetail?.position.title || (isZh ? "岗位" : "Position")} JD`,
             jdMarkdown: current?.jd_markdown || "",
             notes: current?.notes || "",
             autoActivate: true,
@@ -1431,8 +1584,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         className="absolute -right-2 top-1/2 h-7 w-3 -translate-y-1/2 cursor-col-resize rounded-full border border-transparent bg-transparent opacity-0 transition hover:border-slate-300 hover:bg-slate-100/90 group-hover:opacity-100 dark:hover:border-slate-600 dark:hover:bg-slate-800/90"
                         onMouseDown={(event) => beginCandidateColumnResize(key, event)}
                         onDoubleClick={(event) => resetCandidateColumnWidth(key, event)}
-                        aria-label={`调整${label}列宽`}
-                        title={`拖拽调整${label}列宽，双击恢复默认`}
+                        aria-label={isZh ? `调整${label}列宽` : `Resize ${label} column`}
+                        title={isZh ? `拖拽调整${label}列宽，双击恢复默认` : `Drag to resize the ${label} column and double-click to reset`}
                     />
                 </div>
             </th>
@@ -1461,7 +1614,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             return data;
         } catch (error) {
-            toast.error(`加载基础配置失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.baseConfig, formatActionError(error)));
             throw error;
         }
     }
@@ -1474,7 +1627,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             return data;
         } catch (error) {
-            toast.error(`加载工作台失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.workspace, formatActionError(error)));
             throw error;
         }
     }
@@ -1501,7 +1654,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             });
             return data;
         } catch (error) {
-            toast.error(`加载岗位失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.positions, formatActionError(error)));
             throw error;
         } finally {
             if (mountedRef.current && positionsLoadRequestIdRef.current === requestId) {
@@ -1525,7 +1678,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setPositionDetail(data);
             return data;
         } catch (error) {
-            toast.error(`加载岗位详情失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.positionDetail, formatActionError(error)));
             return null;
         } finally {
             if (mountedRef.current && positionDetailLoadRequestIdRef.current === requestId) {
@@ -1566,7 +1719,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             return data;
         } catch (error) {
             if (!options?.silent) {
-                toast.error(`加载候选人失败：${error instanceof Error ? error.message : "未知错误"}`);
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidates, formatActionError(error)));
             }
             throw error;
         } finally {
@@ -1602,7 +1755,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             return data;
         } catch (error) {
             if (!options?.silent) {
-                toast.error(`\u52a0\u8f7d\u5019\u9009\u4eba\u8be6\u60c5\u5931\u8d25\uff1a${error instanceof Error ? error.message : "\u672a\u77e5\u9519\u8bef"}`);
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidateDetail, formatActionError(error)));
             }
             return null;
         } finally {
@@ -1635,7 +1788,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             return data;
         } catch (error) {
             if (!options?.silent) {
-                toast.error(`\u52a0\u8f7d AI \u4efb\u52a1\u5931\u8d25\uff1a${error instanceof Error ? error.message : "\u672a\u77e5\u9519\u8bef"}`);
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.aiTasks, formatActionError(error)));
             }
             throw error;
         } finally {
@@ -1660,7 +1813,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             return data;
         } catch (error) {
             if (!options?.silent) {
-                toast.error(`\u52a0\u8f7d\u4efb\u52a1\u8be6\u60c5\u5931\u8d25\uff1a${error instanceof Error ? error.message : "\u672a\u77e5\u9519\u8bef"}`);
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.taskDetail, formatActionError(error)));
             }
             return null;
         } finally {
@@ -1679,7 +1832,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             return data;
         } catch (error) {
-            toast.error(`加载 Skills 失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.skills, formatActionError(error)));
             throw error;
         } finally {
             setSkillsLoading(false);
@@ -1698,7 +1851,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             return data;
         } catch (error) {
-            toast.error(`加载模型配置失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.modelConfigs, formatActionError(error)));
             throw error;
         } finally {
             setModelsLoading(false);
@@ -1713,7 +1866,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             return data;
         } catch (error) {
-            toast.error(`加载助手上下文失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.assistantContext, formatActionError(error)));
             throw error;
         }
     }
@@ -1743,7 +1896,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             return {senders, recipients, dispatches, autoPushConfig};
         } catch (error) {
-            toast.error(`加载邮件配置失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.mailSettings, formatActionError(error)));
             throw error;
         } finally {
             setMailSettingsLoading(false);
@@ -1764,9 +1917,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }),
             });
             setMailAutoPushGlobalConfig(saved);
-            toast.success("全局自动推送配置已保存");
+            toast.success(recruitmentToast.saved(recruitmentToastEntities.globalAutoPushConfig));
         } catch (error) {
-            toast.error(`保存全局自动推送配置失败：${formatActionError(error)}`);
+            toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.globalAutoPushConfig, formatActionError(error)));
         } finally {
             setMailAutoPushConfigSaving(false);
         }
@@ -1792,9 +1945,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setCoreRefreshing(true);
         try {
             await refreshCoreData();
-            toast.success("工作台数据已刷新");
+            toast.success(recruitmentToast.refreshed(recruitmentToastEntities.workspace));
         } catch (error) {
-            toast.error(`刷新工作台失败：${formatActionError(error)}`);
+            toast.error(recruitmentToast.refreshFailed(recruitmentToastEntities.workspace, formatActionError(error)));
         } finally {
             setCoreRefreshing(false);
         }
@@ -1806,7 +1959,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         try {
             await loadLLMConfigs();
-            toast.success("模型配置已刷新");
+            toast.success(recruitmentToast.refreshed(recruitmentToastEntities.modelConfigs));
         } catch {
             // loadLLMConfigs already reports the error toast
         }
@@ -1818,7 +1971,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         try {
             await loadMailSettings();
-            toast.success("邮件配置已刷新");
+            toast.success(recruitmentToast.refreshed(recruitmentToastEntities.mailSettings));
         } catch {
             // loadMailSettings already reports the error toast
         }
@@ -1830,7 +1983,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         try {
             await loadLogs();
-            toast.success("任务日志已刷新");
+            toast.success(recruitmentToast.refreshed(recruitmentToastEntities.taskLogs));
         } catch {
             // loadLogs already reports the error toast
         }
@@ -1925,15 +2078,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     return;
                 }
                 if (log.status === "success" || log.status === "fallback") {
-                    toast.success(log.status === "fallback" ? "初筛已完成（兜底完成）" : "初筛已完成");
+                    toast.success(recruitmentToast.screeningCompleted(log.status === "fallback"));
                     return;
                 }
                 if (log.status === "cancelled") {
-                    toast.success("已停止初筛");
+                    toast.success(recruitmentUiText.screeningStopped);
                     return;
                 }
                 if (log.status === "failed") {
-                    toast.error(`初筛失败：${log.error_message || "未知错误"}`);
+                    toast.error(recruitmentUiText.screeningFailed(log.error_message || recruitmentToast.unknownError));
                 }
             },
         });
@@ -2001,12 +2154,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             return parsed.trim();
         }
         if (log.status === "cancelled") {
-            return "已停止生成。";
+            return isZh ? "已停止生成。" : "Generation stopped.";
         }
         if (log.status === "failed") {
-            return `发送失败：${log.error_message || "未知错误"}`;
+            return isZh ? `发送失败：${log.error_message || "未知错误"}` : `Request failed: ${log.error_message || "Unknown error"}`;
         }
-        return log.output_summary || "已完成";
+        return log.output_summary || (isZh ? "已完成" : "Completed");
     }
 
     async function cancelTaskGeneration(taskId: number, taskLabel: string, options?: { silent?: boolean }) {
@@ -2023,7 +2176,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 setSelectedLogDetail(log);
             }
             if (!options?.silent) {
-                toast.success(log.status === "cancelled" ? `${taskLabel}已停止` : `${taskLabel}停止请求已发送`);
+                toast.success(
+                    log.status === "cancelled"
+                        ? recruitmentToast.stopped(taskLabel)
+                        : recruitmentToast.stopRequested(taskLabel),
+                );
             }
             return log;
         } catch (error) {
@@ -2507,12 +2664,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         ensureAssistantMessage(nextMessageId);
                         updateChatMessage(nextMessageId, (chatMessage) => ({
                             ...chatMessage,
-                            content: `发送失败：${payload.message}`,
+                            content: isZh ? `发送失败：${payload.message}` : `Request failed: ${payload.message}`,
                             streamStatus: "error",
                             sourceRunType: "stream",
                             frontendDebug: buildFrontendDebugPayload(),
                         }));
-                        toast.error(`发送失败：${payload.message}`);
+                        toast.error(isZh ? `发送失败：${payload.message}` : `Request failed: ${payload.message}`);
                         setCurrentAssistantRunId(null);
                         setAssistantStreamStopping(false);
                         runCompleted = true;
@@ -2595,7 +2752,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }));
             }
             if (mountedRef.current) {
-                toast.success("已停止助手生成");
+                toast.success(isZh ? "已停止助手生成" : "Assistant generation stopped");
             }
         } finally {
             assistantStreamAbortRef.current = null;
@@ -2627,14 +2784,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     async function copyPublishJDText() {
         if (!currentPublishText.trim()) {
-            toast.error("当前没有可复制的发布文案");
+            toast.error(isZh ? "当前没有可复制的发布文案" : "There is no publish copy to copy right now");
             return;
         }
         try {
             await navigator.clipboard.writeText(currentPublishText);
-            toast.success("发布文案已复制");
+            toast.success(isZh ? "发布文案已复制" : "Publish copy copied");
         } catch (error) {
-            toast.error(`复制失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(isZh ? `复制失败：${error instanceof Error ? error.message : "未知错误"}` : `Copy failed: ${error instanceof Error ? error.message : "Unknown error"}`);
         }
     }
 
@@ -2713,17 +2870,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         const headcountValue = Number(headcountText || "0");
 
         if (!title) {
-            errors.title = "请输入岗位名称";
+            errors.title = isZh ? "请输入岗位名称" : "Please enter a position title";
         } else if (title.length > 200) {
-            errors.title = "岗位名称不能超过 200 个字符";
+            errors.title = isZh ? "岗位名称不能超过 200 个字符" : "Position title cannot exceed 200 characters";
         }
 
         if (!headcountText) {
-            errors.headcount = "请输入招聘人数";
+            errors.headcount = isZh ? "请输入招聘人数" : "Please enter the hiring headcount";
         } else if (!/^\d+$/.test(headcountText)) {
-            errors.headcount = "招聘人数只能填写正整数";
+            errors.headcount = isZh ? "招聘人数只能填写正整数" : "Headcount must be a positive integer";
         } else if (!Number.isInteger(headcountValue) || headcountValue < 1 || headcountValue > 999) {
-            errors.headcount = "招聘人数需在 1 到 999 之间";
+            errors.headcount = isZh ? "招聘人数需在 1 到 999 之间" : "Headcount must be between 1 and 999";
         }
 
         return errors;
@@ -2786,13 +2943,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 });
                 setSelectedPositionId(created.id);
                 targetPositionId = created.id;
-                toast.success("岗位已创建");
+                toast.success(isZh ? "岗位已创建" : "Position created");
             } else if (selectedPositionId) {
                 await recruitmentApi<PositionSummary>(`/positions/${selectedPositionId}`, {
                     method: "PATCH",
                     body: JSON.stringify(payload),
                 });
-                toast.success("岗位已更新");
+                toast.success(isZh ? "岗位已更新" : "Position updated");
             }
             setPositionDialogOpen(false);
             await refreshCoreData();
@@ -2801,7 +2958,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             setActivePage("positions");
         } catch (error) {
-            setPositionFormSubmitError(`保存岗位失败：${error instanceof Error ? error.message : "未知错误"}`);
+            setPositionFormSubmitError(isZh ? `保存岗位失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to save position: ${error instanceof Error ? error.message : "Unknown error"}`);
         } finally {
             setPositionSubmitting(false);
         }
@@ -2814,17 +2971,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setPositionDeleting(true);
         try {
             await recruitmentApi(`/positions/${selectedPositionId}`, {method: "DELETE"});
-            toast.success("\u5c97\u4f4d\u5df2\u5220\u9664");
+            toast.success(isZh ? "岗位已删除" : "Position deleted");
             setPositionDeleteConfirmOpen(false);
             setPositionDetail(null);
             setSelectedPositionId(null);
             try {
                 await Promise.all([loadPositions(), loadDashboard(), loadCandidates(), loadLogs()]);
             } catch (refreshError) {
-                toast.error(`\u5c97\u4f4d\u5df2\u5220\u9664\uff0c\u4f46\u9875\u9762\u5237\u65b0\u5931\u8d25\uff1a${formatActionError(refreshError)}`);
+                toast.error(isZh ? `岗位已删除，但页面刷新失败：${formatActionError(refreshError)}` : `Position deleted, but page refresh failed: ${formatActionError(refreshError)}`);
             }
         } catch (error) {
-            toast.error(`\u5220\u9664\u5c97\u4f4d\u5931\u8d25\uff1a${formatActionError(error)}`);
+            toast.error(isZh ? `删除岗位失败：${formatActionError(error)}` : `Failed to delete position: ${formatActionError(error)}`);
         } finally {
             setPositionDeleting(false);
         }
@@ -2841,16 +2998,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             setJdGenerationStatus("cancelling");
             try {
-                const log = await cancelTaskGeneration(currentPositionJDTaskId, "JD 生成");
+                const log = await cancelTaskGeneration(currentPositionJDTaskId, isZh ? "JD 生成" : "JD generation");
                 if (log?.status === "cancelled") {
                     stopTaskMonitor(currentPositionJDTaskId);
                     setActiveJDTaskId((current) => (current === currentPositionJDTaskId ? null : current));
                     setActiveJDPositionId((current) => (current === positionId ? null : current));
                     setJdGenerationStatus("cancelled");
-                    setJdGenerationError(log.error_message || "已停止生成");
+                    setJdGenerationError(log.error_message || (isZh ? "已停止生成" : "Generation stopped"));
                 }
             } catch (error) {
-                toast.error(`停止 JD 生成失败：${formatActionError(error)}`);
+                toast.error(isZh ? `停止 JD 生成失败：${formatActionError(error)}` : `Failed to stop JD generation: ${formatActionError(error)}`);
             }
             return;
         }
@@ -2895,7 +3052,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         setJdExtraPrompt("");
                         setJdViewMode("publish");
                         setJdGenerationStatus("idle");
-                        toast.success(log.status === "fallback" ? "岗位 JD 已生成（兜底完成）" : "岗位 JD 已生成");
+                        toast.success(log.status === "fallback" ? (isZh ? "岗位 JD 已生成（兜底完成）" : "JD generated with fallback") : (isZh ? "岗位 JD 已生成" : "JD generated"));
                         return;
                     }
                     if (log.status === "cancelled") {
@@ -2906,21 +3063,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 : Promise.resolve(null),
                         ]);
                         setJdGenerationStatus("cancelled");
-                        setJdGenerationError(log.error_message || "已停止生成");
-                        toast.success("已停止 JD 生成");
+                        setJdGenerationError(log.error_message || (isZh ? "已停止生成" : "Generation stopped"));
+                        toast.success(isZh ? "已停止 JD 生成" : "JD generation stopped");
                         return;
                     }
                     setJdGenerationStatus("failed");
-                    setJdGenerationError(log.error_message || "未知错误");
+                    setJdGenerationError(log.error_message || (isZh ? "未知错误" : "Unknown error"));
                     await loadLogs({silent: true});
-                    toast.error(`生成 JD 失败：${log.error_message || "未知错误"}`);
+                    toast.error(isZh ? `生成 JD 失败：${log.error_message || "未知错误"}` : `JD generation failed: ${log.error_message || "Unknown error"}`);
                 },
             });
-            toast.success("已开始生成 JD，可随时停止");
+            toast.success(isZh ? "已开始生成 JD，可随时停止" : "JD generation started and can be stopped at any time");
         } catch (error) {
             setJdGenerationStatus("failed");
-            setJdGenerationError(error instanceof Error ? error.message : "未知错误");
-            toast.error(`生成 JD 失败：${error instanceof Error ? error.message : "未知错误"}`);
+            setJdGenerationError(error instanceof Error ? error.message : (isZh ? "未知错误" : "Unknown error"));
+            toast.error(isZh ? `生成 JD 失败：${error instanceof Error ? error.message : "未知错误"}` : `JD generation failed: ${error instanceof Error ? error.message : "Unknown error"}`);
         } finally {
             jdGenerationInFlightRef.current = false;
         }
@@ -2942,11 +3099,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     auto_activate: jdDraft.autoActivate,
                 }),
             });
-            toast.success("JD 新版本已保存");
+            toast.success(isZh ? "JD 新版本已保存" : "New JD version saved");
             await Promise.all([loadPositionDetail(selectedPositionId), loadDashboard(), loadPositions()]);
             setJdViewMode("publish");
         } catch (error) {
-            toast.error(`保存 JD 失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(isZh ? `保存 JD 失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to save the JD: ${error instanceof Error ? error.message : "Unknown error"}`);
         }
     }
 
@@ -2958,10 +3115,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             await recruitmentApi<JDVersion>(`/positions/${selectedPositionId}/jd-versions/${versionId}/activate`, {
                 method: "POST",
             });
-            toast.success("已切换生效版本");
+            toast.success(isZh ? "已切换生效版本" : "Active version switched");
             await Promise.all([loadPositionDetail(selectedPositionId), loadDashboard(), loadPositions()]);
         } catch (error) {
-            toast.error(`切换 JD 版本失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(isZh ? `切换 JD 版本失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to switch JD version: ${error instanceof Error ? error.message : "Unknown error"}`);
         }
     }
 
@@ -2978,17 +3135,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     mode: publishMode,
                 }),
             });
-            toast.success("发布任务已创建");
+            toast.success(recruitmentToast.created(recruitmentToastEntities.publishTask));
             setPublishDialogOpen(false);
             await Promise.all([loadPositionDetail(selectedPositionId), loadLogs()]);
         } catch (error) {
-            toast.error(`创建发布任务失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.createFailed(recruitmentToastEntities.publishTask, formatActionError(error)));
         }
     }
 
     async function uploadResumes() {
         if (!resumeUploadFiles.length) {
-            toast.error("请先选择要上传的简历文件");
+            toast.error(recruitmentToast.noResumeSelected);
             return;
         }
         const formData = new FormData();
@@ -3009,14 +3166,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }
             });
             toast.success(
-                `已上传 ${uploaded.uploaded_count} 份简历，自动初筛已入队 ${uploaded.auto_screen_queued_count} 份，已跳过进行中任务 ${uploaded.auto_screen_skipped_existing_live_task_count} 份${uploaded.auto_screen_failed_count > 0 ? `，失败 ${uploaded.auto_screen_failed_count} 份` : ""}。`,
+                isZh
+                    ? `已上传 ${uploaded.uploaded_count} 份简历，自动初筛已入队 ${uploaded.auto_screen_queued_count} 份，已跳过进行中任务 ${uploaded.auto_screen_skipped_existing_live_task_count} 份${uploaded.auto_screen_failed_count > 0 ? `，失败 ${uploaded.auto_screen_failed_count} 份` : ""}。`
+                    : `${uploaded.uploaded_count} resumes uploaded. Auto-screen queued ${uploaded.auto_screen_queued_count}, skipped ${uploaded.auto_screen_skipped_existing_live_task_count} active task(s)${uploaded.auto_screen_failed_count > 0 ? `, failed ${uploaded.auto_screen_failed_count}` : ""}.`,
             );
             setResumeUploadOpen(false);
             setResumeUploadFiles([]);
             await refreshCoreData();
             setActivePage("candidates");
         } catch (error) {
-            toast.error(`上传简历失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.createFailed(recruitmentToastEntities.resume, formatActionError(error)));
         }
     }
 
@@ -3051,10 +3210,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     manual_override_reason: candidateEditor.manualOverrideReason.trim() || null,
                 }),
             });
-            toast.success("候选人信息已更新");
+            toast.success(recruitmentToast.updated(recruitmentToastEntities.candidate));
             await Promise.all([loadCandidateDetail(selectedCandidateId), loadCandidates(), loadDashboard()]);
         } catch (error) {
-            toast.error(`保存候选人失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.candidate, formatActionError(error)));
         }
     }
 
@@ -3071,11 +3230,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     reason: statusUpdateReason.trim() || null,
                 }),
             });
-            toast.success("候选人状态已更新");
+            toast.success(recruitmentToast.updated(recruitmentToastEntities.candidate));
             setStatusUpdateReason("");
             await Promise.all([loadCandidateDetail(selectedCandidateId), loadCandidates(), loadDashboard()]);
         } catch (error) {
-            toast.error(`更新状态失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.updateFailed(recruitmentToastEntities.candidate, formatActionError(error)));
         }
     }
 
@@ -3086,7 +3245,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 return;
             }
             try {
-                const logs = await Promise.all(activeBatchScreeningTaskIds.map((taskId) => cancelTaskGeneration(taskId, "批量初筛", {silent: true})));
+                const logs = await Promise.all(activeBatchScreeningTaskIds.map((taskId) => cancelTaskGeneration(taskId, recruitmentUiText.batchScreening, {silent: true})));
                 const cancelledTaskIds = logs
                     .filter((log): log is AITaskLog => Boolean(log && log.status === "cancelled"))
                     .map((log) => log.id);
@@ -3102,12 +3261,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         });
                         return next;
                     });
-                    toast.success(`已停止 ${cancelledTaskIds.length} 个批量初筛任务`);
+                    toast.success(recruitmentUiText.stopBatchScreeningCompleted(cancelledTaskIds.length));
                 } else if (logs.some((log) => log?.status === "cancelling")) {
-                    toast.success("批量初筛停止请求已发送");
+                    toast.success(recruitmentUiText.stopBatchScreeningRequested);
                 }
             } catch (error) {
-                toast.error(`停止批量初筛失败：${formatActionError(error)}`);
+                toast.error(recruitmentToast.stopFailed(recruitmentUiText.batchScreening, formatActionError(error)));
             }
             return;
         }
@@ -3116,7 +3275,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 return;
             }
             try {
-                const log = await cancelTaskGeneration(selectedCandidateScreeningTaskId, "初筛");
+                const log = await cancelTaskGeneration(selectedCandidateScreeningTaskId, recruitmentUiText.screening);
                 if (log?.status === "cancelled") {
                     stopTaskMonitor(selectedCandidateScreeningTaskId);
                     setActiveScreeningTaskMap((current) => {
@@ -3128,7 +3287,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     });
                 }
             } catch (error) {
-                toast.error(`停止初筛失败：${formatActionError(error)}`);
+                toast.error(recruitmentToast.stopFailed(recruitmentUiText.screening, formatActionError(error)));
             }
             return;
         }
@@ -3140,7 +3299,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 .filter(Boolean),
         ));
         if (!candidateIds.length) {
-            toast.error("请先选择需要初筛的候选人");
+            toast.error(recruitmentUiText.noScreeningTarget);
             return;
         }
         screeningLaunchInFlightRef.current = true;
@@ -3166,9 +3325,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     });
                 });
                 if (response.queued_count || response.skipped_existing_live_task_count) {
-                    toast.success(`已入队 ${response.queued_count} 个，已跳过进行中的 ${response.skipped_existing_live_task_count} 个${(response.failed_count || 0) > 0 ? `，失败 ${response.failed_count}` : ""}。`);
+                    toast.success(
+                        recruitmentToast.screeningQueued(
+                            response.queued_count,
+                            response.skipped_existing_live_task_count,
+                            response.failed_count || 0,
+                        ),
+                    );
                 } else {
-                    toast.error("没有成功入队任何初筛任务");
+                    toast.error(recruitmentUiText.noScreeningQueued);
                 }
             } else {
                 const candidateId = candidateIds[0];
@@ -3183,7 +3348,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 attachScreeningTaskMonitor(candidateId, task.task_id, {
                     suppressFinishToast: false,
                 });
-                toast.success(task.reused_existing_task ? "已有初筛任务在执行，已为你定位到现有任务" : "已将初筛任务加入队列");
+                toast.success(task.reused_existing_task ? recruitmentToast.screeningTaskReused : recruitmentUiText.queueJoined);
             }
         } finally {
             screeningLaunchInFlightRef.current = false;
@@ -3201,14 +3366,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 return;
             }
             try {
-                const log = await cancelTaskGeneration(currentCandidateInterviewTaskId, "面试题生成");
+                const log = await cancelTaskGeneration(currentCandidateInterviewTaskId, isZh ? "面试题生成" : "interview question generation");
                 if (log?.status === "cancelled") {
                     stopTaskMonitor(currentCandidateInterviewTaskId);
                     setActiveInterviewTaskId((current) => (current === currentCandidateInterviewTaskId ? null : current));
                     setActiveInterviewCandidateId((current) => (current === candidateId ? null : current));
                 }
             } catch (error) {
-                toast.error(`停止面试题生成失败：${formatActionError(error)}`);
+                toast.error(isZh ? `停止面试题生成失败：${formatActionError(error)}` : `Failed to stop interview question generation: ${formatActionError(error)}`);
             }
             return;
         }
@@ -3222,7 +3387,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             const task = await recruitmentApi<RecruitmentTaskStartResponse>(`/candidates/${candidateId}/interview-questions/start`, {
                 method: "POST",
                 body: JSON.stringify({
-                    round_name: interviewRoundName.trim() || "初试",
+                    round_name: interviewRoundName.trim() || localizedInitialInterviewRoundName,
                     custom_requirements: interviewCustomRequirements.trim() || null,
                     skill_ids: manualSkillIds,
                     use_candidate_memory: !interviewSkillSelectionDirty,
@@ -3247,19 +3412,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             : Promise.resolve(null),
                     ]);
                     if (log.status === "success" || log.status === "fallback") {
-                        toast.success(log.status === "fallback" ? "面试题已生成（兜底完成）" : "面试题已生成");
+                        toast.success(log.status === "fallback" ? (isZh ? "面试题已生成（兜底完成）" : "Interview questions generated with fallback") : (isZh ? "面试题已生成" : "Interview questions generated"));
                         return;
                     }
                     if (log.status === "cancelled") {
-                        toast.success("已停止面试题生成");
+                        toast.success(isZh ? "已停止面试题生成" : "Interview question generation stopped");
                         return;
                     }
-                    toast.error(`生成面试题失败：${log.error_message || "未知错误"}`);
+                    toast.error(isZh ? `生成面试题失败：${log.error_message || "未知错误"}` : `Interview question generation failed: ${log.error_message || "Unknown error"}`);
                 },
             });
-            toast.success("已开始生成面试题，可随时停止");
+            toast.success(isZh ? "已开始生成面试题，可随时停止" : "Interview question generation started and can be stopped at any time");
         } catch (error) {
-            toast.error(`生成面试题失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(isZh ? `生成面试题失败：${error instanceof Error ? error.message : "未知错误"}` : `Interview question generation failed: ${error instanceof Error ? error.message : "Unknown error"}`);
         } finally {
             if (!started) {
                 setInterviewGenerating(false);
@@ -3274,7 +3439,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     return;
                 }
                 try {
-                    const log = await cancelTaskGeneration(activeChatTaskId, "AI 助手");
+                    const log = await cancelTaskGeneration(activeChatTaskId, isZh ? "AI 助手" : "AI Assistant");
                     if (log?.status === "cancelled") {
                         stopTaskMonitor(activeChatTaskId);
                         if (activeChatMessageId) {
@@ -3289,7 +3454,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         setActiveChatMessageId((current) => (current === activeChatMessageId ? null : current));
                     }
                 } catch (error) {
-                    toast.error(`停止助手生成失败：${formatActionError(error)}`);
+                    toast.error(isZh ? `停止助手生成失败：${formatActionError(error)}` : `Failed to stop assistant generation: ${formatActionError(error)}`);
                 }
                 return;
             }
@@ -3354,7 +3519,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     },
                 ]);
                 if (response.used_fallback) {
-                    toast.error(`本次 AI 调用已回退到兜底结果：${response.fallback_error || "未返回具体原因"}`);
+                    toast.error(isZh ? `本次 AI 调用已回退到兜底结果：${response.fallback_error || "未返回具体原因"}` : `This AI call fell back to a fallback result: ${response.fallback_error || "No specific reason returned"}`);
                 }
                 await Promise.all([loadLogs({silent: true}), loadDashboard()]);
                 return;
@@ -3368,7 +3533,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 {
                     id: pendingMessageId,
                     role: "assistant",
-                    content: "助手正在思考...",
+                    content: isZh ? "助手正在思考..." : "Assistant is thinking...",
                     createdAt: new Date().toISOString(),
                     pending: true,
                     taskId: response.task_id,
@@ -3384,7 +3549,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     if (log.status === "cancelling") {
                         updateChatMessage(pendingMessageId, (chatMessage) => ({
                             ...chatMessage,
-                            content: "正在停止生成...",
+                            content: isZh ? "正在停止生成..." : "Stopping generation...",
                         }));
                     }
                 },
@@ -3412,11 +3577,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     setActiveChatMessageId((current) => (current === pendingMessageId ? null : current));
                     await Promise.all([loadLogs({silent: true}), loadDashboard()]);
                     if (log.status === "fallback") {
-                        toast.error(`本次 AI 调用已回退到兜底结果：${log.error_message || "未返回具体原因"}`);
+                        toast.error(isZh ? `本次 AI 调用已回退到兜底结果：${log.error_message || "未返回具体原因"}` : `This AI call fell back to a fallback result: ${log.error_message || "No specific reason returned"}`);
                     } else if (log.status === "failed") {
-                        toast.error(`发送失败：${log.error_message || "未知错误"}`);
+                        toast.error(isZh ? `发送失败：${log.error_message || "未知错误"}` : `Request failed: ${log.error_message || "Unknown error"}`);
                     } else if (log.status === "cancelled") {
-                        toast.success("已停止助手生成");
+                        toast.success(isZh ? "已停止助手生成" : "Assistant generation stopped");
                     }
                 },
             });
@@ -3426,7 +3591,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 {
                     id: `e-${Date.now()}`,
                     role: "assistant",
-                    content: `发送失败：${error instanceof Error ? error.message : "未知错误"}`,
+                    content: isZh ? `发送失败：${error instanceof Error ? error.message : "未知错误"}` : `Request failed: ${error instanceof Error ? error.message : "Unknown error"}`,
                     createdAt: new Date().toISOString(),
                 },
             ]);
@@ -3466,14 +3631,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             if (options?.quiet) {
                 return;
             }
-            toast.success("AI 助手上下文已更新");
+            toast.success(isZh ? "AI 助手上下文已更新" : "AI assistant context updated");
         } catch (error) {
             chatContextRef.current = previousContext;
             setChatContext(previousContext);
             if (options?.quiet) {
                 return;
             }
-            toast.error(`更新助手上下文失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(isZh ? `更新助手上下文失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to update assistant context: ${error instanceof Error ? error.message : "Unknown error"}`);
         }
     }
 
@@ -3915,7 +4080,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
         } catch (error) {
-            toast.error(`打开简历失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(isZh ? `打开简历失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to open resume: ${error instanceof Error ? error.message : "Unknown error"}`);
         }
     }
 
@@ -3939,7 +4104,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             await recruitmentApi(`/candidates/${deletedCandidateId}`, {
                 method: "DELETE",
             });
-            toast.success("候选人已删除");
+            toast.success(isZh ? "候选人已删除" : "Candidate deleted");
             setCandidateDeleteTarget(null);
             setSelectedCandidateIds((current) => current.filter((item) => item !== deletedCandidateId));
             setCandidateDetail(null);
@@ -3957,7 +4122,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 void saveChatContext(chatContextRef.current.position_id ?? null, chatContextRef.current.skill_ids, nextCandidateId, {quiet: true});
             }
         } catch (error) {
-            setCandidateDeleteError(formatActionError(error) || "删除候选人失败，请稍后重试");
+            setCandidateDeleteError(formatActionError(error) || (isZh ? "删除候选人失败，请稍后重试" : "Failed to delete the candidate. Please try again later."));
         } finally {
             setCandidateDeleting(false);
         }
@@ -3981,8 +4146,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             });
             toast.success(
                 result.remaining_resume_count > 0
-                    ? "简历已删除，候选人已自动切换到剩余简历"
-                    : "简历已删除",
+                    ? (isZh ? "简历已删除，候选人已自动切换到剩余简历" : "Resume deleted, and the candidate was switched to a remaining resume automatically")
+                    : (isZh ? "简历已删除" : "Resume deleted"),
             );
             setResumeDeleteTarget(null);
             await Promise.all([
@@ -3994,7 +4159,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     : Promise.resolve(null),
             ]);
         } catch (error) {
-            toast.error(`删除简历失败：${formatActionError(error)}`);
+            toast.error(isZh ? `删除简历失败：${formatActionError(error)}` : `Failed to delete resume: ${formatActionError(error)}`);
         } finally {
             setResumeDeleting(false);
         }
@@ -4021,9 +4186,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             anchor.click();
             anchor.remove();
             URL.revokeObjectURL(downloadUrl);
-            toast.success("面试题 HTML 已开始下载");
+            toast.success(isZh ? "面试题 HTML 已开始下载" : "Interview question HTML download started");
         } catch (error) {
-            toast.error(`下载面试题失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(isZh ? `下载面试题失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to download interview questions: ${error instanceof Error ? error.message : "Unknown error"}`);
         }
     }
 
@@ -4225,37 +4390,37 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         const isFullscreen = mode === "fullscreen";
         const isWorkspace = mode === "workspace";
         const suggestionPrompts = [
-            "生成当前岗位 JD",
-            "查看当前岗位候选人",
-            "重新对当前候选人初筛，硬性要求加强硬件测试",
-            "给当前候选人生成面试题",
-            "说明这次对话用了哪些 Skills",
-            "当前使用什么模型",
+            isZh ? "生成当前岗位 JD" : "Generate a JD for the current position",
+            isZh ? "查看当前岗位候选人" : "Show candidates for the current position",
+            isZh ? "重新对当前候选人初筛，硬性要求加强硬件测试" : "Re-screen the current candidate with stronger hardware testing requirements",
+            isZh ? "给当前候选人生成面试题" : "Generate interview questions for the current candidate",
+            isZh ? "说明这次对话用了哪些 Skills" : "Explain which skills this conversation used",
+            isZh ? "当前使用什么模型" : "Which model is being used now",
         ];
         const workspaceSuggestionPrompts = [
-            "帮我生成 IoT 测试工程师 JD",
-            "查看当前岗位候选人列表",
-            "重新对当前候选人初筛，硬性要求加强硬件测试经验",
-            "给当前候选人生成初试题，重点考察硬件联调",
-            "说明这次对话用了哪些 Skills 和模型",
+            isZh ? "帮我生成 IoT 测试工程师 JD" : "Generate an IoT Test Engineer JD",
+            isZh ? "查看当前岗位候选人列表" : "Show candidates for the current position",
+            isZh ? "重新对当前候选人初筛，硬性要求加强硬件测试经验" : "Re-screen the current candidate with stronger hardware testing requirements",
+            isZh ? "给当前候选人生成初试题，重点考察硬件联调" : "Generate first-round interview questions focused on hardware integration",
+            isZh ? "说明这次对话用了哪些 Skills 和模型" : "Explain which skills and model this conversation used",
         ];
         const quickActionPrompts = isWorkspace ? workspaceSuggestionPrompts : suggestionPrompts;
         const collapsedQuickActionPrompts = quickActionPrompts.slice(0, Math.min(3, quickActionPrompts.length));
         const visibleQuickActionPrompts = assistantQuickActionsExpanded ? quickActionPrompts : collapsedQuickActionPrompts;
         const hasMoreQuickActions = quickActionPrompts.length > collapsedQuickActionPrompts.length;
         const summaryChips = [
-            {key: "position", label: shortText(chatContext.position_title || "未指定岗位", 18), dotClassName: "bg-sky-500"},
+            {key: "position", label: shortText(chatContext.position_title || recruitmentUiText.unspecifiedPosition, 18), dotClassName: "bg-sky-500"},
             {key: "candidate", label: shortText(chatContextCandidateLabel, 18), dotClassName: "bg-amber-500"},
             {key: "skills", label: `${chatContext.skills?.length || 0} Skills`, dotClassName: "bg-emerald-500"},
-            {key: "model", label: shortText(assistantActiveLLMConfig?.resolved_model_name || assistantActiveLLMConfig?.model_name || "未识别模型", 18), dotClassName: "bg-violet-500"},
+            {key: "model", label: shortText(assistantActiveLLMConfig?.resolved_model_name || assistantActiveLLMConfig?.model_name || recruitmentUiText.modelUnrecognized, 18), dotClassName: "bg-violet-500"},
         ];
         const assistantContextPanel = (
                 <div className="flex h-full min-h-0 flex-col space-y-5">
                     <div className="flex items-start justify-between gap-3">
                         <div>
-                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">上下文</p>
+                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{recruitmentUiText.assistantContextShort}</p>
                             <p className="mt-1 hidden text-xs leading-5 text-slate-500 dark:text-slate-400 2xl:block">
-                                按需展开岗位、Skills 和模型配置，不再长期挤压主聊天区。
+                                {isZh ? "按需展开岗位、Skills 和模型配置，不再长期挤压主聊天区。" : "Expand position, skill, and model settings only when needed so the main chat area stays clear."}
                             </p>
                         </div>
                     <Button
@@ -4274,20 +4439,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                 <div className="grid gap-2 sm:grid-cols-3">
                     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                        <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">当前岗位</p>
-                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{chatContext.position_title || "未指定岗位"}</p>
+                        <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">{recruitmentUiText.currentPosition}</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{chatContext.position_title || recruitmentUiText.unspecifiedPosition}</p>
                     </div>
                     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                        <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">激活 Skills</p>
-                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{assistantContextSkills.length} 项</p>
+                        <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">{recruitmentUiText.activeSkills}</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{recruitmentUiText.skillCount(assistantContextSkills.length)}</p>
                     </div>
                     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                        <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">当前模型</p>
-                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{assistantActiveLLMConfig?.resolved_model_name || assistantActiveLLMConfig?.model_name || "暂未识别"}</p>
+                        <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">{recruitmentUiText.currentModel}</p>
+                        <p className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">{assistantActiveLLMConfig?.resolved_model_name || assistantActiveLLMConfig?.model_name || recruitmentUiText.modelUnrecognized}</p>
                     </div>
                 </div>
 
-                <Field label="岗位上下文">
+                <Field label={recruitmentUiText.currentPosition}>
                     <NativeSelect
                         value={chatContext.position_id ? String(chatContext.position_id) : "none"}
                         onChange={(event) => {
@@ -4296,7 +4461,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             queueAssistantInputFocus();
                         }}
                     >
-                        <option value="none">未指定岗位</option>
+                        <option value="none">{recruitmentUiText.unspecifiedPosition}</option>
                         {positions.map((position) => (
                             <option key={position.id} value={position.id}>
                                 {position.title}
@@ -4305,7 +4470,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </NativeSelect>
                 </Field>
 
-                <Field label="激活 Skills">
+                <Field label={recruitmentUiText.activeSkills}>
                     <div className="flex flex-wrap gap-2">
                         {enabledSkills.map((skill) => (
                             <button
@@ -4326,7 +4491,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </div>
                 </Field>
 
-                <Field label="当前模型">
+                <Field label={recruitmentUiText.currentModel}>
                     <NativeSelect
                         value={assistantActiveLLMConfig ? String(assistantActiveLLMConfig.id) : "none"}
                         onChange={(event) => {
@@ -4338,7 +4503,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         }}
                         disabled={assistantModelSwitchOptions.length <= 1}
                     >
-                        {!assistantModelSwitchOptions.length ? <option value="none">暂无可切换模型</option> : null}
+                        {!assistantModelSwitchOptions.length ? <option value="none">{recruitmentUiText.noSwitchableModel}</option> : null}
                         {assistantModelSwitchOptions.map((config) => (
                             <option key={config.id} value={config.id}>
                                 {labelForProvider(config.resolved_provider || config.provider)} / {config.resolved_model_name || config.model_name}
@@ -4346,7 +4511,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         ))}
                     </NativeSelect>
                     <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                        先为同一任务类型添加多个已启用模型，这里就能像 GPT / Claude 一样直接切换当前使用项。
+                        {isZh ? "先为同一任务类型添加多个已启用模型，这里就能像 GPT / Claude 一样直接切换当前使用项。" : "Enable multiple models for the same task type first, then switch between them here like GPT or Claude."}
                     </p>
                 </Field>
             </div>
@@ -4360,14 +4525,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <div>
                                 <div className="flex items-center gap-2">
                                     <Bot className="h-4 w-4 text-sky-600"/>
-                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">招聘助手</p>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{recruitmentUiText.assistantLabel}</p>
                                 </div>
                                 <p className="mt-1 hidden text-xs text-slate-500 dark:text-slate-400 2xl:block">
-                                    在工作台里快速切上下文、带着推荐问题打开完整助手。
+                                    {recruitmentUiText.assistantWorkspaceHint}
                                 </p>
                             </div>
                             <Button size="sm" variant="outline" onClick={() => openAssistantMode("drawer")}>
-                                打开
+                                {recruitmentUiText.open}
                             </Button>
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -4406,7 +4571,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         onMouseDown={preventAssistantActionFocusLoss}
                                         onClick={() => setAssistantQuickActionsExpanded((current) => !current)}
                                     >
-                                        {assistantQuickActionsExpanded ? "收起" : "更多"}
+                                        {assistantQuickActionsExpanded ? recruitmentUiText.collapse : recruitmentUiText.more}
                                         {assistantQuickActionsExpanded ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>}
                                     </Button>
                                 ) : null}
@@ -4414,7 +4579,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <div className="flex flex-wrap gap-2">
                                 <Button size="sm" onClick={() => openAssistantMode("drawer")}>
                                     <Bot className="h-4 w-4"/>
-                                    打开完整助手
+                                    {recruitmentUiText.openFullAssistant}
                                 </Button>
                                 <Button
                                     size="sm"
@@ -4424,7 +4589,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         openAssistantMode("drawer");
                                     }}
                                 >
-                                    上下文
+                                    {recruitmentUiText.assistantContextShort}
                                 </Button>
                             </div>
                         </div>
@@ -4436,23 +4601,23 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return (
             <div className="flex h-full min-h-0 flex-col">
                 <div className="border-b border-slate-200/80 px-4 py-2.5 dark:border-slate-800 sm:px-5">
-                    <div className="flex items-center gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                        <div className="flex shrink-0 items-center gap-2">
-                            <Bot className="h-4 w-4 text-sky-600"/>
-                            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">招聘助手</p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
+                        <div className="flex items-center gap-3 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            <div className="flex shrink-0 items-center gap-2">
+                                <Bot className="h-4 w-4 text-sky-600"/>
+                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{recruitmentUiText.assistantLabel}</p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
                             <Button variant={isPage ? "default" : "ghost"} size="sm" className="h-7 rounded-full px-2.5 text-xs"
                                     onClick={() => openAssistantMode("page")}>
-                                页内
+                                {isZh ? "页内" : "In Page"}
                             </Button>
                             <Button variant={mode === "drawer" ? "default" : "ghost"} size="sm" className="h-7 rounded-full px-2.5 text-xs"
                                     onClick={() => openAssistantMode("drawer")}>
-                                浮层
+                                {isZh ? "浮层" : "Drawer"}
                             </Button>
                             <Button variant={isFullscreen ? "default" : "ghost"} size="sm" className="h-7 rounded-full px-2.5 text-xs"
                                     onClick={() => openAssistantMode("fullscreen")}>
-                                全屏
+                                {isZh ? "全屏" : "Fullscreen"}
                             </Button>
                         </div>
                         <div className="flex min-w-max items-center gap-2">
@@ -4476,7 +4641,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             onMouseDown={preventAssistantActionFocusLoss}
                             onClick={() => setAssistantContextExpanded((current) => !current)}
                         >
-                            上下文
+                            {recruitmentUiText.assistantContextShort}
                             {assistantContextExpanded ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>}
                         </Button>
                     </div>
@@ -4544,23 +4709,23 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     <div className="mt-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-4 text-xs leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-950/70 dark:text-slate-300">
                                                         <div className="space-y-3">
                                                             <div>
-                                                                <p className="font-medium text-slate-900 dark:text-slate-100">邮件发送预览</p>
+                                                                <p className="font-medium text-slate-900 dark:text-slate-100">{isZh ? "邮件发送预览" : "Email Preview"}</p>
                                                                 <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                                                                    先确认发送，再真正触发邮件发送。
+                                                                    {isZh ? "先确认发送，再真正触发邮件发送。" : "Confirm first, then actually send the email."}
                                                                 </p>
                                                             </div>
                                                             <div className="space-y-1">
-                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">候选人：</span>{message.mailConfirmationRequest.candidates.map((item) => item.name).join("、")}</p>
-                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">发件箱：</span>{message.mailConfirmationRequest.sender ? `${message.mailConfirmationRequest.sender.name} <${message.mailConfirmationRequest.sender.from_email}>` : "未配置"}</p>
-                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">收件人：</span>{message.mailConfirmationRequest.recipients.map((item) => item.name ? `${item.name} <${item.email}>` : item.email).join("、")}</p>
-                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">附件：</span>{message.mailConfirmationRequest.attachment_count} 份简历</p>
+                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">{isZh ? "候选人：" : "Candidates: "}</span>{message.mailConfirmationRequest.candidates.map((item) => item.name).join(isZh ? "、" : ", ")}</p>
+                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">{isZh ? "发件箱：" : "Sender: "}</span>{message.mailConfirmationRequest.sender ? `${message.mailConfirmationRequest.sender.name} <${message.mailConfirmationRequest.sender.from_email}>` : (isZh ? "未配置" : "Not configured")}</p>
+                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">{isZh ? "收件人：" : "Recipients: "}</span>{message.mailConfirmationRequest.recipients.map((item) => item.name ? `${item.name} <${item.email}>` : item.email).join(isZh ? "、" : ", ")}</p>
+                                                                <p><span className="font-medium text-slate-900 dark:text-slate-100">{isZh ? "附件：" : "Attachments: "}</span>{isZh ? `${message.mailConfirmationRequest.attachment_count} 份简历` : `${message.mailConfirmationRequest.attachment_count} resume file(s)`}</p>
                                                             </div>
                                                             <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                                                                <p className="font-medium text-slate-900 dark:text-slate-100">邮件主题</p>
+                                                                <p className="font-medium text-slate-900 dark:text-slate-100">{isZh ? "邮件主题" : "Email Subject"}</p>
                                                                 <p className="mt-1 whitespace-pre-wrap break-words">{message.mailConfirmationRequest.subject}</p>
                                                             </div>
                                                             <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-3 py-3 dark:border-slate-800 dark:bg-slate-900/60">
-                                                                <p className="font-medium text-slate-900 dark:text-slate-100">邮件正文</p>
+                                                                <p className="font-medium text-slate-900 dark:text-slate-100">{isZh ? "邮件正文" : "Email Body"}</p>
                                                                 <p className="mt-1 whitespace-pre-wrap break-words">{message.mailConfirmationRequest.body_text}</p>
                                                             </div>
                                                             {message.mailConfirmationRequest.blocking_reason ? (
@@ -4575,12 +4740,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             ) : null}
                                                             {assistantMailActionState[message.id]?.editing ? (
                                                                 <div className="rounded-2xl border border-sky-200 bg-sky-50 px-3 py-3 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                                    已进入编辑。你可以在弹窗里修改收件人、标题和正文后再发送。
+                                                                    {isZh ? "已进入编辑。你可以在弹窗里修改收件人、标题和正文后再发送。" : "Editing mode is open. You can adjust recipients, subject, and body in the dialog before sending."}
                                                                 </div>
                                                             ) : null}
                                                             {assistantMailActionState[message.id]?.status === "sent" ? (
                                                                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
-                                                                    已发送成功{assistantMailActionState[message.id]?.dispatchId ? `，发送记录 #${assistantMailActionState[message.id]?.dispatchId}` : ""}。
+                                                                    {isZh
+                                                                        ? `已发送成功${assistantMailActionState[message.id]?.dispatchId ? `，发送记录 #${assistantMailActionState[message.id]?.dispatchId}` : ""}。`
+                                                                        : `Sent successfully${assistantMailActionState[message.id]?.dispatchId ? `, dispatch #${assistantMailActionState[message.id]?.dispatchId}` : ""}.`}
                                                                 </div>
                                                             ) : null}
                                                             <div className="flex flex-wrap gap-2">
@@ -4591,7 +4758,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                     disabled={!message.mailConfirmationRequest.can_confirm || assistantMailActionState[message.id]?.status === "sending" || assistantMailActionState[message.id]?.status === "sent"}
                                                                 >
                                                                     {assistantMailActionState[message.id]?.status === "sending" ? <Loader2 className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4"/>}
-                                                                    {assistantMailActionState[message.id]?.status === "sent" ? "已发送" : assistantMailActionState[message.id]?.status === "sending" ? "发送中..." : "确认发送"}
+                                                                    {assistantMailActionState[message.id]?.status === "sent" ? (isZh ? "已发送" : "Sent") : assistantMailActionState[message.id]?.status === "sending" ? (isZh ? "发送中..." : "Sending...") : (isZh ? "确认发送" : "Confirm Send")}
                                                                 </Button>
                                                                 {assistantMailActionState[message.id]?.status === "sent" ? (
                                                                     <Button
@@ -4601,7 +4768,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                         onClick={() => openAssistantPreparedResumeMailDialog(message.id, message.mailConfirmationRequest!, "resend")}
                                                                     >
                                                                         <Send className="h-4 w-4"/>
-                                                                        再次发送
+                                                                        {isZh ? "再次发送" : "Send Again"}
                                                                     </Button>
                                                                 ) : (
                                                                     <Button
@@ -4612,7 +4779,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                         disabled={assistantMailActionState[message.id]?.status === "sending"}
                                                                     >
                                                                         <ExternalLink className="h-4 w-4"/>
-                                                                        编辑后发送
+                                                                        {isZh ? "编辑后发送" : "Edit Before Sending"}
                                                                     </Button>
                                                                 )}
                                                             </div>
@@ -4625,7 +4792,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         {chatSending ? (
                                             <div className="flex items-center gap-2 text-sm text-slate-500">
                                                 <Loader2 className="h-4 w-4 animate-spin"/>
-                                                助手正在思考...
+                                                {isZh ? "助手正在思考..." : "Assistant is thinking..."}
                                             </div>
                                         ) : null}
                                         <div ref={assistantScrollAnchorRef}/>
@@ -4642,7 +4809,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             onClick={() => scrollAssistantToBottom("smooth")}
                                         >
                                             <ChevronDown className="h-4 w-4"/>
-                                            回到底部
+                                            {isZh ? "回到底部" : "Back to Bottom"}
                                         </Button>
                                     </div>
                                 ) : null}
@@ -4669,7 +4836,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             onMouseDown={preventAssistantActionFocusLoss}
                                             onClick={() => setAssistantQuickActionsExpanded((current) => !current)}
                                         >
-                                            {assistantQuickActionsExpanded ? "收起" : "更多"}
+                                            {assistantQuickActionsExpanded ? recruitmentUiText.collapse : recruitmentUiText.more}
                                             {assistantQuickActionsExpanded ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>}
                                         </Button>
                                     ) : null}
@@ -4686,12 +4853,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         }
                                     }}
                                     rows={isFullscreen ? 7 : isPage ? 4 : 5}
-                                    placeholder="例如：重新对当前候选人初筛，硬性要求加强硬件测试经验；或说明这次用了哪些 Skills"
+                                    placeholder={isZh ? "例如：重新对当前候选人初筛，硬性要求加强硬件测试经验；或说明这次用了哪些 Skills" : "For example: re-screen the current candidate with stronger hardware-testing requirements, or explain which skills were used this time"}
                                 />
                                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                                     <p className="hidden text-xs text-slate-500 dark:text-slate-400 2xl:block">
-                                        助手会自动携带当前岗位与启用 Skill 上下文，适合连续执行筛选、生成和查询操作。按
-                                        Ctrl/Cmd + Enter 可直接发送。
+                                        {isZh ? "助手会自动携带当前岗位与启用 Skill 上下文，适合连续执行筛选、生成和查询操作。按 Ctrl/Cmd + Enter 可直接发送。" : "The assistant automatically carries the current position and enabled skill context, which works well for screening, generation, and lookup flows. Press Ctrl/Cmd + Enter to send."}
                                     </p>
                                     <Button
                                         onClick={() => void sendChatMessage()}
@@ -4699,7 +4865,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         disabled={isCurrentRunStopping || (!canStopCurrentRun && !chatInput.trim())}
                                     >
                                         {canStopCurrentRun ? <Square className="h-4 w-4"/> : <Send className="h-4 w-4"/>}
-                                        {isCurrentRunStopping ? "停止中..." : canStopCurrentRun ? "停止生成" : "发送"}
+                                        {isCurrentRunStopping ? (isZh ? "停止中..." : "Stopping...") : canStopCurrentRun ? (isZh ? "停止生成" : "Stop") : (isZh ? "发送" : "Send")}
                                     </Button>
                                 </div>
                             </div>
@@ -4733,7 +4899,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     function renderAssistantSuspendedState() {
-        const modeLabel = assistantDisplayMode === "fullscreen" ? "全屏模式" : "宽抽屉模式";
+        const modeLabel = assistantDisplayMode === "fullscreen" ? (isZh ? "全屏模式" : "fullscreen mode") : (isZh ? "宽抽屉模式" : "wide drawer mode");
         return (
             <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 px-8 py-10 text-center">
                 <div
@@ -4741,14 +4907,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     <Bot className="h-6 w-6"/>
                 </div>
                 <div className="space-y-2">
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">助手已在{modeLabel}打开</h3>
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{isZh ? `助手已在${modeLabel}打开` : `Assistant is already open in ${modeLabel}`}</h3>
                     <p className="max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">
-                        为避免背景页面和弹层同时绑定同一份输入内容，这里已暂停背景助手面板显示。当前会话内容和输入草稿仍保留在前台助手中。
+                        {isZh ? "为避免背景页面和弹层同时绑定同一份输入内容，这里已暂停背景助手面板显示。当前会话内容和输入草稿仍保留在前台助手中。" : "To avoid binding the same input state in both the background page and the overlay, the background assistant panel is suspended here. Your current conversation and draft are still preserved in the foreground assistant."}
                     </p>
                 </div>
                 <div className="flex flex-wrap justify-center gap-3">
-                    <Button onClick={() => openAssistantMode("page")}>切回页内模式</Button>
-                    <Button variant="outline" onClick={() => setAssistantOpen(false)}>关闭弹层</Button>
+                    <Button onClick={() => openAssistantMode("page")}>{isZh ? "切回页内模式" : "Switch to In-Page Mode"}</Button>
+                    <Button variant="outline" onClick={() => setAssistantOpen(false)}>{isZh ? "关闭弹层" : "Close Drawer"}</Button>
                 </div>
             </div>
         );
@@ -4791,13 +4957,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         <CardHeader className="space-y-0 px-4 pb-0 pt-4">
                             {positionListCollapsed ? (
                                 <div className="flex items-center justify-center">
-                                    <CardTitle className="text-[16px] font-semibold tracking-tight whitespace-nowrap">岗位</CardTitle>
+                                    <CardTitle className="text-[16px] font-semibold tracking-tight whitespace-nowrap">{isZh ? "岗位" : "Positions"}</CardTitle>
                                 </div>
                             ) : (
                                 <div className="space-y-3">
                                     <div className="min-w-0">
                                         <CardTitle className="text-[18px] font-semibold tracking-tight whitespace-nowrap">
-                                            岗位列表 ({positions.length})
+                                            {isZh ? `岗位列表 (${positions.length})` : `Position List (${positions.length})`}
                                         </CardTitle>
                                     </div>
                                     <div className="flex justify-start">
@@ -4807,7 +4973,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             onClick={openCreatePosition}
                                         >
                                             <Plus className="h-4 w-4"/>
-                                            新增岗位
+                                            {isZh ? "新增岗位" : "Add Position"}
                                         </Button>
                                     </div>
                                 </div>
@@ -4819,7 +4985,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     <SearchField
                                         value={positionQuery}
                                         onChange={setPositionQuery}
-                                        placeholder="筛选"
+                                        placeholder={isZh ? "筛选" : "Filter"}
                                         inputClassName="h-9 rounded-xl border-slate-200/80 bg-slate-50/70 text-sm shadow-none dark:border-slate-800 dark:bg-slate-900/60"
                                     />
                                     <NativeSelect
@@ -4827,7 +4993,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         className="h-9 rounded-xl border-slate-200/80 bg-slate-50/70 text-sm shadow-none dark:border-slate-800 dark:bg-slate-900/60"
                                         onChange={(event) => setPositionStatusFilter(event.target.value)}
                                     >
-                                        <option value="all">全部状态</option>
+                                        <option value="all">{isZh ? "全部状态" : "All Statuses"}</option>
                                         {Object.entries(positionStatusLabels).map(([value, label]) => (
                                             <option key={value} value={value}>
                                                 {label}
@@ -4842,7 +5008,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             )}>
                                 <div className={cn(positionListCollapsed ? "space-y-2" : "space-y-2.5")}>
                                     {positionsLoading ? (
-                                        <LoadingCard label="正在加载岗位列表"/>
+                                        <LoadingCard label={isZh ? "正在加载岗位列表" : "Loading positions"}/>
                                     ) : positions.length ? positions.map((position) => (
                                         <button
                                             key={position.id}
@@ -4860,7 +5026,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 <div className="space-y-1">
                                                     <p className="truncate text-[12px] font-semibold leading-5">{position.title}</p>
                                                     <div className="flex items-center gap-1.5 text-[10px] opacity-75">
-                                                        <span className="truncate">{position.location || position.department || "岗位"}</span>
+                                                        <span className="truncate">{position.location || position.department || (isZh ? "岗位" : "Position")}</span>
                                                         <span className="h-1 w-1 shrink-0 rounded-full bg-current/45"/>
                                                         <span className="shrink-0">{labelForPositionStatus(position.status)}</span>
                                                     </div>
@@ -4874,20 +5040,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             {labelForPositionStatus(position.status)}
                                                         </Badge>
                                                         <span className="text-[11px] font-medium leading-none">
-                                                            候选人 {position.candidate_count}
+                                                            {isZh ? `候选人 ${position.candidate_count}` : `Candidates ${position.candidate_count}`}
                                                         </span>
                                                     </div>
                                                     <p
                                                         className="truncate text-[11px] leading-5 text-slate-500 dark:text-slate-400"
-                                                        title={`${position.department || "未设置部门"} · ${position.location || "未设置地点"}`}
+                                                        title={`${position.department || (isZh ? "未设置部门" : "No department")} · ${position.location || (isZh ? "未设置地点" : "No location")}`}
                                                     >
-                                                        {position.department || "未设置部门"} · {position.location || "未设置地点"}
+                                                        {position.department || (isZh ? "未设置部门" : "No department")} · {position.location || (isZh ? "未设置地点" : "No location")}
                                                     </p>
                                                 </div>
                                             )}
                                         </button>
                                     )) : (
-                                        <EmptyState title="暂无岗位" description="先新建一个岗位，再由 AI 生成 JD 并进入招聘流程。"/>
+                                        <EmptyState title={isZh ? "暂无岗位" : "No Positions Yet"} description={isZh ? "先新建一个岗位，再由 AI 生成 JD 并进入招聘流程。" : "Create a position first, then generate a JD and enter the recruiting workflow."}/>
                                     )}
                                 </div>
                             </div>
@@ -4899,14 +5065,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         size="icon"
                         onClick={() => setPositionListCollapsed((current) => !current)}
                         className="absolute right-0 top-1/2 z-20 h-10 w-5 -translate-y-1/2 translate-x-1/2 rounded-full border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
-                        title={positionListCollapsed ? "展开岗位列表" : "收起岗位列表"}
+                        title={positionListCollapsed ? (isZh ? "展开岗位列表" : "Expand position list") : (isZh ? "收起岗位列表" : "Collapse position list")}
                     >
                         {positionListCollapsed ? <ChevronRight className="h-3.5 w-3.5"/> : <ChevronLeft className="h-3.5 w-3.5"/>}
                     </Button>
                 </div>
 
                 <div className="min-h-0 overflow-hidden">
-                    {positionDetailLoading ? <LoadingPanel label="正在加载岗位详情"/> : positionDetail ? (
+                    {positionDetailLoading ? <LoadingPanel label={isZh ? "正在加载岗位详情" : "Loading position details"}/> : positionDetail ? (
                         <div className="flex h-full min-h-0 flex-col gap-3 2xl:gap-5">
                             <div
                                 className={cn(
@@ -4921,31 +5087,31 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white/70 px-3 py-2 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/60"
                                     >
                                         <div className="flex min-w-0 shrink flex-wrap items-center gap-2">
-                                            <Button
-                                                size="sm"
-                                                className="h-8 rounded-xl px-3 text-xs"
-                                                variant={positionWorkspaceView === "jd" ? "default" : "outline"}
-                                                onClick={() => setPositionWorkspaceView("jd")}
-                                            >
-                                                当前 JD
+                                                <Button
+                                                    size="sm"
+                                                    className="h-8 rounded-xl px-3 text-xs"
+                                                    variant={positionWorkspaceView === "jd" ? "default" : "outline"}
+                                                    onClick={() => setPositionWorkspaceView("jd")}
+                                                >
+                                                {isZh ? "当前 JD" : "Current JD"}
                                             </Button>
                                             <Button
                                                 size="sm"
                                                 className="h-8 rounded-xl px-3 text-xs"
                                                 variant={positionWorkspaceView === "config" ? "default" : "outline"}
                                                 onClick={() => setPositionWorkspaceView("config")}
-                                            >
-                                                岗位配置
+                                                >
+                                                {isZh ? "岗位配置" : "Position Settings"}
                                             </Button>
                                             <span className="min-w-0 truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
                                                 {positionDetail.position.title}
                                             </span>
                                         </div>
                                         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] leading-none text-slate-500 dark:text-slate-400">
-                                            <span className="whitespace-nowrap">招聘人数 {positionDetail.position.headcount}</span>
-                                            <span className="whitespace-nowrap">JD 版本 {positionDetail.jd_versions.length}</span>
-                                            <span className="whitespace-nowrap">候选人 {positionDetail.candidates.length}</span>
-                                            <span className="whitespace-nowrap">最近更新 {formatDateTime(positionDetail.position.updated_at)}</span>
+                                            <span className="whitespace-nowrap">{isZh ? `招聘人数 ${positionDetail.position.headcount}` : `Headcount ${positionDetail.position.headcount}`}</span>
+                                            <span className="whitespace-nowrap">{isZh ? `JD 版本 ${positionDetail.jd_versions.length}` : `JD Versions ${positionDetail.jd_versions.length}`}</span>
+                                            <span className="whitespace-nowrap">{isZh ? `候选人 ${positionDetail.candidates.length}` : `Candidates ${positionDetail.candidates.length}`}</span>
+                                            <span className="whitespace-nowrap">{isZh ? `最近更新 ${formatDateTime(positionDetail.position.updated_at)}` : `Updated ${formatDateTime(positionDetail.position.updated_at)}`}</span>
                                         </div>
                                         <Button
                                             size="sm"
@@ -4953,7 +5119,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             className="h-8 shrink-0 rounded-xl px-3 text-xs"
                                             onClick={() => setPositionSecondaryPanelOpen((current) => !current)}
                                         >
-                                            {positionSecondaryPanelOpen ? "收起次级区" : "版本与关联"}
+                                            {positionSecondaryPanelOpen ? (isZh ? "收起次级区" : "Hide Side Panel") : (isZh ? "版本与关联" : "Versions & Links")}
                                         </Button>
                                     </div>
 
@@ -4962,13 +5128,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             <CardHeader className="space-y-3">
                                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                                     <div className="space-y-2">
-                                                        <CardTitle className="text-lg">当前 JD</CardTitle>
+                                                        <CardTitle className="text-lg">{isZh ? "当前 JD" : "Current JD"}</CardTitle>
                                                         <div className="flex flex-wrap gap-2">
                                                             <Badge className={cn("rounded-full border", statusBadgeClass("task", currentJDGenerationStatus === "syncing" ? "running" : currentJDGenerationStatus))}>
                                                                 {labelForJDGenerationStatus(currentJDGenerationStatus)}
                                                             </Badge>
                                                             <Badge variant="outline" className="rounded-full">
-                                                                当前版本 {currentJDVersion ? `V${currentJDVersion.version_no}` : "未生成"}
+                                                                {isZh ? `当前版本 ${currentJDVersion ? `V${currentJDVersion.version_no}` : "未生成"}` : `Current Version ${currentJDVersion ? `V${currentJDVersion.version_no}` : "Not generated"}`}
                                                             </Badge>
                                                         </div>
                                                     </div>
@@ -4980,10 +5146,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         >
                                                             {currentPositionJDTaskId ? <Square className="h-4 w-4"/> : <Wand2 className="h-4 w-4"/>}
                                                             {isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"
-                                                                ? "停止中..."
+                                                                ? (isZh ? "停止中..." : "Stopping...")
                                                                 : currentPositionJDTaskId
-                                                                    ? "停止生成"
-                                                                    : "AI 生成 JD"}
+                                                                    ? (isZh ? "停止生成" : "Stop")
+                                                                    : (isZh ? "AI 生成 JD" : "Generate JD")}
                                                         </Button>
                                                         <Button
                                                             size="sm"
@@ -4994,7 +5160,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             }}
                                                         >
                                                             <Users className="h-4 w-4"/>
-                                                            查看候选人
+                                                            {isZh ? "查看候选人" : "View Candidates"}
                                                         </Button>
                                                         <Button
                                                             size="sm"
@@ -5004,33 +5170,33 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                     setSelectedCandidateId(positionDetail.candidates[0].id);
                                                                     setActivePage("candidates");
                                                                 } else {
-                                                                    toast.error("这个岗位还没有候选人，暂时无法直接生成面试题");
+                                                                    toast.error(isZh ? "这个岗位还没有候选人，暂时无法直接生成面试题" : "This position has no candidates yet, so interview questions cannot be generated.");
                                                                 }
                                                             }}
                                                         >
                                                             <NotebookText className="h-4 w-4"/>
-                                                            生成面试题模板
+                                                            {isZh ? "生成面试题模板" : "Generate Interview Template"}
                                                         </Button>
                                                     </div>
                                                 </div>
                                                 <div className="grid gap-3 md:grid-cols-3">
-                                                    <InfoTile label="最近生成时间" value={formatLongDateTime(positionDetail.jd_generation?.last_generated_at || currentJDVersion?.created_at)}/>
-                                                    <InfoTile label="当前生效版本" value={currentJDVersion ? `${currentJDVersion.title} · V${currentJDVersion.version_no}` : "暂无生效版本"}/>
-                                                    <InfoTile label="最近使用模型" value={positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider || "暂未记录"}/>
+                                                    <InfoTile label={isZh ? "最近生成时间" : "Last Generated"} value={formatLongDateTime(positionDetail.jd_generation?.last_generated_at || currentJDVersion?.created_at)}/>
+                                                    <InfoTile label={isZh ? "当前生效版本" : "Active Version"} value={currentJDVersion ? `${currentJDVersion.title} · V${currentJDVersion.version_no}` : (isZh ? "暂无生效版本" : "No active version")}/>
+                                                    <InfoTile label={isZh ? "最近使用模型" : "Last Model"} value={positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider || (isZh ? "暂未记录" : "Unrecorded")}/>
                                                 </div>
                                             </CardHeader>
                                             <CardContent className="space-y-4">
-                                                <Field label="AI 生成附加要求">
+                                                <Field label={isZh ? "AI 生成附加要求" : "AI Generation Notes"}>
                                                     <Textarea
                                                         value={jdExtraPrompt}
                                                         onChange={(event) => setJdExtraPrompt(event.target.value)}
                                                         rows={3}
-                                                        placeholder="补充本次 JD 生成时的个性化要求，例如强调 IoT 场景、自动化测试、设备联调经验等。"
+                                                        placeholder={isZh ? "补充本次 JD 生成时的个性化要求，例如强调 IoT 场景、自动化测试、设备联调经验等。" : "Add generation-specific requirements, for example emphasizing IoT scenarios, automation testing, or device integration experience."}
                                                     />
                                                 </Field>
 
                                                 <div className="grid gap-4 lg:grid-cols-2">
-                                                    <Field label="版本标题">
+                                                    <Field label={isZh ? "版本标题" : "Version Title"}>
                                                         <Input
                                                             value={jdDraft.title}
                                                             onChange={(event) => setJdDraft((current) => ({
@@ -5039,21 +5205,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             }))}
                                                         />
                                                     </Field>
-                                                    <Field label="版本备注">
+                                                    <Field label={isZh ? "版本备注" : "Version Notes"}>
                                                         <Input
                                                             value={jdDraft.notes}
                                                             onChange={(event) => setJdDraft((current) => ({
                                                                 ...current,
                                                                 notes: event.target.value,
                                                             }))}
-                                                            placeholder="例如：偏向 IoT 自动化测试"
+                                                            placeholder={isZh ? "例如：偏向 IoT 自动化测试" : "For example: focused on IoT automation testing"}
                                                         />
                                                     </Field>
                                                 </div>
 
                                                 {latestJDGenerationError ? (
                                                     <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
-                                                        最近一次生成失败：{latestJDGenerationError}
+                                                        {isZh ? `最近一次生成失败：${latestJDGenerationError}` : `Latest generation failed: ${latestJDGenerationError}`}
                                                     </div>
                                                 ) : null}
 
@@ -5062,10 +5228,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         <div className="flex items-center gap-2 text-sm font-medium text-sky-700 dark:text-sky-200">
                                                             <Loader2 className="h-4 w-4 animate-spin"/>
                                                             {jdGenerationStatus === "syncing"
-                                                                ? "正在同步最新 JD 到页面..."
+                                                                ? (isZh ? "正在同步最新 JD 到页面..." : "Syncing the latest JD back to the page...")
                                                                 : currentJDGenerationStatus === "cancelling"
-                                                                    ? "正在停止 JD 生成..."
-                                                                    : "正在生成 JD，请稍候..."}
+                                                                    ? (isZh ? "正在停止 JD 生成..." : "Stopping JD generation...")
+                                                                    : (isZh ? "正在生成 JD，请稍候..." : "Generating the JD, please wait...")}
                                                         </div>
                                                         <div className="mt-4 grid gap-3">
                                                             <div className="h-4 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
@@ -5078,29 +5244,29 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 <div className="flex flex-wrap items-center justify-between gap-3">
                                                     <div className="flex flex-wrap gap-2">
                                                         <Button variant={jdViewMode === "publish" ? "default" : "outline"} size="sm" onClick={() => setJdViewMode("publish")}>
-                                                            可直接发布版
+                                                            {isZh ? "可直接发布版" : "Publish Copy"}
                                                         </Button>
                                                         <Button variant={jdViewMode === "markdown" ? "default" : "outline"} size="sm" onClick={() => setJdViewMode("markdown")}>
-                                                            Markdown 源文本
+                                                            {isZh ? "Markdown 源文本" : "Markdown Source"}
                                                         </Button>
                                                         <Button variant={jdViewMode === "preview" ? "default" : "outline"} size="sm" onClick={() => setJdViewMode("preview")}>
-                                                            预览版
+                                                            {isZh ? "预览版" : "Preview"}
                                                         </Button>
                                                     </div>
                                                     <Button variant="outline" size="sm" onClick={() => void copyPublishJDText()} disabled={!currentPublishText.trim()}>
                                                         <ClipboardCheck className="h-4 w-4"/>
-                                                        一键复制发布文案
+                                                        {isZh ? "一键复制发布文案" : "Copy Publish Copy"}
                                                     </Button>
                                                 </div>
 
                                                 {jdViewMode === "publish" ? (
                                                     <div className="min-h-[360px] whitespace-pre-wrap rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                                                        {currentPublishText || "当前还没有可直接发布的 JD 文案，点击“AI 生成 JD”后会在这里展示。"}
+                                                        {currentPublishText || (isZh ? "当前还没有可直接发布的 JD 文案，点击“AI 生成 JD”后会在这里展示。" : "There is no publish-ready JD copy yet. Click “Generate JD” and it will appear here.")}
                                                     </div>
                                                 ) : null}
 
                                                 {jdViewMode === "markdown" ? (
-                                                    <Field label="JD Markdown 源文本">
+                                                    <Field label={isZh ? "JD Markdown 源文本" : "JD Markdown Source"}>
                                                         <Textarea
                                                             value={jdDraft.jdMarkdown}
                                                             onChange={(event) => setJdDraft((current) => ({
@@ -5113,7 +5279,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 ) : null}
 
                                                 {jdViewMode === "preview" ? (
-                                                    <Field label="预览版">
+                                                    <Field label={isZh ? "预览版" : "Preview"}>
                                                         <div
                                                             className="min-h-[360px] rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
                                                             dangerouslySetInnerHTML={{__html: currentPreviewHtml}}
@@ -5131,20 +5297,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                 autoActivate: event.target.checked,
                                                             }))}
                                                         />
-                                                        保存后设为生效版本
+                                                        {isZh ? "保存后设为生效版本" : "Set as Active Version After Saving"}
                                                     </label>
                                                     <div className="flex flex-wrap gap-2">
                                                         <Button variant="outline" onClick={() => void generateJD()} disabled={isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"}>
                                                             {currentPositionJDTaskId ? <Square className="h-4 w-4"/> : <Sparkles className="h-4 w-4"/>}
                                                             {isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"
-                                                                ? "停止中..."
+                                                                ? (isZh ? "停止中..." : "Stopping...")
                                                                 : currentPositionJDTaskId
-                                                                    ? "停止生成"
-                                                                    : "重新生成"}
+                                                                    ? (isZh ? "停止生成" : "Stop")
+                                                                    : (isZh ? "重新生成" : "Regenerate")}
                                                         </Button>
                                                         <Button onClick={() => void saveJDVersion()}>
                                                             <Save className="h-4 w-4"/>
-                                                            保存新版本
+                                                            {isZh ? "保存新版本" : "Save New Version"}
                                                         </Button>
                                                     </div>
                                                 </div>
@@ -5154,47 +5320,47 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         <Card className={panelClass}>
                                             <CardHeader className="space-y-3">
                                                 <div className="flex flex-wrap items-start justify-between gap-3">
-                                                    <CardTitle className="text-lg">岗位配置</CardTitle>
+                                                    <CardTitle className="text-lg">{isZh ? "岗位配置" : "Position Settings"}</CardTitle>
                                                     <div className="flex flex-wrap gap-2">
                                                         <Button variant="outline" size="sm" onClick={openEditPosition}>
                                                             <FilePlus2 className="h-4 w-4"/>
-                                                            编辑岗位
+                                                            {isZh ? "编辑岗位" : "Edit Position"}
                                                         </Button>
                                                         <Button variant="outline" size="sm" onClick={() => setPublishDialogOpen(true)}>
                                                             <Rocket className="h-4 w-4"/>
-                                                            发布岗位
+                                                            {isZh ? "发布岗位" : "Publish Position"}
                                                         </Button>
                                                         <Button variant="outline" size="sm" onClick={() => setPositionDeleteConfirmOpen(true)} disabled={positionDeleting}>
                                                             <Trash2 className="h-4 w-4"/>
-                                                            {positionDeleting ? "删除中..." : "删除岗位"}
+                                                            {positionDeleting ? (isZh ? "删除中..." : "Deleting...") : (isZh ? "删除岗位" : "Delete Position")}
                                                         </Button>
                                                     </div>
                                                 </div>
                                             </CardHeader>
                                             <CardContent className="space-y-5">
-                                                <Field label="岗位基础信息">
+                                                <Field label={isZh ? "岗位基础信息" : "Position Basics"}>
                                                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                                                        <InfoTile label="部门" value={positionDetail.position.department || "未设置部门"}/>
-                                                        <InfoTile label="地点 / 用工类型" value={`${positionDetail.position.location || "未设置地点"} · ${positionDetail.position.employment_type || "未设置用工类型"}`}/>
-                                                        <InfoTile label="薪资 / 招聘人数" value={`${positionDetail.position.salary_range || "未设置薪资"} · ${positionDetail.position.headcount} 人`}/>
-                                                        <InfoTile label="标签" value={joinTags(positionDetail.position.tags) || "未设置"}/>
-                                                        <InfoTile label="关键要求" value={shortText(positionDetail.position.key_requirements, 120)}/>
-                                                        <InfoTile label="加分项" value={shortText(positionDetail.position.bonus_points, 120)}/>
+                                                        <InfoTile label={isZh ? "部门" : "Department"} value={positionDetail.position.department || (isZh ? "未设置部门" : "No department")}/>
+                                                        <InfoTile label={isZh ? "地点 / 用工类型" : "Location / Employment"} value={`${positionDetail.position.location || (isZh ? "未设置地点" : "No location")} · ${positionDetail.position.employment_type || (isZh ? "未设置用工类型" : "No employment type")}`}/>
+                                                        <InfoTile label={isZh ? "薪资 / 招聘人数" : "Salary / Headcount"} value={`${positionDetail.position.salary_range || (isZh ? "未设置薪资" : "No salary set")} · ${positionDetail.position.headcount} ${isZh ? "人" : ""}`}/>
+                                                        <InfoTile label={isZh ? "标签" : "Tags"} value={joinTags(positionDetail.position.tags) || (isZh ? "未设置" : "Not set")}/>
+                                                        <InfoTile label={isZh ? "关键要求" : "Key Requirements"} value={shortText(positionDetail.position.key_requirements, 120)}/>
+                                                        <InfoTile label={isZh ? "加分项" : "Bonus Points"} value={shortText(positionDetail.position.bonus_points, 120)}/>
                                                     </div>
                                                 </Field>
 
-                                                <Field label="Skill 与自动化配置">
+                                                <Field label={isZh ? "Skill 与自动化配置" : "Skills & Automation"}>
                                                     <div className="grid gap-3 md:grid-cols-2">
-                                                        <InfoTile label="JD 生成 Skill" value={formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap)}/>
-                                                        <InfoTile label="初筛绑定 Skills" value={formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap)}/>
-                                                        <InfoTile label="面试题 Skill" value={formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap)}/>
-                                                        <InfoTile label="自动流程" value={`${positionDetail.position.auto_screen_on_upload ? "上传自动初筛已开启" : "上传自动初筛未开启"} · ${positionDetail.position.auto_advance_on_screening === false ? "通过后自动推进关闭" : "通过后自动推进开启"}`}/>
+                                                        <InfoTile label={isZh ? "JD 生成 Skill" : "JD Skills"} value={formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap)}/>
+                                                        <InfoTile label={isZh ? "初筛绑定 Skills" : "Screening Skills"} value={formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap)}/>
+                                                        <InfoTile label={isZh ? "面试题 Skill" : "Interview Skills"} value={formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap)}/>
+                                                        <InfoTile label={isZh ? "自动流程" : "Automation"} value={`${positionDetail.position.auto_screen_on_upload ? (isZh ? "上传自动初筛已开启" : "Auto-screen on upload is on") : (isZh ? "上传自动初筛未开启" : "Auto-screen on upload is off")} · ${positionDetail.position.auto_advance_on_screening === false ? (isZh ? "通过后自动推进关闭" : "Auto-advance after pass is off") : (isZh ? "通过后自动推进开启" : "Auto-advance after pass is on")}`}/>
                                                     </div>
                                                 </Field>
 
-                                                <Field label="岗位摘要">
+                                                <Field label={isZh ? "岗位摘要" : "Position Summary"}>
                                                     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 text-sm leading-7 text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
-                                                        {positionDetail.position.summary || "这个岗位还没有补充摘要，建议先由招聘同事或 AI 完善岗位背景和关键目标。"}
+                                                        {positionDetail.position.summary || (isZh ? "这个岗位还没有补充摘要，建议先由招聘同事或 AI 完善岗位背景和关键目标。" : "This position does not have a summary yet. It is recommended to add background and key goals with recruiting teammates or AI first.")}
                                                     </div>
                                                 </Field>
                                             </CardContent>
@@ -5206,7 +5372,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     <div className="min-h-0 space-y-4 overflow-y-auto xl:pr-1 xl:[scrollbar-gutter:stable] 2xl:space-y-6">
                                         <Card className={panelClass}>
                                             <CardHeader className="space-y-2">
-                                                <CardTitle className="text-lg">JD 历史版本</CardTitle>
+                                                <CardTitle className="text-lg">{isZh ? "JD 历史版本" : "JD History"}</CardTitle>
                                             </CardHeader>
                                             <CardContent className="space-y-3">
                                                 {positionDetail.jd_versions.length ? positionDetail.jd_versions.map((version) => (
@@ -5219,25 +5385,25 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                 </p>
                                                             </div>
                                                             <Badge className={cn("rounded-full border", version.is_active ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300")}>
-                                                                {version.is_active ? "当前生效" : "历史版本"}
+                                                                {version.is_active ? (isZh ? "当前生效" : "Active") : (isZh ? "历史版本" : "Historical")}
                                                             </Badge>
                                                         </div>
                                                         <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{shortText(version.notes || version.prompt_snapshot || version.jd_markdown, 110)}</p>
                                                         {!version.is_active ? (
                                                             <Button size="sm" variant="outline" className="mt-3" onClick={() => void activateJDVersion(version.id)}>
-                                                                切换为当前版本
+                                                                {isZh ? "切换为当前版本" : "Set as Active Version"}
                                                             </Button>
                                                         ) : null}
                                                     </div>
                                                 )) : (
-                                                    <EmptyState title="暂无 JD 版本" description="点击 AI 生成 JD 或保存新版本后，这里会形成完整版本轨迹。"/>
+                                                    <EmptyState title={isZh ? "暂无 JD 版本" : "No JD Versions"} description={isZh ? "点击 AI 生成 JD 或保存新版本后，这里会形成完整版本轨迹。" : "Generate a JD or save a new version to build the version history here."}/>
                                                 )}
                                             </CardContent>
                                         </Card>
 
                                         <Card className={panelClass}>
                                             <CardHeader className="space-y-2">
-                                                <CardTitle className="text-lg">关联候选人</CardTitle>
+                                                <CardTitle className="text-lg">{isZh ? "关联候选人" : "Linked Candidates"}</CardTitle>
                                             </CardHeader>
                                             <CardContent className="space-y-3">
                                                 {positionDetail.candidates.length ? positionDetail.candidates.map((candidate) => {
@@ -5255,7 +5421,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             <div>
                                                                 <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
                                                                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                                    匹配度 {formatPercent(candidate.match_percent)} · {candidate.phone || "未填写手机号"}
+                                                                    {isZh ? "匹配度" : "Match"} {formatPercent(candidate.match_percent)} · {candidate.phone || (isZh ? "未填写手机号" : "No phone number")}
                                                                 </p>
                                                             </div>
                                                             <Badge className={cn("rounded-full border", statusBadgeClass("candidate", displayStatus))}>
@@ -5264,14 +5430,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         </button>
                                                     );
                                                 }) : (
-                                                    <EmptyState title="暂无候选人" description="上传简历并关联到这个岗位后，这里会出现最新候选人列表。"/>
+                                                    <EmptyState title={isZh ? "暂无候选人" : "No Candidates"} description={isZh ? "上传简历并关联到这个岗位后，这里会出现最新候选人列表。" : "Upload resumes and link them to this position to see candidates here."}/>
                                                 )}
                                             </CardContent>
                                         </Card>
 
                                         <Card className={panelClass}>
                                             <CardHeader className="space-y-2">
-                                                <CardTitle className="text-lg">发布状态</CardTitle>
+                                                <CardTitle className="text-lg">{isZh ? "发布状态" : "Publish Status"}</CardTitle>
                                             </CardHeader>
                                             <CardContent className="space-y-3">
                                                 {positionDetail.publish_tasks.length ? positionDetail.publish_tasks.map((task) => (
@@ -5289,14 +5455,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         </div>
                                                         {task.published_url ? (
                                                             <a className="mt-3 inline-flex items-center gap-1 text-sm text-sky-600 hover:underline" href={task.published_url} target="_blank" rel="noreferrer">
-                                                                查看发布链接
+                                                                {isZh ? "查看发布链接" : "Open Published Link"}
                                                                 <ExternalLink className="h-4 w-4"/>
                                                             </a>
                                                         ) : null}
                                                         {task.error_message ? <p className="mt-3 text-sm text-rose-600">{task.error_message}</p> : null}
                                                     </div>
                                                 )) : (
-                                                    <EmptyState title="暂无发布任务" description="先完成 JD，再创建发布任务，后续可接入真实 BOSS / 智联适配器。"/>
+                                                    <EmptyState title={isZh ? "暂无发布任务" : "No Publish Tasks"} description={isZh ? "先完成 JD，再创建发布任务，后续可接入真实 BOSS / 智联适配器。" : "Finish the JD first, then create a publish task. Real Boss Zhipin / Zhaopin adapters can be connected later."}/>
                                                 )}
                                             </CardContent>
                                         </Card>
@@ -5305,7 +5471,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             </div>
                         </div>
                     ) : (
-                        <EmptyState title="请选择一个岗位" description="左侧选择岗位后，右侧会进入完整的岗位详情工作区。"/>
+                        <EmptyState title={isZh ? "请选择一个岗位" : "Select a Position"} description={isZh ? "左侧选择岗位后，右侧会进入完整的岗位详情工作区。" : "Choose a position on the left to open the full position workspace on the right."}/>
                     )}
                 </div>
             </div>
@@ -5527,7 +5693,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 <div
                     className="flex items-center gap-3 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
                     <Loader2 className="h-4 w-4 animate-spin"/>
-                    正在加载招聘工作台...
+                    {recruitmentUiText.loadingWorkspace}
                 </div>
             </div>
         );
@@ -5542,7 +5708,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     <div className="flex min-w-0 items-center gap-3">
                         <Button variant="outline" size="sm" onClick={onBack} className="rounded-xl px-3">
                             <ArrowLeft className="h-4 w-4"/>
-                            返回
+                            {recruitmentUiText.back}
                         </Button>
                         <div className="flex min-w-0 items-baseline gap-3">
                             <h1 className="shrink-0 text-xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
@@ -5560,46 +5726,46 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 disabled={coreRefreshing} className="rounded-xl">
                             {coreRefreshing ? <Loader2 className="h-4 w-4 animate-spin"/> :
                                 <RefreshCw className="h-4 w-4"/>}
-                            {coreRefreshing ? "刷新中..." : "刷新"}
+                            {coreRefreshing ? recruitmentUiText.refreshing : recruitmentUiText.refresh}
                         </Button>
                         <Button variant="outline" onClick={openResumeUploadDialog} className="rounded-xl">
                             <Upload className="h-4 w-4"/>
-                            上传简历
+                            {recruitmentUiText.uploadResume}
                         </Button>
                         <Button onClick={openCreatePosition} className="rounded-xl">
                             <Plus className="h-4 w-4"/>
-                            新建岗位
+                            {recruitmentUiText.createPosition}
                         </Button>
                         <Button
                             className="rounded-xl bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                             onClick={() => openAssistantMode("drawer")}>
                             <Bot className="h-4 w-4"/>
-                            打开 AI 助手
+                            {recruitmentUiText.openAssistantDrawer}
                         </Button>
                         {canManageRecruitment ? (
                             <Popover open={settingsPopoverOpen} onOpenChange={setSettingsPopoverOpen}>
                                 <PopoverTrigger asChild>
                                     <Button variant="outline" className="rounded-xl">
                                         <Settings2 className="h-4 w-4"/>
-                                        管理设置
+                                        {recruitmentUiText.manageSettings}
                                     </Button>
                                 </PopoverTrigger>
                                 <PopoverContent align="end"
                                                 className="w-80 rounded-2xl border-slate-200 p-2 dark:border-slate-800">
                                     <div className="space-y-1">
                                         <SettingsEntry
-                                            title="Skill 管理"
-                                            description="维护招聘评估和题目生成所用的 Skills。"
+                                            title={recruitmentUiText.settingsSkillsTitle}
+                                            description={recruitmentUiText.settingsSkillsDescription}
                                             onClick={() => navigateToSettingsPage("settings-skills")}
                                         />
                                         <SettingsEntry
-                                            title="模型配置"
-                                            description="按任务类型管理 provider、model、base URL 和 key。"
+                                            title={recruitmentUiText.settingsModelsTitle}
+                                            description={recruitmentUiText.settingsModelsDescription}
                                             onClick={() => navigateToSettingsPage("settings-models")}
                                         />
                                         <SettingsEntry
-                                            title="邮件中心"
-                                            description="维护发件箱、收件人和简历邮件发送记录。"
+                                            title={recruitmentUiText.settingsMailTitle}
+                                            description={recruitmentUiText.settingsMailDescription}
                                             onClick={() => navigateToSettingsPage("settings-mail")}
                                         />
                                     </div>
@@ -5625,7 +5791,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     >
                         {!navCollapsed ? (
                             <div className="mb-3 flex items-center justify-center">
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">工作分区</p>
+                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{recruitmentUiText.workSections}</p>
                             </div>
                         ) : null}
 
@@ -5637,8 +5803,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <SectionNavButton
                                 active={activePrimaryNavPage === "workspace"}
                                 icon={FolderKanban}
-                                title="工作台"
-                                description="首页指标、待办、快捷操作与近期活动"
+                                title={recruitmentUiText.workspaceTitle}
+                                description={recruitmentUiText.workspaceDescription}
                                 count={dashboard?.cards.positions_recruiting ?? 0}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
@@ -5649,8 +5815,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <SectionNavButton
                                 active={activePrimaryNavPage === "positions"}
                                 icon={BriefcaseBusiness}
-                                title="岗位管理"
-                                description="岗位列表 + 详情工作区 + JD 版本"
+                                title={recruitmentUiText.positionsTitle}
+                                description={recruitmentUiText.positionsDescription}
                                 count={positions.length}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
@@ -5661,8 +5827,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <SectionNavButton
                                 active={activePrimaryNavPage === "candidates"}
                                 icon={Users}
-                                title="候选人"
-                                description="ATS 列表、筛选、状态推进与档案查看"
+                                title={recruitmentUiText.candidatesTitle}
+                                description={recruitmentUiText.candidatesDescription}
                                 count={visibleCandidates.length}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
@@ -5673,8 +5839,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <SectionNavButton
                                 active={activePrimaryNavPage === "audit"}
                                 icon={History}
-                                title="审计中心"
-                                description="看 AI 处理记录、模型、错误与留痕"
+                                title={recruitmentUiText.auditTitle}
+                                description={recruitmentUiText.auditDescription}
                                 count={aiLogs.length}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
@@ -5685,8 +5851,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <SectionNavButton
                                 active={activePrimaryNavPage === "assistant"}
                                 icon={Bot}
-                                title="招聘助手"
-                                description="自然语言驱动岗位、候选人和 Skill 上下文"
+                                title={recruitmentUiText.assistantNavTitle}
+                                description={recruitmentUiText.assistantNavDescription}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
                                     primaryNavButtonRefs.current.assistant = node;
@@ -5705,13 +5871,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             type="button"
                                             onClick={openCreatePosition}
                                             className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
-                                            title="新增岗位"
+                                            title={recruitmentUiText.quickAddPosition}
                                         >
                                             <Plus className="h-4.5 w-4.5" />
                                         </button>
                                     </TooltipTrigger>
                                     <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                        新增岗位
+                                        {recruitmentUiText.quickAddPosition}
                                     </TooltipContent>
                                 </Tooltip>
 
@@ -5721,13 +5887,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             type="button"
                                             onClick={openResumeUploadDialog}
                                             className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
-                                            title="上传简历"
+                                            title={recruitmentUiText.uploadResume}
                                         >
                                             <Upload className="h-4.5 w-4.5" />
                                         </button>
                                     </TooltipTrigger>
                                     <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                        上传简历
+                                        {recruitmentUiText.uploadResume}
                                     </TooltipContent>
                                 </Tooltip>
 
@@ -5735,14 +5901,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     <TooltipTrigger asChild>
                                         <div
                                             className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
-                                            title="待筛候选人"
+                                            title={recruitmentUiText.pendingScreeningCandidates}
                                         >
-                                            <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待筛</span>
+                                            <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingScreeningShort}</span>
                                             <span className="text-sm font-semibold leading-4">{todoSummary.pendingScreening}</span>
                                         </div>
                                     </TooltipTrigger>
                                     <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                        待筛候选人 {todoSummary.pendingScreening}
+                                        {recruitmentUiText.pendingScreeningCandidates} {todoSummary.pendingScreening}
                                     </TooltipContent>
                                 </Tooltip>
 
@@ -5750,14 +5916,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     <TooltipTrigger asChild>
                                         <div
                                             className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
-                                            title="待安排面试"
+                                            title={recruitmentUiText.pendingInterviewCandidates}
                                         >
-                                            <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">待面</span>
+                                            <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingInterviewShort}</span>
                                             <span className="text-sm font-semibold leading-4">{todoSummary.pendingInterview}</span>
                                         </div>
                                     </TooltipTrigger>
                                     <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                        待安排面试 {todoSummary.pendingInterview}
+                                        {recruitmentUiText.pendingInterviewCandidates} {todoSummary.pendingInterview}
                                     </TooltipContent>
                                 </Tooltip>
                                 </div>
@@ -5770,30 +5936,30 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     >
                                         <div className="space-y-1.5">
                                             <div>
-                                                <p className="text-[12px] font-semibold text-slate-900 dark:text-slate-100 2xl:text-[13px]">今日待办</p>
+                                                <p className="text-[12px] font-semibold text-slate-900 dark:text-slate-100 2xl:text-[13px]">{recruitmentUiText.todayTodos}</p>
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-1.5">
                                                 <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待发布</p>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingPublish}</p>
                                                     <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
                                                         {todoSummary.pendingPublish}
                                                     </p>
                                                 </div>
                                                 <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待初筛</p>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingScreening}</p>
                                                     <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
                                                         {todoSummary.pendingScreening}
                                                     </p>
                                                 </div>
                                                 <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待面试</p>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingInterview}</p>
                                                     <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
                                                         {todoSummary.pendingInterview}
                                                     </p>
                                                 </div>
                                                 <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">待决策</p>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingDecision}</p>
                                                     <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
                                                         {todoSummary.pendingDecision}
                                                     </p>
@@ -5835,7 +6001,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 onClick={() => openAssistantMode("drawer")}
             >
                 <Bot className="h-4 w-4"/>
-                AI 助手
+                {isZh ? "AI 助手" : "AI Assistant"}
             </Button>
 
             <Dialog open={assistantOpen} onOpenChange={setAssistantOpen}>
@@ -5852,9 +6018,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     }}
                 >
                     <DialogHeader className="sr-only">
-                        <DialogTitle>招聘助手</DialogTitle>
-                        <DialogDescription>用于生成
-                            JD、查看岗位候选人、筛选简历和生成面试题的招聘助手对话面板。</DialogDescription>
+                        <DialogTitle>{recruitmentUiText.assistantLabel}</DialogTitle>
+                        <DialogDescription>{isZh ? "用于生成 JD、查看岗位候选人、筛选简历和生成面试题的招聘助手对话面板。" : "Assistant panel for generating JDs, viewing candidates, screening resumes, and creating interview questions."}</DialogDescription>
                     </DialogHeader>
                     {renderAssistantConsole(assistantDisplayMode)}
                 </DialogContent>
@@ -6047,7 +6212,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     </div>
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">允许自动发送的候选人状态</p>
+                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.allowedAutoMailStatuses}</p>
                                                     <div className="flex flex-wrap gap-2">
                                                         {(metadata?.candidate_statuses || []).map((option) => (
                                                             <button
@@ -6066,27 +6231,27 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                         : [...positionForm.autoMailAllowedCandidateStatuses, option.value],
                                                                 )}
                                                             >
-                                                                {option.label}
+                                                                {localizeCandidateStatusValue(option.value, option.label)}
                                                             </button>
                                                         ))}
                                                     </div>
                                                 </div>
                                                 <div className="grid gap-4 lg:grid-cols-2">
-                                                    <Field label="自动发送模板 ID（预留）">
+                                                    <Field label={recruitmentUiText.reservedTemplateId}>
                                                         <Input
                                                             value={positionForm.autoMailTemplateId}
-                                                            placeholder="为空时使用系统默认模板"
+                                                            placeholder={recruitmentUiText.reservedTemplatePlaceholder}
                                                             onChange={(event) => updatePositionFormField("autoMailTemplateId", event.target.value)}
                                                         />
                                                     </Field>
-                                                    <Field label="重复发送策略">
+                                                    <Field label={recruitmentUiText.dedupMode}>
                                                         <NativeSelect
                                                             value={positionForm.autoMailDedupMode}
                                                             onChange={(event) => updatePositionFormField("autoMailDedupMode", event.target.value)}
                                                         >
-                                                            <option value="once_per_candidate_per_status">同候选人同状态仅一次</option>
-                                                            <option value="once_per_candidate">同候选人仅一次</option>
-                                                            <option value="allow_repeat">允许重复发送</option>
+                                                            <option value="once_per_candidate_per_status">{recruitmentUiText.dedupOncePerCandidatePerStatus}</option>
+                                                            <option value="once_per_candidate">{recruitmentUiText.dedupOncePerCandidate}</option>
+                                                            <option value="allow_repeat">{isZh ? "允许重复发送" : "Allow repeat sending"}</option>
                                                         </NativeSelect>
                                                     </Field>
                                                 </div>
@@ -6392,19 +6557,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             <Dialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
                 <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
-                        <DialogTitle>创建发布任务</DialogTitle>
-                        <DialogDescription>首期保留 mock / adapter
-                            架构，不把平台发布能力写死在业务主流程里。</DialogDescription>
+                        <DialogTitle>{recruitmentUiText.createPublishTask}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.publishTaskDesc}</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4">
-                        <Field label="目标平台">
+                        <Field label={recruitmentUiText.targetPlatform}>
                             <NativeSelect value={publishPlatform}
                                           onChange={(event) => setPublishPlatform(event.target.value)}>
-                                <option value="boss">BOSS 直聘</option>
-                                <option value="zhilian">智联招聘</option>
+                                <option value="boss">{recruitmentUiText.bossDirect}</option>
+                                <option value="zhilian">{recruitmentUiText.zhilian}</option>
                             </NativeSelect>
                         </Field>
-                        <Field label="执行模式">
+                        <Field label={recruitmentUiText.executionMode}>
                             <NativeSelect value={publishMode} onChange={(event) => setPublishMode(event.target.value)}>
                                 <option value="mock">Mock</option>
                                 <option value="api">API</option>
@@ -6413,8 +6577,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         </Field>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setPublishDialogOpen(false)}>取消</Button>
-                        <Button onClick={() => void submitPublishTask()}>创建任务</Button>
+                        <Button variant="outline" onClick={() => setPublishDialogOpen(false)}>{recruitmentUiText.cancel}</Button>
+                        <Button onClick={() => void submitPublishTask()}>{recruitmentUiText.createTask}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

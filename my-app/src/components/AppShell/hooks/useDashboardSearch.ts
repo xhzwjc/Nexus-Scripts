@@ -83,6 +83,7 @@ export function useDashboardSearch({
             { id: 'teamResources', name: t.teamResources?.viewerTitle || 'Team Resources', desc: isZh ? '系统账号与环境配置管理' : 'System account & environment management', keywords: ['团队', '资源', 'team', '账号', '环境', 'resources', 'account'] },
             { id: 'aiResources', name: t.aiResources?.title || 'AI Tools', desc: isZh ? '常用AI工具与资源导航' : 'AI tool resources navigation', keywords: ['ai', '人工智能', '工具库', 'chatgpt', 'artificial', 'intelligence'] },
             { id: 'agent-chat', name: t.agentChat?.title || 'AI Agent', desc: isZh ? 'AI智能对话助手，简历筛选等预设工作流' : 'AI chat assistant with preset workflows', keywords: ['agent', '助手', 'ai', '对话', '简历', 'chat', 'resume', 'assistant'] },
+            { id: 'ai-recruitment', name: isZh ? 'AI 招聘' : 'AI Recruiting', desc: isZh ? '岗位、候选人、初筛与审计一体化招聘工作台' : 'Unified recruiting workspace for positions, candidates, screening, and audit', keywords: ['招聘', '候选人', '岗位', '初筛', '面试', 'recruitment', 'hiring', 'candidate', 'position', 'screening', 'interview'] },
             { id: 'accessControl', name: t.nav.accessControl, desc: t.home.search.accessControl.desc, keywords: ['权限', '角色', '用户', 'rbac', 'iam', 'access', 'role', 'permission'] },
             { id: 'help', name: t.helpPage?.title || 'Help Center', desc: isZh ? '使用指南与文档' : 'User guide & documentation', keywords: ['帮助', 'help', '文档', '指南', 'guide', 'documentation'] },
         ];
@@ -93,6 +94,7 @@ export function useDashboardSearch({
             if (item.id === 'teamResources' && !currentUser?.permissions['team-resources']) return;
             if (item.id === 'aiResources' && !currentUser?.permissions['ai-resources']) return;
             if (item.id === 'agent-chat' && !currentUser?.permissions['agent-chat']) return;
+            if (item.id === 'ai-recruitment' && !currentUser?.permissions['ai-recruitment']) return;
             if (item.id === 'accessControl' && !currentUser?.permissions['rbac-manage']) return;
 
             if (item.name.toLowerCase().includes(query) || item.desc.toLowerCase().includes(query) || item.keywords.some((keyword) => keyword.includes(query))) {

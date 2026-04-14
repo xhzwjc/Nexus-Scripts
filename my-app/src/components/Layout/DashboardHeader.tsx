@@ -113,6 +113,7 @@ export const DashboardHeader: React.FC<HeaderProps> = ({
                                             devtools: 'dev-tools',
                                             teamResources: 'team-resources',
                                             aiResources: 'ai-resources',
+                                            'ai-recruitment': 'ai-recruitment',
                                             'agent-chat': 'agent-chat',
                                             help: 'help',
                                             'ops-center': 'ops-center',

@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { Search, Settings, ArrowLeft, X, Download, ChevronRight } from 'lucide-react';
 import type { AIResource, AIResourcesData } from '@/lib/ai-resources-data';
 import { AIResourceEditor } from '@/components/AIResources/AIResourceEditor';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { useI18n } from '@/lib/i18n';
 import { authenticatedFetch, getStoredScriptHubSession } from '@/lib/auth';
 

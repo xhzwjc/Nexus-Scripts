@@ -6,7 +6,7 @@ import { Plus, Send, Loader2, Bot, MessageSquare, Trash2, X, FileText, Sparkles,
 import ReactMarkdown from 'react-markdown';
 import { useI18n } from '@/lib/i18n';
 import { authenticatedFetch } from '@/lib/auth';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 // ============== Types ==============
 interface FileItem {
@@ -2096,7 +2096,6 @@ const AgentChat: React.FC<AgentChatProps> = ({ onBack }) => {
 };
 
 export default AgentChat;
-
 
 
 

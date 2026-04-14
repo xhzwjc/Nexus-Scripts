@@ -39,8 +39,9 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     setShowLogoutConfirm,
     currentUser,
 }) => {
-    const { t } = useI18n();
+    const { t, language } = useI18n();
     const [collapsed, setCollapsed] = React.useState(false);
+    const aiRecruitmentNavLabel = language === 'en-US' ? 'AI Recruiting' : 'AI 招聘';
 
     const navItemClass = (active: boolean, disabled = false) =>
         cn(
@@ -170,7 +171,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                     {currentUser?.permissions['ai-recruitment']
                                         ? renderNavItem({
                                             active: currentView === 'ai-recruitment',
-                                            label: 'AI 招聘',
+                                            label: aiRecruitmentNavLabel,
                                             icon: <BriefcaseBusiness className="h-[18px] w-[18px]" />,
                                             onClick: () => setCurrentView('ai-recruitment'),
                                         })
