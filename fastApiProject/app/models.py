@@ -535,7 +535,10 @@ class TaxCalculationResponse(BaseModel):
     message: str = Field(..., description="处理信息")
     data: Optional[List[TaxCalculationResultItem]] = Field(None, description="计算结果")
     request_id: str = Field(..., description="请求ID")
-    total_tax: float = Field(..., description="总税额")
+    total_tax: float = Field(..., description="税费总额(含个税+增值税+附加税)")
+    tax_only_total: float = Field(..., description="个税总额")
+    vat_total: float = Field(..., description="增值税总额")
+    surcharges_total: float = Field(..., description="附加税费总额")
 
 
 # OCR相关模型
@@ -707,4 +710,3 @@ class PlatformReportResponse(BaseModel):
     data: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = Field(None, description="响应数据，包含收入数据和身份数据")
     request_id: str = Field(..., description="请求ID")
     total: int = Field(..., description="数据总数")
-

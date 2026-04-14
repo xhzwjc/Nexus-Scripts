@@ -236,9 +236,12 @@ async def calculate_tax(
         if results is None:
             raise ValueError("计算结果为空")
 
-        total_tax = float(sum(result.get('tax', 0) for result in results)) if results else 0.0
+        tax_only_total = float(sum(result.get('tax', 0) for result in results)) if results else 0.0
+        vat_total = float(sum(result.get('vat_tax', 0) for result in results)) if results else 0.0
+        surcharges_total = float(sum(result.get('surcharges', 0) for result in results)) if results else 0.0
+        total_tax = tax_only_total + vat_total + surcharges_total
         elapsed = round(_time.time() - start_time, 2)
-        logger.info(f"[税额计算] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 记录数: {len(results)} | 总税额: {round(total_tax, 2)}")
+        logger.info(f"[税额计算] 完成 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 记录数: {len(results)} | 税费合计: {round(total_tax, 2)} (个税: {round(tax_only_total, 2)}, VAT: {round(vat_total, 2)}, 附加: {round(surcharges_total, 2)})")
         write_audit_log(
             db,
             actor=session,
@@ -252,6 +255,9 @@ async def calculate_tax(
                 "use_mock": request.use_mock,
                 "result_count": len(results),
                 "total_tax": round(total_tax, 2),
+                "tax_only_total": round(tax_only_total, 2),
+                "vat_total": round(vat_total, 2),
+                "surcharges_total": round(surcharges_total, 2),
             },
         )
 
@@ -261,6 +267,9 @@ async def calculate_tax(
             "data": results,
             "request_id": request_id,
             "total_tax": round(total_tax, 2),
+            "tax_only_total": round(tax_only_total, 2),
+            "vat_total": round(vat_total, 2),
+            "surcharges_total": round(surcharges_total, 2),
         }
     except ValueError as exc:
         elapsed = round(_time.time() - start_time, 2)
