@@ -13,6 +13,66 @@ logger = logging.getLogger(__name__)
 # 设置Decimal全局精度（20位有效数字）
 getcontext().prec = 20
 
+# 计算步骤多语言文案
+CALC_TRANSLATIONS: Dict[str, Dict[str, str]] = {
+    'zh-CN': {
+        'reset_reason': '重置原因',
+        'monthly_income_accumulate': '当月累计收入',
+        'monthly_income_after_deduction': '当月总收入额（扣除后）',
+        'accumulated_income_first': '累计收入额',
+        'accumulated_income_update': '累计收入额',
+        'accumulated_months': '累计月份',
+        'accumulated_deduction': '累计减除费用',
+        'accumulated_special': '累计专项扣除',
+        'accumulated_additional': '累计专项附加扣除',
+        'accumulated_other': '累计其他扣除',
+        'accumulated_pension': '累计个人养老金',
+        'accumulated_donation': '累计准予扣除的捐赠额',
+        'taxable_income': '应纳税所得额',
+        'tax_rate_label': '税率',
+        'quick_deduction': '速算扣除数',
+        'annual_tax_theory': '年度累计应纳税额(理论)',
+        'prev_paid': '本月此前已缴税额',
+        'current_tax': '本次应缴税额',
+        'monthly_paid_total': '当月已缴税额（含本次）',
+        'effective_rate': '实际税负',
+        'vat_trigger': '单月金额超过10万，计算增值税',
+        'surcharge_label': '及附加税',
+        'warning_450': '结算金额达450万，已触发预警',
+        'warning_500': '结算金额达500万，超出预警限额',
+        'income_labor': '劳务报酬',
+        'income_salary': '工资薪金',
+    },
+    'en-US': {
+        'reset_reason': 'Reset Reason',
+        'monthly_income_accumulate': 'Monthly Cumulative Income',
+        'monthly_income_after_deduction': 'Monthly Income (After Deduction)',
+        'accumulated_income_first': 'Accumulated Income',
+        'accumulated_income_update': 'Accumulated Income',
+        'accumulated_months': 'Accumulated Months',
+        'accumulated_deduction': 'Accumulated Standard Deduction',
+        'accumulated_special': 'Accumulated Special Deduction',
+        'accumulated_additional': 'Accumulated Additional Deduction',
+        'accumulated_other': 'Accumulated Other Deductions',
+        'accumulated_pension': 'Accumulated Personal Pension',
+        'accumulated_donation': 'Accumulated Deductible Donations',
+        'taxable_income': 'Taxable Income',
+        'tax_rate_label': 'Tax Rate',
+        'quick_deduction': 'Quick Deduction',
+        'annual_tax_theory': 'Annual Cumulative Tax (Theoretical)',
+        'prev_paid': 'Previously Paid Tax This Month',
+        'current_tax': 'Current Tax Payable',
+        'monthly_paid_total': 'Monthly Tax Paid (Incl. This)',
+        'effective_rate': 'Effective Tax Rate',
+        'vat_trigger': 'Monthly amount >100k, VAT calculated',
+        'surcharge_label': ' and surcharges',
+        'warning_450': 'Settlement reached CNY 4.5M, warning triggered',
+        'warning_500': 'Settlement reached CNY 5M, exceeded warning limit',
+        'income_labor': 'Labor Remuneration',
+        'income_salary': 'Salary & Wages',
+    },
+}
+
 
 class TaxCalculator:
     def __init__(self, db_config: dict, mock_data: Optional[List[Dict]] = None):
@@ -307,7 +367,13 @@ class TaxCalculator:
             accumulated_donation_deduction = max(Decimal('0.00'),
                                                  Decimal(str(kwargs.get('accumulated_donation_deduction', '0.00'))))
 
-            income_type_name = self.get_income_type_name(income_type)
+            city_tax_rate = Decimal(str(kwargs.get('city_tax_rate', '7.0') or '7.0'))
+            education_surcharge_rate = Decimal(str(kwargs.get('education_surcharge_rate', '3.0') or '3.0'))
+            local_education_surcharge_rate = Decimal(str(kwargs.get('local_education_surcharge_rate', '2.0') or '2.0'))
+            lang = kwargs.get('lang', 'zh-CN') or 'zh-CN'
+            _t = CALC_TRANSLATIONS.get(lang, CALC_TRANSLATIONS['zh-CN'])
+
+            income_type_name = _t['income_labor'] if income_type == 1 else _t['income_salary']
             logger.info(f"正在为 {credential_num} ({realname or 'N/A'}) 计算 {year} 年度税款...")
 
             if records is None:
@@ -422,39 +488,58 @@ class TaxCalculator:
 
                 calculation_steps = []
                 if accum['reset_reason']:
-                    calculation_steps.append(f"重置原因: {accum['reset_reason']}")
+                    calculation_steps.append(f"{_t['reset_reason']}: {accum['reset_reason']}")
                     accum['reset_reason'] = ""
                 if prev_month_total_amount > Decimal('0.00'):
                     calculation_steps.append(
-                        f"当月累计收入: {prev_month_total_amount:.2f} + {record['bill_amount']:.2f} → {accum['total_amount']:.2f}")
+                        f"{_t['monthly_income_accumulate']}: {prev_month_total_amount:.2f} + {record['bill_amount']:.2f} \u2192 {accum['total_amount']:.2f}")
                 else:
-                    calculation_steps.append(f"当月累计收入: {accum['total_amount']:.2f}")
-                calculation_steps.append(f"当月总收入额（扣除后）: {monthly_income:.2f}")
+                    calculation_steps.append(f"{_t['monthly_income_accumulate']}: {accum['total_amount']:.2f}")
+                calculation_steps.append(f"{_t['monthly_income_after_deduction']}: {monthly_income:.2f}")
 
                 if len(accum['records']) == 1:
                     calculation_steps.append(
-                        f"累计收入额: {prev_annual_accumulated_income:.2f} + {monthly_income:.2f} → {accumulated_income:.2f}")
+                        f"{_t['accumulated_income_first']}: {prev_annual_accumulated_income:.2f} + {monthly_income:.2f} \u2192 {accumulated_income:.2f}")
                 else:
                     calculation_steps.append(
-                        f"累计收入额: {prev_annual_accumulated_income:.2f} → {accumulated_income:.2f}")
+                        f"{_t['accumulated_income_update']}: {prev_annual_accumulated_income:.2f} \u2192 {accumulated_income:.2f}")
 
                 calculation_steps.extend([
-                    f"累计月份: {accumulated_months}",
-                    f"累计减除费用: 5000 × {accumulated_months} = {accumulated_deduction:.2f}",
-                    f"累计专项扣除: {accumulated_special_deduction:.2f} × {accumulated_months} = {accumulated_special:.2f}",
-                    f"累计专项附加扣除: {accumulated_additional_deduction:.2f} × {accumulated_months} = {accumulated_additional:.2f}",
-                    f"累计其他扣除: {accumulated_other_deduction:.2f} × {accumulated_months} = {accumulated_other:.2f}",
-                    f"累计个人养老金: {accumulated_pension_deduction:.2f} × {accumulated_months} = {accumulated_pension:.2f}",
-                    f"累计准予扣除的捐赠额: {accumulated_donation:.2f}",
-                    f"应纳税所得额: {accumulated_income:.2f} - {accumulated_deduction:.2f} - {accumulated_special:.2f} - {accumulated_additional:.2f} - {accumulated_other:.2f} - {accumulated_pension:.2f} - {accumulated_donation:.2f} = {accumulated_taxable:.2f}",
-                    f"税率: {tax_rate * Decimal('100'):.0f}%, 速算扣除数: {quick_deduction:.2f}",
-                    f"年度累计应纳税额(理论): {accumulated_taxable:.2f} × {tax_rate:.2f} - {quick_deduction:.2f} = {accumulated_total_tax_unrounded:.4f}",
-                    # f"本月截止当前应缴总税额: {total_tax_due_this_month:.2f}",
-                    f"本月此前已缴税额: {paid_tax_this_month_previously:.2f}",
-                    f"本次应缴税额: {accumulated_total_tax_unrounded:.4f} - {prev_total_paid_tax:.4f} ≈ {current_tax:.2f}",
-                    f"当月已缴税额（含本次）: {accum['paid_tax']:.2f}",
-                    f"实际税负: {effective_tax_rate}%"
+                    f"{_t['accumulated_months']}: {accumulated_months}",
+                    f"{_t['accumulated_deduction']}: 5000 \u00d7 {accumulated_months} = {accumulated_deduction:.2f}",
+                    f"{_t['accumulated_special']}: {accumulated_special_deduction:.2f} \u00d7 {accumulated_months} = {accumulated_special:.2f}",
+                    f"{_t['accumulated_additional']}: {accumulated_additional_deduction:.2f} \u00d7 {accumulated_months} = {accumulated_additional:.2f}",
+                    f"{_t['accumulated_other']}: {accumulated_other_deduction:.2f} \u00d7 {accumulated_months} = {accumulated_other:.2f}",
+                    f"{_t['accumulated_pension']}: {accumulated_pension_deduction:.2f} \u00d7 {accumulated_months} = {accumulated_pension:.2f}",
+                    f"{_t['accumulated_donation']}: {accumulated_donation:.2f}",
+                    f"{_t['taxable_income']}: {accumulated_income:.2f} - {accumulated_deduction:.2f} - {accumulated_special:.2f} - {accumulated_additional:.2f} - {accumulated_other:.2f} - {accumulated_pension:.2f} - {accumulated_donation:.2f} = {accumulated_taxable:.2f}",
+                    f"{_t['tax_rate_label']}: {tax_rate * Decimal('100'):.0f}%, {_t['quick_deduction']}: {quick_deduction:.2f}",
+                    f"{_t['annual_tax_theory']}: {accumulated_taxable:.2f} \u00d7 {tax_rate:.2f} - {quick_deduction:.2f} = {accumulated_total_tax_unrounded:.4f}",
+                    f"{_t['prev_paid']}: {paid_tax_this_month_previously:.2f}",
+                    f"{_t['current_tax']}: {accumulated_total_tax_unrounded:.4f} - {prev_total_paid_tax:.4f} \u2248 {current_tax:.2f}",
+                    f"{_t['monthly_paid_total']}: {accum['paid_tax']:.2f}",
+                    f"{_t['effective_rate']}: {effective_tax_rate}%"
                 ])
+
+                vat_tax = Decimal('0.00')
+                surcharges = Decimal('0.00')
+                total_tax_and_fees = current_tax
+
+                if record['bill_amount'] > Decimal('100000'):
+                    not_included_tax_sales = record['bill_amount'] / Decimal('1.01')
+                    vat_tax = (not_included_tax_sales * Decimal('0.01')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    surcharges = (vat_tax * (city_tax_rate + education_surcharge_rate + local_education_surcharge_rate) / Decimal('100') * Decimal('0.5')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    total_tax_and_fees = current_tax + vat_tax + surcharges
+                    calculation_steps.append(f"{_t['vat_trigger']}: {vat_tax:.2f}{_t['surcharge_label']}: {surcharges:.2f}")
+
+                warning_msg = None
+                warning_level = None
+                if revenue_bills >= Decimal('5000000'):
+                    warning_msg = _t['warning_500']
+                    warning_level = '500'
+                elif revenue_bills >= Decimal('4500000'):
+                    warning_msg = _t['warning_450']
+                    warning_level = '450'
 
                 result = {
                     'batch_no': record['batch_no'],
@@ -484,7 +569,12 @@ class TaxCalculator:
                     'accumulated_tax': round(accumulated_tax, 2),
                     'calculation_steps': calculation_steps,
                     'effective_tax_rate': float(effective_tax_rate),
-                    'revenue_bills': round(revenue_bills, 2)
+                    'revenue_bills': round(revenue_bills, 2),
+                    'vat_tax': float(vat_tax),
+                    'surcharges': float(surcharges),
+                    'total_tax_and_fees': float(total_tax_and_fees),
+                    'warning_msg': warning_msg,
+                    'warning_level': warning_level
                 }
                 results.append(result)
                 last_income_month = month_key

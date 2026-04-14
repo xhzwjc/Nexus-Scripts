@@ -486,6 +486,10 @@ class TaxCalculationRequest(BaseModel):
     environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
     use_mock: bool = Field(False, description="是否使用模拟数据")
     mock_data: Optional[List[Dict]] = Field(None, description="模拟数据（仅当use_mock=True时有效）")
+    city_tax_rate: Optional[float] = Field(7.0, description="城建税税率(%)")
+    education_surcharge_rate: Optional[float] = Field(3.0, description="教育费附加税率(%)")
+    local_education_surcharge_rate: Optional[float] = Field(2.0, description="地方教育附加税率(%)")
+    lang: str = Field('zh-CN', description="语言偏好 (zh-CN 或 en-US)")
 
 
 class TaxCalculationResultItem(BaseModel):
@@ -518,6 +522,11 @@ class TaxCalculationResultItem(BaseModel):
     accumulated_tax: float = Field(..., description="累计已缴税额")
     calculation_steps: List[str] = Field(..., description="计算步骤")
     effective_tax_rate: float = Field(..., description="实际税负")
+    vat_tax: float = Field(0.0, description="增值税")
+    surcharges: float = Field(0.0, description="附加税费")
+    total_tax_and_fees: float = Field(0.0, description="税费合计(含个税+增值税+附加税)")
+    warning_msg: Optional[str] = Field(None, description="预警信息")
+    warning_level: Optional[str] = Field(None, description="预警等级: '450' | '500' | None")
 
 
 class TaxCalculationResponse(BaseModel):
@@ -646,4 +655,56 @@ class AIResourcesDataResponse(BaseModel):
 class AIResourcesSaveRequest(BaseModel):
     categories: List[AICategoryBase]
     resources: List[AIResourceBase]
+
+
+# 平台内经营者和从业人员报送表相关模型
+class PlatformReportRequest(BaseModel):
+    """平台报送表请求模型"""
+    start_date: str = Field(..., description="开始日期，格式YYYY-MM-DD")
+    end_date: str = Field(..., description="结束日期，格式YYYY-MM-DD")
+    enterprise_ids: Optional[Union[int, List[int], str]] = Field(None, description="企业ID，可为单个ID、ID列表或逗号分隔字符串")
+    amount_type: int = Field(1, ge=1, le=3, description="金额类型：1=含服务费, 2=不含服务费, 3=账单金额")
+    platform_company: Optional[str] = Field(None, description="平台企业名称")
+    platform_name: Optional[str] = Field(None, description="平台名称")
+    credit_code: Optional[str] = Field(None, description="统一社会信用代码")
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+    timeout: int = Field(60, ge=30, le=300, description="超时时间(秒)")
+
+
+class PlatformIncomeDataItem(BaseModel):
+    """平台收入信息数据项"""
+    name: str = Field(..., description="姓名")
+    credential_num: str = Field(..., description="证件号码")
+    payment_account: Optional[str] = Field(None, description="收款账号")
+    enterprise_name: str = Field(..., description="企业名称")
+    uscc: Optional[str] = Field(None, description="企业信用代码")
+    labor_income: float = Field(..., description="劳务报酬")
+    service_fee: Optional[float] = Field(None, description="服务费合计")
+    trade_count: int = Field(..., description="交易笔数")
+    miniapp_id: Optional[str] = Field(None, description="小程序ID")
+    mobile: Optional[str] = Field(None, description="联系电话")
+    sign_time: Optional[str] = Field(None, description="经营开始时间")
+
+
+class PlatformIdentityDataItem(BaseModel):
+    """平台身份信息数据项"""
+    name: str = Field(..., description="姓名")
+    credential_num: str = Field(..., description="证件号码")
+    credential_type: str = Field(..., description="证件类型")
+    country_region: str = Field(..., description="国家或地区")
+    enterprise_name: Optional[str] = Field(None, description="企业名称")
+    uscc: Optional[str] = Field(None, description="企业信用代码")
+    payment_account: Optional[str] = Field(None, description="收款账号")
+    miniapp_id: Optional[str] = Field(None, description="小程序ID")
+    mobile: Optional[str] = Field(None, description="联系电话")
+    sign_time: Optional[str] = Field(None, description="经营开始时间")
+
+
+class PlatformReportResponse(BaseModel):
+    """平台报送表响应模型"""
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(..., description="处理信息")
+    data: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = Field(None, description="响应数据，包含收入数据和身份数据")
+    request_id: str = Field(..., description="请求ID")
+    total: int = Field(..., description="数据总数")
 

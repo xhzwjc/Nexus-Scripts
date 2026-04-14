@@ -39,6 +39,9 @@ interface BaseTaxParams {
     income_type: number; // 1:labor; 2:salary
     year: number;
     accumulated_special_deduction: number;
+    city_tax_rate: number;
+    education_surcharge_rate: number;
+    local_education_surcharge_rate: number;
 }
 
 interface MockTaxParams extends BaseTaxParams {
@@ -73,6 +76,11 @@ interface TaxCalculationItem {
     tax_rate: number;
     accumulated_total_tax: number;
     effective_tax_rate: number;
+    vat_tax?: number;
+    surcharges?: number;
+    total_tax_and_fees?: number;
+    warning_msg?: string;
+    warning_level?: '450' | '500' | null;
 }
 
 interface TaxCalculationResponse {
@@ -97,7 +105,7 @@ const generateDefaultMockRecords = (year: number): MockRecord[] => {
 };
 
 // Export CSV
-const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: boolean, tr: { results: { table: Record<string, string>; fileName: string } }) => {
+const exportToCSV = (data: TaxCalculationItem[], totals: { tax: number, vat: number, sur: number, all: number }, isMockMode: boolean, tr: { results: { table: Record<string, string>; fileName: string } }) => {
     // Generate headers dynamically
     const baseHeaders = [
         tr.results.table.yearMonth,
@@ -110,6 +118,9 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: b
         tr.results.table.preTax,
         tr.results.table.afterTax,
         tr.results.table.monthlyTax,
+        tr.results.table.vat,
+        tr.results.table.surcharges,
+        tr.results.table.totalTaxAndFees,
         tr.results.table.actualBurden
     ];
 
@@ -129,6 +140,9 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: b
             item.bill_amount,
             (item.bill_amount - item.tax).toFixed(2),
             item.tax.toFixed(2),
+            (item.vat_tax || 0).toFixed(2),
+            (item.surcharges || 0).toFixed(2),
+            (item.total_tax_and_fees || item.tax).toFixed(2),
             `${item.effective_tax_rate.toFixed(2)}%`
         ];
 
@@ -138,10 +152,13 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: b
     });
 
     // Total row
-    const totalColumns = isMockMode ? 11 : 12;
+    const totalColumns = isMockMode ? 14 : 15;
     const totalRow = Array(totalColumns).fill('');
-    totalRow[totalColumns - 2] = tr.results.table.totalTax;
-    totalRow[totalColumns - 1] = totalTax.toFixed(2);
+    totalRow[totalColumns - 6] = tr.results.table.statisticsTotal;
+    totalRow[totalColumns - 5] = totals.tax.toFixed(2);
+    totalRow[totalColumns - 4] = totals.vat.toFixed(2);
+    totalRow[totalColumns - 3] = totals.sur.toFixed(2);
+    totalRow[totalColumns - 2] = totals.all.toFixed(2);
     rows.push(totalRow);
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -172,7 +189,7 @@ const isValidYearMonthFormat = (value: string): boolean => {
 type TaxCalculationItemWithId = TaxCalculationItem & { _rowId: string };
 
 export default function TaxCalculationScript({ onBack }: { onBack: () => void }) {
-    const { t } = useI18n();
+    const { t, language } = useI18n();
     const tr = t.scripts.taxCalculator;
 
     // Params state
@@ -181,6 +198,9 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
         income_type: 1,
         year: new Date().getFullYear(),
         accumulated_special_deduction: 0,
+        city_tax_rate: 7.0,
+        education_surcharge_rate: 3.0,
+        local_education_surcharge_rate: 2.0,
         mock_data: generateDefaultMockRecords(new Date().getFullYear())
     });
 
@@ -189,6 +209,9 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
         income_type: 1,
         year: new Date().getFullYear(),
         accumulated_special_deduction: 0,
+        city_tax_rate: 7.0,
+        education_surcharge_rate: 3.0,
+        local_education_surcharge_rate: 2.0,
         credential_num: '',
         realname: '',
         environment: 'test',
@@ -209,10 +232,8 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
     const [totalTax, setTotalTax] = useState(0);
     const [hasCalculated, setHasCalculated] = useState(false);
     const [batchAmount, setBatchAmount] = useState<number>(0);
-    const [currentDetail, setCurrentDetail] = useState<{ visible: boolean; steps: string[]; month: string }>({
+    const [currentDetail, setCurrentDetail] = useState<{ visible: boolean; item?: TaxCalculationItemWithId }>({
         visible: false,
-        steps: [],
-        month: ''
     });
     const [tempMonthValues, setTempMonthValues] = useState<Record<string, string>>({});
     const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({});
@@ -230,6 +251,19 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
         const end = start + pageSize;
         return results.slice(start, end);
     }, [results, currentPage, pageSize]);
+
+    // 计算合计金额
+    const calculatedTotals = useMemo(() => {
+        return results.reduce(
+            (acc, curr) => ({
+                tax: acc.tax + (curr.tax || 0),
+                vat: acc.vat + (curr.vat_tax || 0),
+                sur: acc.sur + (curr.surcharges || 0),
+                all: acc.all + (curr.total_tax_and_fees || curr.tax || 0)
+            }),
+            { tax: 0, vat: 0, sur: 0, all: 0 }
+        );
+    }, [results]);
 
     const totalPages = Math.ceil(results.length / pageSize);
 
@@ -411,6 +445,9 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 income_type: 1,
                 year: currentYear,
                 accumulated_special_deduction: 0,
+                city_tax_rate: 7.0,
+                education_surcharge_rate: 3.0,
+                local_education_surcharge_rate: 2.0,
                 mock_data: newMockRecords
             });
             setTempMonthValues(initialValues);
@@ -420,6 +457,9 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 income_type: 1,
                 year: currentYear,
                 accumulated_special_deduction: 0,
+                city_tax_rate: 7.0,
+                education_surcharge_rate: 3.0,
+                local_education_surcharge_rate: 2.0,
                 credential_num: '',
                 realname: '',
                 environment: 'test',
@@ -518,7 +558,7 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
         try {
             const response = await axios.post<TaxCalculationResponse>(
                 `${baseUrl}/tax/calculate`,
-                params,
+                { ...params, lang: language },
                 { signal: controller.signal, headers: getScriptHubAuthHeaderRecord() }
             );
 
@@ -565,15 +605,28 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 abortRef.current = null;
             }
         }
-    }, [params, activeMode, mockParams, realValid, credentialFormatError, tr]);
+    }, [params, activeMode, mockParams, realValid, credentialFormatError, tr, language]);
 
-    const openDetailDialog = useCallback((steps: string[], month: string) => {
-        setCurrentDetail({ visible: true, steps, month });
+    const openDetailDialog = useCallback((item: TaxCalculationItemWithId) => {
+        setCurrentDetail({ visible: true, item });
     }, []);
 
     const closeDetailDialog = useCallback(() => {
         setCurrentDetail(prev => ({ ...prev, visible: false }));
     }, []);
+
+    // 语言切换时，如果已有计算结果则自动重新请求，以刷新步骤文案
+    const hasCalculatedRef = useRef(false);
+    useEffect(() => {
+        hasCalculatedRef.current = hasCalculated;
+    }, [hasCalculated]);
+    useEffect(() => {
+        if (hasCalculatedRef.current) {
+            calculateTax();
+        }
+        // 注意：此 effect 只在 language 变化时触发，不应加其他依赖
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [language]);
 
     // 年月输入边界
     const monthMin = useMemo(() => `${params.year - 1}-01`, [params.year]);
@@ -757,6 +810,63 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                 />
                             </div>
 
+                            {/* City Tax Rate */}
+                            <div className="space-y-2">
+                                <Label htmlFor="city_tax_rate">{tr.config.cityTaxRate}</Label>
+                                <Input
+                                    id="city_tax_rate"
+                                    type="number"
+                                    step="0.01"
+                                    value={String(params.city_tax_rate)}
+                                    onChange={e =>
+                                        setSharedParam(
+                                            'city_tax_rate',
+                                            Math.max(0, Number(e.target.value) || 0)
+                                        )
+                                    }
+                                    disabled={isCalculating}
+                                    inputMode="decimal"
+                                />
+                            </div>
+
+                            {/* Edu Surcharge Rate */}
+                            <div className="space-y-2">
+                                <Label htmlFor="education_surcharge_rate">{tr.config.eduSurchargeRate}</Label>
+                                <Input
+                                    id="education_surcharge_rate"
+                                    type="number"
+                                    step="0.01"
+                                    value={String(params.education_surcharge_rate)}
+                                    onChange={e =>
+                                        setSharedParam(
+                                            'education_surcharge_rate',
+                                            Math.max(0, Number(e.target.value) || 0)
+                                        )
+                                    }
+                                    disabled={isCalculating}
+                                    inputMode="decimal"
+                                />
+                            </div>
+
+                            {/* Local Edu Surcharge Rate */}
+                            <div className="space-y-2">
+                                <Label htmlFor="local_education_surcharge_rate">{tr.config.localEduSurchargeRate}</Label>
+                                <Input
+                                    id="local_education_surcharge_rate"
+                                    type="number"
+                                    step="0.01"
+                                    value={String(params.local_education_surcharge_rate)}
+                                    onChange={e =>
+                                        setSharedParam(
+                                            'local_education_surcharge_rate',
+                                            Math.max(0, Number(e.target.value) || 0)
+                                        )
+                                    }
+                                    disabled={isCalculating}
+                                    inputMode="decimal"
+                                />
+                            </div>
+
                             {/* Environment */}
                             {activeMode === 'real' && (
                                 <div className="space-y-2">
@@ -904,7 +1014,7 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                     <CardHeader>
                         <CardTitle>{tr.results.title}</CardTitle>
                         <CardDescription>
-                            {hasCalculated ? `${tr.results.total}: ${totalTax.toFixed(2)}` : tr.actions.noResult}
+                            {hasCalculated ? `${tr.results.headerTotal}: ${calculatedTotals.all.toFixed(2)}` : tr.actions.noResult}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -924,14 +1034,31 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                             <TableHead>{tr.results.table.preTax}</TableHead>
                                             <TableHead>{tr.results.table.afterTax}</TableHead>
                                             <TableHead>{tr.results.table.monthlyTax}</TableHead>
+                                            <TableHead>{tr.results.table.vat}</TableHead>
+                                            <TableHead>{tr.results.table.surcharges}</TableHead>
+                                            <TableHead>{tr.results.table.totalTaxAndFees}</TableHead>
                                             <TableHead>{tr.results.table.actualBurden}</TableHead>
                                             <TableHead>{tr.actions.view}</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {paginatedResults.map((item) => (
-                                            <TableRow key={item._rowId} className="odd:bg-muted/30">
-                                                <TableCell>{item.year_month}</TableCell>
+                                            <TableRow
+                                                key={item._rowId}
+                                                className={
+                                                    item.warning_level === '500'
+                                                        ? "bg-red-100/70 hover:bg-red-200/70 dark:bg-red-900/40 dark:hover:bg-red-900/60"
+                                                        : item.warning_level === '450'
+                                                            ? "bg-yellow-100/50 hover:bg-yellow-200/50 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50"
+                                                            : "odd:bg-muted/30"
+                                                }
+                                            >
+                                                <TableCell>
+                                                    {item.year_month}
+                                                    {item.warning_msg && (
+                                                        <Badge variant="destructive" className="ml-2" title={item.warning_msg}>预警</Badge>
+                                                    )}
+                                                </TableCell>
                                                 {activeMode !== 'mock' && (
                                                     <TableCell>{`${item.realname}（${item.worker_id}）`}</TableCell>
                                                 )}
@@ -944,12 +1071,15 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                                 <TableCell>{item.bill_amount}</TableCell>
                                                 <TableCell>{(item.income_amount - item.tax).toFixed(2)}</TableCell>
                                                 <TableCell>{item.tax.toFixed(2)}</TableCell>
+                                                <TableCell>{(item.vat_tax || 0).toFixed(2)}</TableCell>
+                                                <TableCell>{(item.surcharges || 0).toFixed(2)}</TableCell>
+                                                <TableCell>{(item.total_tax_and_fees || item.tax).toFixed(2)}</TableCell>
                                                 <TableCell>{item.effective_tax_rate.toFixed(2)}%</TableCell>
                                                 <TableCell>
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
-                                                        onClick={() => openDetailDialog(item.calculation_steps, item.year_month)}
+                                                        onClick={() => openDetailDialog(item)}
                                                     >
                                                         {tr.actions.view}
                                                     </Button>
@@ -1026,16 +1156,20 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 {/* Footer */}
                 <div className="mt-6">
                     <Card>
-                        <CardContent>
-                            <div className="flex items-center justify-between">
-                                <p className="text-sm text-muted-foreground">
-                                    {tr.results.total}：<span className="text-primary font-medium">{totalTax.toFixed(2)}</span>
-                                </p>
+                        <CardContent className="py-4">
+                            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                                <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground w-full md:w-auto">
+                                    <p>{tr.results.footer.taxOnlyTotal}：<span className="text-foreground font-medium">{calculatedTotals.tax.toFixed(2)}</span></p>
+                                    <p>{tr.results.footer.vatTotal}：<span className="text-foreground font-medium">{calculatedTotals.vat.toFixed(2)}</span></p>
+                                    <p>{tr.results.footer.surchargesTotal}：<span className="text-foreground font-medium">{calculatedTotals.sur.toFixed(2)}</span></p>
+                                    <p>{tr.results.footer.grandTotal}：<span className="text-primary font-medium text-base">{calculatedTotals.all.toFixed(2)}</span></p>
+                                </div>
                                 <Button
-                                    variant="ghost"
+                                    variant="outline"
                                     size="sm"
-                                    onClick={() => exportToCSV(results, totalTax, activeMode === 'mock', tr)}
+                                    onClick={() => exportToCSV(results, calculatedTotals, activeMode === 'mock', tr)}
                                     disabled={!hasCalculated}
+                                    className="shrink-0"
                                 >
                                     <Download className="w-4 h-4 mr-1" />
                                     {tr.results.export}
@@ -1051,19 +1185,51 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 open={currentDetail.visible}
                 onOpenChange={open => setCurrentDetail(prev => ({ ...prev, visible: open }))}
             >
-                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
                     <DialogHeader>
-                        <DialogTitle>{currentDetail.month} {tr.results.title}</DialogTitle>
+                        <DialogTitle>{currentDetail.item?.year_month} {tr.results.title}</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-2 mt-4">
-                        {currentDetail.steps.map((step, index) => (
-                            <div key={index} className="flex items-start gap-2 py-1 border-b border-gray-100">
-                                <span className="text-muted-foreground">{index + 1}.</span>
-                                <span>{step}</span>
+                    <div className="space-y-4 mt-4 overflow-y-auto pr-2">
+                        {currentDetail.item?.warning_msg && (
+                            <div className={`p-3 rounded-md border ${
+                                currentDetail.item.warning_level === '500'
+                                    ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:border-red-900'
+                                    : 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-900'
+                            }`}>
+                                <h4 className="font-semibold mb-1">⚠️ {tr.results.footer.warningMsg}</h4>
+                                <p className="text-sm">{currentDetail.item.warning_msg}</p>
                             </div>
-                        ))}
+                        )}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 bg-muted/30 p-4 rounded-md">
+                            <div>
+                                <p className="text-xs text-muted-foreground">{tr.results.table.monthlyTax}</p>
+                                <p className="font-medium">{currentDetail.item?.tax.toFixed(2)}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">{tr.results.table.vat}</p>
+                                <p className="font-medium">{(currentDetail.item?.vat_tax || 0).toFixed(2)}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">{tr.results.table.surcharges}</p>
+                                <p className="font-medium">{(currentDetail.item?.surcharges || 0).toFixed(2)}</p>
+                            </div>
+                            <div>
+                                <p className="text-xs text-muted-foreground">{tr.results.table.totalTaxAndFees}</p>
+                                <p className="font-medium text-primary">{(currentDetail.item?.total_tax_and_fees || currentDetail.item?.tax || 0).toFixed(2)}</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <h4 className="font-medium text-sm">{tr.results.footer.calcSteps}</h4>
+                            {currentDetail.item?.calculation_steps.map((step, index) => (
+                                <div key={index} className="flex items-start gap-2 py-1 border-b border-gray-100">
+                                    <span className="text-muted-foreground">{index + 1}.</span>
+                                    <span>{step}</span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                    <DialogFooter className="mt-4">
+                    <DialogFooter className="mt-4 pt-4 border-t">
                         <Button onClick={closeDetailDialog}>
                             <X className="w-4 h-4 mr-2" />
                             {tr.actions.close}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
+import JSZip from 'jszip';
 import {
     Search,
     Download,
@@ -25,6 +26,7 @@ import { Checkbox } from './ui/checkbox';
 import { Separator } from './ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { Skeleton } from './ui/skeleton';
+import { MonthRangePicker } from './ui/month-range-picker';
 import { getApiBaseUrl } from '../lib/api';
 import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
@@ -75,6 +77,21 @@ interface TaxData {
     "税地ID": number;
     "税地名称": string;
     序号?: number;
+}
+
+// 平台报送数据类型
+interface PlatformData {
+    name: string;
+    credential_num: string;
+    payment_account: string;
+    enterprise_name: string;
+    uscc: string;
+    labor_income: number | string;
+    service_fee: number | string;
+    trade_count: number;
+    miniapp_id: string;
+    mobile: string;
+    sign_time: string;
 }
 
 // 报表生成请求参数
@@ -197,6 +214,19 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
 
     // 服务费状态筛选
     const [servicePayStatusFilter, setServicePayStatusFilter] = useState<number | null>(null);
+
+    // 平台报送相关状态
+    const [platformData, setPlatformData] = useState<PlatformData[]>([]);
+    const [platformStartMonth, setPlatformStartMonth] = useState('');
+    const [platformEndMonth, setPlatformEndMonth] = useState('');
+    const [platformAmountType, setPlatformAmountType] = useState<AmountType>(1);
+    const [isFetchingPlatformData, setIsFetchingPlatformData] = useState(false);
+    const [isGeneratingPlatform, setIsGeneratingPlatform] = useState(false);
+    const [isGeneratingCombined, setIsGeneratingCombined] = useState(false);
+    const [platformSearchAttempted, setPlatformSearchAttempted] = useState(false);
+    const [platformCompanyName, setPlatformCompanyName] = useState('');
+    const [platformName, setPlatformName] = useState('');
+    const [platformCreditCode, setPlatformCreditCode] = useState('');
 
     // 下载确认弹窗
     const [showDownloadConfirmDialog, setShowDownloadConfirmDialog] = useState(false);
@@ -379,6 +409,229 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
         setCurrentPage(1);
     };
 
+    // 获取平台报送数据
+    const fetchPlatformData = useCallback(async () => {
+        const base = getApiBaseUrl();
+        if (!base) return;
+
+        if (!platformStartMonth || !platformEndMonth) {
+            toast.error(tr.messages.platformStartEndMonthRequired);
+            return;
+        }
+
+        setIsFetchingPlatformData(true);
+        setPlatformSearchAttempted(true);
+        try {
+            const startDate = `${platformStartMonth}-01`;
+            const endDate = `${platformEndMonth}-01`;
+            const lastDay = new Date(parseInt(platformEndMonth.split('-')[0]), parseInt(platformEndMonth.split('-')[1]), 0).getDate();
+            const endDateFull = `${platformEndMonth}-${String(lastDay).padStart(2, '0')}`;
+
+            const response = await axios.get<ApiResponse<PlatformData[]>>(
+                `${base}/platform/report/data`,
+                {
+                    params: {
+                        start_date: startDate,
+                        end_date: endDateFull,
+                        enterprise_ids: selectedEnterpriseIds.length > 0 ? selectedEnterpriseIds.join(',') : undefined,
+                        amount_type: platformAmountType,
+                        environment
+                    },
+                    headers: getScriptHubAuthHeaderRecord()
+                }
+            );
+
+            if (response.data.success) {
+                const data = (response.data.data || []) as PlatformData[];
+                setPlatformData(Array.isArray(data) ? data : []);
+                toast.success(tr.messages.platformFetchSuccess);
+            } else {
+                toast.error(response.data.message || tr.messages.platformFetchFail);
+                setPlatformData([]);
+            }
+        } catch (err) {
+            console.error(tr.messages.platformFetchErrorLog, err);
+            toast.error(err instanceof Error ? err.message : tr.messages.platformFetchError);
+            setPlatformData([]);
+        } finally {
+            setIsFetchingPlatformData(false);
+        }
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, tr.messages.platformStartEndMonthRequired, tr.messages.platformFetchSuccess, tr.messages.platformFetchFail, tr.messages.platformFetchErrorLog, tr.messages.platformFetchError]);
+
+    // 生成平台报送报表
+    const handleGeneratePlatformReport = useCallback(async () => {
+        const base = getApiBaseUrl();
+        if (!base) return;
+
+        if (!platformStartMonth || !platformEndMonth) {
+            toast.error(tr.messages.platformStartEndMonthRequired);
+            return;
+        }
+
+        if (platformData.length === 0) {
+            toast.error(tr.messages.platformNoDataForReport);
+            return;
+        }
+
+        toast.info(tr.messages.platformGenerating);
+        setIsGeneratingPlatform(true);
+        try {
+            const startDate = `${platformStartMonth}-01`;
+            const endDate = `${platformEndMonth}-01`;
+            const lastDay = new Date(parseInt(platformEndMonth.split('-')[0]), parseInt(platformEndMonth.split('-')[1]), 0).getDate();
+            const endDateFull = `${platformEndMonth}-${String(lastDay).padStart(2, '0')}`;
+
+            const params = {
+                start_date: startDate,
+                end_date: endDateFull,
+                enterprise_ids: selectedEnterpriseIds.length > 0 ? selectedEnterpriseIds : undefined,
+                amount_type: platformAmountType,
+                platform_company: platformCompanyName || undefined,
+                platform_name: platformName || undefined,
+                credit_code: platformCreditCode || undefined,
+                environment,
+                timeout: 120,
+            };
+
+            const response = await axios.post(
+                `${base}/platform/report/generate`,
+                params,
+                {
+                    responseType: 'blob',
+                    timeout: (params.timeout ?? 300) * 1000,
+                    headers: getScriptHubAuthHeaderRecord(),
+                }
+            );
+
+            // 处理ZIP文件下载
+            const zip = new JSZip();
+            const zipContent = await zip.loadAsync(response.data);
+            const dateStr = `${platformStartMonth.replace(/-/g, '')}_${platformEndMonth.replace(/-/g, '')}`;
+
+            for (const [filename, file] of Object.entries(zipContent.files)) {
+                if (!file.dir) {
+                    const blob = await file.async('blob');
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                }
+            }
+
+            toast.success(`报表已生成并下载（${dateStr}）`);
+        } catch (err) {
+            console.error(tr.messages.platformGenerateErrorLog, err);
+            let errorMsg = tr.messages.platformGenerateError;
+            if (axios.isAxiosError(err) && err.response) {
+                const respData = err.response.data;
+                if (respData instanceof Blob) {
+                    const text = await new Response(respData).text();
+                    try {
+                        const jsonData = JSON.parse(text);
+                        errorMsg = jsonData.message || jsonData.detail || text || errorMsg;
+                    } catch {
+                        errorMsg = text || errorMsg;
+                    }
+                } else {
+                    const errorResponse = respData as ErrorResponse;
+                    errorMsg = errorResponse?.detail || tr.messages.requestError.replace('{error}', err.message);
+                }
+            } else if (err instanceof Error) {
+                errorMsg = err.message;
+            }
+            toast.error(errorMsg);
+        } finally {
+            setIsGeneratingPlatform(false);
+        }
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateSuccess, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError]);
+
+    // 下载组合报表（用于手动复制到模板）
+    const handleDownloadCombinedReport = useCallback(async () => {
+        const base = getApiBaseUrl();
+        if (!base) return;
+
+        if (!platformStartMonth || !platformEndMonth) {
+            toast.error(tr.messages.platformStartEndMonthRequired);
+            return;
+        }
+
+        if (platformData.length === 0) {
+            toast.error(tr.messages.platformNoDataForReport);
+            return;
+        }
+
+        toast.info(tr.messages.platformGenerating);
+        setIsGeneratingCombined(true);
+        try {
+            const startDate = `${platformStartMonth}-01`;
+            const lastDay = new Date(parseInt(platformEndMonth.split('-')[0]), parseInt(platformEndMonth.split('-')[1]), 0).getDate();
+            const endDateFull = `${platformEndMonth}-${String(lastDay).padStart(2, '0')}`;
+
+            const params = {
+                start_date: startDate,
+                end_date: endDateFull,
+                enterprise_ids: selectedEnterpriseIds.length > 0 ? selectedEnterpriseIds : undefined,
+                amount_type: platformAmountType,
+                platform_company: platformCompanyName || undefined,
+                platform_name: platformName || undefined,
+                credit_code: platformCreditCode || undefined,
+                environment,
+                timeout: 120,
+            };
+
+            const response = await axios.post(
+                `${base}/platform/report/combined`,
+                params,
+                {
+                    responseType: 'blob',
+                    timeout: (params.timeout ?? 300) * 1000,
+                    headers: getScriptHubAuthHeaderRecord(),
+                }
+            );
+
+            const cd = response.headers['content-disposition'] as string | undefined;
+            const fileName = getFilenameFromDisposition(cd, `平台报送数据_${platformStartMonth.replace(/-/g, '')}_${platformEndMonth.replace(/-/g, '')}.xlsx`);
+
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            toast.success(`报表已下载: ${fileName}`);
+        } catch (err) {
+            console.error(tr.messages.platformGenerateErrorLog, err);
+            let errorMsg = tr.messages.platformGenerateError;
+            if (axios.isAxiosError(err) && err.response) {
+                const respData = err.response.data;
+                if (respData instanceof Blob) {
+                    const text = await new Response(respData).text();
+                    try {
+                        const jsonData = JSON.parse(text);
+                        errorMsg = jsonData.message || jsonData.detail || text || errorMsg;
+                    } catch {
+                        errorMsg = text || errorMsg;
+                    }
+                } else {
+                    const errorResponse = respData as ErrorResponse;
+                    errorMsg = errorResponse?.detail || tr.messages.requestError.replace('{error}', err.message);
+                }
+            } else if (err instanceof Error) {
+                errorMsg = err.message;
+            }
+            toast.error(errorMsg);
+        } finally {
+            setIsGeneratingCombined(false);
+        }
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateSuccess, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError]);
+
     // 初始化 + 环境变化时
     useEffect(() => {
         const controller = new AbortController();
@@ -558,9 +811,10 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                 </div>
 
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="mb-6 w-full max-w-md mx-auto grid grid-cols-2">
+                    <TabsList className="mb-6 w-full max-w-lg mx-auto grid grid-cols-3">
                         <TabsTrigger value="query" className="flex-1">{tr.tabs.query}</TabsTrigger>
                         <TabsTrigger value="generate" className="flex-1">{tr.tabs.generate}</TabsTrigger>
+                        <TabsTrigger value="platform" className="flex-1">{tr.tabs.platform}</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="query" className="space-y-6">
@@ -989,6 +1243,221 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                 </div>
                             </CardContent>
                         </Card>
+                    </TabsContent>
+
+                    <TabsContent value="platform" className="space-y-6">
+                        <Card className="shadow-sm">
+                            <CardHeader className="pb-3">
+                                <CardTitle>{tr.platform.title}</CardTitle>
+                                <CardDescription>{tr.platform.description}</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6 pt-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="space-y-2 md:col-span-2">
+                                        <Label>{tr.platform.startMonth} / {tr.platform.endMonth} <span className="text-red-500">*</span></Label>
+                                        <MonthRangePicker
+                                            startMonth={platformStartMonth}
+                                            endMonth={platformEndMonth}
+                                            onStartMonthChange={setPlatformStartMonth}
+                                            onEndMonthChange={setPlatformEndMonth}
+                                            startLabel={tr.platform.startMonth}
+                                            endLabel={tr.platform.endMonth}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="platformAmountType">{tr.query.amountType.label}</Label>
+                                        <Select value={platformAmountType.toString()}
+                                            onValueChange={(val) => setPlatformAmountType(Number(val) as AmountType)}>
+                                            <SelectTrigger id="platformAmountType"><SelectValue placeholder={tr.query.amountType.placeholder} /></SelectTrigger>
+                                            <SelectContent>
+                                                <TooltipProvider>
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild><SelectItem value="1">{tr.query.amountType.payAmount}</SelectItem></TooltipTrigger>
+                                                        <TooltipContent className="max-w-xs z-50">
+                                                            <div dangerouslySetInnerHTML={{ __html: tr.query.amountType.payAmountDesc }} />
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                </TooltipProvider>
+                                                <TooltipProvider>
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild><SelectItem value="2">{tr.query.amountType.workerPayAmount}</SelectItem></TooltipTrigger>
+                                                        <TooltipContent className="max-w-xs z-50">
+                                                            <div dangerouslySetInnerHTML={{ __html: tr.query.amountType.workerPayAmountDesc }} />
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                </TooltipProvider>
+                                                <TooltipProvider>
+                                                    <Tooltip>
+                                                        <TooltipTrigger asChild><SelectItem value="3">{tr.query.amountType.billAmount}</SelectItem></TooltipTrigger>
+                                                        <TooltipContent className="max-w-xs z-50">
+                                                            <div dangerouslySetInnerHTML={{ __html: tr.query.amountType.billAmountDesc }} />
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                </TooltipProvider>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="platformCompanyName">{tr.platform.platformCompany}</Label>
+                                        <Input
+                                            id="platformCompanyName"
+                                            value={platformCompanyName}
+                                            onChange={(e) => setPlatformCompanyName(e.target.value)}
+                                            placeholder={tr.platform.platformCompanyPlaceholder}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="platformName">{tr.platform.platformName}</Label>
+                                        <Input
+                                            id="platformName"
+                                            value={platformName}
+                                            onChange={(e) => setPlatformName(e.target.value)}
+                                            placeholder={tr.platform.platformNamePlaceholder}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="platformCreditCode">{tr.platform.creditCode}</Label>
+                                        <Input
+                                            id="platformCreditCode"
+                                            value={platformCreditCode}
+                                            onChange={(e) => setPlatformCreditCode(e.target.value)}
+                                            placeholder={tr.platform.creditCodePlaceholder}
+                                        />
+                                    </div>
+                                </div>
+
+                                <Separator />
+
+                                <div className="space-y-2">
+                                    <Label>{tr.platform.enterpriseSelect}</Label>
+                                    <div className="border rounded-md p-3 max-h-40 overflow-y-auto space-y-2">
+                                        {isFetchingEnterprises ? (
+                                            <div className="flex justify-center py-6">
+                                                <Loader2 size={20} className="animate-spin text-gray-500" />
+                                            </div>
+                                        ) : enterprises.length === 0 ? (
+                                            <div className="text-gray-500 text-center py-6">{tr.query.enterprise.empty}</div>
+                                        ) : (
+                                            enterprises.map(enterprise => (
+                                                <div key={enterprise.id} className="flex items-center">
+                                                    <Checkbox
+                                                        id={`platform-ent-${enterprise.id}`}
+                                                        checked={selectedEnterpriseIds.includes(enterprise.id)}
+                                                        onCheckedChange={() => handleEnterpriseSelect(enterprise.id)}
+                                                    />
+                                                    <Label htmlFor={`platform-ent-${enterprise.id}`}
+                                                        className="ml-2 flex-1 cursor-pointer">
+                                                        {enterprise.enterprise_name}
+                                                    </Label>
+                                                    <Badge
+                                                        variant={[0, 2, 3, 4, 5, 7].includes(enterprise.status) ? "default" : "destructive"}>
+                                                        {tr.query.enterprise.status}: {enterprise.status}
+                                                    </Badge>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col sm:flex-row gap-4">
+                                    <Button
+                                        onClick={fetchPlatformData}
+                                        disabled={isFetchingPlatformData}
+                                        className="flex-1"
+                                    >
+                                        {isFetchingPlatformData ? (
+                                            <><Loader2 size={16} className="mr-2 animate-spin" />{tr.platform.fetching}</>
+                                        ) : (
+                                            <><Search size={16} className="mr-2" />{tr.platform.fetch}</>
+                                        )}
+                                    </Button>
+                                    <Button
+                                        onClick={handleGeneratePlatformReport}
+                                        disabled={isGeneratingPlatform || isGeneratingCombined || platformData.length === 0}
+                                        className="flex-1"
+                                    >
+                                        {isGeneratingPlatform ? (
+                                            <><Loader2 size={16} className="mr-2 animate-spin" />{tr.platform.generating}</>
+                                        ) : (
+                                            <><Download size={16} className="mr-2" />{tr.platform.download}</>
+                                        )}
+                                    </Button>
+                                    <Button
+                                        onClick={handleDownloadCombinedReport}
+                                        disabled={isGeneratingCombined || isGeneratingPlatform || platformData.length === 0}
+                                        variant="outline"
+                                        className="flex-1"
+                                        title="导出包含收入信息表和身份信息表的Excel，可手动复制到模板"
+                                    >
+                                        {isGeneratingCombined ? (
+                                            <><Loader2 size={16} className="mr-2 animate-spin" />导出中</>
+                                        ) : (
+                                            <><FileText size={16} className="mr-2" />导出数据</>
+                                        )}
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {platformSearchAttempted && (
+                            <Card className="shadow-sm">
+                                <CardHeader className="pb-3">
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <CardTitle>{tr.platform.resultTitle}</CardTitle>
+                                            <CardDescription>{platformStartMonth} ~ {platformEndMonth} {tr.platform.resultSuffix}</CardDescription>
+                                        </div>
+                                        <div className="text-lg font-semibold text-primary">
+                                            {tr.platform.totalRecords}: {platformData.length}
+                                        </div>
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="overflow-x-auto rounded-md border">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead className="w-[60px]">{tr.platform.table.index}</TableHead>
+                                                    <TableHead>{tr.platform.table.name}</TableHead>
+                                                    <TableHead>{tr.platform.table.idCard}</TableHead>
+                                                    <TableHead>{tr.platform.table.enterprise}</TableHead>
+                                                    <TableHead>{tr.platform.table.laborIncome}</TableHead>
+                                                    <TableHead>{tr.platform.table.serviceFee}</TableHead>
+                                                    <TableHead>{tr.platform.table.tradeCount}</TableHead>
+                                                    <TableHead>{tr.platform.table.miniAppId}</TableHead>
+                                                    <TableHead>{tr.platform.table.mobile}</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {isFetchingPlatformData ? (
+                                                    Array.from({ length: 5 }).map((_, i) => <SkeletonRow key={i} />)
+                                                ) : platformData.length > 0 ? (
+                                                    platformData.map((item, index) => (
+                                                        <TableRow key={`${item.credential_num}-${index}`}>
+                                                            <TableCell>{index + 1}</TableCell>
+                                                            <TableCell>{item.name}</TableCell>
+                                                            <TableCell>{maskId(item.credential_num)}</TableCell>
+                                                            <TableCell>{item.enterprise_name}</TableCell>
+                                                            <TableCell>{formatCurrency(item.labor_income)}</TableCell>
+                                                            <TableCell>{formatCurrency(item.service_fee)}</TableCell>
+                                                            <TableCell>{item.trade_count}</TableCell>
+                                                            <TableCell>{item.miniapp_id || '-'}</TableCell>
+                                                            <TableCell>{item.mobile || '-'}</TableCell>
+                                                        </TableRow>
+                                                    ))
+                                                ) : (
+                                                    <TableRow>
+                                                        <TableCell colSpan={9} className="h-24 text-center">
+                                                            {tr.table.noData}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )}
                     </TabsContent>
                 </Tabs>
             </div>
