@@ -425,7 +425,7 @@ class PlatformReportGenerator:
                 return date_str.strftime('%Y年%m月%d日')
             dt = datetime.datetime.strptime(str(date_str)[:10], '%Y-%m-%d')
             return dt.strftime('%Y年%m月%d日')
-        except:
+        except Exception:
             return str(date_str) if date_str else ''
 
     def query_platform_data(self, start_date: str, end_date: str,
@@ -866,7 +866,7 @@ class PlatformReportGenerator:
                     else:
                         dt = datetime.datetime.strptime(str(经营时间)[:10], '%Y-%m-%d')
                         ws.cell(row=row_idx, column=21, value=dt.strftime('%Y-%m-%d'))
-                except:
+                except Exception:
                     ws.cell(row=row_idx, column=21, value=str(经营时间) if 经营时间 else '')
             # 信息状态标识 = 新增
             ws.cell(row=row_idx, column=23, value="新增")
@@ -1180,7 +1180,7 @@ class PlatformReportGenerator:
                     else:
                         dt = datetime.datetime.strptime(str(经营时间)[:10], '%Y-%m-%d')
                         ws.cell(row=row_idx, column=21, value=dt.strftime('%Y-%m-%d'))
-                except:
+                except Exception:
                     ws.cell(row=row_idx, column=21, value=str(经营时间) if 经营时间 else '')
             ws.cell(row=row_idx, column=23, value="新增")
 
