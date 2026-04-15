@@ -450,14 +450,16 @@ class PlatformReportGenerator:
                     SELECT
                         w.realname AS name,
                         w.credential_num AS credential_num,
-                        w.payment_account AS payment_account,
+                        MAX(w.payment_account) AS payment_account,
                         eb.enterprise_name AS enterprise_name,
                         eb.USCC AS uscc,
                         ROUND(SUM({amount_field}), 2) AS labor_income,
                         ROUND(SUM(w.service_amount), 2) AS service_fee,
                         COUNT(w.id) AS trade_count,
-                        wa.username AS miniapp_id,
-                        w.mobile AS mobile,
+                        MAX(wa.username) AS miniapp_id,
+                        MAX(w.mobile) AS mobile,
+                        ROUND(SUM(w.tax_amount), 2) AS tax_amount,
+                        ROUND(SUM(w.worker_pay_amount + w.tax_amount), 2) AS total_with_tax,
                         COALESCE(MIN(es.sign_time), MIN(w.payment_over_time)) AS sign_time
                     FROM
                         biz_balance_worker w
@@ -501,6 +503,15 @@ class PlatformReportGenerator:
                     ORDER BY
                         w.realname, eb.enterprise_name
                     """
+
+                    # ===== 临时调试打印SQL =====
+                    print("=" * 50)
+                    print("【DEBUG SQL】")
+                    print(sql)
+                    print("【PARAMS】:", params)
+                    print("=" * 50)
+                    # ===== 调试打印结束 =====
+
                     cursor.execute(sql, tuple(params))
                     rows = cursor.fetchall()
                     # 转换 Decimal 为 float 以支持 JSON 序列化
@@ -646,6 +657,14 @@ class PlatformReportGenerator:
             # 交易笔数 (AE列=31)
             trade_count = int(record.get('trade_count', 0) or 0)
             ws.cell(row=row_idx, column=31, value=trade_count)
+
+            # 个税 (AF列=32)
+            tax_amount = float(record.get('tax_amount', 0) or 0)
+            ws.cell(row=row_idx, column=32, value=tax_amount)
+
+            # 含税金额 (AG列=33) = worker_pay_amount + tax_amount
+            total_with_tax = float(record.get('total_with_tax', 0) or 0)
+            ws.cell(row=row_idx, column=33, value=total_with_tax)
 
         # 设置所有数据单元格居中对齐
         center_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
@@ -1095,6 +1114,8 @@ class PlatformReportGenerator:
         ws.cell(row=1, column=29, value="从事其他网络交易活动取得的收入（净额）")
         ws.cell(row=1, column=30, value="服务费合计")
         ws.cell(row=1, column=31, value="交易笔数")
+        ws.cell(row=1, column=32, value="个税")
+        ws.cell(row=1, column=33, value="含税金额")
 
         # 填充数据
         for i, record in enumerate(data, start=1):
@@ -1122,6 +1143,12 @@ class PlatformReportGenerator:
             ws.cell(row=row_idx, column=30, value=service_fee)
             # 交易笔数(AE列)
             ws.cell(row=row_idx, column=31, value=trade_count)
+            # 个税(AF列)
+            tax_amount = float(record.get('tax_amount', 0) or 0)
+            ws.cell(row=row_idx, column=32, value=tax_amount)
+            # 含税金额(AG列)
+            total_with_tax = float(record.get('total_with_tax', 0) or 0)
+            ws.cell(row=row_idx, column=33, value=total_with_tax)
 
             # 设置数据字体和对齐
             for col in range(1, 33):
