@@ -103,7 +103,7 @@ Your goal is to help users understand available tools and how to use them.
                 import json
                 # Try to serialize cleanly
                 prompt += json.dumps(context['tools'], ensure_ascii=False, indent=2)
-            except:
+            except Exception:
                 prompt += str(context['tools'])
         
         prompt += """

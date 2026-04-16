@@ -117,7 +117,7 @@ async def process_mobile_tasks(
     except Exception as exc:
         elapsed = round(_time.time() - start_time, 2)
         logger.error(f"[手机号任务] 失败 | 请求ID: {request_id} | 耗时: {elapsed}秒 | 错误: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"处理手机号任务时发生错误: {str(exc)}")
+        raise HTTPException(status_code=500, detail=f"Error processing mobile task: {str(exc)}")
 
 
 @mobile_sms_router.post("/sms/templates", response_model=SMSTemplateResponse, tags=["短信服务"])

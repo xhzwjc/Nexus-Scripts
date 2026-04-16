@@ -95,7 +95,7 @@ class AccountBalanceService:
 
         def run_query():
             query = self._build_query(tenant_id)
-            print(query)
+            logger.debug(f"Balance query: {query}")
             return pd.read_sql(query, self.engine)
 
         try:

@@ -51,7 +51,7 @@ async def add_monitoring_server(
     logger.info(f"[服务器监控] 添加服务器 | 请求ID: {request_id} | 名称: {server.name} | 主机: {server.host}")
 
     if not add_server_config(server):
-        raise HTTPException(status_code=400, detail=f"服务器 ID '{server.id}' 已存在")
+        raise HTTPException(status_code=400, detail=f"Server ID '{server.id}' already exists")
 
     write_audit_log(
         db,

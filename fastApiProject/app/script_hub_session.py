@@ -8,7 +8,6 @@ from typing import Any, Callable, Dict, Optional, Sequence
 
 from fastapi import HTTPException, Request, status
 
-DEFAULT_SESSION_SECRET = "script-hub-dev-session-secret-change-me"
 DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000
 
 
@@ -17,10 +16,22 @@ def _get_session_secret() -> bytes:
     if configured:
         return configured.encode("utf-8")
 
-    if (os.getenv("ENVIRONMENT") or "local").lower() != "local":
-        raise RuntimeError("Missing SCRIPT_HUB_SESSION_SECRET environment variable")
+    environment = (os.getenv("ENVIRONMENT") or "local").lower()
+    if environment != "local":
+        raise RuntimeError(
+            "SCRIPT_HUB_SESSION_SECRET environment variable is required in non-local environments. "
+            "Generated tokens would be insecure with the default secret."
+        )
 
-    return DEFAULT_SESSION_SECRET.encode("utf-8")
+    # Only for local development - warn that this is insecure
+    import warnings
+    warnings.warn(
+        "Using default session secret in local environment. "
+        "Set SCRIPT_HUB_SESSION_SECRET for production-like testing.",
+        UserWarning,
+        stacklevel=2,
+    )
+    return "script-hub-dev-session-secret-change-me".encode("utf-8")
 
 
 def _base64url_decode(value: str) -> bytes:
