@@ -224,6 +224,18 @@ def ensure_local_database() -> dict[str, object]:
     }
 
 
+import re
+
+_TABLE_NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validate_table_name(name: str) -> str:
+    """Validate table name to prevent SQL injection."""
+    if not _TABLE_NAME_PATTERN.match(name):
+        raise ValueError(f"Invalid table name: {name!r}")
+    return name
+
+
 def fetch_table_counts(db_config: dict[str, object], tables: Iterable[str]) -> dict[str, int | None]:
     database = str(db_config["database"])
     counts: dict[str, int | None] = {}
@@ -253,7 +265,8 @@ def fetch_table_counts(db_config: dict[str, object], tables: Iterable[str]) -> d
                     counts[table_name] = None
                     continue
 
-                cursor.execute(f"SELECT COUNT(*) FROM `{table_name}`")
+                safe_table_name = _validate_table_name(table_name)
+                cursor.execute(f"SELECT COUNT(*) FROM `{safe_table_name}`")
                 counts[table_name] = int(cursor.fetchone()[0])
     finally:
         connection.close()

@@ -6,7 +6,10 @@ from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from Crypto.Util.Padding import pad, unpad
 import base64
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 def _get_password_encryption_key() -> bytes:
     raw = os.getenv("TEAM_RESOURCES_PASSWORD_ENCRYPTION_KEY", "").encode("utf-8")
@@ -70,5 +73,5 @@ def decrypt_password(encrypted: str) -> str:
         
         return plaintext.decode('utf-8')
     except Exception as e:
-        print(f"Failed to decrypt password: {e}")
+        logger.error(f"Failed to decrypt password: {e}")
         return ""

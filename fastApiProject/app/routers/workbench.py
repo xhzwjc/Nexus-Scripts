@@ -161,8 +161,8 @@ async def process_ocr_upload(
         finally:
             try:
                 shutil.rmtree(temp_dir)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to cleanup temp_dir {temp_dir}: {e}")
 
     return StreamingResponse(process_generator(), media_type="application/x-ndjson")
 

@@ -362,7 +362,8 @@ def markdown_to_html(markdown: str) -> str:
             if list_mode != "ol":
                 parts.append("<ol>")
                 list_mode = "ol"
-            parts.append(f"<li>{html.escape(re.sub(r'^\d+[.)]\s+', '', line))}</li>")
+            cleaned_line = re.sub(r'^\d+[.)]\s+', '', line)
+            parts.append(f"<li>{html.escape(cleaned_line)}</li>")
         else:
             if list_mode == "ul":
                 parts.append("</ul>")

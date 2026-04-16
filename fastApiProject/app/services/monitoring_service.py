@@ -100,7 +100,7 @@ def load_servers() -> List[ServerConfig]:
                     save_servers(normalized_servers)
                 return normalized_servers
     except Exception as e:
-        print(f"Error loading servers config: {e}")
+        logger.error(f"Error loading servers config: {e}")
     return []
 
 
@@ -111,7 +111,7 @@ def save_servers(servers: List[ServerConfig]):
         with open(SERVERS_CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump([s.dict() for s in servers], f, indent=2, ensure_ascii=False)
     except Exception as e:
-        print(f"Error saving servers config: {e}")
+        logger.error(f"Error saving servers config: {e}")
         raise
 
 
