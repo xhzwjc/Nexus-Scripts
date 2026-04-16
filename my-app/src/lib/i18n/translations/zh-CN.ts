@@ -1739,9 +1739,10 @@ export const zhCN: Translations = {
                 total: '总税额',
                 headerTotal: '这里显示税费总额',
                 footer: {
-                    taxOnlyTotal: '不含增值和附加的税额总计',
+                    taxOnlyTotal: '个税总计',
                     vatTotal: '增值总计',
                     surchargesTotal: '附加总计',
+                    otherTaxTotal: '其他税种总计',
                     grandTotal: '综合全额总税金',
                     warningMsg: '预警信息',
                     calcSteps: '计算步骤：'
@@ -1776,6 +1777,7 @@ export const zhCN: Translations = {
                     vat: '增值税',
                     surcharges: '附加税费',
                     totalTaxAndFees: '单月税费合计',
+                    otherTax: '其他税种金额',
                     statisticsTotal: '统计合计',
                 },
                 fileName: '税额计算结果_{date}.csv',

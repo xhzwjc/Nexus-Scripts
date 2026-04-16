@@ -1743,6 +1743,7 @@ export const enUS: Translations = {
                     taxOnlyTotal: 'Total Tax (excl. VAT/Sur)',
                     vatTotal: 'Total VAT',
                     surchargesTotal: 'Total Surcharges',
+                    otherTaxTotal: 'Other Taxes Total',
                     grandTotal: 'Grand Total Taxes & Fees',
                     warningMsg: 'Warning Message',
                     calcSteps: 'Calculation Steps:'
@@ -1777,6 +1778,7 @@ export const enUS: Translations = {
                     vat: 'VAT',
                     surcharges: 'Surcharges',
                     totalTaxAndFees: 'Total Taxes and Fees',
+                    otherTax: 'Other Taxes',
                     statisticsTotal: 'Statistics Total',
                 },
                 fileName: 'Tax_Calculation_Result_{date}.csv',

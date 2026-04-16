@@ -1100,6 +1100,7 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                             {showVatResults && <TableHead>{tr.results.table.vat}</TableHead>}
                                             {showVatResults && <TableHead>{tr.results.table.surcharges}</TableHead>}
                                             {showVatResults && <TableHead>{tr.results.table.totalTaxAndFees}</TableHead>}
+                                            {showVatResults && <TableHead>{tr.results.table.otherTax}</TableHead>}
                                             <TableHead>{tr.results.table.actualBurden}</TableHead>
                                             <TableHead>{tr.actions.view}</TableHead>
                                         </TableRow>
@@ -1139,6 +1140,7 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                                 {showVatResults && <TableCell>{(item.vat_tax || 0).toFixed(2)}</TableCell>}
                                                 {showVatResults && <TableCell>{(item.surcharges || 0).toFixed(2)}</TableCell>}
                                                 {showVatResults && <TableCell>{totalTaxAndFees.toFixed(2)}</TableCell>}
+                                                {showVatResults && <TableCell>{((item.vat_tax || 0) + (item.surcharges || 0)).toFixed(2)}</TableCell>}
                                                 <TableCell>{item.effective_tax_rate.toFixed(2)}%</TableCell>
                                                 <TableCell>
                                                     <Button
@@ -1228,6 +1230,7 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                     <p>{tr.results.footer.taxOnlyTotal}：<span className="text-foreground font-medium">{calculatedTotals.tax.toFixed(2)}</span></p>
                                     {showVatResults && <p>{tr.results.footer.vatTotal}：<span className="text-foreground font-medium">{calculatedTotals.vat.toFixed(2)}</span></p>}
                                     {showVatResults && <p>{tr.results.footer.surchargesTotal}：<span className="text-foreground font-medium">{calculatedTotals.sur.toFixed(2)}</span></p>}
+                                    {showVatResults && <p>{tr.results.footer.otherTaxTotal}：<span className="text-foreground font-medium">{(calculatedTotals.vat + calculatedTotals.sur).toFixed(2)}</span></p>}
                                     {showVatResults && <p>{tr.results.footer.grandTotal}：<span className="text-primary font-medium text-base">{calculatedTotals.all.toFixed(2)}</span></p>}
                                 </div>
                                 <Button

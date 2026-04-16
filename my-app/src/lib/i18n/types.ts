@@ -1716,6 +1716,7 @@ export interface Translations {
           taxOnlyTotal: string;
           vatTotal: string;
           surchargesTotal: string;
+          otherTaxTotal: string;
           grandTotal: string;
           warningMsg: string;
           calcSteps: string;
@@ -1750,6 +1751,7 @@ export interface Translations {
           vat: string;
           surcharges: string;
           totalTaxAndFees: string;
+          otherTax: string;
           statisticsTotal: string;
         };
         fileName: string;
