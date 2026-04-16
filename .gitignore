@@ -15,6 +15,10 @@ docker-compose.local.yml
 .idea
 *.iml
 
+# Python cache files
+__pycache__/
+*.py[cod]
+
 **/ven/
 
 .DS_Store
@@ -28,3 +32,6 @@ tmp/recruitment-debug/
 
 # 招聘测试上传数据（本地调试文件，不提交）
 fastApiProject/data/recruitment_uploads/resumes/
+
+# 本地 bootstrap 生成的 access key 文件（含明文密钥，不提交）
+fastApiProject/data/bootstrap_users.local.json
