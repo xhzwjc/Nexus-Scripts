@@ -43,6 +43,8 @@ PERMISSION_DEFINITIONS: Tuple[PermissionDefinition, ...] = (
     PermissionDefinition("agent-chat", "Agent 助手", "collaboration", "可使用 Agent Chat", 200),
     PermissionDefinition("ai-recruitment", "AI 招聘自动化", "collaboration", "可访问 AI 招聘自动化管理工作台", 210),
     PermissionDefinition("ai-recruitment-manage", "AI 招聘配置管理", "collaboration", "可管理 AI 招聘模块中的模型配置与 Skills", 220),
+    PermissionDefinition("biz-scene", "业务场景管理", "business", "可初始化业务场景数据", 230),
+    PermissionDefinition("biz-task", "任务管理", "business", "可初始化任务数据", 240),
 )
 
 
@@ -52,7 +54,7 @@ PERMISSION_INDEX: Dict[str, PermissionDefinition] = {permission.key: permission 
 
 ROLE_DEFINITIONS: Tuple[RoleDefinition, ...] = (
     RoleDefinition("admin", "系统超管", "拥有所有权限的系统管理员，可管理平台、资源和全部业务工具", 10, ALL_PERMISSION_KEYS),
-    RoleDefinition("operations-manager", "业务管理员", "负责核心业务流程执行与协同，不包含平台级危险操作", 20, ("settlement", "commission", "balance", "task-automation", "sms_operations_center", "tax-reporting", "tax-calculation", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "ai-recruitment")),
+    RoleDefinition("operations-manager", "业务管理员", "负责核心业务流程执行与协同，不包含平台级危险操作", 20, ("settlement", "commission", "balance", "task-automation", "sms_operations_center", "tax-reporting", "tax-calculation", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "ai-recruitment", "biz-scene", "biz-task")),
     RoleDefinition("operator", "运营专员", "负责日常运营、交付和查询类工作，不修改资源配置与平台设置", 30, ("tax-reporting", "tax-calculation", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "ai-recruitment")),
     RoleDefinition("finance-analyst", "财务分析", "负责财务核验、分析与报表工具，不直接执行高风险业务操作", 40, ("commission", "balance", "tax-reporting", "tax-calculation", "payment-stats", "team-resources", "ai-resources")),
     RoleDefinition("resource-manager", "资源管理员", "负责维护团队资源、AI 资源及相关健康检测配置", 50, ("team-resources", "team-resources-manage", "ai-resources", "ai-resources-manage", "cert-health", "agent-chat", "ocr-tool")),

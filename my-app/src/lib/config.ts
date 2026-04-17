@@ -80,6 +80,13 @@ export const allScripts: Record<string, SystemConfig> = {
                 icon: React.createElement(FileText, { className: "w-5 h-5" }),
                 status: 'beta' as const
             },
+            {
+                id: 'biz-scene',
+                name: '业务场景与任务初始化',
+                description: '初始化业务场景和任务数据，支持按需配置12/24条任务',
+                icon: React.createElement(Database, { className: "w-5 h-5" }),
+                status: 'stable' as const
+            },
         ]
     },
     haoshi: {

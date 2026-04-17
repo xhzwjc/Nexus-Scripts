@@ -710,3 +710,59 @@ class PlatformReportResponse(BaseModel):
     data: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = Field(None, description="响应数据，包含收入数据和身份数据")
     request_id: str = Field(..., description="请求ID")
     total: int = Field(..., description="数据总数")
+
+
+# 业务场景与任务初始化模型
+class SceneTemplateItem(BaseModel):
+    """业务场景模板项"""
+    scene_name: str
+    scene_no: str
+    business_type: int  # 1=灵活用工, 2=连续劳务
+    task_type: int  # 0=指派, 1=抢单
+    is_exempt: bool  # 是否存在免报（仅连续劳务有效）
+    scene_desc: str
+    # 固定默认值
+    first_industry_id: int = 1000
+    second_industry_id: int = 1001
+    business_occupation_id: int = 1
+    tax_rule: str = "[0]"
+    effect_type: int = 1
+
+
+class BizSceneInitRequest(BaseModel):
+    """业务场景初始化请求模型"""
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+    scenes: Optional[List[SceneTemplateItem]] = Field(None, description="业务场景模板列表")
+
+
+class EnterpriseListRequest(BaseModel):
+    """企业列表请求模型"""
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+
+
+class DepartmentListRequest(BaseModel):
+    """部门列表请求模型"""
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+    tenant_id: int = Field(..., description="租户ID")
+
+
+class BizTaskInitRequest(BaseModel):
+    """任务初始化请求模型"""
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+    enterprise_id: int = Field(..., description="企业ID")
+    tenant_id: int = Field(..., description="租户ID")
+    tax_id: int = Field(..., description="税地ID")
+    dept_id: int = Field(..., description="部门ID")
+    creator: str = Field("system", description="创建人")
+    enable_assign: bool = Field(True, description="是否创建指派任务")
+    enable_grab: bool = Field(True, description="是否创建抢单任务")
+    enable_delivery_type_1: bool = Field(True, description="是否创建合作者交付类型任务")
+    enable_enterprise_delivery: bool = Field(True, description="是否创建企业交付类型任务")
+
+
+class BizSceneTaskInitResponse(BaseModel):
+    """业务场景与任务初始化响应模型"""
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(..., description="处理信息")
+    data: Optional[Dict[str, Any]] = Field(None, description="初始化结果")
+    request_id: str = Field(..., description="请求ID")

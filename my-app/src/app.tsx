@@ -31,6 +31,7 @@ const ServerMonitoringScript = dynamic(() => import("./pages/ops/ServerMonitorin
 const AgentChat = dynamic(() => import("./components/AgentChat/AgentChat"), { loading: () => <LoadingComponent />, ssr: false });
 const AccessControlCenter = dynamic(() => import("./components/AccessControl/AccessControlCenter").then(mod => ({ default: mod.AccessControlCenter })), { loading: () => <LoadingComponent />, ssr: false });
 const RecruitmentAutomationContainer = dynamic(() => import("./components/Recruitment/RecruitmentAutomationContainer"), { loading: () => <LoadingComponent />, ssr: false });
+const BizSceneTaskScript = dynamic(() => import("./components/BizSceneTaskScript"), { loading: () => <LoadingComponent />, ssr: false });
 
 // Layout 组件导入
 import { HelpPage } from './components/Layout/HelpPage';
@@ -319,6 +320,8 @@ function AppContent() {
                 return <DeliveryScript onBack={() => setCurrentView('system')} />;
             case 'server-monitoring':
                 return <ServerMonitoringScript onBack={() => setCurrentView('system')} />;
+            case 'biz-scene':
+                return <BizSceneTaskScript onBack={() => setCurrentView('system')} />;
             default:
                 return null;
         }

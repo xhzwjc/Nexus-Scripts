@@ -10,8 +10,13 @@ from ..database import get_db
 from ..models import (
     BalanceVerificationRequest,
     BalanceVerificationResponse,
+    BizSceneInitRequest,
+    BizSceneTaskInitResponse,
+    BizTaskInitRequest,
     CommissionCalculationRequest,
     CommissionCalculationResponse,
+    DepartmentListRequest,
+    EnterpriseListRequest,
     PaymentStatsRequest,
     PaymentStatsResponse,
     SettlementRequest,
@@ -23,6 +28,7 @@ from ..services import (
     EnterpriseSettlementService,
     PaymentStatsService,
 )
+from ..services.biz_scene_task_service import BizSceneTaskService
 from ..script_hub_session import require_script_hub_permission
 from ..services.script_hub_audit_service import write_audit_log
 
@@ -202,6 +208,129 @@ async def calculate_payment_stats(
         }
     except Exception as exc:
         logger.error(f"计算统计失败: {exc}")
+        return {
+            "success": False,
+            "message": str(exc),
+            "request_id": request_id,
+        }
+
+
+@business_core_router.post("/biz-scene/init", response_model=BizSceneTaskInitResponse, tags=["业务场景管理"])
+async def init_biz_scene(
+    request: BizSceneInitRequest,
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("biz-scene")),
+):
+    """初始化业务场景（6个标准场景，可自定义）"""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[BizSceneInit API] 添加场景，请求ID: {request_id}")
+
+    try:
+        service = BizSceneTaskService(environment=request.environment)
+        scenes_data = None
+        if request.scenes:
+            scenes_data = [s.model_dump() for s in request.scenes]
+        result = service.init_scenes(scenes=scenes_data)
+        return {
+            "success": True,
+            "message": "业务场景添加完成",
+            "data": result,
+            "request_id": request_id,
+        }
+    except Exception as exc:
+        logger.error(f"[BizSceneInit API] 失败: {exc}", exc_info=True)
+        return {
+            "success": False,
+            "message": f"添加失败: {str(exc)}",
+            "data": None,
+            "request_id": request_id,
+        }
+
+
+@business_core_router.post("/biz-task/init", response_model=BizSceneTaskInitResponse, tags=["任务管理"])
+async def init_biz_task(
+    request: BizTaskInitRequest,
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("biz-task")),
+):
+    """初始化任务
+
+    默认12条任务（指派3+抢单3，仅企业交付）
+    设置enable_delivery_type_1=true可扩展到24条（企业交付+合作者交付）
+    """
+    request_id = str(uuid.uuid4())
+    logger.info(f"[BizTaskInit API] 添加任务，企业ID: {request.enterprise_id}，请求ID: {request_id}")
+
+    try:
+        service = BizSceneTaskService(environment=request.environment)
+        result = service.init_tasks(
+            enterprise_id=request.enterprise_id,
+            tenant_id=request.tenant_id,
+            tax_id=request.tax_id,
+            dept_id=request.dept_id,
+            creator=request.creator,
+            enable_assign=request.enable_assign,
+            enable_grab=request.enable_grab,
+            enable_delivery_type_1=request.enable_delivery_type_1,
+            enable_enterprise_delivery=request.enable_enterprise_delivery,
+        )
+        return {
+            "success": True,
+            "message": f"任务添加完成，共创建{result['created_count']}个任务",
+            "data": result,
+            "request_id": request_id,
+        }
+    except Exception as exc:
+        logger.error(f"[BizTaskInit API] 失败: {exc}", exc_info=True)
+        return {
+            "success": False,
+            "message": f"添加失败: {str(exc)}",
+            "data": None,
+            "request_id": request_id,
+        }
+
+
+@business_core_router.post("/enterprise/list", tags=["业务场景管理"])
+async def get_enterprise_list(
+    request: EnterpriseListRequest,
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("biz-scene")),
+):
+    """获取企业列表"""
+    request_id = str(uuid.uuid4())
+    try:
+        service = BizSceneTaskService(environment=request.environment)
+        enterprises = service.get_enterprises()
+        return {
+            "success": True,
+            "message": "获取成功",
+            "data": {"enterprises": enterprises},
+            "request_id": request_id,
+        }
+    except Exception as exc:
+        logger.error(f"[EnterpriseList API] 失败: {exc}", exc_info=True)
+        return {
+            "success": False,
+            "message": str(exc),
+            "request_id": request_id,
+        }
+
+
+@business_core_router.post("/department/list", tags=["业务场景管理"])
+async def get_department_list(
+    request: DepartmentListRequest,
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("biz-scene")),
+):
+    """获取部门列表"""
+    request_id = str(uuid.uuid4())
+    try:
+        service = BizSceneTaskService(environment=request.environment)
+        departments = service.get_departments(tenant_id=request.tenant_id)
+        return {
+            "success": True,
+            "message": "获取成功",
+            "data": {"departments": departments},
+            "request_id": request_id,
+        }
+    except Exception as exc:
+        logger.error(f"[DepartmentList API] 失败: {exc}", exc_info=True)
         return {
             "success": False,
             "message": str(exc),

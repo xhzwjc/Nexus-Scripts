@@ -11,6 +11,7 @@ const scriptIdToKey: Record<string, keyof Translations['scriptConfig']['items']>
     'payment-stats': 'paymentStats',
     'delivery-tool': 'deliveryTool',
     'server-monitoring': 'serverMonitoring',
+    'biz-scene': 'bizSceneTask',
 };
 
 export function getSystemName(t: Translations, systemId: string): string {
