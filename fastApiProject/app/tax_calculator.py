@@ -101,13 +101,13 @@ class TaxCalculator:
                                         worker_id,
                                         credential_num,
                                         business_type,
-                                        report_type
+                                        report_type,
+                                        tax_rule
                                  FROM biz_balance_worker
                                  WHERE deleted = 0
                                    AND pay_status IN (0, 3)
                                    AND credential_num = %s
-                                   AND business_type = 2
-                                   AND report_type = 0
+                                   AND (tax_rule = 1 OR (tax_rule = 0 AND business_type = 2 AND report_type = 0))
                                    AND (
                                      (payment_over_time >= %s AND payment_over_time < %s)
                                          OR
@@ -189,7 +189,7 @@ class TaxCalculator:
                     # 使用 IN 子句进行批量查询
                     format_strings = ','.join(['%s'] * len(credential_nums))
                     query = f"""
-                        SELECT 
+                        SELECT
                             COALESCE(payment_over_time, create_time) as payment_time,
                             bill_amount - ROUND(COALESCE(worker_service_amount, 0), 2) AS bill_amount,
                             DATE_FORMAT(COALESCE(payment_over_time, create_time), '%%Y-%%m') as year_months,
@@ -198,23 +198,26 @@ class TaxCalculator:
                             worker_id,
                             credential_num,
                             business_type,
-                            report_type
+                            report_type,
+                            tax_rule
                         FROM biz_balance_worker
                         WHERE deleted = 0
                           AND pay_status IN (0, 3)
                           AND credential_num IN ({format_strings})
-                          AND business_type = 2
-                          AND report_type = 0
+                          AND (tax_rule = 1 OR (tax_rule = 0 AND business_type = 2 AND report_type = 0))
                           AND (
                               (payment_over_time >= %s AND payment_over_time < %s)
-                              OR 
+                              OR
                               (payment_over_time IS NULL AND create_time >= %s AND create_time < %s)
                           )
                         ORDER BY credential_num, COALESCE(payment_over_time, create_time)
                     """
                     params = credential_nums + [start_date, end_date, start_date, end_date]
+                    logger.info(f"[SQL查询] query={query}")
+                    logger.info(f"[SQL查询] params={params}")
                     cursor.execute(query, tuple(params))
                     db_results = cursor.fetchall()
+                    logger.info(f"[SQL查询] 返回 {len(db_results)} 条记录")
 
                     records = [self._create_record_dict(row) for row in db_results]
                     logger.info(f"为 {len(credential_nums)} 人一次性获取到 {len(records)} 条全年记录")
@@ -298,9 +301,9 @@ class TaxCalculator:
                     )
                     all_results.extend(person_yearly_results)
 
-                # 最后根据指定的批次号筛选结果
-                logger.info(f"计算完成，筛选批次号为 '{batch_no}' 的记录")
-                return [res for res in all_results if res.get('batch_no') == batch_no]
+                # 返回所有人的所有数据（不按批次筛选），便于前端展开查看
+                logger.info(f"计算完成，共返回 {len(all_results)} 条记录")
+                return all_results
 
             elif credential_num and credential_num.strip() != "":
                 # 无批次号的单个用户路径
@@ -373,7 +376,6 @@ class TaxCalculator:
             lang = kwargs.get('lang', 'zh-CN') or 'zh-CN'
             _t = CALC_TRANSLATIONS.get(lang, CALC_TRANSLATIONS['zh-CN'])
 
-            income_type_name = _t['income_labor'] if income_type == 1 else _t['income_salary']
             logger.info(f"正在为 {credential_num} ({realname or 'N/A'}) 计算 {year} 年度税款...")
 
             if records is None:
@@ -382,9 +384,6 @@ class TaxCalculator:
             if not records:
                 return []
 
-            accumulated_income = Decimal('0.00')
-            accumulated_tax = Decimal('0.00')
-            accumulated_months = 0
             revenue_bills = Decimal('0.00')
             last_income_month = None
             monthly_accumulators = {}
@@ -392,24 +391,35 @@ class TaxCalculator:
 
             # sorted_records = sorted(records, key=lambda x: (x['year_month'], x.get('payment_time', x['year_month']))) 暂时移除，因为批量的SQL中处理了排序
 
-            precise_tax_at_month_end = Decimal('0.00')
-            last_record_unrounded_tax = Decimal('0.00')
-
             for record in records:
                 if record['bill_amount'] is None or record['bill_amount'] < Decimal('0.00'):
                     logger.warning(f"跳过无效金额记录: {record}")
                     continue
 
                 month_key = record['year_month']
+                person_key = f"{credential_num}_{month_key}"
+                tax_rule = record.get('tax_rule', None)
 
-                if last_income_month and month_key != last_income_month:
-                    precise_tax_at_month_end = last_record_unrounded_tax
+                logger.info(f"[计算开始] credential_num={credential_num}, batch_no={record.get('batch_no')}, month_key={month_key}, tax_rule={tax_rule}, bill_amount={record['bill_amount']}")
 
-                if month_key not in monthly_accumulators:
-                    monthly_accumulators[month_key] = {
-                        'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
-                        'paid_vat': Decimal('0.00'), 'paid_surcharges': Decimal('0.00'),
-                        'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': ""
+                if person_key not in monthly_accumulators:
+                    monthly_accumulators[person_key] = {
+                        'labor': {
+                            'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
+                            'paid_vat': Decimal('0.00'), 'paid_surcharges': Decimal('0.00'),
+                            'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': "",
+                            'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
+                            'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
+                            'last_record_unrounded_tax': Decimal('0.00')
+                        },
+                        'salary': {
+                            'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
+                            'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': "",
+                            'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
+                            'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
+                            'last_record_unrounded_tax': Decimal('0.00')
+                        },
+                        'reset_reason': ""
                     }
 
                 current_year, current_month = map(int, month_key.split('-'))
@@ -423,28 +433,47 @@ class TaxCalculator:
                         reset_needed = True; reset_reason = f"收入中断超过1个月 ({last_income_month} → {month_key})"
                 if reset_needed:
                     logger.info(f"{reset_reason}，重置累计值")
-                    accumulated_income = Decimal('0.00')
-                    accumulated_tax = Decimal('0.00')
-                    accumulated_months = 0
                     revenue_bills = Decimal('0.00')
                     monthly_accumulators = {}
-                    precise_tax_at_month_end=Decimal('0.00')
-                    monthly_accumulators[month_key] = {
-                        'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
-                        'paid_vat': Decimal('0.00'), 'paid_surcharges': Decimal('0.00'),
-                        'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason
+                    monthly_accumulators[person_key] = {
+                        'labor': {
+                            'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
+                            'paid_vat': Decimal('0.00'), 'paid_surcharges': Decimal('0.00'),
+                            'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason,
+                            'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
+                            'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
+                            'last_record_unrounded_tax': Decimal('0.00')
+                        },
+                        'salary': {
+                            'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
+                            'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason,
+                            'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
+                            'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
+                            'last_record_unrounded_tax': Decimal('0.00')
+                        }
                     }
 
-                accum = monthly_accumulators[month_key]
+                # 获取 tax_rule 判断收入类型，并选择对应的累加器
+                tax_rule = record.get('tax_rule', None)
+                if tax_rule is not None:
+                    effective_income_type = 2 if tax_rule == 1 else 1
+                    accum = monthly_accumulators[person_key]['labor'] if tax_rule == 0 else monthly_accumulators[person_key]['salary']
+                else:
+                    # 模拟数据使用传入的 income_type
+                    effective_income_type = income_type
+                    accum = monthly_accumulators[person_key]['labor'] if income_type == 1 else monthly_accumulators[person_key]['salary']
+
                 if reset_reason and not accum['reset_reason']:
                     accum['reset_reason'] = reset_reason
                 accum['records'].append(record)
                 prev_month_total_amount = accum['total_amount']
                 accum['total_amount'] += record['bill_amount']
                 revenue_bills += record['bill_amount']
-                prev_annual_accumulated_income = accumulated_income
 
-                if income_type == 1:
+                prev_annual_accumulated_income = accum['accumulated_income']
+
+                # 月度收入计算：工资薪金和劳务都用各自累加的 total_amount
+                if effective_income_type == 1:
                     monthly_income = accum['total_amount'] * Decimal('0.8')
                 else:
                     monthly_income = accum['total_amount']
@@ -452,36 +481,42 @@ class TaxCalculator:
 
                 if not accum['started']:
                     accum['started'] = True
-                    accumulated_income += monthly_income
-                    accumulated_months += 1
+                    accum['accumulated_income'] += monthly_income
+                    accum['accumulated_months'] += 1
                 else:
-                    accumulated_income = prev_annual_accumulated_income - accum['monthly_income'] + monthly_income
+                    accum['accumulated_income'] = prev_annual_accumulated_income - accum['monthly_income'] + monthly_income
+
+                # 日志：个税计算金额和增值/附加计算金额
+                logger.info(f"[个税计算] 个税计税金额=monthly_income={monthly_income} (effective_income_type={effective_income_type})")
+                logger.info(f"[增值附加] 增值附加金额=accum['total_amount']={accum['total_amount']} (effective_income_type={effective_income_type}, tax_rule={tax_rule})")
+
+                accum['monthly_income'] = monthly_income
                 accum['monthly_income'] = monthly_income
 
-                accumulated_months = max(1, accumulated_months)
+                accum['accumulated_months'] = max(1, accum['accumulated_months'])
 
-                accumulated_deduction = Decimal('5000') * accumulated_months
-                accumulated_special = accumulated_special_deduction * accumulated_months
-                accumulated_additional = accumulated_additional_deduction * accumulated_months
-                accumulated_other = accumulated_other_deduction * accumulated_months
-                accumulated_pension = accumulated_pension_deduction * accumulated_months
+                accumulated_deduction = Decimal('5000') * accum['accumulated_months']
+                accumulated_special = accumulated_special_deduction * accum['accumulated_months']
+                accumulated_additional = accumulated_additional_deduction * accum['accumulated_months']
+                accumulated_other = accumulated_other_deduction * accum['accumulated_months']
+                accumulated_pension = accumulated_pension_deduction * accum['accumulated_months']
                 accumulated_donation = accumulated_donation_deduction
 
                 accumulated_taxable = max(Decimal('0.00'),
-                                          accumulated_income - accumulated_deduction - accumulated_special -
+                                          accum['accumulated_income'] - accumulated_deduction - accumulated_special -
                                           accumulated_additional - accumulated_other - accumulated_pension - accumulated_donation)
 
                 tax_rate, quick_deduction = self.get_tax_rate_and_deduction(accumulated_taxable)
                 accumulated_total_tax_unrounded = max(Decimal('0.00'), accumulated_taxable * tax_rate - quick_deduction)
 
-                total_tax_for_month_unrounded = accumulated_total_tax_unrounded - precise_tax_at_month_end
+                total_tax_for_month_unrounded = accumulated_total_tax_unrounded - accum['precise_tax_at_month_end']
 
                 total_tax_for_month_rounded = total_tax_for_month_unrounded.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
                 paid_tax_this_month_previously = accum['paid_tax']
                 current_tax = max(Decimal('0.00'), total_tax_for_month_rounded - paid_tax_this_month_previously)
-                prev_total_paid_tax = accumulated_tax
+                prev_total_paid_tax = accum['accumulated_tax']
                 accum['paid_tax'] += current_tax
-                accumulated_tax = (accumulated_tax - paid_tax_this_month_previously) + accum['paid_tax']
+                accum['accumulated_tax'] = (accum['accumulated_tax'] - paid_tax_this_month_previously) + accum['paid_tax']
 
                 calculation_steps = []
                 if accum['reset_reason']:
@@ -496,20 +531,20 @@ class TaxCalculator:
 
                 if len(accum['records']) == 1:
                     calculation_steps.append(
-                        f"{_t['accumulated_income_first']}: {prev_annual_accumulated_income:.2f} + {monthly_income:.2f} \u2192 {accumulated_income:.2f}")
+                        f"{_t['accumulated_income_first']}: {prev_annual_accumulated_income:.2f} + {monthly_income:.2f} \u2192 {accum['accumulated_income']:.2f}")
                 else:
                     calculation_steps.append(
-                        f"{_t['accumulated_income_update']}: {prev_annual_accumulated_income:.2f} \u2192 {accumulated_income:.2f}")
+                        f"{_t['accumulated_income_update']}: {prev_annual_accumulated_income:.2f} \u2192 {accum['accumulated_income']:.2f}")
 
                 calculation_steps.extend([
-                    f"{_t['accumulated_months']}: {accumulated_months}",
-                    f"{_t['accumulated_deduction']}: 5000 \u00d7 {accumulated_months} = {accumulated_deduction:.2f}",
-                    f"{_t['accumulated_special']}: {accumulated_special_deduction:.2f} \u00d7 {accumulated_months} = {accumulated_special:.2f}",
-                    f"{_t['accumulated_additional']}: {accumulated_additional_deduction:.2f} \u00d7 {accumulated_months} = {accumulated_additional:.2f}",
-                    f"{_t['accumulated_other']}: {accumulated_other_deduction:.2f} \u00d7 {accumulated_months} = {accumulated_other:.2f}",
-                    f"{_t['accumulated_pension']}: {accumulated_pension_deduction:.2f} \u00d7 {accumulated_months} = {accumulated_pension:.2f}",
+                    f"{_t['accumulated_months']}: {accum['accumulated_months']}",
+                    f"{_t['accumulated_deduction']}: 5000 \u00d7 {accum['accumulated_months']} = {accumulated_deduction:.2f}",
+                    f"{_t['accumulated_special']}: {accumulated_special_deduction:.2f} \u00d7 {accum['accumulated_months']} = {accumulated_special:.2f}",
+                    f"{_t['accumulated_additional']}: {accumulated_additional_deduction:.2f} \u00d7 {accum['accumulated_months']} = {accumulated_additional:.2f}",
+                    f"{_t['accumulated_other']}: {accumulated_other_deduction:.2f} \u00d7 {accum['accumulated_months']} = {accumulated_other:.2f}",
+                    f"{_t['accumulated_pension']}: {accumulated_pension_deduction:.2f} \u00d7 {accum['accumulated_months']} = {accumulated_pension:.2f}",
                     f"{_t['accumulated_donation']}: {accumulated_donation:.2f}",
-                    f"{_t['taxable_income']}: {accumulated_income:.2f} - {accumulated_deduction:.2f} - {accumulated_special:.2f} - {accumulated_additional:.2f} - {accumulated_other:.2f} - {accumulated_pension:.2f} - {accumulated_donation:.2f} = {accumulated_taxable:.2f}",
+                    f"{_t['taxable_income']}: {accum['accumulated_income']:.2f} - {accumulated_deduction:.2f} - {accumulated_special:.2f} - {accumulated_additional:.2f} - {accumulated_other:.2f} - {accumulated_pension:.2f} - {accumulated_donation:.2f} = {accumulated_taxable:.2f}",
                     f"{_t['tax_rate_label']}: {tax_rate * Decimal('100'):.0f}%, {_t['quick_deduction']}: {quick_deduction:.2f}",
                     f"{_t['annual_tax_theory']}: {accumulated_taxable:.2f} \u00d7 {tax_rate:.2f} - {quick_deduction:.2f} = {accumulated_total_tax_unrounded:.4f}",
                     f"{_t['prev_paid']}: {paid_tax_this_month_previously:.2f}",
@@ -521,7 +556,8 @@ class TaxCalculator:
                 surcharges = Decimal('0.00')
                 total_tax_and_fees = current_tax
 
-                if income_type == 1 and accum['total_amount'] > Decimal('100000'):
+                # tax_rule=1 时不算增值税和附加税
+                if effective_income_type == 1 and tax_rule != 1 and accum['total_amount'] > Decimal('100000'):
                     prev_paid_vat = accum['paid_vat']
                     prev_paid_surcharges = accum['paid_surcharges']
                     not_included_tax_sales = accum['total_amount'] / Decimal('1.01')
@@ -544,12 +580,14 @@ class TaxCalculator:
 
                 warning_msg = None
                 warning_level = None
-                if revenue_bills >= Decimal('5000000'):
-                    warning_msg = _t['warning_500']
-                    warning_level = '500'
-                elif revenue_bills >= Decimal('4500000'):
-                    warning_msg = _t['warning_450']
-                    warning_level = '450'
+                # 只有劳务（effective_income_type == 1）才触发预警
+                if effective_income_type == 1:
+                    if revenue_bills >= Decimal('5000000'):
+                        warning_msg = _t['warning_500']
+                        warning_level = '500'
+                    elif revenue_bills >= Decimal('4500000'):
+                        warning_msg = _t['warning_450']
+                        warning_level = '450'
 
                 result = {
                     'batch_no': record['batch_no'],
@@ -559,12 +597,12 @@ class TaxCalculator:
                     'year_month': month_key,
                     'bill_amount': record['bill_amount'],
                     'tax': round(current_tax, 2),
-                    'income_type': income_type,
-                    'income_type_name': income_type_name,
+                    'income_type': effective_income_type,
+                    'income_type_name': _t['income_labor'] if effective_income_type == 1 else _t['income_salary'],
                     'income_amount': round(record['bill_amount'], 2),
                     'prev_accumulated_income': round(prev_annual_accumulated_income, 2),
-                    'accumulated_income': round(accumulated_income, 2),
-                    'accumulated_months': accumulated_months,
+                    'accumulated_income': round(accum['accumulated_income'], 2),
+                    'accumulated_months': accum['accumulated_months'],
                     'accumulated_deduction': round(accumulated_deduction, 2),
                     'accumulated_taxable': round(accumulated_taxable, 2),
                     'accumulated_special': round(accumulated_special, 2),
@@ -574,9 +612,9 @@ class TaxCalculator:
                     'accumulated_donation': round(accumulated_donation, 2),
                     'tax_rate': float(round(tax_rate, 4)),
                     'quick_deduction': round(quick_deduction, 2),
-                    'accumulated_total_tax': round(accumulated_tax, 2),
+                    'accumulated_total_tax': round(accum['accumulated_tax'], 2),
                     'prev_accumulated_tax': round(prev_total_paid_tax, 2),
-                    'accumulated_tax': round(accumulated_tax, 2),
+                    'accumulated_tax': round(accum['accumulated_tax'], 2),
                     'calculation_steps': calculation_steps,
                     'effective_tax_rate': float(effective_tax_rate),
                     'revenue_bills': round(revenue_bills, 2),
@@ -587,9 +625,19 @@ class TaxCalculator:
                     'warning_level': warning_level
                 }
                 results.append(result)
+
+                logger.info(f"[计算完成] batch_no={record.get('batch_no')}, year_month={month_key}, bill_amount={record['bill_amount']}, accumulated_income={accum['accumulated_income']}, tax={current_tax}, vat_tax={vat_tax}")
+
+                # 更新累加器中的跨月字段
+                if last_income_month and last_income_month != month_key:
+                    # 跨月了，更新上个月的 precise_tax_at_month_end
+                    last_person_key = f"{credential_num}_{last_income_month}"
+                    if last_person_key in monthly_accumulators:
+                        monthly_accumulators[last_person_key]['labor']['precise_tax_at_month_end'] = monthly_accumulators[last_person_key]['labor']['last_record_unrounded_tax']
+                        monthly_accumulators[last_person_key]['salary']['precise_tax_at_month_end'] = monthly_accumulators[last_person_key]['salary']['last_record_unrounded_tax']
+
+                accum['last_record_unrounded_tax'] = accumulated_total_tax_unrounded
                 last_income_month = month_key
-                last_record_unrounded_tax = accumulated_total_tax_unrounded
-                logger.info(f"金额={record['bill_amount']:.2f} 税额={current_tax:.2f}")
 
             return results
         except Exception as e:
@@ -615,7 +663,10 @@ class TaxCalculator:
                 'batch_no': record.get('batch_no', 'MOCK_BATCH'),
                 'year_month': record['year_month'],
                 'bill_amount': Decimal(str(record['bill_amount'])),
-                'payment_time': datetime.strptime(f"{record['year_month']}-01", "%Y-%m-%d")
+                'payment_time': datetime.strptime(f"{record['year_month']}-01", "%Y-%m-%d"),
+                'business_type': record.get('business_type', 2),
+                'report_type': record.get('report_type', 0),
+                'tax_rule': record.get('tax_rule', None)  # 模拟数据用 None 表示走 income_type 逻辑
             }
             enriched_records.append(enriched)
 
@@ -682,5 +733,6 @@ class TaxCalculator:
             'worker_id': row['worker_id'],
             'credential_num': row['credential_num'],
             'business_type': row['business_type'],
-            'report_type': row['report_type']
+            'report_type': row['report_type'],
+            'tax_rule': row['tax_rule']
         }
