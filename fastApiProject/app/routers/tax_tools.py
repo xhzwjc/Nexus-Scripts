@@ -263,7 +263,7 @@ async def calculate_tax(
 
         return {
             "success": True,
-            "message": f"计算完成，共返回 {len(results)} 条记录",
+            "message": f"计算完成，共返回 {len(results)} 条记录（部分数据已按人员月份分组展示）",
             "data": results,
             "request_id": request_id,
             "total_tax": round(total_tax, 2),
