@@ -269,20 +269,6 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
     // 请求控制：避免竞态与内存泄漏
     const abortRef = useRef<AbortController | null>(null);
 
-    // 计算分页数据
-    // 计算合计金额
-    const calculatedTotals = useMemo(() => {
-        return results.reduce(
-            (acc, curr) => ({
-                tax: acc.tax + (curr.tax || 0),
-                vat: acc.vat + (curr.vat_tax || 0),
-                sur: acc.sur + (curr.surcharges || 0),
-                all: acc.all + (curr.total_tax_and_fees ?? curr.tax ?? 0)
-            }),
-            { tax: 0, vat: 0, sur: 0, all: 0 }
-        );
-    }, [results]);
-
     const showVatConfig = activeMode === 'mock' ? params.income_type === 1 : true;
     const showVatResults = results.length > 0 ? results[0].income_type === 1 : params.income_type === 1;
 
@@ -349,6 +335,19 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
         });
         return flat.reverse();
     }, [groupedResults, expandedGroups, targetBatchNo, activeMode]);
+
+    // 计算合计金额（基于扁平化后的结果，只统计当前显示的数据）
+    const calculatedTotals = useMemo(() => {
+        return flattenedResults.reduce(
+            (acc, curr) => ({
+                tax: acc.tax + (curr.tax || 0),
+                vat: acc.vat + (curr.vat_tax || 0),
+                sur: acc.sur + (curr.surcharges || 0),
+                all: acc.all + (curr.total_tax_and_fees ?? curr.tax ?? 0)
+            }),
+            { tax: 0, vat: 0, sur: 0, all: 0 }
+        );
+    }, [flattenedResults]);
 
     // 计算分页数据
     const paginatedResults = useMemo(() => {
