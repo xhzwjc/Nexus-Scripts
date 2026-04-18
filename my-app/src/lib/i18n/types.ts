@@ -1606,6 +1606,8 @@ export interface Translations {
         platformNamePlaceholder: string;
         creditCode: string;
         creditCodePlaceholder: string;
+        taxId: string;
+        taxIdPlaceholder: string;
         enterpriseSelect: string;
         fetch: string;
         fetching: string;
@@ -1695,6 +1697,7 @@ export interface Translations {
         applyAll: string;
         addRecord: string;
         billAmount: string;
+        months: string[];
       };
       actions: {
         reset: string;

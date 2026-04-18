@@ -1594,6 +1594,8 @@ export const enUS: Translations = {
                 platformNamePlaceholder: 'LingLing Hou Platform',
                 creditCode: 'Unified Social Credit Code (Optional)',
                 creditCodePlaceholder: '91411700MAEFDQ7P7T',
+                taxId: 'Operating Entity',
+                taxIdPlaceholder: 'Enter 0 or leave empty for all',
                 enterpriseSelect: 'Select Enterprises (Leave empty for all)',
                 fetch: 'Query Data',
                 fetching: 'Querying...',
@@ -1722,6 +1724,7 @@ export const enUS: Translations = {
                 applyAll: 'Apply to All',
                 addRecord: 'Add Record',
                 billAmount: 'Bill Amount',
+                months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
             },
             actions: {
                 reset: 'Reset Params',

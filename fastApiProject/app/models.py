@@ -667,6 +667,7 @@ class PlatformReportRequest(BaseModel):
     end_date: str = Field(..., description="结束日期，格式YYYY-MM-DD")
     enterprise_ids: Optional[Union[int, List[int], str]] = Field(None, description="企业ID，可为单个ID、ID列表或逗号分隔字符串")
     amount_type: int = Field(1, ge=1, le=3, description="金额类型：1=含服务费, 2=不含服务费, 3=账单金额")
+    tax_id: Optional[int] = Field(None, description="运营主体ID，不传或传0表示查全部")
     platform_company: Optional[str] = Field(None, description="平台企业名称")
     platform_name: Optional[str] = Field(None, description="平台名称")
     credit_code: Optional[str] = Field(None, description="统一社会信用代码")

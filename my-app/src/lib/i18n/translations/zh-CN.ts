@@ -1591,6 +1591,8 @@ export const zhCN: Translations = {
                 platformCompanyPlaceholder: '云策企服（驻马店）人力资源服务有限公司',
                 platformName: '平台名称 (可选)',
                 platformNamePlaceholder: '灵零猴交易合规数字化服务平台',
+                taxId: '运营主体ID',
+                taxIdPlaceholder: '填0或不填则查全部',
                 creditCode: '统一社会信用代码 (可选)',
                 creditCodePlaceholder: '91411700MAEFDQ7P7T',
                 enterpriseSelect: '选择企业（不选则包含所有）',
@@ -1721,6 +1723,7 @@ export const zhCN: Translations = {
                 applyAll: '全部应用',
                 addRecord: '添加记录',
                 billAmount: '账单金额',
+                months: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'],
             },
             actions: {
                 reset: '重置参数',
