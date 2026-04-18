@@ -23,6 +23,29 @@ def build_pay_over_time(year=None, month=None):
     return now.replace(year=y, month=m)
 
 
+def calc_continuous_month(months: list[int], current_month: int) -> int:
+    """
+    计算连续月份数。
+    先判断最大月份和当前月份是否连续，断了直接返回0。
+    没断则从最大月份往前数连续有数据的月份数。
+    历史年份 current_month 传 13。
+    """
+    max_month = max(months)
+    # 最大月份和当前月份之间有断层，直接返回0
+    if current_month - max_month > 1:
+        return 0
+    months_set = set(months)
+    count = 0
+    m = max_month
+    while m >= 1:
+        if m in months_set:
+            count += 1
+            m -= 1
+        else:
+            break
+    return count
+
+
 @settlement_sim_router.post("/settlement-sim/execute", response_model=SettlementSimResponse)
 async def execute_settlement_sim(
     request: SettlementSimRequest,
@@ -89,66 +112,178 @@ async def execute_settlement_sim(
                     conn.commit()
 
                 elif request.mode == "batch_no_tax":
-                    # 写入个税累计（按批次）
-                    sql_tax = """
-                        INSERT INTO biz_worker_tax_amount
-                            (worker_id, total_worker_amount, total_worker_tax_amount,
-                             original_total_worker_tax_amount, continuous_month, year,
-                             create_time, update_time, deleted, tax_rule)
-                        SELECT
-                            w.worker_id,
-                            ROUND(w.bill_amount - COALESCE(w.worker_service_amount, 0), 2),
-                            ROUND(w.tax_amount, 2),
-                            ROUND(w.original_tax_amount, 2),
-                            1,
-                            YEAR(NOW()),
-                            NOW(), NOW(), 0,
-                            w.tax_rule
-                        FROM biz_balance_worker w
-                        WHERE w.deleted = 0
-                          AND w.batch_no = %s
-                          AND (w.tax_rule = 1 OR (w.tax_rule = 0 AND w.business_type = 2 AND w.report_type = 0))
-                        ON DUPLICATE KEY UPDATE
-                            total_worker_amount = total_worker_amount + VALUES(total_worker_amount),
-                            total_worker_tax_amount = total_worker_tax_amount + VALUES(total_worker_tax_amount),
-                            original_total_worker_tax_amount = original_total_worker_tax_amount + VALUES(original_total_worker_tax_amount),
-                            update_time = NOW()
-                    """
-                    cursor.execute(sql_tax, (request.batch_no,))
-                    affected_rows += cursor.rowcount
+                    # 第一步：取出涉及的 worker_id
+                    cursor.execute("""
+                        SELECT DISTINCT worker_id
+                        FROM biz_balance_worker
+                        WHERE deleted = 0
+                          AND pay_status = 3
+                          AND batch_no = %s
+                    """, (request.batch_no,))
+                    worker_rows = cursor.fetchall()
+                    if not worker_rows:
+                        conn.commit()
+                    else:
+                        worker_ids = tuple(r['worker_id'] for r in worker_rows)
 
-                    conn.commit()
+                        # 第二步：统计每个分组的月份列表，用于计算 continuous_month
+                        cursor.execute("""
+                            SELECT
+                                w.worker_id,
+                                w.tax_rule,
+                                YEAR(w.payment_over_time) AS stat_year,
+                                GROUP_CONCAT(
+                                    DISTINCT MONTH(w.payment_over_time)
+                                    ORDER BY MONTH(w.payment_over_time)
+                                ) AS months
+                            FROM biz_balance_worker w
+                            WHERE w.deleted = 0
+                              AND w.pay_status = 3
+                              AND (w.tax_rule = 1 OR (w.tax_rule = 0 AND w.business_type = 2 AND w.report_type = 0))
+                              AND w.worker_id IN %s
+                            GROUP BY w.worker_id, w.tax_rule, YEAR(w.payment_over_time)
+                        """, (worker_ids,))
+                        month_rows = cursor.fetchall()
+
+                        current_year = datetime.now().year
+                        month_map = {}
+                        for row in month_rows:
+                            months = [int(m) for m in row['months'].split(',')]
+                            stat_year = row['stat_year']
+                            start = datetime.now().month if stat_year == current_year else 13
+                            month_map[(row['worker_id'], row['tax_rule'], stat_year)] = calc_continuous_month(months, start)
+
+                        # 第三步：统计金额并逐行写入
+                        cursor.execute("""
+                            SELECT
+                                w.worker_id,
+                                w.tax_rule,
+                                YEAR(w.payment_over_time) AS stat_year,
+                                ROUND(SUM(w.bill_amount - COALESCE(w.worker_service_amount, 0)), 2) AS total_worker_amount,
+                                ROUND(SUM(w.tax_amount), 2) AS total_worker_tax_amount,
+                                ROUND(SUM(w.original_tax_amount), 2) AS original_total_worker_tax_amount
+                            FROM biz_balance_worker w
+                            WHERE w.deleted = 0
+                              AND w.pay_status = 3
+                              AND (w.tax_rule = 1 OR (w.tax_rule = 0 AND w.business_type = 2 AND w.report_type = 0))
+                              AND w.worker_id IN %s
+                            GROUP BY w.worker_id, w.tax_rule, YEAR(w.payment_over_time)
+                        """, (worker_ids,))
+                        amount_rows = cursor.fetchall()
+
+                        for row in amount_rows:
+                            continuous = month_map.get((row['worker_id'], row['tax_rule'], row['stat_year']), 0)
+                            cursor.execute("""
+                                INSERT INTO biz_worker_tax_amount
+                                    (worker_id, total_worker_amount, total_worker_tax_amount,
+                                     original_total_worker_tax_amount, continuous_month, year,
+                                     create_time, update_time, deleted, tax_rule)
+                                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), 0, %s)
+                                ON DUPLICATE KEY UPDATE
+                                    total_worker_amount              = VALUES(total_worker_amount),
+                                    total_worker_tax_amount          = VALUES(total_worker_tax_amount),
+                                    original_total_worker_tax_amount = VALUES(original_total_worker_tax_amount),
+                                    continuous_month                 = VALUES(continuous_month),
+                                    update_time                      = NOW()
+                            """, (
+                                row['worker_id'],
+                                row['total_worker_amount'],
+                                row['total_worker_tax_amount'],
+                                row['original_total_worker_tax_amount'],
+                                continuous,
+                                row['stat_year'],
+                                row['tax_rule']
+                            ))
+                            affected_rows += cursor.rowcount
+
+                        conn.commit()
 
                 elif request.mode == "balance_no_tax":
-                    # 写入个税累计（按结算单）
-                    sql_tax = """
-                        INSERT INTO biz_worker_tax_amount
-                            (worker_id, total_worker_amount, total_worker_tax_amount,
-                             original_total_worker_tax_amount, continuous_month, year,
-                             create_time, update_time, deleted, tax_rule)
-                        SELECT
-                            w.worker_id,
-                            ROUND(w.bill_amount - COALESCE(w.worker_service_amount, 0), 2),
-                            ROUND(w.tax_amount, 2),
-                            ROUND(w.original_tax_amount, 2),
-                            1,
-                            YEAR(NOW()),
-                            NOW(), NOW(), 0,
-                            w.tax_rule
-                        FROM biz_balance_worker w
-                        WHERE w.deleted = 0
-                          AND w.balance_no = %s
-                          AND (w.tax_rule = 1 OR (w.tax_rule = 0 AND w.business_type = 2 AND w.report_type = 0))
-                        ON DUPLICATE KEY UPDATE
-                            total_worker_amount = total_worker_amount + VALUES(total_worker_amount),
-                            total_worker_tax_amount = total_worker_tax_amount + VALUES(total_worker_tax_amount),
-                            original_total_worker_tax_amount = original_total_worker_tax_amount + VALUES(original_total_worker_tax_amount),
-                            update_time = NOW()
-                    """
-                    cursor.execute(sql_tax, (request.balance_no,))
-                    affected_rows += cursor.rowcount
+                    # 第一步：取出涉及的 worker_id
+                    cursor.execute("""
+                        SELECT DISTINCT worker_id
+                        FROM biz_balance_worker
+                        WHERE deleted = 0
+                          AND pay_status = 3
+                          AND balance_no = %s
+                    """, (request.balance_no,))
+                    worker_rows = cursor.fetchall()
+                    if not worker_rows:
+                        conn.commit()
+                    else:
+                        worker_ids = tuple(r['worker_id'] for r in worker_rows)
 
-                    conn.commit()
+                        # 第二步：统计月份列表（与 batch_no_tax 完全相同）
+                        cursor.execute("""
+                            SELECT
+                                w.worker_id,
+                                w.tax_rule,
+                                YEAR(w.payment_over_time) AS stat_year,
+                                GROUP_CONCAT(
+                                    DISTINCT MONTH(w.payment_over_time)
+                                    ORDER BY MONTH(w.payment_over_time)
+                                ) AS months
+                            FROM biz_balance_worker w
+                            WHERE w.deleted = 0
+                              AND w.pay_status = 3
+                              AND (w.tax_rule = 1 OR (w.tax_rule = 0 AND w.business_type = 2 AND w.report_type = 0))
+                              AND w.worker_id IN %s
+                            GROUP BY w.worker_id, w.tax_rule, YEAR(w.payment_over_time)
+                        """, (worker_ids,))
+                        month_rows = cursor.fetchall()
+
+                        current_year = datetime.now().year
+                        month_map = {}
+                        for row in month_rows:
+                            months = [int(m) for m in row['months'].split(',')]
+                            stat_year = row['stat_year']
+                            start = datetime.now().month if stat_year == current_year else 13
+                            month_map[(row['worker_id'], row['tax_rule'], stat_year)] = calc_continuous_month(months, start)
+
+                        # 第三步：统计金额并逐行写入（与 batch_no_tax 完全相同）
+                        cursor.execute("""
+                            SELECT
+                                w.worker_id,
+                                w.tax_rule,
+                                YEAR(w.payment_over_time) AS stat_year,
+                                ROUND(SUM(w.bill_amount - COALESCE(w.worker_service_amount, 0)), 2) AS total_worker_amount,
+                                ROUND(SUM(w.tax_amount), 2) AS total_worker_tax_amount,
+                                ROUND(SUM(w.original_tax_amount), 2) AS original_total_worker_tax_amount
+                            FROM biz_balance_worker w
+                            WHERE w.deleted = 0
+                              AND w.pay_status = 3
+                              AND (w.tax_rule = 1 OR (w.tax_rule = 0 AND w.business_type = 2 AND w.report_type = 0))
+                              AND w.worker_id IN %s
+                            GROUP BY w.worker_id, w.tax_rule, YEAR(w.payment_over_time)
+                        """, (worker_ids,))
+                        amount_rows = cursor.fetchall()
+
+                        for row in amount_rows:
+                            continuous = month_map.get((row['worker_id'], row['tax_rule'], row['stat_year']), 0)
+                            cursor.execute("""
+                                INSERT INTO biz_worker_tax_amount
+                                    (worker_id, total_worker_amount, total_worker_tax_amount,
+                                     original_total_worker_tax_amount, continuous_month, year,
+                                     create_time, update_time, deleted, tax_rule)
+                                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW(), 0, %s)
+                                ON DUPLICATE KEY UPDATE
+                                    total_worker_amount              = VALUES(total_worker_amount),
+                                    total_worker_tax_amount          = VALUES(total_worker_tax_amount),
+                                    original_total_worker_tax_amount = VALUES(original_total_worker_tax_amount),
+                                    continuous_month                 = VALUES(continuous_month),
+                                    update_time                      = NOW()
+                            """, (
+                                row['worker_id'],
+                                row['total_worker_amount'],
+                                row['total_worker_tax_amount'],
+                                row['original_total_worker_tax_amount'],
+                                continuous,
+                                row['stat_year'],
+                                row['tax_rule']
+                            ))
+                            affected_rows += cursor.rowcount
+
+                        conn.commit()
 
                 else:
                     raise HTTPException(status_code=400, detail=f"未知mode: {request.mode}")
