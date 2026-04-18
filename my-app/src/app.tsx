@@ -22,6 +22,7 @@ const TaskAutomationScript = dynamic(() => import('./components/TaskAutomationSc
 const SmsManagementScript = dynamic(() => import("./components/BatchSmsScript"), { loading: () => <LoadingComponent />, ssr: false });
 const TaxReportReportManagement = dynamic(() => import("./components/TaxReportManagement"), { loading: () => <LoadingComponent />, ssr: false });
 const TaxCalculationScript = dynamic(() => import("./components/TaxCalculatorScript"), { loading: () => <LoadingComponent />, ssr: false });
+const SettlementSimScript = dynamic(() => import("./components/SettlementSimScript"), { loading: () => <LoadingComponent />, ssr: false });
 const PaymentStatsScript = dynamic(() => import('./components/PaymentStatsScript'), { loading: () => <LoadingComponent />, ssr: false });
 const OCRScript = dynamic(() => import("@/components/OCRScript"), { loading: () => <LoadingComponent />, ssr: false });
 const DeliveryScript = dynamic(() => import("./components/DeliveryScript"), { loading: () => <LoadingComponent />, ssr: false });
@@ -313,6 +314,8 @@ function AppContent() {
                 return <TaxReportReportManagement onBack={() => setCurrentView('system')} />;
             case 'tax-calculation':
                 return <TaxCalculationScript onBack={() => setCurrentView('system')} />;
+            case 'settlement-sim':
+                return <SettlementSimScript onBack={() => setCurrentView('system')} />;
             case 'payment-stats':
                 return <PaymentStatsScript onBack={() => setCurrentView('system')} />;
             case 'delivery-tool':

@@ -711,3 +711,23 @@ class PlatformReportResponse(BaseModel):
     data: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = Field(None, description="响应数据，包含收入数据和身份数据")
     request_id: str = Field(..., description="请求ID")
     total: int = Field(..., description="数据总数")
+
+
+class SettlementSimRequest(BaseModel):
+    """结算状态模拟请求模型"""
+    env: Literal["test", "prod", "local"] = Field(..., description="环境")
+    mode: Literal["batch_no", "balance_no", "batch_no_tax", "balance_no_tax"] = Field(..., description="操作模式")
+    batch_no: Optional[str] = Field(None, description="批次号，mode含batch_no时必填")
+    balance_no: Optional[str] = Field(None, description="结算单号，mode含balance_no时必填")
+    pay_status_batch: int = Field(4, description="批次表pay_status，默认4")
+    pay_status_worker: int = Field(3, description="结算单表pay_status，默认3")
+    year: Optional[int] = Field(None, description="年份，不填则用当前年")
+    month: Optional[int] = Field(None, description="月份，不填则用当前月")
+
+
+class SettlementSimResponse(BaseModel):
+    """结算状态模拟响应模型"""
+    success: bool = Field(..., description="是否成功")
+    affected_rows: int = Field(..., description="影响行数")
+    pay_over_time: str = Field(..., description="执行时间")
+    message: str = Field(..., description="处理信息")
