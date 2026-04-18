@@ -4,7 +4,7 @@ services:
     image: nginx:1.25.2-alpine
     container_name: nginx_proxy
     ports:
-      - "8090:80"
+      - "127.0.0.1:8090:80"
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
@@ -52,7 +52,7 @@ services:
       - paddlex_models:/root/.paddlex       # PaddleX 模型缓存
       - paddle_models:/root/.paddleocr      # PaddleOCR 模型缓存
     ports:
-      - "8091:8091"
+      - "127.0.0.1:8091:8091"
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-local}
       - DB_TEST_HOST=${DB_TEST_HOST}

@@ -161,7 +161,7 @@ export default function SettlementSimScript({ onBack }: { onBack: () => void }) 
                 );
                 setResult1(res1.data);
 
-                if (!res1.success) {
+                if (!res1.data.success) {
                     setError(res1.data.message);
                     return;
                 }
@@ -346,7 +346,7 @@ export default function SettlementSimScript({ onBack }: { onBack: () => void }) 
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="year">{tr.fields.year} ({tr.optional})</Label>
+                                        <Label htmlFor="year">{tr.fields.year} ({tr.fields.optional})</Label>
                                         <Input
                                             id="year"
                                             type="number"
@@ -356,7 +356,7 @@ export default function SettlementSimScript({ onBack }: { onBack: () => void }) 
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="month">{tr.fields.month} ({tr.optional})</Label>
+                                        <Label htmlFor="month">{tr.fields.month} ({tr.fields.optional})</Label>
                                         <Input
                                             id="month"
                                             type="number"
@@ -401,7 +401,7 @@ export default function SettlementSimScript({ onBack }: { onBack: () => void }) 
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="year2">{tr.fields.year} ({tr.optional})</Label>
+                                        <Label htmlFor="year2">{tr.fields.year} ({tr.fields.optional})</Label>
                                         <Input
                                             id="year2"
                                             type="number"
@@ -411,7 +411,7 @@ export default function SettlementSimScript({ onBack }: { onBack: () => void }) 
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="month2">{tr.fields.month} ({tr.optional})</Label>
+                                        <Label htmlFor="month2">{tr.fields.month} ({tr.fields.optional})</Label>
                                         <Input
                                             id="month2"
                                             type="number"
