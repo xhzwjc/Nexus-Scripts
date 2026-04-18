@@ -402,26 +402,7 @@ class TaxCalculator:
 
                 logger.info(f"[计算开始] credential_num={credential_num}, batch_no={record.get('batch_no')}, month_key={month_key}, tax_rule={tax_rule}, bill_amount={record['bill_amount']}")
 
-                if person_key not in monthly_accumulators:
-                    monthly_accumulators[person_key] = {
-                        'labor': {
-                            'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
-                            'paid_vat': Decimal('0.00'), 'paid_surcharges': Decimal('0.00'),
-                            'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': "",
-                            'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
-                            'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
-                            'last_record_unrounded_tax': Decimal('0.00')
-                        },
-                        'salary': {
-                            'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
-                            'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': "",
-                            'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
-                            'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
-                            'last_record_unrounded_tax': Decimal('0.00')
-                        },
-                        'reset_reason': ""
-                    }
-
+                # 先判断是否需要重置（必须在 person_key 创建之前判断）
                 current_year, current_month = map(int, month_key.split('-'))
                 reset_needed = False
                 reset_reason = ""
@@ -431,31 +412,89 @@ class TaxCalculator:
                         reset_needed = True; reset_reason = f"跨年重置 ({last_income_month} → {month_key})"
                     elif (current_month - last_month) > 1:
                         reset_needed = True; reset_reason = f"收入中断超过1个月 ({last_income_month} → {month_key})"
-                if reset_needed:
-                    logger.info(f"{reset_reason}，重置累计值")
-                    revenue_bills = Decimal('0.00')
-                    monthly_accumulators = {}
-                    monthly_accumulators[person_key] = {
-                        'labor': {
-                            'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
-                            'paid_vat': Decimal('0.00'), 'paid_surcharges': Decimal('0.00'),
-                            'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason,
-                            'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
-                            'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
-                            'last_record_unrounded_tax': Decimal('0.00')
-                        },
-                        'salary': {
-                            'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
-                            'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason,
-                            'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
-                            'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
-                            'last_record_unrounded_tax': Decimal('0.00')
+
+                is_new_month = person_key not in monthly_accumulators
+                if is_new_month:
+                    # 如果需要重置，则清空所有状态，从零开始
+                    if reset_needed:
+                        logger.info(f"{reset_reason}，重置累计值")
+                        revenue_bills = Decimal('0.00')
+                        monthly_accumulators = {}
+                    else:
+                        # 计算上一个月 key，用于继承跨月累计状态
+                        if current_month == 1:
+                            prev_month_key = f"{current_year - 1}-12"
+                        else:
+                            prev_month_key = f"{current_year}-{current_month - 1:02d}"
+                        prev_person_key = f"{credential_num}_{prev_month_key}"
+                        prev_labor_dict = monthly_accumulators.get(prev_person_key)
+                        prev_labor = prev_labor_dict.get('labor') if prev_labor_dict else None
+                        prev_salary = prev_labor_dict.get('salary') if prev_labor_dict else None
+                        if prev_labor is None or prev_salary is None:
+                            logger.warning(f"跨月继承失败：{prev_person_key} 不存在或数据异常，将从零开始累计")
+
+                    # 创建新的月度累加器
+                    if reset_needed:
+                        # 重置时：从零开始
+                        monthly_accumulators[person_key] = {
+                            'labor': {
+                                'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
+                                'paid_vat': Decimal('0.00'), 'paid_surcharges': Decimal('0.00'),
+                                'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason,
+                                'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
+                                'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
+                                'last_record_unrounded_tax': Decimal('0.00')
+                            },
+                            'salary': {
+                                'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
+                                'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason,
+                                'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
+                                'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
+                                'last_record_unrounded_tax': Decimal('0.00')
+                            },
+                            'reset_reason': reset_reason
                         }
-                    }
+                    else:
+                        # 正常跨月：继承上个月的累计状态
+                        labor_initial_months = prev_labor['accumulated_months'] if prev_labor else 0
+                        labor_initial_income = prev_labor['accumulated_income'] if prev_labor else Decimal('0.00')
+                        labor_initial_precise_tax = prev_labor['precise_tax_at_month_end'] if prev_labor else Decimal('0.00')
+                        labor_initial_paid_tax = prev_labor['paid_tax'] if prev_labor else Decimal('0.00')
+                        labor_initial_paid_vat = Decimal('0.00')
+                        labor_initial_paid_surcharges = Decimal('0.00')
+
+                        salary_initial_months = prev_salary['accumulated_months'] if prev_salary else 0
+                        salary_initial_income = prev_salary['accumulated_income'] if prev_salary else Decimal('0.00')
+                        salary_initial_precise_tax = prev_salary['precise_tax_at_month_end'] if prev_salary else Decimal('0.00')
+                        salary_initial_paid_tax = prev_salary['paid_tax'] if prev_salary else Decimal('0.00')
+
+                        # 新月开始时 started 统一为 False，保证跨月后首条记录能触发月份递增
+                        labor_initial_started = False
+                        salary_initial_started = False
+
+                        monthly_accumulators[person_key] = {
+                            'labor': {
+                                'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': labor_initial_paid_tax,
+                                'paid_vat': labor_initial_paid_vat, 'paid_surcharges': labor_initial_paid_surcharges,
+                                'monthly_income': Decimal('0.00'), 'started': labor_initial_started, 'reset_reason': "",
+                                'accumulated_income': labor_initial_income, 'accumulated_tax': labor_initial_paid_tax,
+                                'accumulated_months': labor_initial_months, 'precise_tax_at_month_end': labor_initial_precise_tax,
+                                'last_record_unrounded_tax': Decimal('0.00')
+                            },
+                            'salary': {
+                                'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': salary_initial_paid_tax,
+                                'monthly_income': Decimal('0.00'), 'started': salary_initial_started, 'reset_reason': "",
+                                'accumulated_income': salary_initial_income, 'accumulated_tax': salary_initial_paid_tax,
+                                'accumulated_months': salary_initial_months, 'precise_tax_at_month_end': salary_initial_precise_tax,
+                                'last_record_unrounded_tax': Decimal('0.00')
+                            },
+                            'reset_reason': ""
+                        }
 
                 # 获取 tax_rule 判断收入类型，并选择对应的累加器
                 tax_rule = record.get('tax_rule', None)
                 if tax_rule is not None:
+                    # tax_rule: 1=工资薪金(对应income_type=2), 0=劳务报酬(对应income_type=1)
                     effective_income_type = 2 if tax_rule == 1 else 1
                     accum = monthly_accumulators[person_key]['labor'] if tax_rule == 0 else monthly_accumulators[person_key]['salary']
                 else:
@@ -482,7 +521,8 @@ class TaxCalculator:
                 if not accum['started']:
                     accum['started'] = True
                     accum['accumulated_income'] += monthly_income
-                    accum['accumulated_months'] += 1
+                    if is_new_month:
+                        accum['accumulated_months'] += 1
                 else:
                     accum['accumulated_income'] = prev_annual_accumulated_income - accum['monthly_income'] + monthly_income
 
@@ -490,7 +530,6 @@ class TaxCalculator:
                 logger.info(f"[个税计算] 个税计税金额=monthly_income={monthly_income} (effective_income_type={effective_income_type})")
                 logger.info(f"[增值附加] 增值附加金额=accum['total_amount']={accum['total_amount']} (effective_income_type={effective_income_type}, tax_rule={tax_rule})")
 
-                accum['monthly_income'] = monthly_income
                 accum['monthly_income'] = monthly_income
 
                 accum['accumulated_months'] = max(1, accum['accumulated_months'])
@@ -516,7 +555,7 @@ class TaxCalculator:
                 current_tax = max(Decimal('0.00'), total_tax_for_month_rounded - paid_tax_this_month_previously)
                 prev_total_paid_tax = accum['accumulated_tax']
                 accum['paid_tax'] += current_tax
-                accum['accumulated_tax'] = (accum['accumulated_tax'] - paid_tax_this_month_previously) + accum['paid_tax']
+                accum['accumulated_tax'] += current_tax
 
                 calculation_steps = []
                 if accum['reset_reason']:
@@ -674,11 +713,14 @@ class TaxCalculator:
             r for r in enriched_records
             if r['credential_num'] == credential_num
                and (not realname or r['realname'] == realname)
-               # and r['year_month'].startswith(str(year)) # 移除模拟数据过滤年份代码
+               and r['year_month'].startswith(str(year))
         ]
 
-        logger.info(f"模拟数据模式: 为 {credential_num} 返回 {len(filtered)} 条记录")
-        return filtered
+        # 按 year_month 和 payment_time 排序，保证计算顺序正确
+        sorted_filtered = sorted(filtered, key=lambda x: (x['year_month'], x['payment_time']))
+
+        logger.info(f"模拟数据模式: 为 {credential_num} 返回 {len(sorted_filtered)} 条记录")
+        return sorted_filtered
 
     def _get_mock_people_from_batch(self, batch_no: str, credential_num: Optional[str] = None,
                                     realname: Optional[str] = None) -> List[Dict[str, str]]:
