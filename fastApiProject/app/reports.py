@@ -479,7 +479,9 @@ class PlatformReportGenerator:
                         AND w.payment_over_time >= %s
                         AND w.payment_over_time < %s
                     """
-                    params = [start_date, end_date]
+                    # 结束日期加1天，使传入的结束日期当天数据能被包含
+                    end_date_next = (datetime.datetime.strptime(end_date, '%Y-%m-%d') + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                    params = [start_date, end_date_next]
 
                     if enterprise_ids is not None:
                         ids_to_query = []
