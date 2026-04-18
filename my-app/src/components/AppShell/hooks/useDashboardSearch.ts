@@ -64,6 +64,7 @@ export function useDashboardSearch({
             { key: 'tax-calculation', configKey: 'taxCalculation', keywords: ['税额', '计算', 'tax', 'calc', '个税'] },
             { key: 'payment-stats', configKey: 'paymentStats', keywords: ['开票', '统计', 'payment', '结算', 'stats'] },
             { key: 'delivery-tool', configKey: 'deliveryTool', keywords: ['交付', '提交', 'delivery', '交付物'] },
+            { key: 'biz-scene', configKey: 'bizSceneTask', keywords: ['业务', '场景', '任务', 'biz', 'scene', 'task', '业务场景'] },
         ] as const;
 
         scriptItems.forEach((item) => {

@@ -213,7 +213,7 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                 toast.error(response.data.message);
             }
         } catch (error) {
-            toast.error(`添加失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            toast.error(`${t.scripts.bizSceneTask.addFail}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
             setSceneLoading(false);
         }
@@ -223,7 +223,7 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
         const base = getApiBaseUrl();
         if (!base) return;
         if (!selectedEnterprise || !selectedDept || !taxId) {
-            toast.error('请选择企业、部门并填写税地');
+            toast.error(t.scripts.bizSceneTask.validationSelectEnterprise);
             return;
         }
 
@@ -254,7 +254,7 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                 toast.error(response.data.message);
             }
         } catch (error) {
-            toast.error(`添加失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            toast.error(`${t.scripts.bizSceneTask.addFail}: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
             setTaskLoading(false);
         }
@@ -272,8 +272,8 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                     返回
                 </Button>
                 <div>
-                    <h1 className="text-lg font-semibold">业务场景与任务添加</h1>
-                    <p className="text-sm text-muted-foreground">添加业务场景和任务数据，支持按需配置</p>
+                    <h1 className="text-lg font-semibold">{t.scripts.bizSceneTask.pageTitle}</h1>
+                    <p className="text-sm text-muted-foreground">{t.scripts.bizSceneTask.pageSubtitle}</p>
                 </div>
             </div>
 
@@ -283,15 +283,15 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                 <Card>
                     <CardContent className="pt-6">
                         <div className="flex items-center gap-4">
-                            <Label>运行环境</Label>
+                            <Label>{t.scripts.bizSceneTask.envLabel}</Label>
                             <select
                                 value={environment}
                                 onChange={(e) => setEnvironment(e.target.value)}
                                 className="border rounded px-3 py-1.5"
                             >
-                                <option value="test">测试环境</option>
-                                <option value="prod">生产环境</option>
-                                <option value="local">本地环境</option>
+                                <option value="test">{t.scripts.bizSceneTask.envTest}</option>
+                                <option value="prod">{t.scripts.bizSceneTask.envProd}</option>
+                                <option value="local">{t.scripts.bizSceneTask.envLocal}</option>
                             </select>
                         </div>
                     </CardContent>
@@ -301,23 +301,23 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base flex items-center gap-2">
-                            <span>业务场景添加</span>
+                            <span>{t.scripts.bizSceneTask.sceneSectionTitle}</span>
                             <Info className="h-4 w-4 text-muted-foreground" />
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <p className="text-sm text-muted-foreground">
-                            编辑业务场景参数后保存，然后添加（支持重复插入）
+                            {t.scripts.bizSceneTask.sceneSectionDesc}
                         </p>
 
                         {/* 场景列表 */}
                         <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium">场景列表 ({scenes.length})</span>
+                            <span className="text-sm font-medium">{t.scripts.bizSceneTask.sceneListHeader} ({scenes.length})</span>
                             <button
                                 onClick={() => setSceneListExpanded(!sceneListExpanded)}
                                 className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                             >
-                                {sceneListExpanded ? '收起' : '展开'}
+                                {sceneListExpanded ? t.scripts.bizSceneTask.collapse : t.scripts.bizSceneTask.expand}
                             </button>
                         </div>
                         {sceneListExpanded && (
@@ -329,7 +329,7 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                         <div className="space-y-3">
                                             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                                                 <div>
-                                                    <Label className="text-xs">场景名称</Label>
+                                                    <Label className="text-xs">{t.scripts.bizSceneTask.sceneName}</Label>
                                                     <Input
                                                         value={editBuffer?.scene_name || ''}
                                                         onChange={(e) => updateEditBuffer('scene_name', e.target.value)}
@@ -337,7 +337,7 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                                     />
                                                 </div>
                                                 <div>
-                                                    <Label className="text-xs">场景编号</Label>
+                                                    <Label className="text-xs">{t.scripts.bizSceneTask.sceneNo}</Label>
                                                     <Input
                                                         value={editBuffer?.scene_no || ''}
                                                         onChange={(e) => updateEditBuffer('scene_no', e.target.value)}
@@ -345,41 +345,41 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                                     />
                                                 </div>
                                                 <div>
-                                                    <Label className="text-xs">业务类型</Label>
+                                                    <Label className="text-xs">{t.scripts.bizSceneTask.businessType}</Label>
                                                     <select
                                                         value={editBuffer?.business_type || 1}
                                                         onChange={(e) => updateEditBuffer('business_type', parseInt(e.target.value))}
                                                         className="border rounded px-2 py-1 w-full mt-1"
                                                     >
-                                                        <option value={1}>灵活用工</option>
-                                                        <option value={2}>连续劳务</option>
+                                                        <option value={1}>{t.scripts.bizSceneTask.flexibleEmployment}</option>
+                                                        <option value={2}>{t.scripts.bizSceneTask.continuousLabor}</option>
                                                     </select>
                                                 </div>
                                                 <div>
-                                                    <Label className="text-xs">任务类型</Label>
+                                                    <Label className="text-xs">{t.scripts.bizSceneTask.taskType}</Label>
                                                     <select
                                                         value={editBuffer?.task_type || 0}
                                                         onChange={(e) => updateEditBuffer('task_type', parseInt(e.target.value))}
                                                         className="border rounded px-2 py-1 w-full mt-1"
                                                     >
-                                                        <option value={0}>指派</option>
-                                                        <option value={1}>抢单</option>
+                                                        <option value={0}>{t.scripts.bizSceneTask.assign}</option>
+                                                        <option value={1}>{t.scripts.bizSceneTask.grab}</option>
                                                     </select>
                                                 </div>
                                                 <div>
-                                                    <Label className="text-xs">是否存在免报</Label>
+                                                    <Label className="text-xs">{t.scripts.bizSceneTask.isExempt}</Label>
                                                     <select
                                                         value={editBuffer?.is_exempt ? 'true' : 'false'}
                                                         onChange={(e) => updateEditBuffer('is_exempt', e.target.value === 'true' ? 1 : 0)}
                                                         disabled={editBuffer?.business_type === 1}
                                                         className="border rounded px-2 py-1 w-full mt-1 disabled:opacity-50"
                                                     >
-                                                        <option value="false">否（灵活用工默认）</option>
-                                                        <option value="true">是</option>
+                                                        <option value="false">{t.scripts.bizSceneTask.noExemptDefault}</option>
+                                                        <option value="true">{t.scripts.bizSceneTask.yesExempt}</option>
                                                     </select>
                                                 </div>
                                                 <div className="col-span-2">
-                                                    <Label className="text-xs">业务场景描述</Label>
+                                                    <Label className="text-xs">{t.scripts.bizSceneTask.sceneDesc}</Label>
                                                     <Input
                                                         value={editBuffer?.scene_desc || ''}
                                                         onChange={(e) => updateEditBuffer('scene_desc', e.target.value)}
@@ -390,11 +390,11 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                             <div className="flex gap-2 justify-end">
                                                 <Button variant="outline" size="sm" onClick={cancelEdit}>
                                                     <X className="h-4 w-4 mr-1" />
-                                                    取消
+                                                    {t.scripts.bizSceneTask.cancel}
                                                 </Button>
                                                 <Button size="sm" onClick={saveEdit}>
                                                     <Save className="h-4 w-4 mr-1" />
-                                                    保存
+                                                    {t.scripts.bizSceneTask.save}
                                                 </Button>
                                             </div>
                                         </div>
@@ -411,19 +411,19 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                                     <span>{scene.scene_no}</span>
                                                 </div>
                                                 <div className="flex gap-2">
-                                                    <span className="text-muted-foreground">业务类型:</span>
-                                                    <span>{scene.business_type === 1 ? '灵活用工' : '连续劳务'}</span>
+                                                    <span className="text-muted-foreground">{t.scripts.bizSceneTask.businessType}:</span>
+                                                    <span>{scene.business_type === 1 ? t.scripts.bizSceneTask.flexibleEmployment : t.scripts.bizSceneTask.continuousLabor}</span>
                                                 </div>
                                                 <div className="flex gap-2">
-                                                    <span className="text-muted-foreground">任务类型:</span>
-                                                    <span>{scene.task_type === 0 ? '指派' : '抢单'}</span>
+                                                    <span className="text-muted-foreground">{t.scripts.bizSceneTask.taskType}:</span>
+                                                    <span>{scene.task_type === 0 ? t.scripts.bizSceneTask.assign : t.scripts.bizSceneTask.grab}</span>
                                                 </div>
                                                 <div className="flex gap-2">
-                                                    <span className="text-muted-foreground">是否存在免报:</span>
-                                                    <span>{scene.is_exempt ? '是' : '否'}</span>
+                                                    <span className="text-muted-foreground">{t.scripts.bizSceneTask.isExempt}:</span>
+                                                    <span>{scene.is_exempt ? t.scripts.bizSceneTask.yesExempt : t.scripts.bizSceneTask.noExemptDefault}</span>
                                                 </div>
                                                 <div className="flex gap-2 col-span-3">
-                                                    <span className="text-muted-foreground">场景描述:</span>
+                                                    <span className="text-muted-foreground">{t.scripts.bizSceneTask.sceneDesc}:</span>
                                                     <span>{scene.scene_desc}</span>
                                                 </div>
                                             </div>
@@ -444,12 +444,12 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                             {sceneLoading ? (
                                 <>
                                     <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                                    添加中...
+                                    {t.scripts.bizSceneTask.adding}
                                 </>
                             ) : (
                                 <>
                                     <Play className="h-4 w-4 mr-1" />
-                                    添加场景
+                                    {t.scripts.bizSceneTask.addScene}
                                 </>
                             )}
                         </Button>
@@ -458,12 +458,12 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                             <div className="mt-4 p-4 bg-muted/50 rounded-lg">
                                 <div className="flex items-center gap-2 mb-2">
                                     <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                    <span className="font-medium">添加成功</span>
+                                    <span className="font-medium">{t.scripts.bizSceneTask.addSuccess}</span>
                                 </div>
                                 <div className="text-sm space-y-1">
-                                    <p>请求ID: {sceneResult.request_id}</p>
+                                    <p>{t.scripts.bizSceneTask.requestId}: {sceneResult.request_id}</p>
                                     {sceneResult.created_scenes && sceneResult.created_scenes.length > 0 && (
-                                        <p>创建场景: {sceneResult.created_scenes.join(', ')}</p>
+                                        <p>{t.scripts.bizSceneTask.createdScenes}: {sceneResult.created_scenes.join(', ')}</p>
                                     )}
                                 </div>
                             </div>
@@ -475,19 +475,19 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base flex items-center gap-2">
-                            <span>任务添加</span>
+                            <span>{t.scripts.bizSceneTask.taskSectionTitle}</span>
                             <Info className="h-4 w-4 text-muted-foreground" />
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <p className="text-sm text-muted-foreground">
-                            按企业创建任务，可同时选择企业交付和合作者交付
+                            {t.scripts.bizSceneTask.taskSectionDesc}
                         </p>
 
                         {/* 企业信息 */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <div>
-                                <Label htmlFor="enterpriseId">选择企业 *</Label>
+                                <Label htmlFor="enterpriseId">{t.scripts.bizSceneTask.selectEnterprise}</Label>
                                 <select
                                     id="enterpriseId"
                                     value={selectedEnterprise?.id?.toString() || ''}
@@ -495,7 +495,7 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                     disabled={taskLoadingEnterprise}
                                     className="border rounded px-2 py-1.5 w-full mt-1"
                                 >
-                                    <option value="">-- 选择企业 --</option>
+                                    <option value="">-- {t.scripts.bizSceneTask.selectEnterprise} --</option>
                                     {enterprises.map((ent) => (
                                         <option key={ent.id} value={ent.id.toString()}>
                                             {ent.enterprise_name} (ID:{ent.id})
@@ -504,13 +504,13 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                 </select>
                             </div>
                             <div>
-                                <Label>租户ID</Label>
+                                <Label>{t.scripts.bizSceneTask.tenantId}</Label>
                                 <div className="border rounded px-3 py-1.5 mt-1 bg-muted/30 text-sm">
                                     {selectedEnterprise?.tenant_id || '-'}
                                 </div>
                             </div>
                             <div>
-                                <Label htmlFor="deptId">部门ID</Label>
+                                <Label htmlFor="deptId">{t.scripts.bizSceneTask.deptId}</Label>
                                 {departments.length > 1 ? (
                                     <select
                                         id="deptId"
@@ -532,7 +532,7 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                 )}
                             </div>
                             <div>
-                                <Label htmlFor="taxId">税地ID *</Label>
+                                <Label htmlFor="taxId">{t.scripts.bizSceneTask.taxId}</Label>
                                 <Input
                                     id="taxId"
                                     type="number"
@@ -545,7 +545,7 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
 
                         {/* 任务配置 */}
                         <div className="space-y-3">
-                            <Label>任务配置</Label>
+                            <Label>{t.scripts.bizSceneTask.taskConfig}</Label>
                             <div className="flex flex-wrap gap-4">
                                 <div className="flex items-center gap-2">
                                     <Checkbox
@@ -554,7 +554,7 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                         id="enable-assign"
                                     />
                                     <Label htmlFor="enable-assign" className="text-sm">
-                                        指派任务
+                                        {t.scripts.bizSceneTask.assignTask}
                                     </Label>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -564,7 +564,7 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                         id="enable-grab"
                                     />
                                     <Label htmlFor="enable-grab" className="text-sm">
-                                        抢单任务
+                                        {t.scripts.bizSceneTask.grabTask}
                                     </Label>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -574,7 +574,7 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                         id="enable-enterprise-delivery"
                                     />
                                     <Label htmlFor="enable-enterprise-delivery" className="text-sm">
-                                        企业交付
+                                        {t.scripts.bizSceneTask.enterpriseDelivery}
                                     </Label>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -584,12 +584,12 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                                         id="enable-delivery-type1"
                                     />
                                     <Label htmlFor="enable-delivery-type1" className="text-sm">
-                                        合作者交付
+                                        {t.scripts.bizSceneTask.partnerDelivery}
                                     </Label>
                                 </div>
                             </div>
                             <p className="text-sm text-muted-foreground">
-                                将创建约 {taskCount} 个任务
+                                {t.scripts.bizSceneTask.taskCount.replace('{count}', taskCount.toString())}
                             </p>
                         </div>
 
@@ -600,12 +600,12 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                             {taskLoading ? (
                                 <>
                                     <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                                    添加中...
+                                    {t.scripts.bizSceneTask.addingTask}
                                 </>
                             ) : (
                                 <>
                                     <Play className="h-4 w-4 mr-1" />
-                                    添加任务
+                                    {t.scripts.bizSceneTask.addTask}
                                 </>
                             )}
                         </Button>
@@ -614,14 +614,14 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
                             <div className="mt-4 p-4 bg-muted/50 rounded-lg">
                                 <div className="flex items-center gap-2 mb-2">
                                     <CheckCircle2 className="h-4 w-4 text-green-500" />
-                                    <span className="font-medium">添加成功</span>
+                                    <span className="font-medium">{t.scripts.bizSceneTask.addSuccessTask}</span>
                                 </div>
                                 <div className="text-sm space-y-1">
-                                    <p>请求ID: {taskResult.request_id}</p>
-                                    <p>创建任务数: {taskResult.created_count}</p>
+                                    <p>{t.scripts.bizSceneTask.requestIdTask}: {taskResult.request_id}</p>
+                                    <p>{t.scripts.bizSceneTask.createdCount}: {taskResult.created_count}</p>
                                     {taskResult.created_tasks && taskResult.created_tasks.length > 0 && (
                                         <div className="mt-2">
-                                            <p className="font-medium">任务列表:</p>
+                                            <p className="font-medium">{t.scripts.bizSceneTask.taskList}:</p>
                                             <ul className="list-disc list-inside text-muted-foreground">
                                                 {taskResult.created_tasks.map((name, idx) => (
                                                     <li key={idx}>{name}</li>
@@ -638,10 +638,10 @@ export default function BizSceneTaskScript({ onBack }: BizSceneTaskScriptProps) 
 
             <ConfirmDialog
                 open={showSceneConfirm}
-                title="确认添加业务场景"
-                description="即将添加6个标准业务场景（YWCJ-000005 ~ YWCJ-000010），是否继续？"
-                confirmText="确认创建"
-                cancelText="取消"
+                title={t.scripts.bizSceneTask.confirmTitle}
+                description={t.scripts.bizSceneTask.confirmDesc}
+                confirmText={t.scripts.bizSceneTask.confirmCreate}
+                cancelText={t.scripts.bizSceneTask.cancelBtn}
                 onCancel={() => setShowSceneConfirm(false)}
                 onConfirm={() => {
                     setShowSceneConfirm(false);
