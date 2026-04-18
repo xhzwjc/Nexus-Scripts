@@ -209,6 +209,7 @@ export interface Translations {
       smsOperationsCenter: { name: string; description: string; };
       taxReporting: { name: string; description: string; };
       taxCalculation: { name: string; description: string; };
+      settlementSim: { name: string; description: string; };
       paymentStats: { name: string; description: string; };
       deliveryTool: { name: string; description: string; };
       serverMonitoring: { name: string; description: string; };
@@ -1606,11 +1607,15 @@ export interface Translations {
         platformNamePlaceholder: string;
         creditCode: string;
         creditCodePlaceholder: string;
+        taxId: string;
+        taxIdPlaceholder: string;
         enterpriseSelect: string;
         fetch: string;
         fetching: string;
         download: string;
         generating: string;
+        exportData: string;
+        exporting: string;
         resultTitle: string;
         resultSuffix: string;
         totalLaborIncome: string;
@@ -1695,6 +1700,7 @@ export interface Translations {
         applyAll: string;
         addRecord: string;
         billAmount: string;
+        months: string[];
       };
       actions: {
         reset: string;
@@ -1756,6 +1762,45 @@ export interface Translations {
         };
         fileName: string;
       };
+    };
+    settlementSim: {
+      back: string;
+      title: string;
+      description: string;
+      ready: string;
+      executing: string;
+      execute: string;
+      environment: string;
+      envTest: string;
+      envProd: string;
+      prodWarning: string;
+      tabs: {
+        title: string;
+        batchUpdate: string;
+        balanceUpdate: string;
+        batchTaxWrite: string;
+        balanceTaxWrite: string;
+      };
+      fields: {
+        batchNo: string;
+        balanceNo: string;
+        batchStatus: string;
+        workerStatus: string;
+        year: string;
+        month: string;
+        writeTax: string;
+        optional: string;
+      };
+      messages: {
+        success: string;
+        error: string;
+      };
+      resultTitle: string;
+      resultStep1: string;
+      resultStep2: string;
+      resultAffected: string;
+      resultTime: string;
+      resultError: string;
     };
     paymentStats: {
       title: string;

@@ -23,6 +23,7 @@ from .routers import (
     tax_tools_router,
     team_resources_router,
     workbench_router,
+    settlement_sim_router,
 )
 
 # 配置日志
@@ -87,6 +88,7 @@ app.include_router(tax_tools_router)
 app.include_router(mobile_sms_router)
 app.include_router(recruitment_router)
 app.include_router(workbench_router)
+app.include_router(settlement_sim_router)
 
 
 # 自定义Swagger UI路由（使用本地资源）

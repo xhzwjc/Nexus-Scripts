@@ -67,6 +67,13 @@ export const allScripts: Record<string, SystemConfig> = {
                 status: 'stable' as const
             },
             {
+                id: 'settlement-sim',
+                name: '结算状态模拟',
+                description: '批量更新结算批次/结算单状态，或写入个税累计数据',
+                icon: React.createElement(Settings, { className: "w-5 h-5" }),
+                status: 'beta' as const
+            },
+            {
                 id: 'payment-stats',
                 name: '结算与开票统计',
                 description: '统计已开票/未开票金额及平台总结算',

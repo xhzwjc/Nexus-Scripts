@@ -263,7 +263,7 @@ async def calculate_tax(
 
         return {
             "success": True,
-            "message": f"计算完成，共返回 {len(results)} 条记录",
+            "message": f"计算完成，共返回 {len(results)} 条记录（部分数据已按人员月份分组展示）",
             "data": results,
             "request_id": request_id,
             "total_tax": round(total_tax, 2),
@@ -293,7 +293,7 @@ async def generate_platform_report(
     start_time = _time.time()
     enterprise_count = len(request.enterprise_ids) if request.enterprise_ids else 0
     logger.info(f"[平台报送] 开始 | 请求ID: {request_id}")
-    logger.info(f"[平台报送] 参数: 日期范围={request.start_date}至{request.end_date}, 企业数={enterprise_count}")
+    logger.info(f"[平台报送] 参数: 日期范围={request.start_date}至{request.end_date}, 企业数={enterprise_count}, tax_id={request.tax_id}")
 
     try:
         db_config = get_db_config(request.environment)
@@ -312,6 +312,7 @@ async def generate_platform_report(
             credit_code=request.credit_code,
             enterprise_ids=request.enterprise_ids,
             amount_type=request.amount_type,
+            tax_id=request.tax_id,
         )
 
         # 生成身份信息表
@@ -325,6 +326,7 @@ async def generate_platform_report(
             credit_code=request.credit_code,
             enterprise_ids=request.enterprise_ids,
             amount_type=request.amount_type,
+            tax_id=request.tax_id,
         )
 
         # 创建ZIP文件
@@ -417,6 +419,7 @@ async def generate_combined_report(
             credit_code=request.credit_code,
             enterprise_ids=request.enterprise_ids,
             amount_type=request.amount_type,
+            tax_id=request.tax_id,
         )
 
         with open(file_path, "rb") as f:
@@ -475,6 +478,7 @@ async def get_platform_report_data(
     end_date: str = Query(..., description="结束日期 YYYY-MM-DD"),
     enterprise_ids: Optional[str] = Query(None, description="企业ID，逗号分隔"),
     amount_type: int = Query(1, ge=1, le=3, description="金额类型：1=含服务费, 2=不含服务费, 3=账单金额"),
+    tax_id: Optional[int] = Query(None, description="运营主体ID，不传或传0表示查全部"),
     environment: Optional[str] = Query(None, description="环境: test-测试, prod-生产, local-本地"),
     _session: Dict[str, Any] = Depends(require_script_hub_permission("tax-reporting")),
 ):
@@ -482,7 +486,7 @@ async def get_platform_report_data(
     request_id = str(uuid.uuid4())
     start_time = _time.time()
     logger.info(f"[平台报送数据] 开始 | 请求ID: {request_id}")
-    logger.info(f"[平台报送数据] 参数: 日期范围={start_date}至{end_date}, 金额类型={amount_type}")
+    logger.info(f"[平台报送数据] 参数: 日期范围={start_date}至{end_date}, 金额类型={amount_type}, tax_id={tax_id}")
 
     try:
         db_config = get_db_config(environment)
@@ -498,6 +502,7 @@ async def get_platform_report_data(
             end_date=end_date,
             enterprise_ids=parsed_ids,
             amount_type=amount_type,
+            tax_id=tax_id,
         )
 
         elapsed = round(_time.time() - start_time, 2)

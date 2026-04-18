@@ -7,6 +7,7 @@ from .auth_rbac import auth_router, rbac_router
 from .monitoring import monitoring_router
 from .team_resources import team_resources_router
 from .recruitment import recruitment_router
+from .settlement_sim import settlement_sim_router
 
 __all__ = [
     "ai_resources_router",
@@ -20,5 +21,6 @@ __all__ = [
     "tax_tools_router",
     "team_resources_router",
     "workbench_router",
+    "settlement_sim_router",
 ]
 

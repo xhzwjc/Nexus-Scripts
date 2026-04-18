@@ -11,7 +11,10 @@ import {
     Trash2,
     Copy,
     X,
-    Download
+    Download,
+    ChevronDown,
+    ChevronRight,
+    Cloud
 } from 'lucide-react';
 
 // UI Components
@@ -25,6 +28,7 @@ import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Checkbox } from './ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 import { getApiBaseUrl } from '../lib/api';
 import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
@@ -63,6 +67,8 @@ type TaxCalculationParams = MockTaxParams | RealTaxParams;
 interface TaxCalculationItem {
     year_month: string;
     bill_amount: number;
+    batch_no: string;
+    credential_num: string;
     realname: string;
     worker_id: number;
     tax: number;
@@ -258,20 +264,81 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(12);
     const [jumpPageInput, setJumpPageInput] = useState('');
+    const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
     // 请求控制：避免竞态与内存泄漏
     const abortRef = useRef<AbortController | null>(null);
 
-    // 计算分页数据
-    const paginatedResults = useMemo(() => {
-        const start = (currentPage - 1) * pageSize;
-        const end = start + pageSize;
-        return results.slice(start, end);
-    }, [results, currentPage, pageSize]);
+    const showVatConfig = activeMode === 'mock' ? params.income_type === 1 : true;
+    const showVatResults = results.length > 0 ? results[0].income_type === 1 : params.income_type === 1;
 
-    // 计算合计金额
+    // 按 credential_num 分组，便于展开/收起
+    const groupedResults = useMemo(() => {
+        const groups: Record<string, TaxCalculationItemWithId[]> = {};
+        results.forEach((item) => {
+            const key = item.credential_num;
+            if (!groups[key]) {
+                groups[key] = [];
+            }
+            groups[key].push(item);
+        });
+        // 每组内按时间倒序排序（最新的在最上面）
+        Object.keys(groups).forEach((key) => {
+            groups[key].sort((a, b) => {
+                // 先按 batch_no 倒序
+                if (a.batch_no !== b.batch_no) return b.batch_no.localeCompare(a.batch_no);
+                // 再按 year_month 倒序
+                return b.year_month.localeCompare(a.year_month);
+            });
+        });
+        return groups;
+    }, [results]);
+
+    // 用户输入的批次号
+    const targetBatchNo = activeMode !== 'mock' ? (realParams.batch_no || '') : '';
+
+    // 扁平化的展开结果（主行是用户输入的批次号，其他批次默认收起）
+    const flattenedResults = useMemo(() => {
+        const flat: TaxCalculationItemWithId[] = [];
+
+        // 模拟数据模式：显示所有数据，不分组
+        if (activeMode === 'mock') {
+            results.forEach((item) => {
+                flat.push(item);
+            });
+            return flat;
+        }
+
+        // 真实数据模式：按批次号分组展开
+        Object.keys(groupedResults).forEach((key) => {
+            const group = groupedResults[key];
+            if (group.length > 0) {
+                // 找出用户输入的批次号对应的数据
+                const targetItem = group.find(item => item.batch_no === targetBatchNo);
+                const otherItems = group.filter(item => item.batch_no !== targetBatchNo);
+
+                if (targetItem) {
+                    // 主行是用户输入的批次
+                    flat.push(targetItem);
+                    // 如果该组有多条数据且已展开，显示其他批次
+                    if (expandedGroups.has(key) && otherItems.length > 0) {
+                        flat.push(...otherItems);
+                    }
+                } else {
+                    // 没有用户输入的批次，显示第一条
+                    flat.push(group[0]);
+                    if (expandedGroups.has(key) && group.length > 1) {
+                        flat.push(...group.slice(1));
+                    }
+                }
+            }
+        });
+        return flat.reverse();
+    }, [groupedResults, expandedGroups, targetBatchNo, activeMode]);
+
+    // 计算合计金额（基于扁平化后的结果，只统计当前显示的数据）
     const calculatedTotals = useMemo(() => {
-        return results.reduce(
+        return flattenedResults.reduce(
             (acc, curr) => ({
                 tax: acc.tax + (curr.tax || 0),
                 vat: acc.vat + (curr.vat_tax || 0),
@@ -280,12 +347,16 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
             }),
             { tax: 0, vat: 0, sur: 0, all: 0 }
         );
-    }, [results]);
+    }, [flattenedResults]);
 
-    const showVatConfig = params.income_type === 1;
-    const showVatResults = results.length > 0 ? results[0].income_type === 1 : params.income_type === 1;
+    // 计算分页数据
+    const paginatedResults = useMemo(() => {
+        const start = (currentPage - 1) * pageSize;
+        const end = start + pageSize;
+        return flattenedResults.slice(start, end);
+    }, [flattenedResults, currentPage, pageSize]);
 
-    const totalPages = Math.ceil(results.length / pageSize);
+    const totalPages = Math.ceil(flattenedResults.length / pageSize);
 
     // 当切换到模拟模式时初始化临时年月值
     useEffect(() => {
@@ -719,26 +790,8 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                             </TabsList>
 
                             <TabsContent value="real" className="mt-4">
-                                {/* First row: Income Type + Year + Environment */}
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                                    {/* Income Type */}
-                                    <div className="space-y-2">
-                                        <Label htmlFor="income_type">{tr.config.incomeType}</Label>
-                                        <Select
-                                            value={String(params.income_type)}
-                                            onValueChange={value => setSharedParam('income_type', Number(value))}
-                                            disabled={isCalculating}
-                                        >
-                                            <SelectTrigger id="income_type">
-                                                <SelectValue placeholder={tr.config.incomeTypePlaceholder} />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="1">{tr.config.incomeTypes.labor}</SelectItem>
-                                                <SelectItem value="2">{tr.config.incomeTypes.salary}</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-
+                                {/* First row: Year + Environment */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                                     {/* Year */}
                                     <div className="space-y-2">
                                         <Label htmlFor="year">{tr.config.year}</Label>
@@ -1086,6 +1139,7 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                 <Table className="w-full">
                                     <TableHeader className="sticky top-0 bg-background z-10">
                                         <TableRow>
+                                            <TableHead className="w-8"></TableHead>
                                             <TableHead>{tr.results.table.yearMonth}</TableHead>
                                             {activeMode !== 'mock' && <TableHead>{tr.results.table.name}</TableHead>}
                                             <TableHead>{tr.results.table.deduction}</TableHead>
@@ -1096,22 +1150,30 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                             <TableHead>{tr.results.table.taxRate}</TableHead>
                                             <TableHead>{tr.results.table.preTax}</TableHead>
                                             <TableHead>{tr.results.table.afterTax}</TableHead>
-                                            <TableHead>{tr.results.table.monthlyTax}</TableHead>
-                                            {showVatResults && <TableHead>{tr.results.table.vat}</TableHead>}
-                                            {showVatResults && <TableHead>{tr.results.table.surcharges}</TableHead>}
+                                            <TableHead className="bg-amber-50 dark:bg-amber-900/20">{tr.results.table.monthlyTax}</TableHead>
+                                            {showVatResults && <TableHead className="bg-blue-50 dark:bg-blue-900/20">{tr.results.table.vat}</TableHead>}
+                                            {showVatResults && <TableHead className="bg-blue-50 dark:bg-blue-900/20">{tr.results.table.surcharges}</TableHead>}
                                             {showVatResults && <TableHead>{tr.results.table.totalTaxAndFees}</TableHead>}
-                                            {showVatResults && <TableHead>{tr.results.table.otherTax}</TableHead>}
+                                            {showVatResults && <TableHead className="bg-amber-50 dark:bg-amber-900/20">{tr.results.table.otherTax}</TableHead>}
                                             <TableHead>{tr.results.table.actualBurden}</TableHead>
                                             <TableHead>{tr.actions.view}</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {paginatedResults.map((item) => {
+                                        {flattenedResults.map((item) => {
                                             const totalTaxAndFees = item.total_tax_and_fees ?? item.tax;
+                                            const group = groupedResults[item.credential_num] || [];
+                                            const isExpanded = expandedGroups.has(item.credential_num);
+                                            const hasMultipleBatches = group.length > 1;
+                                            // 主行是用户输入的批次号对应的数据，其他是子行
+                                            const isMainRow = item.batch_no === targetBatchNo;
+                                            const isSubRow = !isMainRow;
+
                                             return (
                                             <TableRow
                                                 key={item._rowId}
                                                 className={
+                                                    isSubRow ? "bg-slate-50 dark:bg-slate-800/30" :
                                                     item.warning_level === '500'
                                                         ? "bg-red-100/70 hover:bg-red-200/70 dark:bg-red-900/40 dark:hover:bg-red-900/60"
                                                         : item.warning_level === '450'
@@ -1120,13 +1182,51 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                                 }
                                             >
                                                 <TableCell>
+                                                    {hasMultipleBatches && isMainRow && (
+                                                        <button
+                                                            onClick={() => {
+                                                                setExpandedGroups((prev) => {
+                                                                    const next = new Set(prev);
+                                                                    if (isExpanded) {
+                                                                        next.delete(item.credential_num);
+                                                                    } else {
+                                                                        next.add(item.credential_num);
+                                                                    }
+                                                                    return next;
+                                                                });
+                                                            }}
+                                                            className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+                                                        >
+                                                            {isExpanded ? (
+                                                                <ChevronDown className="h-4 w-4" />
+                                                            ) : (
+                                                                <ChevronRight className="h-4 w-4" />
+                                                            )}
+                                                        </button>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
                                                     {item.year_month}
+                                                    {isSubRow && activeMode !== 'mock' && <span className="ml-2 text-xs text-muted-foreground">({item.batch_no})</span>}
                                                     {item.warning_msg && (
                                                         <Badge variant="destructive" className="ml-2" title={item.warning_msg}>预警</Badge>
                                                     )}
+                                                    {activeMode !== 'mock' && (
+                                                        <Badge variant="outline" className={`ml-2 text-xs ${item.income_type === 1 ? 'text-blue-600 border-blue-300' : 'text-green-600 border-green-300'}`}>
+                                                            <Cloud className="inline-block mr-1 h-3 w-3" />
+                                                            {item.income_type === 1 ? '劳务' : '工资'}
+                                                        </Badge>
+                                                    )}
                                                 </TableCell>
                                                 {activeMode !== 'mock' && (
-                                                    <TableCell>{`${item.realname}（${item.worker_id}）`}</TableCell>
+                                                    <TableCell>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <span className="cursor-help underline decoration-dotted">{item.realname}</span>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>ID: {item.worker_id}</TooltipContent>
+                                                        </Tooltip>
+                                                    </TableCell>
                                                 )}
                                                 <TableCell>{item.accumulated_deduction}</TableCell>
                                                 {/*<TableCell>{item.accumulated_special.toFixed(2)}</TableCell>*/}
@@ -1136,11 +1236,11 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                                 <TableCell>{(item.tax_rate * 100)}%</TableCell>
                                                 <TableCell>{item.bill_amount}</TableCell>
                                                 <TableCell>{(item.income_amount - totalTaxAndFees).toFixed(2)}</TableCell>
-                                                <TableCell>{item.tax.toFixed(2)}</TableCell>
-                                                {showVatResults && <TableCell>{(item.vat_tax || 0).toFixed(2)}</TableCell>}
-                                                {showVatResults && <TableCell>{(item.surcharges || 0).toFixed(2)}</TableCell>}
+                                                <TableCell className="font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20">{item.tax.toFixed(2)}</TableCell>
+                                                {showVatResults && <TableCell className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/20">{(item.vat_tax || 0).toFixed(2)}</TableCell>}
+                                                {showVatResults && <TableCell className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/20">{(item.surcharges || 0).toFixed(2)}</TableCell>}
                                                 {showVatResults && <TableCell>{totalTaxAndFees.toFixed(2)}</TableCell>}
-                                                {showVatResults && <TableCell>{((item.vat_tax || 0) + (item.surcharges || 0)).toFixed(2)}</TableCell>}
+                                                {showVatResults && <TableCell className="font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20">{((item.vat_tax || 0) + (item.surcharges || 0)).toFixed(2)}</TableCell>}
                                                 <TableCell>{item.effective_tax_rate.toFixed(2)}%</TableCell>
                                                 <TableCell>
                                                     <Button

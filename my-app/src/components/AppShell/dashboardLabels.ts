@@ -8,6 +8,7 @@ const scriptIdToKey: Record<string, keyof Translations['scriptConfig']['items']>
     sms_operations_center: 'smsOperationsCenter',
     'tax-reporting': 'taxReporting',
     'tax-calculation': 'taxCalculation',
+    'settlement-sim': 'settlementSim',
     'payment-stats': 'paymentStats',
     'delivery-tool': 'deliveryTool',
     'server-monitoring': 'serverMonitoring',

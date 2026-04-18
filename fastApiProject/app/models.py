@@ -667,6 +667,7 @@ class PlatformReportRequest(BaseModel):
     end_date: str = Field(..., description="结束日期，格式YYYY-MM-DD")
     enterprise_ids: Optional[Union[int, List[int], str]] = Field(None, description="企业ID，可为单个ID、ID列表或逗号分隔字符串")
     amount_type: int = Field(1, ge=1, le=3, description="金额类型：1=含服务费, 2=不含服务费, 3=账单金额")
+    tax_id: Optional[int] = Field(None, description="运营主体ID，不传或传0表示查全部")
     platform_company: Optional[str] = Field(None, description="平台企业名称")
     platform_name: Optional[str] = Field(None, description="平台名称")
     credit_code: Optional[str] = Field(None, description="统一社会信用代码")
@@ -766,3 +767,23 @@ class BizSceneTaskInitResponse(BaseModel):
     message: str = Field(..., description="处理信息")
     data: Optional[Dict[str, Any]] = Field(None, description="初始化结果")
     request_id: str = Field(..., description="请求ID")
+
+
+class SettlementSimRequest(BaseModel):
+    """结算状态模拟请求模型"""
+    env: Literal["test", "prod", "local"] = Field(..., description="环境")
+    mode: Literal["batch_no", "balance_no", "batch_no_tax", "balance_no_tax"] = Field(..., description="操作模式")
+    batch_no: Optional[str] = Field(None, description="批次号，mode含batch_no时必填")
+    balance_no: Optional[str] = Field(None, description="结算单号，mode含balance_no时必填")
+    pay_status_batch: int = Field(4, description="批次表pay_status，默认4")
+    pay_status_worker: int = Field(3, description="结算单表pay_status，默认3")
+    year: Optional[int] = Field(None, description="年份，不填则用当前年")
+    month: Optional[int] = Field(None, description="月份，不填则用当前月")
+
+
+class SettlementSimResponse(BaseModel):
+    """结算状态模拟响应模型"""
+    success: bool = Field(..., description="是否成功")
+    affected_rows: int = Field(..., description="影响行数")
+    pay_over_time: str = Field(..., description="执行时间")
+    message: str = Field(..., description="处理信息")

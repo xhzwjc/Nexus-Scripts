@@ -283,6 +283,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
     const [platformStartMonth, setPlatformStartMonth] = useState('');
     const [platformEndMonth, setPlatformEndMonth] = useState('');
     const [platformAmountType, setPlatformAmountType] = useState<AmountType>(1);
+    const [platformTaxId, setPlatformTaxId] = useState(3);
     const [isFetchingPlatformData, setIsFetchingPlatformData] = useState(false);
     const [isGeneratingPlatform, setIsGeneratingPlatform] = useState(false);
     const [isGeneratingCombined, setIsGeneratingCombined] = useState(false);
@@ -528,6 +529,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                         end_date: endDate,
                         enterprise_ids: selectedEnterpriseIds.length > 0 ? selectedEnterpriseIds.join(',') : undefined,
                         amount_type: platformAmountType,
+                        tax_id: platformTaxId !== 0 ? platformTaxId : undefined,
                         environment
                     },
                     headers: getScriptHubAuthHeaderRecord()
@@ -551,7 +553,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
         } finally {
             setIsFetchingPlatformData(false);
         }
-    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, tr.platform.fetching, tr.messages.platformStartEndMonthRequired, tr.messages.platformFetchSuccess, tr.messages.platformFetchFail, tr.messages.platformFetchErrorLog, tr.messages.platformFetchError, publishToastFlowResult, resetToastFlow]);
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformTaxId, tr.platform.fetching, tr.messages.platformStartEndMonthRequired, tr.messages.platformFetchSuccess, tr.messages.platformFetchFail, tr.messages.platformFetchErrorLog, tr.messages.platformFetchError, publishToastFlowResult, resetToastFlow]);
 
     // 生成平台报送报表
     const handleGeneratePlatformReport = useCallback(async () => {
@@ -579,6 +581,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                 end_date: endDate,
                 enterprise_ids: selectedEnterpriseIds.length > 0 ? selectedEnterpriseIds : undefined,
                 amount_type: platformAmountType,
+                tax_id: platformTaxId !== 0 ? platformTaxId : undefined,
                 platform_company: platformCompanyName || undefined,
                 platform_name: platformName || undefined,
                 credit_code: platformCreditCode || undefined,
@@ -639,7 +642,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
         } finally {
             setIsGeneratingPlatform(false);
         }
-    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError, publishToastFlowResult, resetToastFlow]);
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformTaxId, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError, publishToastFlowResult, resetToastFlow]);
 
     // 下载组合报表（用于手动复制到模板）
     const handleDownloadCombinedReport = useCallback(async () => {
@@ -667,6 +670,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                 end_date: endDate,
                 enterprise_ids: selectedEnterpriseIds.length > 0 ? selectedEnterpriseIds : undefined,
                 amount_type: platformAmountType,
+                tax_id: platformTaxId !== 0 ? platformTaxId : undefined,
                 platform_company: platformCompanyName || undefined,
                 platform_name: platformName || undefined,
                 credit_code: platformCreditCode || undefined,
@@ -721,7 +725,7 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
         } finally {
             setIsGeneratingCombined(false);
         }
-    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError, publishToastFlowResult, resetToastFlow]);
+    }, [environment, selectedEnterpriseIds, platformStartMonth, platformEndMonth, platformAmountType, platformTaxId, platformCompanyName, platformName, platformCreditCode, platformData.length, tr.messages.platformStartEndMonthRequired, tr.messages.platformNoDataForReport, tr.messages.platformGenerating, tr.messages.platformGenerateErrorLog, tr.messages.platformGenerateError, tr.messages.requestError, publishToastFlowResult, resetToastFlow]);
 
     // 初始化 + 环境变化时
     useEffect(() => {
@@ -1539,6 +1543,17 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                         </Select>
                                     </div>
                                     <div className="space-y-2">
+                                        <Label htmlFor="platformTaxId">{tr.platform.taxId || '运营主体'}</Label>
+                                        <Input
+                                            id="platformTaxId"
+                                            type="number"
+                                            value={platformTaxId}
+                                            onChange={(e) => setPlatformTaxId(e.target.value ? Number(e.target.value) : 0)}
+                                            placeholder={tr.platform.taxIdPlaceholder || '不填则查全部'}
+                                            className="w-24"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
                                         <Label htmlFor="platformCompanyName">{tr.platform.platformCompany}</Label>
                                         <Input
                                             id="platformCompanyName"
@@ -1615,9 +1630,9 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                         title="导出包含收入信息表和身份信息表的Excel，可手动复制到模板"
                                     >
                                         {isGeneratingCombined ? (
-                                            <><Loader2 size={16} className="mr-2 animate-spin" />导出中</>
+                                            <><Loader2 size={16} className="mr-2 animate-spin" />{tr.platform.exporting}</>
                                         ) : (
-                                            <><FileText size={16} className="mr-2" />导出数据</>
+                                            <><FileText size={16} className="mr-2" />{tr.platform.exportData}</>
                                         )}
                                     </Button>
                                 </div>

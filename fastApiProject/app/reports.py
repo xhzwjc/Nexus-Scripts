@@ -430,10 +430,12 @@ class PlatformReportGenerator:
 
     def query_platform_data(self, start_date: str, end_date: str,
                             enterprise_ids: Optional[Union[int, List[int], str]] = None,
-                            amount_type: int = 1) -> List[Dict]:
+                            amount_type: int = 1,
+                            tax_id: Optional[int] = None) -> List[Dict]:
         """
         查询平台内经营者和从业人员数据
         amount_type: 1=含服务费(pay_amount), 2=不含服务费(worker_pay_amount), 3=账单金额(bill_amount)
+        tax_id: 运营主体ID，不传或传0表示查全部
         """
         # 根据金额类型选择金额字段
         if amount_type == 1:
@@ -477,7 +479,9 @@ class PlatformReportGenerator:
                         AND w.payment_over_time >= %s
                         AND w.payment_over_time < %s
                     """
-                    params = [start_date, end_date]
+                    # 结束日期加1天，使传入的结束日期当天数据能被包含
+                    end_date_next = (datetime.datetime.strptime(end_date, '%Y-%m-%d') + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                    params = [start_date, end_date_next]
 
                     if enterprise_ids is not None:
                         ids_to_query = []
@@ -493,6 +497,10 @@ class PlatformReportGenerator:
                             sql += f" AND w.enterprise_id IN ({placeholders})"
                             params.extend(ids_to_query)
 
+                    if tax_id:
+                        sql += f" AND w.tax_id = %s"
+                        params.append(tax_id)
+
                     sql += """
                     GROUP BY
                         w.worker_id,
@@ -504,12 +512,6 @@ class PlatformReportGenerator:
                         w.realname, eb.enterprise_name
                     """
 
-                    # ===== 临时调试打印SQL =====
-                    print("=" * 50)
-                    print("【DEBUG SQL】")
-                    print(sql)
-                    print("【PARAMS】:", params)
-                    print("=" * 50)
                     # ===== 调试打印结束 =====
 
                     cursor.execute(sql, tuple(params))
@@ -962,7 +964,8 @@ class PlatformReportGenerator:
                                platform_name: str = None,
                                credit_code: str = None,
                                enterprise_ids: Optional[Union[int, List[int], str]] = None,
-                               amount_type: int = 1):
+                               amount_type: int = 1,
+                               tax_id: Optional[int] = None):
         """
         生成平台收入信息表
         - output_path: 输出文件路径
@@ -973,6 +976,7 @@ class PlatformReportGenerator:
         - credit_code: 统一社会信用代码
         - enterprise_ids: 企业ID筛选
         - amount_type: 金额类型
+        - tax_id: 运营主体ID，不传或传0表示查全部
         """
         output_path = Path(output_path) if isinstance(output_path, str) else output_path
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -981,7 +985,7 @@ class PlatformReportGenerator:
         platform = platform_name or self.DEFAULT_PLATFORM_NAME
         code = credit_code or self.DEFAULT_CREDIT_CODE
 
-        all_data = self.query_platform_data(start_date, end_date, enterprise_ids, amount_type)
+        all_data = self.query_platform_data(start_date, end_date, enterprise_ids, amount_type, tax_id)
         if not all_data:
             logger.warning("没有查询到数据，无法生成报表")
             raise ValueError("没有查询到数据，无法生成报表")
@@ -1008,7 +1012,8 @@ class PlatformReportGenerator:
                                 platform_name: str = None,
                                 credit_code: str = None,
                                 enterprise_ids: Optional[Union[int, List[int], str]] = None,
-                                amount_type: int = 1):
+                                amount_type: int = 1,
+                                tax_id: Optional[int] = None):
         """
         生成平台身份信息表
         - output_path: 输出文件路径
@@ -1019,6 +1024,7 @@ class PlatformReportGenerator:
         - credit_code: 统一社会信用代码
         - enterprise_ids: 企业ID筛选
         - amount_type: 金额类型
+        - tax_id: 运营主体ID，不传或传0表示查全部
         """
         output_path = Path(output_path) if isinstance(output_path, str) else output_path
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1027,7 +1033,7 @@ class PlatformReportGenerator:
         platform = platform_name or self.DEFAULT_PLATFORM_NAME
         code = credit_code or self.DEFAULT_CREDIT_CODE
 
-        all_data = self.query_platform_data(start_date, end_date, enterprise_ids, amount_type)
+        all_data = self.query_platform_data(start_date, end_date, enterprise_ids, amount_type, tax_id)
         if not all_data:
             logger.warning("没有查询到数据，无法生成报表")
             raise ValueError("没有查询到数据，无法生成报表")
@@ -1054,7 +1060,8 @@ class PlatformReportGenerator:
                                  platform_name: str = None,
                                  credit_code: str = None,
                                  enterprise_ids: Optional[Union[int, List[int], str]] = None,
-                                 amount_type: int = 1):
+                                 amount_type: int = 1,
+                                 tax_id: Optional[int] = None):
         """
         生成组合报表（收入信息表 + 身份信息表在同一个Excel的不同sheet中）
         用于手动复制数据到模板
@@ -1062,7 +1069,7 @@ class PlatformReportGenerator:
         output_path = Path(output_path) if isinstance(output_path, str) else output_path
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        all_data = self.query_platform_data(start_date, end_date, enterprise_ids, amount_type)
+        all_data = self.query_platform_data(start_date, end_date, enterprise_ids, amount_type, tax_id)
         if not all_data:
             logger.warning("没有查询到数据，无法生成报表")
             raise ValueError("没有查询到数据，无法生成报表")
