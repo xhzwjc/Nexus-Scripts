@@ -1601,6 +1601,8 @@ export const enUS: Translations = {
                 fetching: 'Querying...',
                 download: 'Generate Report',
                 generating: 'Generating...',
+                exportData: 'Export Data',
+                exporting: 'Exporting...',
                 resultTitle: 'Platform Report Data List',
                 resultSuffix: 'Query Results',
                 totalLaborIncome: 'Total Labor Income',

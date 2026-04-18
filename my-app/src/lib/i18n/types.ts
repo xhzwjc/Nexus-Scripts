@@ -1613,6 +1613,8 @@ export interface Translations {
         fetching: string;
         download: string;
         generating: string;
+        exportData: string;
+        exporting: string;
         resultTitle: string;
         resultSuffix: string;
         totalLaborIncome: string;

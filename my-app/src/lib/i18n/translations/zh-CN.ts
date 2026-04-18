@@ -1600,6 +1600,8 @@ export const zhCN: Translations = {
                 fetching: '查询中...',
                 download: '生成报表',
                 generating: '生成中...',
+                exportData: '导出数据',
+                exporting: '导出中',
                 resultTitle: '平台报送数据列表',
                 resultSuffix: '查询结果',
                 totalLaborIncome: '总劳务报酬',

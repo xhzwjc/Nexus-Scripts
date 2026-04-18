@@ -1630,9 +1630,9 @@ export default function TaxReportManagement({ onBack }: TaxReportManagementProps
                                         title="导出包含收入信息表和身份信息表的Excel，可手动复制到模板"
                                     >
                                         {isGeneratingCombined ? (
-                                            <><Loader2 size={16} className="mr-2 animate-spin" />导出中</>
+                                            <><Loader2 size={16} className="mr-2 animate-spin" />{tr.platform.exporting}</>
                                         ) : (
-                                            <><FileText size={16} className="mr-2" />导出数据</>
+                                            <><FileText size={16} className="mr-2" />{tr.platform.exportData}</>
                                         )}
                                     </Button>
                                 </div>
