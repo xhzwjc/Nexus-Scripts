@@ -161,7 +161,7 @@ async def execute_settlement_sim(
                                 YEAR(w.payment_over_time) AS stat_year,
                                 ROUND(SUM(w.bill_amount - COALESCE(w.worker_service_amount, 0)), 2) AS total_worker_amount,
                                 ROUND(SUM(w.tax_amount), 2) AS total_worker_tax_amount,
-                                ROUND(SUM(w.original_tax_amount), 2) AS original_total_worker_tax_amount
+                                ROUND(SUM(w.original_tax_amount), 4) AS original_total_worker_tax_amount
                             FROM biz_balance_worker w
                             WHERE w.deleted = 0
                               AND w.pay_status = 3
@@ -248,7 +248,7 @@ async def execute_settlement_sim(
                                 YEAR(w.payment_over_time) AS stat_year,
                                 ROUND(SUM(w.bill_amount - COALESCE(w.worker_service_amount, 0)), 2) AS total_worker_amount,
                                 ROUND(SUM(w.tax_amount), 2) AS total_worker_tax_amount,
-                                ROUND(SUM(w.original_tax_amount), 2) AS original_total_worker_tax_amount
+                                ROUND(SUM(w.original_tax_amount), 4) AS original_total_worker_tax_amount
                             FROM biz_balance_worker w
                             WHERE w.deleted = 0
                               AND w.pay_status = 3
