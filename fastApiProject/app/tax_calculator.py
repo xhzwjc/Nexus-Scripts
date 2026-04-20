@@ -384,7 +384,6 @@ class TaxCalculator:
             if not records:
                 return []
 
-            revenue_bills = Decimal('0.00')
             last_income_month = None
             monthly_accumulators = {}
             results = []
@@ -418,7 +417,6 @@ class TaxCalculator:
                     # 如果需要重置，则清空所有状态，从零开始
                     if reset_needed:
                         logger.info(f"{reset_reason}，重置累计值")
-                        revenue_bills = Decimal('0.00')
                         monthly_accumulators = {}
                     else:
                         # 计算上一个月 key，用于继承跨月累计状态
@@ -443,14 +441,20 @@ class TaxCalculator:
                                 'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason,
                                 'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
                                 'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
-                                'last_record_unrounded_tax': Decimal('0.00')
+                                'last_record_unrounded_tax': Decimal('0.00'),
+                                'revenue_bills': Decimal('0.00'),
+                                'accumulated_total_amount': Decimal('0.00'),
+                                'monthly_total_amount': Decimal('0.00'),
                             },
                             'salary': {
                                 'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': Decimal('0.00'),
                                 'monthly_income': Decimal('0.00'), 'started': False, 'reset_reason': reset_reason,
                                 'accumulated_income': Decimal('0.00'), 'accumulated_tax': Decimal('0.00'),
                                 'accumulated_months': 0, 'precise_tax_at_month_end': Decimal('0.00'),
-                                'last_record_unrounded_tax': Decimal('0.00')
+                                'last_record_unrounded_tax': Decimal('0.00'),
+                                'revenue_bills': Decimal('0.00'),
+                                'accumulated_total_amount': Decimal('0.00'),
+                                'monthly_total_amount': Decimal('0.00'),
                             },
                             'reset_reason': reset_reason
                         }
@@ -462,11 +466,13 @@ class TaxCalculator:
                         labor_initial_paid_tax = prev_labor['paid_tax'] if prev_labor else Decimal('0.00')
                         labor_initial_paid_vat = Decimal('0.00')
                         labor_initial_paid_surcharges = Decimal('0.00')
+                        labor_initial_accumulated_total_amount = prev_labor['accumulated_total_amount'] if prev_labor else Decimal('0.00')
 
                         salary_initial_months = prev_salary['accumulated_months'] if prev_salary else 0
                         salary_initial_income = prev_salary['accumulated_income'] if prev_salary else Decimal('0.00')
                         salary_initial_precise_tax = prev_salary['precise_tax_at_month_end'] if prev_salary else Decimal('0.00')
                         salary_initial_paid_tax = prev_salary['paid_tax'] if prev_salary else Decimal('0.00')
+                        salary_initial_accumulated_total_amount = prev_salary['accumulated_total_amount'] if prev_salary else Decimal('0.00')
 
                         # 新月开始时 started 统一为 False，保证跨月后首条记录能触发月份递增
                         labor_initial_started = False
@@ -479,14 +485,20 @@ class TaxCalculator:
                                 'monthly_income': Decimal('0.00'), 'started': labor_initial_started, 'reset_reason': "",
                                 'accumulated_income': labor_initial_income, 'accumulated_tax': labor_initial_paid_tax,
                                 'accumulated_months': labor_initial_months, 'precise_tax_at_month_end': labor_initial_precise_tax,
-                                'last_record_unrounded_tax': Decimal('0.00')
+                                'last_record_unrounded_tax': Decimal('0.00'),
+                                'revenue_bills': Decimal('0.00'),
+                                'accumulated_total_amount': labor_initial_accumulated_total_amount,
+                                'monthly_total_amount': Decimal('0.00'),
                             },
                             'salary': {
                                 'records': [], 'total_amount': Decimal('0.00'), 'paid_tax': salary_initial_paid_tax,
                                 'monthly_income': Decimal('0.00'), 'started': salary_initial_started, 'reset_reason': "",
                                 'accumulated_income': salary_initial_income, 'accumulated_tax': salary_initial_paid_tax,
                                 'accumulated_months': salary_initial_months, 'precise_tax_at_month_end': salary_initial_precise_tax,
-                                'last_record_unrounded_tax': Decimal('0.00')
+                                'last_record_unrounded_tax': Decimal('0.00'),
+                                'revenue_bills': Decimal('0.00'),
+                                'accumulated_total_amount': salary_initial_accumulated_total_amount,
+                                'monthly_total_amount': Decimal('0.00'),
                             },
                             'reset_reason': ""
                         }
@@ -507,7 +519,15 @@ class TaxCalculator:
                 accum['records'].append(record)
                 prev_month_total_amount = accum['total_amount']
                 accum['total_amount'] += record['bill_amount']
-                revenue_bills += record['bill_amount']
+                accum['revenue_bills'] += record['bill_amount']
+
+                # 新增：年度累计原始金额（跨月累计，不打折）
+                prev_accumulated_total_amount = accum.get('accumulated_total_amount', Decimal('0.00'))
+                if not accum['started']:
+                    accum['accumulated_total_amount'] = prev_accumulated_total_amount + accum['total_amount']
+                else:
+                    accum['accumulated_total_amount'] = prev_accumulated_total_amount - accum.get('monthly_total_amount', Decimal('0.00')) + accum['total_amount']
+                accum['monthly_total_amount'] = accum['total_amount']
 
                 prev_annual_accumulated_income = accum['accumulated_income']
 
@@ -621,10 +641,10 @@ class TaxCalculator:
                 warning_level = None
                 # 只有劳务（effective_income_type == 1）才触发预警
                 if effective_income_type == 1:
-                    if revenue_bills >= Decimal('5000000'):
+                    if accum['revenue_bills'] >= Decimal('5000000'):
                         warning_msg = _t['warning_500']
                         warning_level = '500'
-                    elif revenue_bills >= Decimal('4500000'):
+                    elif accum['revenue_bills'] >= Decimal('4500000'):
                         warning_msg = _t['warning_450']
                         warning_level = '450'
 
@@ -656,7 +676,7 @@ class TaxCalculator:
                     'accumulated_tax': round(accum['accumulated_tax'], 2),
                     'calculation_steps': calculation_steps,
                     'effective_tax_rate': float(effective_tax_rate),
-                    'revenue_bills': round(revenue_bills, 2),
+                    'revenue_bills': round(accum['accumulated_total_amount'], 2),
                     'vat_tax': float(vat_tax),
                     'surcharges': float(surcharges),
                     'total_tax_and_fees': float(total_tax_and_fees),

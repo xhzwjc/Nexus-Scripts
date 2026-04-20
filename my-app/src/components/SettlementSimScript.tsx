@@ -43,7 +43,7 @@ export default function SettlementSimScript({ onBack }: { onBack: () => void }) 
     const [error, setError] = useState<string | null>(null);
 
     // Tab 1/2 勾选框
-    const [writeTaxChecked, setWriteTaxChecked] = useState(false);
+    const [writeTaxChecked, setWriteTaxChecked] = useState(true);
 
     // 表单值
     const [batchNo, setBatchNo] = useState('');
