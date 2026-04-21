@@ -6,192 +6,164 @@
 
 ```
 Nexus-Scripts/
-├── fastApiProject/           # Python FastAPI backend
-│   ├── app/                   # Main application code
-│   │   ├── routers/           # API route handlers
-│   │   ├── services/         # Business logic layer
-│   │   ├── recruitment_skill_templates/  # Template files
-│   │   └── templates/         # Jinja2 templates
-│   ├── alembic/               # Database migrations
-│   ├── tests/                 # Backend tests
-│   ├── data/                  # Static data files
-│   ├── static/                # Static assets (swagger UI)
-│   ├── run.py                 # Backend entry point
-│   ├── server_agent.py        # Agent mode entry
-│   └── requirements.txt       # Python dependencies
-├── my-app/                    # Next.js 15 frontend
-│   ├── src/
-│   │   ├── app/               # Next.js App Router pages
-│   │   ├── components/        # React components
-│   │   ├── lib/               # Utilities and API clients
-│   │   └── pages/             # Legacy pages (if any)
-│   ├── public/                # Static public assets
-│   └── package.json           # Node dependencies
-├── scripts/                   # Utility scripts
-│   └── ai-resources-tools/    # AI resource management tools
-├── nginx/                     # Nginx configuration
-├── docker-compose.yml         # Container orchestration
-└── .env                       # Environment variables (not committed)
+├── fastApiProject/
+│   └── app/
+│       ├── routers/
+│       │   └── recruitment.py          # API endpoints (994 lines)
+│       ├── services/
+│       │   ├── recruitment_service_impl.py  # Main business logic (13,235 lines)
+│       │   ├── recruitment_ai_gateway.py    # LLM interaction (2,086 lines)
+│       │   ├── recruitment_prompts.py      # Prompt utilities (358 lines)
+│       │   ├── recruitment_mailer.py       # Email sending
+│       │   ├── recruitment_publish_adapters.py  # Job posting adapters
+│       │   └── recruitment_task_control.py # Task cancellation
+│       ├── recruitment_models.py       # SQLAlchemy models (412 lines)
+│       ├── recruitment_schemas.py      # Pydantic schemas (228 lines)
+│       └── recruitment_skill_templates/  # AI prompt templates
+│           ├── iot_screening_score_skill.md
+│           ├── iot_interview_question_skill.md
+│           └── iot_resume_screener.md
+└── my-app/
+    └── src/
+        ├── components/Recruitment/
+        │   ├── RecruitmentAutomationContainer.tsx  # Main layout
+        │   ├── types.ts              # Frontend TypeScript types (673 lines)
+        │   ├── utils.ts              # Shared utilities
+        │   ├── components/
+        │   │   └── SharedComponents.tsx
+        │   └── pages/
+        │       ├── WorkspacePage.tsx      # Dashboard (22KB)
+        │       ├── CandidatesPage.tsx     # Candidate list (168KB)
+        │       ├── AuditPage.tsx         # AI task audit (76KB)
+        │       ├── AssistantPage.tsx      # Chat assistant
+        │       ├── SkillSettingsPage.tsx  # Skill CRUD
+        │       ├── ModelSettingsPage.tsx  # LLM config
+        │       └── MailSettingsPage.tsx   # Email config
+        └── lib/
+            ├── recruitment-api.ts         # API client
+            └── recruitment-assistant-protocol.ts  # Assistant protocol
 ```
 
 ## Directory Purposes
 
-**fastApiProject/:**
-- Purpose: Python FastAPI backend for the "春苗系统" (Chunmiao System)
-- Contains: API routes, services, ORM models, schemas
+**`fastApiProject/app/routers/`:**
+- Purpose: HTTP API endpoint definitions
+- Contains: `recruitment.py` with 40+ endpoints
+- Key patterns: Depends injection for service and auth
 
-**fastApiProject/app/routers/:**
-- Purpose: API endpoint definitions
-- Key files:
-  - `recruitment.py` - AI recruitment automation endpoints
-  - `auth_rbac.py` - Authentication and RBAC endpoints
-  - `ai_resources.py` - AI resource management
-  - `team_resources.py` - Team resource management
-  - `business_core.py` - Business scene/task management
-  - `tax_tools.py` - Tax calculation tools
-  - `mobile_sms.py` - SMS sending endpoints
-  - `monitoring.py` - System monitoring endpoints
-  - `workbench.py` - Workbench endpoints
-  - `settlement_sim.py` - Settlement simulation
+**`fastApiProject/app/services/`:**
+- Purpose: Business logic and AI orchestration
+- Contains: 6 service files
+- Key file: `recruitment_service_impl.py` (13,235 lines - very large single file)
 
-**fastApiProject/app/services/:**
-- Purpose: Business logic implementation
-- Key files:
-  - `recruitment_service_impl.py` - Core recruitment service (711KB, very large)
-  - `ai_resource_service.py` - AI resource CRUD
-  - `commission_service.py` - Commission calculations
-  - `settlement_service.py` - Settlement logic
-  - `monitoring_service.py` - Alert/monitoring logic
-  - `sms_service.py` - SMS sending logic
-  - `team_resource_service.py` - Team resource management
-  - `biz_scene_task_service.py` - Business scene/task service
+**`fastApiProject/app/recruitment_skill_templates/`:**
+- Purpose: AI prompt templates (skills)
+- Contains: 3 markdown skill templates
+- Pattern: Loaded as content into `RecruitmentSkill` records
 
-**my-app/src/app/:**
-- Purpose: Next.js App Router pages and API routes
-- Structure:
-  - `page.tsx` - Home page
-  - `layout.tsx` - Root layout
-  - `api/` - API route handlers (proxy to backend)
-  - `globals.css` - Global styles
+**`my-app/src/components/Recruitment/pages/`:**
+- Purpose: React page components
+- Contains: 8 page components
+- Largest: `CandidatesPage.tsx` (168,260 bytes)
 
-**my-app/src/components/:**
-- Purpose: React components
-- Key files:
-  - `AiAssistant.tsx` - AI assistant component (18KB)
-  - `CommissionScript.tsx` - Commission script UI (59KB)
-  - `SettlementScript.tsx` - Settlement UI (31KB)
-  - `TaxCalculatorScript.tsx` - Tax calculator UI (72KB)
-  - `TaxReportManagement.tsx` - Tax report management (96KB)
-  - `BizSceneTaskScript.tsx` - Business task UI (35KB)
-  - `DeliveryScript.tsx` - Delivery script UI (70KB)
-  - `BatchSmsScript.tsx` - Batch SMS UI (110KB)
-  - `AppShell/` - App shell with navigation
-  - `Recruitment/` - Recruitment components
-  - `AIResources/` - AI resources components
-  - `TeamResources/` - Team resources components
-
-**my-app/src/lib/:**
-- Purpose: Utilities, API clients, helpers
-- Key files:
-  - `api.ts` - Main API client
-  - `auth.ts` - Authentication helpers
-  - `utils.ts` - General utilities
-  - `i18n/index.ts` - Internationalization
-  - `recruitment-api.ts` - Recruitment API client
-  - `server/` - Server-side utilities
+**`my-app/src/lib/`:**
+- Purpose: Frontend API client and shared types
+- Contains: `recruitment-api.ts`, `recruitment-assistant-protocol.ts`
 
 ## Key File Locations
 
 **Entry Points:**
-- `fastApiProject/run.py` - Backend development server
-- `fastApiProject/server_agent.py` - Backend agent mode
-- `my-app/src/app/page.tsx` - Frontend home page
+- Frontend container: `my-app/src/components/Recruitment/RecruitmentAutomationContainer.tsx`
+- Backend router: `fastApiProject/app/routers/recruitment.py`
 
 **Configuration:**
-- `fastApiProject/app/config.py` - Environment-based config
-- `fastApiProject/app/database.py` - Database connection
-- `fastApiProject/app/main.py` - FastAPI app setup
-- `my-app/next.config.ts` - Next.js configuration
+- Pydantic schemas: `fastApiProject/app/recruitment_schemas.py`
+- Frontend types: `my-app/src/components/Recruitment/types.ts`
 
-**Core Models:**
-- `fastApiProject/app/models.py` - Main SQLAlchemy models (42KB)
-- `fastApiProject/app/orm_models.py` - ORM model definitions
-- `fastApiProject/app/rbac_models.py` - RBAC models
-- `fastApiProject/app/recruitment_models.py` - Recruitment domain models
+**Core Logic (recruitment_service_impl.py):**
+- Position CRUD: lines 7058-7142 (`list_positions`, `create_position`, `update_position`, `delete_position`, `get_position_detail`)
+- JD generation: lines 11575-11750 (`_run_generate_jd_task`, `start_generate_jd`, `generate_jd`, `save_jd_version`, `activate_jd_version`)
+- Screening flow: lines ~7600-8000 (`upload_resume_files`, `_get_position_screening_payload`, `_screening_one_pass_flow`)
+- Interview questions: lines 11224-11520 (`generate_interview_questions`, `stream_interview_question_preview`, `_build_interview_question_prompt`)
+- Skills: lines 6224-6289 (`_get_position_skill_rows`, `_get_position_task_skill_ids`, `_sync_position_skill_links`)
 
-**Schemas:**
-- `fastApiProject/app/recruitment_schemas.py` - Recruitment Pydantic schemas
-- `fastApiProject/app/rbac_schemas.py` - RBAC Pydantic schemas
+**Testing:**
+- Test file: `fastApiProject/tests/test_recruitment_screening_queue.py`
+- Bootstrap: `bootstrap_resources_recruitment.py`
 
 ## Naming Conventions
 
 **Files:**
 - Python: `snake_case.py`
 - TypeScript/React: `PascalCase.tsx` for components, `camelCase.ts` for utilities
+- Skill templates: `kebab-case.md`
 
-**Directories:**
-- `routers/` - Plural, snake_case
-- `services/` - Plural, snake_case
-- `components/` - PascalCase subdirs per feature
+**Database Models:**
+- Python class: `PascalCase` (e.g., `RecruitmentPosition`)
+- Table name: `snake_case` (e.g., `recruitment_positions`)
 
-**Functions/Classes:**
-- Python: `PascalCase` for classes, `snake_case` for functions
-- TypeScript: `camelCase` for functions/variables, `PascalCase` for components
+**API Endpoints:**
+- RESTful: `/positions`, `/candidates/{id}/screen`
 
 ## Where to Add New Code
 
+**New Position Field:**
+1. Add to `PositionCreateRequest`/`PositionUpdateRequest` in `recruitment_schemas.py`
+2. Add column to `RecruitmentPosition` in `recruitment_models.py`
+3. Update `_serialize_position` in `recruitment_service_impl.py`
+4. Add to `PositionFormState` in `types.ts` if frontend needed
+
+**New AI Task Type:**
+1. Create skill template in `recruitment_skill_templates/*.md`
+2. Add skill to database via bootstrap or admin UI
+3. Add skill IDs to position's `jd_skill_ids`/`screening_skill_ids`/`interview_skill_ids`
+4. Implement task runner method in `recruitment_service_impl.py`
+5. Add endpoint in `routers/recruitment.py`
+
+**New Page:**
+1. Create component in `my-app/src/components/Recruitment/pages/`
+2. Add route to `RecruitmentAutomationContainer.tsx`
+3. Add locale strings to `types.ts` (`pageMeta`, `toast`)
+
 **New API Endpoint:**
-1. Add route in appropriate router file: `fastApiProject/app/routers/{domain}.py`
-2. Add service method in: `fastApiProject/app/services/{domain}_service.py`
-3. Add schema in: `fastApiProject/app/{domain}_schemas.py`
-4. Add model in: `fastApiProject/app/models.py`
-
-**New Frontend Component:**
-1. Create in: `my-app/src/components/{Feature}/`
-2. Export from: `my-app/src/components/{Feature}/index.ts`
-3. Import in parent page
-
-**New API Route (Next.js):**
-1. Create file: `my-app/src/app/api/{feature}/route.ts`
-2. Use `api.ts` client to proxy to backend
-
-**New Service Logic:**
-1. Add method to existing service in `fastApiProject/app/services/`
-2. Or create new service file following existing patterns
-
-**Tests:**
-1. Backend: `fastApiProject/tests/test_{feature}.py`
-2. Frontend: Co-located `*.test.ts` files
+1. Add schema to `recruitment_schemas.py` if request/response
+2. Add endpoint to `routers/recruitment.py`
+3. Implement in `recruitment_service_impl.py`
 
 ## Special Directories
 
-**alembic/:**
-- Purpose: Database migration scripts
-- Committed: Yes
-- Generated via: `alembic revision --autogenerate`
-
-**static/swagger/:**
-- Purpose: Local Swagger UI assets
-- Committed: Yes
-- Used by: Custom `/docs` route in main.py
-
-**node_modules/:**
-- Purpose: npm dependencies
-- Generated: Yes
-- Committed: No (.gitignore)
-
-**venv/:**
-- Purpose: Python virtual environment
-- Generated: Yes
-- Committed: No (.gitignore)
-
-**data/:**
-- Purpose: Static JSON data (templates, test data)
+**`recruitment_skill_templates/`:**
+- Purpose: Markdown-based AI prompt templates
+- Generated: No (manually authored)
 - Committed: Yes
 
-**public/ai-logos/:**
-- Purpose: AI tool logos/images
-- Committed: Yes
+**`.next/` (generated):**
+- Purpose: Next.js build output
+- Generated: Yes (on build)
+- Committed: No (in .gitignore)
+
+**`__pycache__/` (generated):**
+- Purpose: Python bytecode cache
+- Generated: Yes (on import)
+- Committed: No (in .gitignore)
+
+## Key API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/positions` | GET/POST | List/create positions |
+| `/positions/{id}` | GET/PATCH/DELETE | Position CRUD |
+| `/positions/{id}/generate-jd/start` | POST | Start JD generation async |
+| `/positions/{id}/jd-versions` | GET/POST | JD version management |
+| `/candidates` | GET | List candidates |
+| `/candidates/{id}/screen/start` | POST | Start screening async |
+| `/candidates/{id}/interview-questions/start` | POST | Generate interview questions |
+| `/skills` | GET/POST | List/create skills |
+| `/skills/{id}` | PATCH/DELETE | Update/delete skill |
+| `/llm-configs` | GET/POST/PATCH/DELETE | LLM provider config |
+| `/mail-senders` | GET/POST | Email sender config |
+| `/chat` | POST | Chat assistant |
+| `/ai-task-logs` | GET | Audit log viewing |
 
 ---
 

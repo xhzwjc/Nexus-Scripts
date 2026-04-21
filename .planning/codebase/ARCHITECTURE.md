@@ -4,129 +4,138 @@
 
 ## Pattern Overview
 
-**Overall:** Layered Architecture with Service-Oriented Components
+**Overall:** Client-Server with AI Gateway Pattern
 
 **Key Characteristics:**
-- FastAPI backend with router-service-model layered separation
-- Next.js 15 frontend with component-based architecture
-- MySQL database with SQLAlchemy ORM
-- Nginx reverse proxy for container orchestration
-- Session-based authentication with API key access
+- Split architecture: Next.js frontend (`my-app/`) + FastAPI backend (`fastApiProject/`)
+- AI orchestration through a dedicated gateway service (`RecruitmentAIGateway`)
+- Skill-based prompt templating system for different AI tasks
+- Task-based async processing with logging and retry support
+- Multi-stage pipeline: JD Generation -> Resume Screening -> Interview Questions
 
 ## Layers
 
-**Routers (API Layer):**
-- Purpose: Handle HTTP requests, input validation, authentication
-- Location: `fastApiProject/app/routers/`
-- Contains: `recruitment.py`, `auth_rbac.py`, `ai_resources.py`, `team_resources.py`, `business_core.py`, `tax_tools.py`, `mobile_sms.py`, `monitoring.py`, `workbench.py`, `settlement_sim.py`
-- Depends on: Services, Schemas
-- Pattern: FastAPI APIRouter with dependency injection for auth
+**Frontend (Next.js):**
+- Purpose: UI for recruitment management
+- Location: `my-app/src/components/Recruitment/`
+- Contains: Pages (Workspace, Candidates, Audit, Assistant, Settings), SharedComponents, types
+- Depends on: Backend REST API via `recruitment-api.ts`
 
-**Services (Business Logic Layer):**
-- Purpose: Encapsulate business logic, interact with database
-- Location: `fastApiProject/app/services/`
-- Contains: `recruitment_service_impl.py`, `ai_resource_service.py`, `commission_service.py`, `settlement_service.py`, `monitoring_service.py`, `sms_service.py`, `team_resource_service.py`, etc.
-- Pattern: Transaction script pattern per domain
+**API Router:**
+- Purpose: HTTP endpoint definitions and request validation
+- Location: `fastApiProject/app/routers/recruitment.py`
+- Contains: 40+ endpoints for positions, candidates, skills, AI tasks, mail, chat
+- Depends on: RecruitmentService
 
-**Models (Data Layer):**
-- Purpose: ORM models and database schema definitions
-- Location: `fastApiProject/app/models.py`, `orm_models.py`, `recruitment_models.py`, `rbac_models.py`
-- Contains: SQLAlchemy declarative models
-- Pattern: Active record pattern via SQLAlchemy
+**Service Layer:**
+- Purpose: Business logic orchestration
+- Location: `fastApiProject/app/services/recruitment_service_impl.py` (13,235 lines)
+- Contains: Position CRUD, candidate management, screening orchestration, JD generation, interview question generation
+- Depends on: RecruitmentAIGateway, database models
 
-**Schemas (Validation Layer):**
-- Purpose: Pydantic models for request/response validation
-- Location: `fastApiProject/app/recruitment_schemas.py`, `rbac_schemas.py`
-- Pattern: Pydantic BaseModel for DTOs
+**AI Gateway:**
+- Purpose: LLM interaction abstraction with retry, timeout, and JSON parsing
+- Location: `fastApiProject/app/services/recruitment_ai_gateway.py`
+- Contains: Multi-provider support (OpenAI, Claude, Gemini, DeepSeek, etc.), streaming, fallback handling
+- Depends on: External LLM APIs
 
-**Frontend (Presentation Layer):**
-- Location: `my-app/src/`
-- Pattern: Next.js 15 App Router with React 19 components
-- Components: Large single-file components (AiAssistant.tsx, CommissionScript.tsx, etc.)
+**Data Models:**
+- Purpose: Database schema definitions
+- Location: `fastApiProject/app/recruitment_models.py`
+- Contains: 20+ SQLAlchemy models for positions, candidates, skills, scores, mail, etc.
+
+**Prompt Templates:**
+- Purpose: Skill-based prompt templates for AI tasks
+- Location: `fastApiProject/app/recruitment_skill_templates/`
+- Contains: Markdown-based skill definitions (screening, interview questions, resume)
 
 ## Data Flow
 
-**Typical API Request Flow:**
+**Position Creation Flow:**
+1. POST `/positions` with `PositionCreateRequest`
+2. Service creates `RecruitmentPosition` record
+3. Skill links created via `RecruitmentPositionSkillLink`
 
-1. Client -> Nginx (port 8090) -> FastAPI (port 8091)
-2. Router receives request, applies `require_script_hub_permission` dependency
-3. Service layer instantiated via `Depends(get_recruitment_service)`
-4. Service executes business logic, queries/updates via SQLAlchemy ORM
-5. Response serialized via Pydantic schemas
-6. Audit log written via `write_audit_log`
+**JD Generation Flow:**
+1. POST `/positions/{id}/generate-jd/start`
+2. Service creates `RecruitmentAITaskLog` entry
+3. Background thread runs `_run_generate_jd_task`:
+   - Loads position data via `_serialize_position_for_jd_prompt`
+   - Resolves JD skills via `_resolve_jd_skills`
+   - Calls `RecruitmentAIGateway` to generate content
+   - Saves result as `RecruitmentJDVersion`
+   - Optionally activates version
 
-**Authentication Flow:**
-- Access key stored in `SCRIPT_HUB_ACCESS_KEYS_JSON` environment variable
-- Keys rotated via `rotate_script_hub_access_keys.py`
-- Session created via `create_script_hub_session` with JWT-like tokens
-- Permission checked via `require_script_hub_permission(permission_code)`
+**Resume Screening Flow:**
+1. POST `/candidates/{id}/screen/start`
+2. Service creates screening task with `_screening_one_pass_flow`:
+   - Parses resume via `_run_resume_parse_task`
+   - Scores via `_run_resume_score_task` using screening skills
+   - Auto-advances if enabled
 
-**Database Connection:**
-- SQLAlchemy `SessionLocal` created from config
-- MySQL with connection pooling (pool_size=5, max_overflow=10)
-- `pool_pre_ping=True` for connection health checks
-- Database selected based on `ENVIRONMENT` env var (local/test/prod)
+**Interview Question Generation Flow:**
+1. POST `/candidates/{id}/interview-questions/start`
+2. Service builds prompt via `_build_interview_question_prompt`:
+   - Uses candidate parse results, screening scores, position context
+   - Resolves interview skills via `_resolve_interview_skills`
+   - Generates HTML and Markdown output
+
+**State Management:**
+- Positions: `status` field (draft, recruiting, paused, closed)
+- Candidates: `status` field (pending_screening, screening_passed, interview_passed, etc.)
+- Tasks: Tracked via `RecruitmentAITaskLog` with `screening_run_id` for batch grouping
 
 ## Key Abstractions
 
-**ScriptHubSession:**
-- Purpose: Session management for Script Hub users
-- File: `fastApiProject/app/script_hub_session.py`
-- Pattern: Token-based session with permission checking
+**Skill System:**
+- Purpose: Configurable prompt building blocks for AI tasks
+- Examples: `iot_screening_score_skill.md`, `iot_interview_question_skill.md`
+- Pattern: Markdown files with structured sections loaded into `RecruitmentSkill.content`
+- Three skill types per position: `jd_skill_ids`, `screening_skill_ids`, `interview_skill_ids`
 
-**RecruitmentService:**
-- Purpose: Core recruitment automation business logic
-- File: `fastApiProject/app/services/recruitment_service_impl.py` (711KB - very large)
-- Pattern: Transaction script with LLM integration
+**AI Task Logging:**
+- Purpose: Audit trail for all AI operations
+- Location: `RecruitmentAITaskLog` model
+- Pattern: Logs prompt snapshots, raw responses, parsed outputs, timing, token usage
 
-**RBAC System:**
-- Files: `fastApiProject/app/rbac_models.py`, `rbac_schemas.py`
-- Components: Roles, permissions, user-access key associations
-- Service: `script_hub_admin_service.py`, `script_hub_auth_service.py`
-
-**Commission/Settlement:**
-- Files: `commission_service.py`, `settlement_service.py`
-- Purpose: Financial calculations for the settlement system
+**Workflow Memory:**
+- Purpose: Per-candidate persistent context across screening stages
+- Location: `RecruitmentCandidateWorkflowMemory` model
+- Pattern: Stores latest parse/score IDs, skill configurations for reuse
 
 ## Entry Points
 
-**Backend:**
-- Location: `fastApiProject/run.py`
-- Starts uvicorn on configurable host/port
-- Production: `server_agent.py` for agent mode
+**Frontend Container:**
+- Location: `my-app/src/components/Recruitment/RecruitmentAutomationContainer.tsx`
+- Triggers: User navigation to recruitment module
+- Responsibilities: Page routing, layout, global state
 
-**Frontend:**
-- Location: `my-app/src/app/page.tsx`
-- Next.js dev server on port 3000
-- Docker: nginx on port 8090
+**Backend API:**
+- Location: `fastApiProject/app/routers/recruitment.py`
+- Triggers: HTTP requests from frontend
+- Responsibilities: Auth, validation, service delegation
 
-**Scripts:**
-- Location: `scripts/` and `fastApiProject/` root
-- Bootstrap: `bootstrap_script_hub_rbac.py`, `bootstrap_resources_recruitment.py`
-- Migration: `migrate_resources.py`, `migrate_team_resources.py`
+**Background Tasks:**
+- Location: `recruitment_service_impl.py` methods starting with `_run_*`
+- Triggers: Async task start endpoints
+- Responsibilities: Long-running AI operations (JD generation, screening)
 
 ## Error Handling
 
-**Strategy:** Structured JSON responses with success flag
+**Strategy:** Task-level error tracking with fallback responses
 
 **Patterns:**
-```python
-return {"success": True, "data": service.get_metadata(), "request_id": str(uuid.uuid4())}
-return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
-```
-
-**Error Types:**
-- HTTPException for validation/auth errors
-- RecruitmentConflictError for business logic conflicts
-- RecruitmentTaskCancelled for async task cancellation
+- AI timeout: `RecruitmentAITimeoutError` triggers fallback in gateway
+- Retry exhaustion: `RecruitmentAIRetryExhaustedError` logged to task
+- JSON parse failure: `RecruitmentAIJSONParseError` with raw text captured
+- All errors stored in `RecruitmentAITaskLog.error_message`
 
 ## Cross-Cutting Concerns
 
-**Logging:** Python logging module with structured format
-**Validation:** Pydantic schemas for all inputs
-**Authentication:** Access key + session token dual mechanism
-**CORS:** Configured via `settings.cors_allow_origins` in config.py
-**Monitoring:** Background asyncio loop calling `check_and_alert()` hourly
+**Logging:** `RecruitmentAITaskLog` for AI operations, standard logging for service
+**Validation:** Pydantic schemas (`recruitment_schemas.py`) for all requests
+**Authentication:** `require_script_hub_permission` dependency on all endpoints
+**i18n:** Full zh-CN/en-US support in frontend types and locale bundles
 
 ---
 

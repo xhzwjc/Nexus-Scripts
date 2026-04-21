@@ -4949,62 +4949,69 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     "grid h-full min-h-0 items-stretch gap-4 2xl:gap-6 overflow-hidden transition-all duration-300",
                     positionListCollapsed
                         ? "xl:grid-cols-[104px_minmax(0,1fr)] 2xl:grid-cols-[116px_minmax(0,1fr)]"
-                        : "xl:grid-cols-[148px_minmax(0,1fr)] 2xl:grid-cols-[164px_minmax(0,1fr)]",
+                        : "xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]",
                 )}
             >
-                <div className="relative min-h-0">
-                    <Card className={cn(panelClass, "h-full min-h-0 overflow-hidden")}>
-                        <CardHeader className="space-y-0 px-4 pb-0 pt-4">
-                            {positionListCollapsed ? (
-                                <div className="flex items-center justify-center">
-                                    <CardTitle className="text-[16px] font-semibold tracking-tight whitespace-nowrap">{isZh ? "岗位" : "Positions"}</CardTitle>
+                <div className="relative min-h-0 position-panel">
+                    <div className={cn("position-panel-header", positionListCollapsed && "collapsed")}>
+                        {positionListCollapsed ? (
+                            <div className="flex items-center justify-center">
+                                <span className="position-panel-title">{isZh ? "岗位" : "Positions"}</span>
+                            </div>
+                        ) : (
+                            <div>
+                                <div className="flex items-center justify-between">
+                                    <span className="position-panel-title">{isZh ? "岗位列表" : "Position List"}</span>
+                                    <span className="position-panel-count">({positions.length})</span>
                                 </div>
-                            ) : (
-                                <div className="space-y-3">
-                                    <div className="min-w-0">
-                                        <CardTitle className="text-[18px] font-semibold tracking-tight whitespace-nowrap">
-                                            {isZh ? `岗位列表 (${positions.length})` : `Position List (${positions.length})`}
-                                        </CardTitle>
-                                    </div>
-                                    <div className="flex justify-start">
-                                        <Button
-                                            size="sm"
-                                            className="h-9 rounded-xl whitespace-nowrap px-4 text-sm font-medium shadow-sm"
-                                            onClick={openCreatePosition}
-                                        >
-                                            <Plus className="h-4 w-4"/>
-                                            {isZh ? "新增岗位" : "Add Position"}
-                                        </Button>
-                                    </div>
-                                </div>
-                            )}
-                        </CardHeader>
-                        <CardContent className="flex min-h-0 flex-1 flex-col space-y-2 pt-3">
-                            {!positionListCollapsed ? (
-                                <>
-                                    <SearchField
-                                        value={positionQuery}
-                                        onChange={setPositionQuery}
-                                        placeholder={isZh ? "筛选" : "Filter"}
-                                        inputClassName="h-9 rounded-xl border-slate-200/80 bg-slate-50/70 text-sm shadow-none dark:border-slate-800 dark:bg-slate-900/60"
-                                    />
-                                    <NativeSelect
-                                        value={positionStatusFilter}
-                                        className="h-9 rounded-xl border-slate-200/80 bg-slate-50/70 text-sm shadow-none dark:border-slate-800 dark:bg-slate-900/60"
-                                        onChange={(event) => setPositionStatusFilter(event.target.value)}
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="mt-3 w-full rounded-lg border-[var(--sr-border)] bg-[var(--sr-bg-page)] hover:bg-[var(--sr-bg-hover)] text-[13px]"
+                                    onClick={openCreatePosition}
+                                >
+                                    <Plus className="h-4 w-4 mr-1"/>
+                                    {isZh ? "新增岗位" : " Add Position"}
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+
+                    {!positionListCollapsed ? (
+                        <div className="px-4 pb-2 flex-shrink-0">
+                            <div className="position-search-wrap">
+                                <input
+                                    type="text"
+                                    className="position-search-input"
+                                    value={positionQuery}
+                                    onChange={(e) => setPositionQuery(e.target.value)}
+                                    placeholder={isZh ? "搜索岗位..." : "Search positions..."}
+                                />
+                            </div>
+                            <div className="filter-chips mt-3">
+                                <button
+                                    type="button"
+                                    className={cn("filter-chip", positionStatusFilter === "all" && "active")}
+                                    onClick={() => setPositionStatusFilter("all")}
+                                >
+                                    {isZh ? "全部" : "All"}
+                                </button>
+                                {Object.entries(positionStatusLabels).map(([value, label]) => (
+                                    <button
+                                        key={value}
+                                        type="button"
+                                        className={cn("filter-chip", positionStatusFilter === value && "active")}
+                                        onClick={() => setPositionStatusFilter(value)}
                                     >
-                                        <option value="all">{isZh ? "全部状态" : "All Statuses"}</option>
-                                        {Object.entries(positionStatusLabels).map(([value, label]) => (
-                                            <option key={value} value={value}>
-                                                {label}
-                                            </option>
-                                        ))}
-                                    </NativeSelect>
-                                </>
-                            ) : null}
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ) : null}
                             <div className={cn(
-                                "min-h-0 flex-1 overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0",
-                                positionListCollapsed ? "" : "-mx-2 px-2",
+                                "flex-1 min-h-0 overflow-y-auto p-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0",
+                                positionListCollapsed ? "" : "",
                             )}>
                                 <div className={cn(positionListCollapsed ? "space-y-2" : "space-y-2.5")}>
                                     {positionsLoading ? (
@@ -5015,11 +5022,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             type="button"
                                             onClick={() => setSelectedPositionId(position.id)}
                                             className={cn(
-                                                "w-full border text-left transition",
+                                                "w-full text-left transition border-b px-3 py-3",
                                                 selectedPositionId === position.id
-                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                    : "border-slate-200/80 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950",
-                                                positionListCollapsed ? "rounded-[18px] px-2.5 py-2.5" : "rounded-2xl px-3 py-3",
+                                                    ? "bg-[var(--sr-bg-selected)] border-[var(--sr-accent)]"
+                                                    : "bg-[var(--sr-bg-surface)] border-[var(--sr-border-light)] hover:bg-[var(--sr-bg-hover)]",
                                             )}
                                         >
                                             {positionListCollapsed ? (
@@ -5033,10 +5039,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 </div>
                                             ) : (
                                                 <div className="space-y-1.5">
-                                                    <p className="line-clamp-2 text-[13px] font-semibold leading-5">{position.title}</p>
-                                                    <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+                                                    <p className={cn("line-clamp-2 text-[13px] font-semibold leading-5", selectedPositionId === position.id ? "text-[var(--sr-accent-text)]" : "text-slate-700 dark:text-slate-200")}>{position.title}</p>
+                                                    <div className={cn("flex flex-wrap items-center gap-2 text-[10px]", selectedPositionId === position.id ? "text-[var(--sr-accent-text)]" : "text-slate-500 dark:text-slate-400")}>
                                                         <Badge
-                                                            className={cn("rounded-full border px-2 py-0 text-[10px]", selectedPositionId === position.id ? "border-white/20 bg-white/10 text-white dark:border-slate-300 dark:bg-slate-200 dark:text-slate-900" : statusBadgeClass("position", position.status))}>
+                                                            className={cn("rounded-full border px-2 py-0 text-[10px]", selectedPositionId === position.id ? "border-[var(--sr-accent)] bg-[var(--sr-accent-light)] text-[var(--sr-accent-text)]" : statusBadgeClass("position", position.status))}>
                                                             {labelForPositionStatus(position.status)}
                                                         </Badge>
                                                         <span className="text-[11px] font-medium leading-none">
@@ -5057,8 +5063,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     )}
                                 </div>
                             </div>
-                        </CardContent>
-                    </Card>
                     <Button
                         type="button"
                         variant="outline"

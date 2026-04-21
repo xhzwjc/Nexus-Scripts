@@ -901,7 +901,7 @@ export function AuditPage({
                                     {buildLogObjectLabel(selectedLogDetail, positionMap, candidateMap, skillMap)}
                                 </h3>
                                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                                    {labelForProvider(selectedLogDetail.model_provider)} · {selectedLogDetail.model_name || "-"} · {formatLongDateTime(selectedLogDetail.created_at)}
+                                    {labelForProvider(selectedLogDetail.model_provider || selectedScoreDetailLog?.model_provider || null)} · {selectedLogDetail.model_name || selectedScoreDetailLog?.model_name || "-"} · {formatLongDateTime(selectedLogDetail.created_at)}
                                 </p>
                                 {selectedRootNotice ? (
                                     <div className={selectedRootNoticeClassName}>
