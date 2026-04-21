@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { WEATHER_CACHE_KEY, WEATHER_TTL } from '@/lib/config';
 import type { WeatherState } from '@/lib/types';
 
-export function useDashboardWeather(language: string) {
+export function useDashboardWeather(language: string, isLocked: boolean) {
     const [now, setNow] = useState<Date>(new Date());
     const [weather, setWeather] = useState<WeatherState>({ loading: true });
     const [weatherRefreshing, setWeatherRefreshing] = useState(false);
@@ -95,11 +95,12 @@ export function useDashboardWeather(language: string) {
         }
 
         const interval = setInterval(() => {
+            if (isLocked) return;
             void refreshWeather({ background: true });
         }, WEATHER_TTL);
 
         return () => clearInterval(interval);
-    }, [refreshWeather]);
+    }, [refreshWeather, isLocked]);
 
     useEffect(() => {
         if (previousLanguageRef.current !== language) {

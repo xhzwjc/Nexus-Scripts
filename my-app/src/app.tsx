@@ -223,7 +223,7 @@ function AppContent() {
         weather,
         weatherRefreshing,
         refreshWeather,
-    } = useDashboardWeather(language);
+    } = useDashboardWeather(language, isLocked);
 
     const {
         homeSearchQuery,
