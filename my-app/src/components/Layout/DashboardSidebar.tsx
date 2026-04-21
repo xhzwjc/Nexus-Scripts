@@ -86,14 +86,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                 )}
             >
                 <div className={cn('mb-6 flex shrink-0 items-center', collapsed ? 'justify-center px-0' : 'gap-2.5 px-3')}>
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500 to-teal-600 text-sm font-bold text-white shadow-lg">
-                        S
-                    </div>
-                    {!collapsed ? (
-                        <span className="text-[15px] font-semibold text-[var(--text-primary)]">
-                            ScriptHub <span className="font-normal text-[var(--text-secondary)]">Dashboard</span>
-                        </span>
-                    ) : null}
+                    <img src="/logo.png" alt="Logo" className="h-10 w-auto object-contain" />
                 </div>
 
                 <div className="flex min-h-0 flex-1 flex-col">

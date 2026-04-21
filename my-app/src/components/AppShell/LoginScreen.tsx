@@ -42,22 +42,12 @@ export function LoginScreen({
                     keyLength={userKey.length}
                     isKeyVisible={isLoginKeyVisible}
                 />
-
                 <div className="relative flex items-center justify-center px-6 py-10 sm:px-8 lg:my-2 lg:mr-2 lg:ml-2 lg:rounded-3xl lg:border lg:border-slate-200/80 lg:bg-white lg:px-10 lg:text-slate-900 lg:shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
                     <div className="absolute inset-0 bg-gradient-to-b from-background/60 via-background/20 to-background/80 lg:hidden" />
                     <div className="relative w-full max-w-md animate-fadeIn">
-                        <div className="mb-8 flex items-center gap-3 lg:hidden">
-                            <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-sm ring-1 ring-primary/15">
-                                <Lock className="h-5 w-5" />
-                            </div>
-                            <div>
-                                <div className="text-sm font-semibold uppercase tracking-[0.28em] text-primary/70">
-                                    {language === 'zh-CN' ? '密钥入口' : 'Key Access'}
-                                </div>
-                                <div className="text-lg font-semibold text-foreground">ScriptHub</div>
-                            </div>
+                        <div className="mb-6 flex items-center justify-center">
+                            <img src="/logo.png" alt="Logo" className="h-12 w-auto object-contain" />
                         </div>
-
                         <Card className="border border-slate-200 bg-white text-slate-900 shadow-xl">
                             <CardHeader className="space-y-4 pb-4">
                                 <div className="inline-flex w-fit items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
