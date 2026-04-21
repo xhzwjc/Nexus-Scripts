@@ -29,7 +29,7 @@
 ### 第一步：克隆代码
 
 ```bash
-git clone https://github.com/xhzwjc/Nexus-Scripts.git
+git clone https://github.com/xhzwjc/Nexus-Scripts/tree/refactor/system-v2
 cd Nexus-Scripts
 ```
 
