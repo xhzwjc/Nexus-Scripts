@@ -114,8 +114,8 @@ SCREENING_WORKER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_WORKER_MAX_CO
 SCREENING_PROVIDER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_PROVIDER_MAX_CONCURRENCY", "3")))
 SCREENING_PROVIDER_QPS = max(1, int(os.getenv("SCREENING_PROVIDER_QPS", "2")))
 SCREENING_BATCH_MAX_SIZE = max(1, int(os.getenv("SCREENING_BATCH_MAX_SIZE", "100")))
-SCREENING_ONE_PASS_MAX_RETRIES = max(0, int(os.getenv("SCREENING_ONE_PASS_MAX_RETRIES", "2")))
-SCREENING_FALLBACK_MAX_RETRIES = max(0, int(os.getenv("SCREENING_FALLBACK_MAX_RETRIES", "1")))
+SCREENING_ONE_PASS_MAX_RETRIES = max(0, int(os.getenv("SCREENING_ONE_PASS_MAX_RETRIES", "1")))
+SCREENING_FALLBACK_MAX_RETRIES = max(0, int(os.getenv("SCREENING_FALLBACK_MAX_RETRIES", "0")))
 SCREENING_PROVIDER_COOLDOWN_THRESHOLD = max(1, int(os.getenv("SCREENING_PROVIDER_COOLDOWN_THRESHOLD", "3")))
 SCREENING_PROVIDER_COOLDOWN_SECONDS = max(30, int(os.getenv("SCREENING_PROVIDER_COOLDOWN_SECONDS", "45")))
 SCREENING_LIVE_TASK_STATUSES = ("pending", "queued", "running", "cancelling")
@@ -1303,6 +1303,81 @@ def sanitize_screening_payload(
         "warnings": warnings,
         "raw_model_suggested_status": raw_model_suggested_status,
         "normalized_final_suggested_status": normalized_final_suggested_status,
+    }
+
+
+def sanitize_screening_payload_fast(
+    payload: Any,
+    schema_config: Dict[str, Any],
+    *,
+    skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Critical-path-only sanitization for one-pass screening.
+
+    Performs ONLY the business-critical steps:
+    1. Structure/type sanitization
+    2. Score metric auto-correction (total_score / match_percent from dimensions)
+    3. Missing required dimension backfill (zero-score)
+    4. Deterministic suggested_status derivation
+
+    Skips (deferred to background or omitted):
+    - _validate_screening_payload_warnings
+    - _score_payload_reuses_rule_text_as_evidence
+    - _analyze_ai_score_payload_quality
+    - Pseudo-evidence pattern detection
+    """
+    sanitized_payload = _sanitize_screening_payload_structure(
+        payload,
+        schema_config,
+        allow_one_pass_top_level_score_fields=True,
+    )
+    raw_model_suggested_status = _normalize_suggested_status(
+        (sanitized_payload.get("score") or {}).get("suggested_status")
+    )
+    sanitized_score = dict(
+        sanitized_payload.get("score")
+        if isinstance(sanitized_payload.get("score"), dict)
+        else {}
+    )
+    repair_warnings: List[str] = []
+    normalized_final_suggested_status = raw_model_suggested_status
+
+    # Step 1: auto-correct total_score and match_percent from dimensions
+    if sanitized_score.get("dimensions"):
+        sanitized_score, metric_warnings = _auto_correct_score_metrics_from_dimensions(sanitized_score)
+        repair_warnings.extend(metric_warnings)
+        sanitized_payload["score"] = sanitized_score
+
+    # Step 2: backfill missing required dimensions as zero-score
+    expected_dimensions = _build_expected_one_pass_dimensions(
+        skill_snapshots=list(skill_snapshots or []),
+        schema_config=schema_config,
+    )
+    if expected_dimensions:
+        sanitized_score, backfill_warnings = _backfill_missing_required_dimensions_as_zero_score(
+            sanitized_score,
+            expected_dimensions=expected_dimensions,
+        )
+        repair_warnings.extend(backfill_warnings)
+        sanitized_payload["score"] = sanitized_score
+
+    # Step 3: derive suggested_status if missing
+    if not _normalize_suggested_status(sanitized_score.get("suggested_status")):
+        derived_status, _missing = _derive_deterministic_suggested_status(
+            sanitized_score,
+            schema_config,
+        )
+        if derived_status:
+            sanitized_score["suggested_status"] = derived_status
+            normalized_final_suggested_status = derived_status
+            repair_warnings.append("score.suggested_status 缺失，已按最终分数规则自动推导")
+            sanitized_payload["score"] = sanitized_score
+
+    return sanitized_payload, {
+        "warnings": repair_warnings,
+        "raw_model_suggested_status": raw_model_suggested_status,
+        "normalized_final_suggested_status": normalized_final_suggested_status,
+        "fast_path": True,
     }
 
 
@@ -8539,12 +8614,10 @@ class RecruitmentService:
                 [_normalize_ai_gateway_warning_text(item) for item in (task.get("warnings") or [])],
                 limit=6,
             )
-            sanitized_payload, validation_meta = sanitize_screening_payload(
+            sanitized_payload, validation_meta = sanitize_screening_payload_fast(
                 authoritative_payload,
                 screening_schema_config,
-                one_pass_compat=True,
                 skill_snapshots=skill_snapshots,
-                extra_warnings=[*gateway_warnings, *(one_pass_json_meta.get("warnings") or [])],
             )
             parsed_resume = sanitized_payload.get("parsed_resume") if isinstance(sanitized_payload.get("parsed_resume"), dict) else {}
             raw_score_payload = sanitized_payload.get("score") if isinstance(sanitized_payload.get("score"), dict) else {}
