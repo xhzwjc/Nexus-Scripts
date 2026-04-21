@@ -16,12 +16,16 @@ from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskC
 
 logger = logging.getLogger(__name__)
 
-JSON_REPAIR_MAX_ROUNDS = 3
+JSON_REPAIR_MAX_ROUNDS = 2
 JSON_RETRYABLE_MIN_EMPTY_LENGTH = 32
 SCREENING_TOTAL_TIMEOUT_SECONDS = 300
 SCREENING_STAGE_MIN_TIMEOUT_SECONDS = 20
 REQUEST_HEADER_SNAPSHOT_LIMIT = 20
-OPENAI_STREAM_JSON_TASK_WHITELIST: frozenset[str] = frozenset()
+OPENAI_STREAM_JSON_TASK_WHITELIST: frozenset[str] = frozenset({
+    "resume_screening_one_pass",
+    "resume_score",
+    "resume_parse",
+})
 STRICT_JSON_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass"})
 STRICT_JSON_RECOVERY_RETRY_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass"})
 STRICT_SCORE_REQUIRED_FIELDS: tuple[str, ...] = (
@@ -613,6 +617,33 @@ def _parse_strict_json_response(
     provider_payload: Any = None,
     response_debug: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    # --- FAST PATH: skip full repair pipeline when raw text is already valid JSON ---
+    _fast_stripped = (raw_text or "").strip()
+    if _fast_stripped and _fast_stripped[0] == "{":
+        try:
+            _fast_parsed = json.loads(_fast_stripped)
+            if isinstance(_fast_parsed, dict):
+                _fast_records = [{"index": 0, "candidate_text": _fast_stripped, "payload": _fast_parsed}]
+                if task_type == "resume_score":
+                    _fast_selected = _select_resume_score_candidate(_fast_records, raw_text=raw_text)
+                elif task_type == "resume_parse":
+                    _fast_selected = _select_resume_parse_candidate(_fast_records)
+                else:
+                    _fast_selected = _select_one_pass_candidate(_fast_records)
+                return {
+                    "content": _fast_selected.get("content") or {},
+                    "warnings": [*list(_fast_selected.get("warnings") or []), "fast_path_json_parse"],
+                    "debug_meta": {
+                        **dict(response_debug or {}),
+                        **dict(_fast_selected.get("debug_meta") or {}),
+                        "task_type": task_type,
+                        "fast_path": True,
+                    },
+                }
+        except (json.JSONDecodeError, ValueError):
+            pass  # fall through to full repair pipeline
+
+    # --- FULL PIPELINE: extract candidates, repair, and select ---
     candidate_texts = _extract_top_level_json_candidates(raw_text, limit=6)
     stripped_raw_text = str(raw_text or "").strip()
     if not candidate_texts and stripped_raw_text:
@@ -874,7 +905,7 @@ def _clone_runtime_config_with_task_overrides(
             existing_timeout = float(SCREENING_TOTAL_TIMEOUT_SECONDS)
         extra_config["read_timeout_seconds"] = max(1.0, existing_timeout)
         extra_config["max_retries"] = 0
-        extra_config["use_stream_json"] = False
+        extra_config["use_stream_json"] = True
         extra_config["force_json_object_response"] = True
     return RecruitmentLLMRuntimeConfig(
         provider=config.provider,
