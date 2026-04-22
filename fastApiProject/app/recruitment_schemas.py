@@ -29,6 +29,7 @@ class PositionCreateRequest(BaseModel):
     jd_skill_ids: List[int] = Field(default_factory=list)
     screening_skill_ids: List[int] = Field(default_factory=list)
     interview_skill_ids: List[int] = Field(default_factory=list)
+    skill_pack_ids: List[int] = Field(default_factory=list)
 
 
 class PositionUpdateRequest(BaseModel):
@@ -57,6 +58,7 @@ class PositionUpdateRequest(BaseModel):
     jd_skill_ids: Optional[List[int]] = None
     screening_skill_ids: Optional[List[int]] = None
     interview_skill_ids: Optional[List[int]] = None
+    skill_pack_ids: Optional[List[int]] = None
 
 
 class JDGenerateRequest(BaseModel):
@@ -132,6 +134,8 @@ class CandidateScreenBatchCancelRequest(BaseModel):
 class SkillUpsertRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     description: Optional[str] = None
+    skill_group: Optional[str] = Field(None, max_length=120)
+    version: Optional[str] = Field(None, max_length=40)
     content: str = Field(..., min_length=1)
     tags: List[str] = Field(default_factory=list)
     sort_order: int = Field(99, ge=0, le=9999)

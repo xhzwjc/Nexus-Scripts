@@ -239,6 +239,9 @@ export interface RecruitmentSkill {
   tags: string[];
   sort_order: number;
   is_enabled: boolean;
+  skill_group?: string | null;
+  version?: string | null;
+  task_types?: Array<"jd" | "screening" | "interview">;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string | null;

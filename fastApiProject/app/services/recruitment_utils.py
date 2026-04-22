@@ -177,44 +177,81 @@ def _load_recruitment_skill_template(file_name: str) -> str:
     return template_path.read_text(encoding="utf-8")
 
 
+DEFAULT_JD_BASE_SKILL_CONTENT = """---
+name: base-jd-generation-skill
+description: 通用岗位 JD 生成基座 Skill
+skill_group: base_recruitment_pack
+version: v1
+applies_to: jd
+---
+
+在生成岗位 JD 时，优先使用岗位标题、岗位摘要、当前激活 JD、补充要求和岗位元数据作为事实来源。
+输出应覆盖岗位概述、核心职责、任职要求、协作对象和加分项，避免写死具体岗位族或行业背景。
+"""
+
+
+DEFAULT_SCREENING_BASE_SKILL_CONTENT = """---
+name: base-screening-score-skill
+description: 通用简历初筛评分基座 Skill
+skill_group: base_recruitment_pack
+version: v1
+applies_to: screening
+---
+
+优先关注岗位匹配度、真实项目经历、问题定位能力、协作交付记录与成长潜力；所有评分结论都必须能回溯到简历原文、岗位摘要或当前激活 JD。
+当证据不足时，应明确标记待核实项，而不是自行补全候选人经历。
+"""
+
+
+DEFAULT_INTERVIEW_BASE_SKILL_CONTENT = """---
+name: base-interview-structure-skill
+description: 通用结构化面试基座 Skill
+skill_group: base_recruitment_pack
+version: v1
+applies_to: interview
+---
+
+出题时默认覆盖真实项目经历、能力边界、问题拆解、风险判断、协作沟通与复盘意识。
+所有问题都必须先绑定简历或岗位证据；若缺少直接证据，只能按待核实风险设计追问。
+"""
+
+
 DEFAULT_SKILLS = [
     {
+        "skill_code": "skill-jd-base",
+        "name": "岗位 JD 通用基座 Skill",
+        "description": "适用于 JD 生成的通用基座 Skill。",
+        "content": DEFAULT_JD_BASE_SKILL_CONTENT,
+        "tags": ["JD", "基座", "task:jd", "group:base_recruitment_pack", "version:v1"],
+        "sort_order": 5,
+        "skill_group": "base_recruitment_pack",
+        "version": "v1",
+    },
+    {
         "skill_code": "skill-testing-rule",
-        "name": "测试岗位评分规则",
-        "description": "适用于 QA、IoT 测试、系统测试岗位的统一筛选与评分规则。",
-        "content": "优先关注测试基础、问题定位能力、跨团队协作与稳定交付记录；所有评分结论都必须能回溯到简历原文。",
-        "tags": ["测试", "评分规则"],
+        "name": "岗位初筛通用基座 Skill",
+        "description": "适用于简历初筛与评分的通用基座 Skill。",
+        "content": DEFAULT_SCREENING_BASE_SKILL_CONTENT,
+        "tags": ["初筛", "评分规则", "task:screening", "group:base_recruitment_pack", "version:v1"],
         "sort_order": 10,
+        "skill_group": "base_recruitment_pack",
+        "version": "v1",
     },
     {
         "skill_code": "skill-interview-structure",
-        "name": "结构化面试模板",
-        "description": "用于生成技术题、场景题、行为题与追问框架。",
-        "content": "出题时默认覆盖技术能力、真实项目经历、问题拆解方式、协作沟通与复盘意识，并保留至少一个可深挖追问点。",
-        "tags": ["面试", "模板"],
+        "name": "结构化面试通用基座 Skill",
+        "description": "用于生成结构化面试题与追问框架的通用基座 Skill。",
+        "content": DEFAULT_INTERVIEW_BASE_SKILL_CONTENT,
+        "tags": ["面试", "模板", "task:interview", "group:base_recruitment_pack", "version:v1"],
         "sort_order": 20,
-    },
-    {
-        "skill_code": "skill-iot-screening-score",
-        "name": "IoT 测试工程师初筛评分 Skill",
-        "description": "针对 IoT/软硬件测试工程师招聘的专用简历初筛评分 Skill。",
-        "content": _load_recruitment_skill_template("iot_screening_score_skill.md"),
-        "tags": ["IoT", "测试", "招聘", "智能家居", "初筛", "评分", "screening"],
-        "sort_order": 30,
-    },
-    {
-        "skill_code": "skill-iot-interview-question",
-        "name": "IoT 测试工程师面试题 Skill",
-        "description": "针对 IoT/软硬件测试工程师招聘的专用面试题生成 Skill。",
-        "content": _load_recruitment_skill_template("iot_interview_question_skill.md"),
-        "tags": ["IoT", "测试", "招聘", "智能家居", "面试", "出题", "interview"],
-        "sort_order": 31,
+        "skill_group": "base_recruitment_pack",
+        "version": "v1",
     },
 ]
 
 # These seeded defaults are starter records only. Runtime screening must still
 # resolve active skills from the bound position/task context instead of treating
-# any IoT skill as a generic fallback for every job.
+# any seeded record as a universal fallback for every job.
 KNOWN_SKILLS = [
     "python", "java", "go", "javascript", "typescript", "sql", "linux", "docker", "k8s",
     "selenium", "playwright", "pytest", "jmeter", "postman", "api", "iot", "测试", "自动化",
@@ -1847,12 +1884,12 @@ def _infer_interview_topics(parsed_resume: Optional[Dict[str, Any]]) -> List[str
     searchable_text = _join_resume_search_text(parsed_resume or {})
     topics: List[str] = []
     mapping = [
-        ("智能家居生态", ["米家", "homekit", "鸿蒙", "涂鸦", "联动", "互联互通"]),
-        ("IoT通信协议", ["wi-fi", "wifi", "ble", "zigbee", "thread", "mqtt", "蓝牙", "星闪"]),
-        ("软件测试基础", ["接口测试", "app测试", "测试用例", "回归测试", "postman", "apifox", "charles", "jmeter", "jira"]),
-        ("硬件能力", ["硬件", "手控器", "升降桌", "联调", "稳定性测试", "安全测试"]),
-        ("嵌入式/固件测试", ["ota", "固件", "串口", "烧录"]),
-        ("AI工具使用", ["ai", "prompt", "测试集", "数据标注", "模型"]),
+        ("业务场景与目标理解", ["业务", "场景", "行业", "平台", "生态", "用户", "产品", "智能家居", "homekit", "鸿蒙", "涂鸦"]),
+        ("系统集成与接口协同", ["协议", "接口", "api", "sdk", "联动", "互联互通", "mqtt", "ble", "zigbee", "thread", "配网", "组网"]),
+        ("测试策略与质量方法", ["接口测试", "app测试", "测试用例", "回归测试", "postman", "apifox", "charles", "jmeter", "jira", "测试方案", "测试指导书"]),
+        ("问题定位与风险闭环", ["问题定位", "定位", "排查", "日志", "缺陷", "复盘", "故障", "异常", "ota", "固件", "串口"]),
+        ("自动化与效率工具", ["自动化", "脚本", "python", "playwright", "selenium", "appium", "pytest", "ai", "prompt", "模型", "copilot", "cursor"]),
+        ("硬件/终端协同经验", ["硬件", "设备", "终端", "联调", "整机", "稳定性测试", "安全测试"]),
     ]
     for label, keywords in mapping:
         if any(keyword.lower() in searchable_text for keyword in keywords):
@@ -1860,34 +1897,16 @@ def _infer_interview_topics(parsed_resume: Optional[Dict[str, Any]]) -> List[str
     return topics[:6]
 
 
-def _is_iot_interview_role(position_title: str, skills: Iterable[Any], parsed_resume: Optional[Dict[str, Any]]) -> bool:
-    searchable_parts = [str(position_title or "")]
-    searchable_parts.extend(
-        str(part or "")
-        for skill in skills or []
-        for part in (
-            skill.get("name") if isinstance(skill, dict) else skill,
-            skill.get("description") if isinstance(skill, dict) else "",
-            skill.get("content") if isinstance(skill, dict) else "",
-        )
-    )
-    searchable_parts.append(_join_resume_search_text(parsed_resume or {}))
-    searchable = " ".join(searchable_parts).lower()
-    return any(keyword in searchable for keyword in ["iot", "智能家居", "zigbee", "ble", "mqtt", "homekit", "鸿蒙", "涂鸦"]) and "测试" in searchable
-
-
 def infer_interview_capability_domains(
     position_title: str,
     skills: Iterable[Any],
     parsed_resume: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
-    if _is_iot_interview_role(position_title, skills, parsed_resume):
-        return list(IOT_INTERVIEW_CAPABILITY_DOMAINS)
     inferred = _infer_interview_topics(parsed_resume)
     generic_domains = [
         "核心项目经历与角色边界",
-        "测试设计与用例策略",
-        "问题定位与缺陷闭环",
+        "测试策略与质量方法",
+        "问题定位与风险闭环",
         "自动化与效率工具",
         "跨团队协作与风险沟通",
         "综合匹配度与转型意愿",

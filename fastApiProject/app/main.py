@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
@@ -10,7 +11,8 @@ import asyncio
 from . import config
 from .services.monitoring_service import check_and_alert
 from .config import settings
-from .schema_maintenance import ensure_script_hub_schema
+from .database import SessionLocal
+from .schema_maintenance import ensure_recruitment_schema, ensure_script_hub_schema
 from .routers import (
     OUTPUTS_DIR,
     ai_resources_router,
@@ -25,6 +27,7 @@ from .routers import (
     workbench_router,
     settlement_sim_router,
 )
+from .services.recruitment_service import RecruitmentService
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -42,13 +45,30 @@ app = FastAPI(
     redoc_url=None
 )
 
+
+def _resume_recruitment_screening_queue() -> None:
+    ensure_recruitment_schema()
+    db = SessionLocal()
+    try:
+        service = RecruitmentService(db)
+        result = service.resume_screening_queue_on_startup()
+        logger.info(
+            "Recruitment screening queue resume finished: requeued=%s dispatched=%s active=%s",
+            result.get("requeued_count", 0),
+            result.get("dispatch", {}).get("started_count", 0) if isinstance(result.get("dispatch"), dict) else 0,
+            result.get("dispatch", {}).get("active_count", 0) if isinstance(result.get("dispatch"), dict) else 0,
+        )
+    finally:
+        db.close()
+
 @app.on_event("startup")
 async def startup_event():
     """启动时初始化"""
     try:
-        ensure_script_hub_schema()
+        await run_in_threadpool(ensure_script_hub_schema)
+        await run_in_threadpool(_resume_recruitment_screening_queue)
     except Exception as exc:
-        logger.error("Failed to ensure Script Hub schema on startup: %s", exc, exc_info=True)
+        logger.error("Failed to initialize schemas or recruitment queue on startup: %s", exc, exc_info=True)
     logger.info("Starting background tasks...")
     asyncio.create_task(background_monitoring_loop())
 

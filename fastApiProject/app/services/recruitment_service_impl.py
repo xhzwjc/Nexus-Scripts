@@ -8,6 +8,7 @@ import json
 import logging
 import mimetypes
 import os
+import shutil
 import threading
 import time
 from datetime import datetime, timedelta
@@ -107,6 +108,11 @@ SKILL_TASK_KEYWORDS = {
     "screening": {"screening", "score", "scoring", "resume_score", "resume-screening", "初筛", "评分", "筛选"},
     "interview": {"interview", "question", "questions", "interview-question", "面试", "面试题", "出题"},
     "jd": {"jd", "job_description", "job-description", "岗位jd", "职位jd", "jd生成", "生成jd", "岗位描述", "职位描述"},
+}
+SYSTEM_BASE_SKILL_CODES = {
+    "jd": "skill-jd-base",
+    "screening": "skill-testing-rule",
+    "interview": "skill-interview-structure",
 }
 logger = logging.getLogger(__name__)
 PROCESS_BOOTED_AT = datetime.now()
@@ -433,6 +439,8 @@ def _normalize_skill_resolution_source(value: Optional[str], *, from_task_snapsh
         return "explicit_request"
     if normalized in {"position", "position_default", "position_binding"}:
         return "position_binding"
+    if normalized in {"system_builtin_base", "builtin_base", "system_base"}:
+        return "system_builtin_base"
     if normalized in {"candidate_memory", "workflow_memory"}:
         return "candidate_memory"
     if normalized == "task_snapshot":
@@ -3248,23 +3256,32 @@ def _extract_skill_runtime_meta(skill: Any) -> Dict[str, Any]:
         skill_code = str(skill.skill_code or "").strip().lower()
         name = str(skill.name or "").strip().lower()
         tags = json_loads_safe(skill.tags_json, [])
+        explicit_group = str(getattr(skill, "skill_group", "") or "").strip()
+        explicit_version = str(getattr(skill, "version", "") or "").strip()
         content = skill.content
     elif isinstance(skill, dict):
         skill_code = str(skill.get("skill_code") or "").strip().lower()
         name = str(skill.get("name") or "").strip().lower()
         tags = skill.get("tags") or []
+        explicit_group = str(skill.get("skill_group") or "").strip()
+        explicit_version = str(skill.get("version") or skill.get("skill_version") or "").strip()
         content = skill.get("content")
     else:
         skill_code = ""
         name = str(skill or "").strip().lower()
         tags = []
+        explicit_group = ""
+        explicit_version = ""
         content = ""
     tag_texts = [str(item or "").strip() for item in tags if str(item or "").strip()]
     frontmatter = _parse_skill_frontmatter(content)
-    group = str(frontmatter.get("skill_group") or frontmatter.get("group") or "").strip()
+    group = explicit_group or str(frontmatter.get("skill_group") or frontmatter.get("group") or "").strip()
+    version = explicit_version or str(frontmatter.get("version") or frontmatter.get("skill_version") or "").strip()
     for tag in tag_texts:
         if not group and tag.lower().startswith("group:"):
             group = tag.split(":", 1)[1].strip()
+        if not version and tag.lower().startswith("version:"):
+            version = tag.split(":", 1)[1].strip()
     task_candidates: List[str] = []
     for field_name in ["applies_to", "task", "tasks", "task_type"]:
         raw_value = frontmatter.get(field_name)
@@ -3286,7 +3303,7 @@ def _extract_skill_runtime_meta(skill: Any) -> Dict[str, Any]:
         for task_kind, keywords in SKILL_TASK_KEYWORDS.items():
             if any(any(keyword in haystack for keyword in keywords) for haystack in haystacks if haystack):
                 tasks.append(task_kind)
-    return {"tasks": tasks, "group": group}
+    return {"tasks": tasks, "group": group, "version": version}
 
 
 def _extract_skill_task_types(skill: Any) -> List[str]:
@@ -5914,24 +5931,29 @@ class RecruitmentService:
                         stale_rows_touched = True
                 if stale_rows_touched:
                     dispatch_db.commit()
+                claim_now = datetime.now()
                 queued_rows = dispatch_db.query(RecruitmentAITaskLog).filter(
                     dispatch_service._screening_root_task_filter(),
                     RecruitmentAITaskLog.status == "queued",
                 ).order_by(
                     RecruitmentAITaskLog.created_at.asc(),
                     RecruitmentAITaskLog.id.asc(),
-                ).limit(min(SCREENING_BATCH_MAX_SIZE, max(available_slots * 4, max(available_slots, 1)))).all()
+                ).with_for_update(skip_locked=True).limit(
+                    min(SCREENING_BATCH_MAX_SIZE, max(available_slots * 4, max(available_slots, 1)))
+                ).all()
                 for row in queued_rows:
-                    if row.id in _screening_worker_active_task_ids:
-                        continue
                     if not dispatch_service._task_is_ready_for_dispatch(row):
                         continue
-                    _screening_worker_active_task_ids.add(row.id)
+                    dispatch_service._mark_screening_task_claimed(row, claimed_at=claim_now)
                     scheduled_tasks.append((row.id, row.created_by or "system"))
                     if len(scheduled_tasks) >= available_slots:
                         break
+                if scheduled_tasks:
+                    dispatch_db.commit()
             finally:
                 dispatch_db.close()
+            for task_id, _actor_id in scheduled_tasks:
+                _screening_worker_active_task_ids.add(task_id)
         for task_id, actor_id in scheduled_tasks:
             self._start_background_ai_task(task_id, self._build_screening_queue_runner(task_id, actor_id))
         return {
@@ -6351,33 +6373,26 @@ class RecruitmentService:
     def _load_enabled_skills(self) -> List[RecruitmentSkill]:
         return self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False), RecruitmentSkill.is_enabled.is_(True)).order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.id.asc()).all()
 
+    def _load_system_base_skill_rows(self, task_kind: str) -> List[RecruitmentSkill]:
+        skill_code = SYSTEM_BASE_SKILL_CODES.get(task_kind)
+        if not skill_code:
+            return []
+        rows = self.db.query(RecruitmentSkill).filter(
+            RecruitmentSkill.skill_code == skill_code,
+            RecruitmentSkill.deleted.is_(False),
+            RecruitmentSkill.is_enabled.is_(True),
+        ).order_by(
+            RecruitmentSkill.sort_order.asc(),
+            RecruitmentSkill.id.asc(),
+        ).all()
+        return self._filter_skill_rows_for_task(rows, task_kind)
+
     def _filter_skill_rows_for_task(self, skill_rows: Sequence[RecruitmentSkill], task_kind: str) -> List[RecruitmentSkill]:
         rows = list(skill_rows or [])
         if not rows:
             return []
         matched = [row for row in rows if task_kind in _extract_skill_task_types(row)]
         return matched or rows
-
-    def _find_related_task_skill_rows(self, skill_rows: Sequence[RecruitmentSkill], task_kind: str) -> List[RecruitmentSkill]:
-        rows = list(skill_rows or [])
-        if not rows:
-            return []
-        target_groups = {
-            str((_extract_skill_runtime_meta(row).get("group") or "")).strip()
-            for row in rows
-            if str((_extract_skill_runtime_meta(row).get("group") or "")).strip()
-        }
-        if not target_groups:
-            return []
-        matched: List[RecruitmentSkill] = []
-        seen_ids: set[int] = set()
-        for row in self._load_enabled_skills():
-            meta = _extract_skill_runtime_meta(row)
-            group = str(meta.get("group") or "").strip()
-            if group and group in target_groups and task_kind in (meta.get("tasks") or []) and row.id not in seen_ids:
-                matched.append(row)
-                seen_ids.add(row.id)
-        return matched
 
     def _get_position_skill_rows(self, position_id: Optional[int]) -> List[RecruitmentSkill]:
         if not position_id:
@@ -6436,6 +6451,9 @@ class RecruitmentService:
         position_rows = self._get_position_task_skill_rows(position.id, "jd") if use_position_skills else []
         if position_rows:
             return position_rows, "position"
+        base_rows = self._load_system_base_skill_rows("jd")
+        if base_rows:
+            return base_rows, "system_builtin_base"
         global_rows = [row for row in self._load_enabled_skills() if "jd" in _extract_skill_task_types(row)] if use_global_skills else []
         if global_rows:
             return global_rows, "global"
@@ -6882,6 +6900,94 @@ class RecruitmentService:
             return True
         return parsed_next_retry_at <= datetime.now()
 
+    def _mark_screening_task_claimed(self, row: RecruitmentAITaskLog, *, claimed_at: Optional[datetime] = None) -> None:
+        now = claimed_at or datetime.now()
+        current_snapshot = _decode_ai_task_json_text(getattr(row, "output_snapshot", None), {})
+        if not isinstance(current_snapshot, dict):
+            current_snapshot = {}
+        row.status = "pending"
+        row.stage = "pending"
+        row.stage_started_at = now
+        row.stage_completed_at = None
+        row.duration_ms = None
+        row.error_message = None
+        row.output_summary = _truncate_utf8_text("任务已领取，等待执行。", AI_TASK_LOG_SUMMARY_LIMIT)
+        row.output_snapshot = _prepare_ai_task_output_snapshot(
+            {
+                **current_snapshot,
+                "task_type": SCREENING_FLOW_TASK_TYPE,
+                "stage": "pending",
+                "dispatch_claimed_at": now.isoformat(),
+                "auto_requeue_scheduled": False,
+                "run_completed": False,
+            },
+            max_bytes=AI_TASK_LOG_OUTPUT_SNAPSHOT_LIMIT,
+        )
+        self.db.add(row)
+
+    def _requeue_screening_root_task(self, row: RecruitmentAITaskLog, *, reason: str, requeued_at: Optional[datetime] = None) -> None:
+        now = requeued_at or datetime.now()
+        current_snapshot = _decode_ai_task_json_text(getattr(row, "output_snapshot", None), {})
+        current_validation = _decode_ai_task_json_text(getattr(row, "validation_meta_json", None), {})
+        if not isinstance(current_snapshot, dict):
+            current_snapshot = {}
+        if not isinstance(current_validation, dict):
+            current_validation = {}
+        row.status = "queued"
+        row.stage = "queued"
+        row.stage_started_at = now
+        row.stage_completed_at = None
+        row.duration_ms = None
+        row.error_message = None
+        row.output_summary = _truncate_utf8_text("检测到任务中断，系统已重新入队。", AI_TASK_LOG_SUMMARY_LIMIT)
+        row.output_snapshot = _prepare_ai_task_output_snapshot(
+            {
+                **current_snapshot,
+                "task_type": SCREENING_FLOW_TASK_TYPE,
+                "stage": "queued",
+                "startup_resume_scheduled": reason == "startup_resume",
+                "startup_resumed_at": now.isoformat() if reason == "startup_resume" else current_snapshot.get("startup_resumed_at"),
+                "dispatch_claimed_at": None,
+                "run_completed": False,
+            },
+            max_bytes=AI_TASK_LOG_OUTPUT_SNAPSHOT_LIMIT,
+        )
+        row.validation_meta_json = _prepare_ai_task_json_text(
+            {
+                **current_validation,
+                "startup_resume_scheduled": reason == "startup_resume",
+            }
+        )
+        self.db.add(row)
+
+    def resume_screening_queue_on_startup(self) -> Dict[str, Any]:
+        stale_before = datetime.now() - timedelta(minutes=SCREENING_ORPHAN_STALE_MINUTES)
+        rows = self.db.query(RecruitmentAITaskLog).filter(
+            self._screening_root_task_filter(),
+            RecruitmentAITaskLog.status.in_(["pending", "queued", "running"]),
+        ).order_by(
+            RecruitmentAITaskLog.updated_at.asc(),
+            RecruitmentAITaskLog.id.asc(),
+        ).all()
+        requeued_ids: List[int] = []
+        for row in rows:
+            checkpoint = row.updated_at or row.stage_started_at or row.created_at or datetime.now()
+            if checkpoint >= stale_before:
+                continue
+            self._requeue_screening_root_task(row, reason="startup_resume")
+            requeued_ids.append(int(row.id))
+        if requeued_ids:
+            self.db.commit()
+        with _screening_worker_lock:
+            for task_id in requeued_ids:
+                _screening_worker_active_task_ids.discard(task_id)
+        dispatch_payload = self._dispatch_screening_queue()
+        return {
+            "requeued_task_ids": requeued_ids,
+            "requeued_count": len(requeued_ids),
+            "dispatch": dispatch_payload,
+        }
+
     def _schedule_screening_infra_retry(
         self,
         row: RecruitmentAITaskLog,
@@ -6967,27 +7073,36 @@ class RecruitmentService:
         return row
 
     def _serialize_skill(self, row: RecruitmentSkill) -> Dict[str, Any]:
-        return {"id": row.id, "skill_code": row.skill_code, "name": row.name, "description": row.description, "content": row.content, "tags": json_loads_safe(row.tags_json, []), "sort_order": row.sort_order, "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        meta = _extract_skill_runtime_meta(row)
+        return {"id": row.id, "skill_code": row.skill_code, "name": row.name, "description": row.description, "skill_group": row.skill_group or meta.get("group"), "version": row.version or meta.get("version"), "task_types": list(meta.get("tasks") or []), "content": row.content, "tags": json_loads_safe(row.tags_json, []), "sort_order": row.sort_order, "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _serialize_skill_snapshot(self, skill: Any, fallback_index: int = 0) -> Dict[str, Any]:
         if isinstance(skill, dict):
             tags = skill.get("tags") or []
+            meta = _extract_skill_runtime_meta(skill)
             return {
                 "id": int(skill.get("id") or (-(fallback_index + 1))),
                 "skill_code": str(skill.get("skill_code") or f"snapshot-{fallback_index + 1}"),
                 "name": str(skill.get("name") or f"Skill #{fallback_index + 1}"),
                 "description": skill.get("description"),
+                "skill_group": skill.get("skill_group") or meta.get("group"),
+                "version": skill.get("version") or meta.get("version"),
+                "task_types": list(skill.get("task_types") or meta.get("tasks") or []),
                 "content": str(skill.get("content") or ""),
                 "tags": tags if isinstance(tags, list) else [],
                 "sort_order": int(skill.get("sort_order") or 999),
                 "is_enabled": bool(skill.get("is_enabled", True)),
             }
         if isinstance(skill, RecruitmentSkill):
+            meta = _extract_skill_runtime_meta(skill)
             return {
                 "id": skill.id,
                 "skill_code": skill.skill_code,
                 "name": skill.name,
                 "description": skill.description,
+                "skill_group": skill.skill_group or meta.get("group"),
+                "version": skill.version or meta.get("version"),
+                "task_types": list(meta.get("tasks") or []),
                 "content": skill.content,
                 "tags": json_loads_safe(skill.tags_json, []),
                 "sort_order": skill.sort_order,
@@ -6999,6 +7114,9 @@ class RecruitmentService:
             "skill_code": f"snapshot-{fallback_index + 1}",
             "name": text or f"Skill #{fallback_index + 1}",
             "description": None,
+            "skill_group": None,
+            "version": None,
+            "task_types": [],
             "content": text,
             "tags": [],
             "sort_order": 999,
@@ -7130,17 +7248,39 @@ class RecruitmentService:
     def _serialize_publish_task(self, row: RecruitmentPublishTask) -> Dict[str, Any]:
         return {"id": row.id, "position_id": row.position_id, "target_platform": row.target_platform, "mode": row.mode, "adapter_code": row.adapter_code, "status": row.status, "request_payload": json_loads_safe(row.request_payload, None), "response_payload": json_loads_safe(row.response_payload, None), "published_url": row.published_url, "screenshot_path": row.screenshot_path, "retry_count": row.retry_count, "error_message": row.error_message, "created_by": row.created_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
+    def _get_active_jd_version_for_position(self, row: RecruitmentPosition) -> Optional[RecruitmentJDVersion]:
+        current_jd = self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.id == row.current_jd_version_id).first() if row.current_jd_version_id else None
+        if current_jd:
+            return current_jd
+        return self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.position_id == row.id, RecruitmentJDVersion.is_active.is_(True)).order_by(RecruitmentJDVersion.version_no.desc(), RecruitmentJDVersion.id.desc()).first()
+
+    def _serialize_active_jd_snapshot(self, row: RecruitmentPosition) -> Optional[Dict[str, Any]]:
+        current_jd = self._get_active_jd_version_for_position(row)
+        if not current_jd:
+            return None
+        payload = {
+            "id": current_jd.id,
+            "title": current_jd.title,
+            "version_no": current_jd.version_no,
+            "notes": current_jd.notes,
+        }
+        jd_markdown = str(current_jd.jd_markdown or "").strip()
+        publish_text = str(current_jd.publish_text or "").strip()
+        if jd_markdown:
+            payload["jd_markdown"] = truncate_text(jd_markdown, 12000)
+        if publish_text:
+            payload["publish_text"] = truncate_text(publish_text, 6000)
+        return payload
+
     def _serialize_position(self, row: RecruitmentPosition) -> Dict[str, Any]:
         jd_skill_rows = self._get_position_task_skill_rows(row.id, "jd")
         screening_skill_rows = self._get_position_task_skill_rows(row.id, "screening")
         interview_skill_rows = self._get_position_task_skill_rows(row.id, "interview")
         auto_mail_config = self._get_position_auto_mail_config(row.id)
-        current_jd = self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.id == row.current_jd_version_id).first() if row.current_jd_version_id else None
-        if not current_jd:
-            current_jd = self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.position_id == row.id, RecruitmentJDVersion.is_active.is_(True)).order_by(RecruitmentJDVersion.version_no.desc(), RecruitmentJDVersion.id.desc()).first()
+        current_jd = self._get_active_jd_version_for_position(row)
         jd_version_count = self.db.query(func.count(RecruitmentJDVersion.id)).filter(RecruitmentJDVersion.position_id == row.id).scalar() or 0
         candidate_count = self.db.query(func.count(RecruitmentCandidate.id)).filter(RecruitmentCandidate.position_id == row.id, RecruitmentCandidate.deleted.is_(False)).scalar() or 0
-        return {"id": row.id, "position_code": row.position_code, "title": row.title, "department": row.department, "location": row.location, "employment_type": row.employment_type, "salary_range": row.salary_range, "headcount": row.headcount, "key_requirements": row.key_requirements, "bonus_points": row.bonus_points, "summary": row.summary, "status": row.status, "auto_screen_on_upload": bool(row.auto_screen_on_upload), "auto_advance_on_screening": bool(row.auto_advance_on_screening), "auto_mail_enabled": bool(auto_mail_config.get("auto_mail_enabled")), "auto_mail_use_global_recipients": bool(auto_mail_config.get("auto_mail_use_global_recipients")), "auto_mail_use_position_recipients": bool(auto_mail_config.get("auto_mail_use_position_recipients")), "auto_mail_position_recipient_ids": list(auto_mail_config.get("auto_mail_position_recipient_ids") or []), "auto_mail_allowed_candidate_statuses": list(auto_mail_config.get("auto_mail_allowed_candidate_statuses") or []), "auto_mail_template_id": auto_mail_config.get("auto_mail_template_id"), "auto_mail_dedup_mode": auto_mail_config.get("auto_mail_dedup_mode"), "auto_mail_cc_recipient_ids": list(auto_mail_config.get("auto_mail_cc_recipient_ids") or []), "auto_mail_bcc_recipient_ids": list(auto_mail_config.get("auto_mail_bcc_recipient_ids") or []), "jd_skill_ids": [skill.id for skill in jd_skill_rows], "jd_skills": [self._serialize_skill(skill) for skill in jd_skill_rows], "screening_skill_ids": [skill.id for skill in screening_skill_rows], "screening_skills": [self._serialize_skill(skill) for skill in screening_skill_rows], "interview_skill_ids": [skill.id for skill in interview_skill_rows], "interview_skills": [self._serialize_skill(skill) for skill in interview_skill_rows], "tags": json_loads_safe(row.tags_json, []), "current_jd_version_id": row.current_jd_version_id, "current_jd_title": current_jd.title if current_jd else None, "jd_version_count": int(jd_version_count), "candidate_count": int(candidate_count), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "position_code": row.position_code, "title": row.title, "department": row.department, "location": row.location, "employment_type": row.employment_type, "salary_range": row.salary_range, "headcount": row.headcount, "key_requirements": row.key_requirements, "bonus_points": row.bonus_points, "summary": row.summary, "status": row.status, "auto_screen_on_upload": bool(row.auto_screen_on_upload), "auto_advance_on_screening": bool(row.auto_advance_on_screening), "auto_mail_enabled": bool(auto_mail_config.get("auto_mail_enabled")), "auto_mail_use_global_recipients": bool(auto_mail_config.get("auto_mail_use_global_recipients")), "auto_mail_use_position_recipients": bool(auto_mail_config.get("auto_mail_use_position_recipients")), "auto_mail_position_recipient_ids": list(auto_mail_config.get("auto_mail_position_recipient_ids") or []), "auto_mail_allowed_candidate_statuses": list(auto_mail_config.get("auto_mail_allowed_candidate_statuses") or []), "auto_mail_template_id": auto_mail_config.get("auto_mail_template_id"), "auto_mail_dedup_mode": auto_mail_config.get("auto_mail_dedup_mode"), "auto_mail_cc_recipient_ids": list(auto_mail_config.get("auto_mail_cc_recipient_ids") or []), "auto_mail_bcc_recipient_ids": list(auto_mail_config.get("auto_mail_bcc_recipient_ids") or []), "jd_skill_ids": [skill.id for skill in jd_skill_rows], "jd_skills": [self._serialize_skill(skill) for skill in jd_skill_rows], "screening_skill_ids": [skill.id for skill in screening_skill_rows], "screening_skills": [self._serialize_skill(skill) for skill in screening_skill_rows], "interview_skill_ids": [skill.id for skill in interview_skill_rows], "interview_skills": [self._serialize_skill(skill) for skill in interview_skill_rows], "tags": json_loads_safe(row.tags_json, []), "current_jd_version_id": row.current_jd_version_id, "current_jd_title": current_jd.title if current_jd else None, "active_jd_snapshot": self._serialize_active_jd_snapshot(row), "jd_version_count": int(jd_version_count), "candidate_count": int(candidate_count), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _serialize_resume_file(self, row: RecruitmentResumeFile) -> Dict[str, Any]:
         parse_status = row.parse_status
@@ -7313,7 +7453,8 @@ class RecruitmentService:
         return [self._serialize_skill(row) for row in self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.id.asc()).all()]
 
     def create_skill(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
-        row = RecruitmentSkill(skill_code=f"skill-{_slugify(str(payload.get('name') or 'skill'))}-{uuid.uuid4().hex[:4]}", name=str(payload.get("name") or "").strip(), description=payload.get("description"), content=str(payload.get("content") or "").strip(), tags_json=json_dumps_safe(payload.get("tags") or []), sort_order=int(payload.get("sort_order") or 99), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
+        meta = _extract_skill_runtime_meta(payload)
+        row = RecruitmentSkill(skill_code=f"skill-{_slugify(str(payload.get('name') or 'skill'))}-{uuid.uuid4().hex[:4]}", name=str(payload.get("name") or "").strip(), description=payload.get("description"), skill_group=str(payload.get("skill_group") or meta.get("group") or "").strip() or None, version=str(payload.get("version") or meta.get("version") or "").strip() or None, content=str(payload.get("content") or "").strip(), tags_json=json_dumps_safe(payload.get("tags") or []), sort_order=int(payload.get("sort_order") or 99), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
@@ -7326,6 +7467,21 @@ class RecruitmentService:
                 setattr(row, field, payload.get(field))
         if "tags" in payload:
             row.tags_json = json_dumps_safe(payload.get("tags") or [])
+        runtime_meta = _extract_skill_runtime_meta(
+            {
+                "skill_code": row.skill_code,
+                "name": payload.get("name") if "name" in payload else row.name,
+                "description": payload.get("description") if "description" in payload else row.description,
+                "content": payload.get("content") if "content" in payload else row.content,
+                "tags": payload.get("tags") if "tags" in payload else json_loads_safe(row.tags_json, []),
+                "skill_group": payload.get("skill_group") if "skill_group" in payload else row.skill_group,
+                "version": payload.get("version") if "version" in payload else row.version,
+            }
+        )
+        if "skill_group" in payload or "content" in payload or "tags" in payload:
+            row.skill_group = str(payload.get("skill_group") or runtime_meta.get("group") or "").strip() or None
+        if "version" in payload or "content" in payload or "tags" in payload:
+            row.version = str(payload.get("version") or runtime_meta.get("version") or "").strip() or None
         row.updated_by = actor_id
         self.db.add(row)
         self.db.commit()
@@ -7486,6 +7642,7 @@ class RecruitmentService:
             "auto_screen_on_upload": bool(row.auto_screen_on_upload),
             "auto_advance_on_screening": bool(row.auto_advance_on_screening),
             "current_jd_version_id": row.current_jd_version_id,
+            "active_jd_snapshot": self._serialize_active_jd_snapshot(row),
         }
 
     def _serialize_position_for_jd_prompt(self, row: RecruitmentPosition) -> Dict[str, Any]:
@@ -7505,6 +7662,7 @@ class RecruitmentService:
             "auto_screen_on_upload": bool(row.auto_screen_on_upload),
             "auto_advance_on_screening": bool(row.auto_advance_on_screening),
             "current_jd_version_id": row.current_jd_version_id,
+            "active_jd_snapshot": self._serialize_active_jd_snapshot(row),
         }
 
     def _serialize_parse_result_for_interview_prompt(self, row: RecruitmentResumeParseResult) -> Dict[str, Any]:
@@ -7828,7 +7986,23 @@ class RecruitmentService:
             ext = Path(file_name).suffix.lower()
             stored_name = f"{uuid.uuid4().hex}{ext}"
             storage_path = target_dir / stored_name
-            storage_path.write_bytes(item.get("content") or b"")
+            staged_path_text = str(item.get("staged_path") or "").strip()
+            file_size = int(item.get("file_size") or 0)
+            if staged_path_text:
+                staged_path = Path(staged_path_text)
+                if not staged_path.exists():
+                    raise ValueError(f"上传文件暂存失败：{file_name}")
+                storage_path.parent.mkdir(parents=True, exist_ok=True)
+                if staged_path.resolve() != storage_path.resolve():
+                    shutil.move(str(staged_path), str(storage_path))
+                else:
+                    storage_path = staged_path
+                if file_size <= 0:
+                    file_size = int(storage_path.stat().st_size)
+            else:
+                content = item.get("content") or b""
+                storage_path.write_bytes(content)
+                file_size = len(content)
             candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", position_id=position.id if position else None, name=safe_file_stem(file_name), source="manual_upload", source_detail=file_name, status="pending_screening", tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
             self.db.add(candidate)
             self.db.flush()
@@ -7836,7 +8010,7 @@ class RecruitmentService:
             upload_mime_type = str(item.get("content_type") or "").strip()
             if not upload_mime_type or upload_mime_type in {"application/octet-stream", "binary/octet-stream"}:
                 upload_mime_type = mimetypes.guess_type(file_name)[0] or None
-            resume_file = RecruitmentResumeFile(candidate_id=candidate.id, original_name=file_name, stored_name=stored_name, file_ext=ext, mime_type=upload_mime_type or None, file_size=len(item.get("content") or b""), storage_path=str(storage_path), parse_status="pending", uploaded_by=actor_id)
+            resume_file = RecruitmentResumeFile(candidate_id=candidate.id, original_name=file_name, stored_name=stored_name, file_ext=ext, mime_type=upload_mime_type or None, file_size=file_size, storage_path=str(storage_path), parse_status="pending", uploaded_by=actor_id)
             self.db.add(resume_file)
             self.db.flush()
             candidate.latest_resume_file_id = resume_file.id
@@ -7892,6 +8066,22 @@ class RecruitmentService:
                     explicit_skill_ids_empty=explicit_skill_ids is not None and not requested_skill_ids,
                 ),
             )
+        base_rows = self._load_system_base_skill_rows("screening")
+        if base_rows:
+            return (
+                base_rows,
+                "system_builtin_base",
+                "system_builtin_base",
+                _build_skill_resolution_detail(
+                    requested_skill_ids=requested_skill_ids,
+                    resolved_skill_rows=base_rows,
+                    position_screening_skill_ids=position_screening_skill_ids,
+                    workflow_memory_skill_ids=workflow_memory_skill_ids,
+                    used_position_skills=False,
+                    used_candidate_memory=False,
+                    explicit_skill_ids_empty=explicit_skill_ids is not None and not requested_skill_ids,
+                ),
+            )
         if use_candidate_memory and workflow:
             memory_rows = self._filter_skill_rows_for_task(self._load_skill_rows(workflow_memory_skill_ids, enabled_only=True), "screening")
             if memory_rows:
@@ -7937,6 +8127,7 @@ class RecruitmentService:
             "key_requirements": position.key_requirements,
             "bonus_points": position.bonus_points,
             "summary": position.summary,
+            "active_jd_snapshot": self._serialize_active_jd_snapshot(position),
         }
 
     def _save_score_result(self, candidate: RecruitmentCandidate, parse_row: RecruitmentResumeParseResult, actor_id: str, content: Dict[str, Any], *, allow_status_advance: bool = True) -> RecruitmentCandidateScore:
@@ -11386,6 +11577,9 @@ class RecruitmentService:
         position_rows = self._get_position_task_skill_rows(candidate.position_id, "interview") if use_position_skills else []
         if position_rows:
             return position_rows, "position"
+        base_rows = self._load_system_base_skill_rows("interview")
+        if base_rows:
+            return base_rows, "system_builtin_base"
         workflow = self._get_workflow_memory(candidate.id)
         if use_candidate_memory and workflow:
             interview_skill_ids = json_loads_safe(workflow.interview_skill_ids_json, [])

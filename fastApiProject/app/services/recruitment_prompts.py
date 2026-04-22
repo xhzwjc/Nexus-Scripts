@@ -354,11 +354,11 @@ Rules:
   - 面试题正题
   - 参考答案要点（至少 3 条）
   - 通过 / 注意 / 一票否决判定
-  - 追问环节（至少 2 条）
-  - 答不出时·面试官解释
+- 追问环节（至少 2 条）
+- 答不出时·面试官解释
 - If a domain lacks direct resume evidence, explicitly write it as a risk-verification question. Do not imply the candidate definitely did it.
 - Active skills are hidden generation constraints only. Never surface rule names such as “强制出题”, “AI工具必出”, “软件测试不为零”, “输出规范”, “触发方式” in visible content.
-- Prefer concrete evidence points like UWB 项目、Cadence/PADS/PCB、电源与信号测试、测试指导书、测试方案改进、自动化测试方向. Do not anchor primarily on company names.
+- Prefer concrete evidence points like 关键项目、核心模块、接口/协议协作、质量改进动作、自动化工具链、交付文档或量化结果. Do not anchor primarily on company names.
 - Do not output HTML.
 - Do not include code fences.
 """

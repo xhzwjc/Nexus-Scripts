@@ -109,6 +109,7 @@ const zhRecruitmentUiLocale: RecruitmentUiLocale = {
     },
     skillResolutionSourceLabels: {
         position_binding: "岗位绑定",
+        system_builtin_base: "系统通用基座",
         candidate_memory: "候选人工作记忆",
         explicit_request: "显式指定",
         task_snapshot: "任务快照",
@@ -191,6 +192,7 @@ const enRecruitmentUiLocale: RecruitmentUiLocale = {
     },
     skillResolutionSourceLabels: {
         position_binding: "Position Binding",
+        system_builtin_base: "System Base",
         candidate_memory: "Candidate Memory",
         explicit_request: "Explicit Request",
         task_snapshot: "Task Snapshot",
@@ -451,6 +453,18 @@ export function formatSkillNames(skillIds: number[] | undefined | null, skillMap
         .join("、");
 }
 
+export type SkillTaskKind = "jd" | "screening" | "interview";
+
+export type SkillPackOption = {
+    id: number;
+    key: string;
+    group: string;
+    version: string;
+    label: string;
+    description?: string | null;
+    modules: Record<SkillTaskKind, RecruitmentSkill | null>;
+};
+
 export function parseSkillFrontmatter(content?: string | null) {
     const text = content || "";
     const match = text.match(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
@@ -473,7 +487,7 @@ export function parseSkillFrontmatter(content?: string | null) {
     return result;
 }
 
-export function normalizeSkillTaskName(value?: string | null): "jd" | "screening" | "interview" | null {
+export function normalizeSkillTaskName(value?: string | null): SkillTaskKind | null {
     const text = (value || "").trim().toLowerCase();
     if (!text) {
         return null;
@@ -493,14 +507,24 @@ export function normalizeSkillTaskName(value?: string | null): "jd" | "screening
 export function extractSkillRuntimeMeta(skill: Partial<RecruitmentSkill> | null | undefined) {
     const frontmatter = parseSkillFrontmatter(skill?.content || "");
     const tags = Array.isArray(skill?.tags) ? skill.tags.filter((tag): tag is string => typeof tag === "string") : [];
-    let group = (frontmatter.skill_group || frontmatter.group || "").trim();
+    let group = String(skill?.skill_group || frontmatter.skill_group || frontmatter.group || "").trim();
     if (!group) {
         const groupTag = tags.find((tag) => tag.toLowerCase().startsWith("group:"));
         if (groupTag) {
             group = groupTag.split(":").slice(1).join(":").trim();
         }
     }
+    let version = String(skill?.version || frontmatter.version || frontmatter.skill_version || "").trim();
+    if (!version) {
+        const versionTag = tags.find((tag) => tag.toLowerCase().startsWith("version:"));
+        if (versionTag) {
+            version = versionTag.split(":").slice(1).join(":").trim();
+        }
+    }
     const rawTaskValues: string[] = [];
+    if (Array.isArray(skill?.task_types)) {
+        rawTaskValues.push(...skill.task_types);
+    }
     ["applies_to", "task", "tasks", "task_type"].forEach((fieldName) => {
         const rawValue = frontmatter[fieldName];
         if (rawValue) {
@@ -518,15 +542,158 @@ export function extractSkillRuntimeMeta(skill: Partial<RecruitmentSkill> | null 
         new Set(
             rawTaskValues
                 .map((item) => normalizeSkillTaskName(item))
-                .filter((item): item is "jd" | "screening" | "interview" => Boolean(item)),
+                .filter((item): item is SkillTaskKind => Boolean(item)),
         ),
     );
-    return {group, tasks};
+    return {group, version, tasks};
+}
+
+function buildSkillPackKey(group?: string | null, version?: string | null) {
+    const normalizedGroup = String(group || "").trim();
+    if (!normalizedGroup) {
+        return "";
+    }
+    return `${normalizedGroup}::${String(version || "").trim()}`;
+}
+
+function sortSkillRows(source: RecruitmentSkill[]) {
+    return [...source].sort((left, right) => {
+        const leftOrder = Number.isFinite(Number(left.sort_order)) ? Number(left.sort_order) : 999;
+        const rightOrder = Number.isFinite(Number(right.sort_order)) ? Number(right.sort_order) : 999;
+        if (leftOrder !== rightOrder) {
+            return leftOrder - rightOrder;
+        }
+        if (left.id !== right.id) {
+            return left.id - right.id;
+        }
+        return String(left.name || "").localeCompare(String(right.name || ""), "zh-Hans-CN");
+    });
+}
+
+export function buildSkillPackOptions(source: RecruitmentSkill[]): SkillPackOption[] {
+    const packMap = new Map<string, RecruitmentSkill[]>();
+    source.forEach((skill) => {
+        if (skill.is_enabled === false) {
+            return;
+        }
+        const meta = extractSkillRuntimeMeta(skill);
+        const packKey = buildSkillPackKey(meta.group, meta.version);
+        if (!packKey) {
+            return;
+        }
+        const current = packMap.get(packKey) || [];
+        current.push(skill);
+        packMap.set(packKey, current);
+    });
+    return Array.from(packMap.entries())
+        .map(([packKey, rows]) => {
+            const sortedRows = sortSkillRows(rows);
+            const sampleMeta = extractSkillRuntimeMeta(sortedRows[0]);
+            const modules: Record<SkillTaskKind, RecruitmentSkill | null> = {
+                jd: null,
+                screening: null,
+                interview: null,
+            };
+            sortedRows.forEach((skill) => {
+                const meta = extractSkillRuntimeMeta(skill);
+                meta.tasks.forEach((taskKind) => {
+                    if (!modules[taskKind]) {
+                        modules[taskKind] = skill;
+                    }
+                });
+            });
+            const preferredSkill = modules.jd || modules.screening || modules.interview || sortedRows[0];
+            return {
+                id: preferredSkill.id,
+                key: packKey,
+                group: sampleMeta.group,
+                version: sampleMeta.version,
+                label: sampleMeta.group,
+                description: preferredSkill.description || null,
+                modules,
+            };
+        })
+        .sort((left, right) => left.label.localeCompare(right.label, "zh-Hans-CN"));
+}
+
+export function resolveSkillPackTaskIds(
+    skillPackIds: number[] | undefined | null,
+    skillMap: Map<number, RecruitmentSkill>,
+): Record<SkillTaskKind, number[]> {
+    const selectedId = (skillPackIds || []).find((item): item is number => typeof item === "number");
+    const emptyValue: Record<SkillTaskKind, number[]> = {jd: [], screening: [], interview: []};
+    if (!selectedId) {
+        return emptyValue;
+    }
+    const selectedSkill = skillMap.get(selectedId);
+    if (!selectedSkill) {
+        return emptyValue;
+    }
+    const selectedMeta = extractSkillRuntimeMeta(selectedSkill);
+    const selectedPackKey = buildSkillPackKey(selectedMeta.group, selectedMeta.version);
+    if (!selectedPackKey) {
+        return selectedMeta.tasks.reduce((acc, taskKind) => {
+            acc[taskKind] = [selectedSkill.id];
+            return acc;
+        }, emptyValue);
+    }
+    return sortSkillRows(
+        Array.from(skillMap.values()).filter((skill) => {
+            if (skill.is_enabled === false) {
+                return false;
+            }
+            const meta = extractSkillRuntimeMeta(skill);
+            return buildSkillPackKey(meta.group, meta.version) === selectedPackKey;
+        }),
+    ).reduce((acc, skill) => {
+        extractSkillRuntimeMeta(skill).tasks.forEach((taskKind) => {
+            if (!acc[taskKind].includes(skill.id)) {
+                acc[taskKind].push(skill.id);
+            }
+        });
+        return acc;
+    }, emptyValue);
+}
+
+export function inferSkillPackIdsFromTaskSelections(
+    payload: Partial<Record<SkillTaskKind, number[]>>,
+    skillMap: Map<number, RecruitmentSkill>,
+) {
+    const packScoreMap = new Map<string, {id: number; taskCount: number; score: number}>();
+    (["jd", "screening", "interview"] as SkillTaskKind[]).forEach((taskKind, taskIndex) => {
+        (payload[taskKind] || []).forEach((skillId) => {
+            const skill = skillMap.get(skillId);
+            if (!skill) {
+                return;
+            }
+            const meta = extractSkillRuntimeMeta(skill);
+            const packKey = buildSkillPackKey(meta.group, meta.version);
+            if (!packKey) {
+                return;
+            }
+            const current = packScoreMap.get(packKey) || {id: skill.id, taskCount: 0, score: 0};
+            packScoreMap.set(packKey, {
+                id: current.id,
+                taskCount: current.taskCount + 1,
+                score: current.score + (10 - taskIndex),
+            });
+        });
+    });
+    const bestMatch = Array.from(packScoreMap.values()).sort((left, right) => {
+        if (left.taskCount !== right.taskCount) {
+            return right.taskCount - left.taskCount;
+        }
+        if (left.score !== right.score) {
+            return right.score - left.score;
+        }
+        return left.id - right.id;
+    })[0];
+    return bestMatch ? [bestMatch.id] : [];
 }
 
 export function resolveTaskSkillIds(
     skillIds: number[] | undefined | null,
-    taskKind: "jd" | "screening" | "interview",
+    taskKind: SkillTaskKind,
     skillMap: Map<number, RecruitmentSkill>,
 ) {
     const ids = (skillIds || []).filter((item): item is number => typeof item === "number");
@@ -540,14 +707,17 @@ export function resolveTaskSkillIds(
     if (directMatches.length) {
         return Array.from(new Set(directMatches));
     }
-    const groups = Array.from(
+    const packKeys = Array.from(
         new Set(
             ids
-                .map((skillId) => extractSkillRuntimeMeta(skillMap.get(skillId)).group)
+                .map((skillId) => {
+                    const meta = extractSkillRuntimeMeta(skillMap.get(skillId));
+                    return buildSkillPackKey(meta.group, meta.version);
+                })
                 .filter((value): value is string => Boolean(value)),
         ),
     );
-    if (!groups.length) {
+    if (!packKeys.length) {
         return ids;
     }
     const relatedIds = Array.from(
@@ -555,7 +725,7 @@ export function resolveTaskSkillIds(
             Array.from(skillMap.values())
                 .filter((skill) => {
                     const meta = extractSkillRuntimeMeta(skill);
-                    return skill.is_enabled !== false && Boolean(meta.group) && groups.includes(meta.group) && meta.tasks.includes(taskKind);
+                    return skill.is_enabled !== false && packKeys.includes(buildSkillPackKey(meta.group, meta.version)) && meta.tasks.includes(taskKind);
                 })
                 .map((skill) => skill.id),
         ),
@@ -569,7 +739,7 @@ export function toggleSingleSkillId(current: number[], targetId: number) {
 
 export function sortSkillsForTaskPreference(
     source: RecruitmentSkill[],
-    taskKind: "jd" | "screening" | "interview",
+    taskKind: SkillTaskKind,
 ) {
     return [...source].sort((left, right) => {
         const leftMeta = extractSkillRuntimeMeta(left);
@@ -602,6 +772,9 @@ export function normalizeSkillSnapshot(skill: Partial<RecruitmentSkill> | null |
         tags: normalizedTags,
         sort_order: Number.isFinite(Number(skill?.sort_order)) ? Number(skill?.sort_order) : 999,
         is_enabled: skill?.is_enabled !== false,
+        skill_group: skill?.skill_group || null,
+        version: skill?.version || null,
+        task_types: Array.isArray(skill?.task_types) ? skill.task_types : extractSkillRuntimeMeta(skill).tasks,
         created_by: skill?.created_by || null,
         updated_by: skill?.updated_by || null,
         created_at: skill?.created_at || null,
@@ -695,6 +868,10 @@ export function labelForMemorySource(source?: string | null) {
         case "position_default":
         case "position_binding":
             return "岗位绑定 Skills";
+        case "system_builtin_base":
+        case "system_base":
+        case "builtin_base":
+            return "系统通用基座";
         case "global":
         case "enabled_global_fallback":
             return "全局启用 Skills";

@@ -153,6 +153,8 @@ class RecruitmentSkill(Base):
     skill_code = Column(String(64), unique=True, index=True, nullable=False)
     name = Column(String(120), nullable=False, index=True)
     description = Column(String(255))
+    skill_group = Column(String(120), index=True)
+    version = Column(String(40), index=True)
     content = Column(Text, nullable=False)
     tags_json = Column(Text)
     sort_order = Column(Integer, default=99, nullable=False)

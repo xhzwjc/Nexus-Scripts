@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import httpx
 
+from app.recruitment_models import RecruitmentSkill
 from app.services.recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentLLMRuntimeConfig, _compose_json_user_prompt
 from app.services.recruitment_ai_gateway import RecruitmentAIScreeningTotalTimeoutError, SCREENING_TOTAL_TIMEOUT_SECONDS
 from app.services.recruitment_prompts import (
@@ -100,10 +101,27 @@ def _build_query_mock(*, all_value=None, first_value=None) -> Mock:
     query = Mock()
     query.filter.return_value = query
     query.order_by.return_value = query
+    query.with_for_update.return_value = query
     query.limit.return_value = query
     query.all.return_value = all_value
     query.first.return_value = first_value
     return query
+
+
+def _build_skill_row(skill_id: int, task_kind: str, *, group: str, version: str = "v1", enabled: bool = True) -> RecruitmentSkill:
+    return RecruitmentSkill(
+        id=skill_id,
+        skill_code=f"{group}-{task_kind}-{skill_id}",
+        name=f"{group}-{task_kind}",
+        description=f"{task_kind} module",
+        content=f"---\nskill_group: {group}\nversion: {version}\ntask_type: {task_kind}\n---\n",
+        tags_json=json.dumps([f"group:{group}", f"version:{version}", f"task:{task_kind}"], ensure_ascii=False),
+        sort_order=skill_id,
+        is_enabled=enabled,
+        deleted=False,
+        skill_group=group,
+        version=version,
+    )
 
 
 def _build_ai_task_log_row(**overrides) -> SimpleNamespace:
@@ -589,6 +607,7 @@ def test_dispatch_screening_queue_uses_screening_root_task_filter():
     queued_query = Mock()
     queued_query.filter.return_value = queued_query
     queued_query.order_by.return_value = queued_query
+    queued_query.with_for_update.return_value = queued_query
     queued_query.limit.return_value = queued_query
     queued_query.all.return_value = [SimpleNamespace(id=301, created_by="tester")]
     dispatch_db = Mock()
@@ -598,13 +617,145 @@ def test_dispatch_screening_queue_uses_screening_root_task_filter():
 
     with patch("app.services.recruitment_service_impl.SessionLocal", return_value=dispatch_db), \
             patch.object(RecruitmentService, "_screening_root_task_filter", return_value="ROOT_FILTER"), \
+            patch.object(RecruitmentService, "_mark_screening_task_claimed") as mark_claimed, \
             patch("app.services.recruitment_service_impl._screening_provider_cooldown_until", None), \
             patch("app.services.recruitment_service_impl._screening_worker_active_task_ids", set()):
         payload = service._dispatch_screening_queue()
 
     assert payload["started_count"] == 1
     assert "ROOT_FILTER" in queued_query.filter.call_args.args
+    queued_query.with_for_update.assert_called_once_with(skip_locked=True)
+    mark_claimed.assert_called_once()
     service._start_background_ai_task.assert_called_once()
+
+
+def test_sync_position_task_skill_bindings_keeps_three_task_selections_independent():
+    service = RecruitmentService(Mock())
+    row = SimpleNamespace(
+        id=201,
+        jd_skill_ids_json=json.dumps([901], ensure_ascii=False),
+        screening_skill_ids_json=json.dumps([902], ensure_ascii=False),
+        interview_skill_ids_json=json.dumps([903], ensure_ascii=False),
+    )
+    service._sync_position_skill_links = Mock()
+
+    service._sync_position_task_skill_bindings(
+        row,
+        actor_id="tester",
+        jd_skill_ids=[101, 101],
+        screening_skill_ids=[202],
+        interview_skill_ids=[303],
+    )
+
+    assert json.loads(row.jd_skill_ids_json) == [101]
+    assert json.loads(row.screening_skill_ids_json) == [202]
+    assert json.loads(row.interview_skill_ids_json) == [303]
+    service._sync_position_skill_links.assert_called_once_with(row.id, [101, 202, 303], "tester")
+
+
+def test_resolve_jd_skills_prefers_system_base_before_global_fallback():
+    service = RecruitmentService(Mock())
+    position = SimpleNamespace(id=301)
+    base_jd = _build_skill_row(311, "jd", group="system-base", version="v1")
+    global_jd = _build_skill_row(312, "jd", group="global-fallback", version="v1")
+    service._load_skill_rows = Mock(return_value=[])
+    service._get_position_task_skill_rows = Mock(return_value=[])
+    service._load_system_base_skill_rows = Mock(return_value=[base_jd])
+    service._load_enabled_skills = Mock(return_value=[global_jd])
+
+    rows, source = service._resolve_jd_skills(position)
+
+    assert [row.id for row in rows] == [base_jd.id]
+    assert source == "system_builtin_base"
+    service._load_enabled_skills.assert_not_called()
+
+
+def test_resolve_screening_skills_prefers_system_base_before_candidate_memory():
+    service = RecruitmentService(Mock())
+    candidate = SimpleNamespace(id=401, position_id=77)
+    workflow = SimpleNamespace(
+        screening_skill_ids_json=json.dumps([998], ensure_ascii=False),
+        screening_memory_source="candidate_memory",
+    )
+    base_screening = _build_skill_row(411, "screening", group="system-base", version="v1")
+    service._get_position = Mock(return_value=SimpleNamespace(id=77))
+    service._get_position_task_skill_ids = Mock(return_value=[])
+    service._get_workflow_memory = Mock(return_value=workflow)
+    service._load_skill_rows = Mock(return_value=[])
+    service._get_position_task_skill_rows = Mock(return_value=[])
+    service._load_system_base_skill_rows = Mock(return_value=[base_screening])
+
+    rows, source, memory_source, detail = service._resolve_screening_skills(candidate, None)
+
+    assert [row.id for row in rows] == [base_screening.id]
+    assert source == "system_builtin_base"
+    assert memory_source == "system_builtin_base"
+    assert detail["used_candidate_memory"] is False
+    assert detail["workflow_memory_skill_ids"] == [998]
+
+
+def test_resolve_interview_skills_prefers_system_base_before_candidate_memory():
+    service = RecruitmentService(Mock())
+    candidate = SimpleNamespace(id=501, position_id=88)
+    workflow = SimpleNamespace(
+        interview_skill_ids_json=json.dumps([1234], ensure_ascii=False),
+        screening_memory_source="candidate_memory",
+    )
+    base_interview = _build_skill_row(511, "interview", group="system-base", version="v1")
+    service._load_skill_rows = Mock(return_value=[])
+    service._get_position_task_skill_rows = Mock(return_value=[])
+    service._load_system_base_skill_rows = Mock(return_value=[base_interview])
+    service._get_workflow_memory = Mock(return_value=workflow)
+
+    rows, source = service._resolve_interview_skills(candidate, None)
+
+    assert [row.id for row in rows] == [base_interview.id]
+    assert source == "system_builtin_base"
+
+
+def test_resume_screening_queue_on_startup_requeues_only_stale_live_tasks():
+    service = RecruitmentService(Mock())
+    now = datetime.now()
+    stale_row = SimpleNamespace(
+        id=401,
+        status="running",
+        stage="running",
+        updated_at=now - timedelta(minutes=30),
+        stage_started_at=now - timedelta(minutes=35),
+        created_at=now - timedelta(minutes=40),
+        output_snapshot=None,
+        validation_meta_json=None,
+        duration_ms=99,
+        error_message="boom",
+        output_summary="old",
+    )
+    fresh_row = SimpleNamespace(
+        id=402,
+        status="pending",
+        stage="pending",
+        updated_at=now - timedelta(minutes=2),
+        stage_started_at=now - timedelta(minutes=2),
+        created_at=now - timedelta(minutes=5),
+        output_snapshot=None,
+        validation_meta_json=None,
+        duration_ms=None,
+        error_message=None,
+        output_summary="fresh",
+    )
+    query = _build_query_mock(all_value=[stale_row, fresh_row])
+    service.db.query.return_value = query
+    service._dispatch_screening_queue = Mock(return_value={"started_count": 1, "active_count": 1, "max_concurrency": 1})
+
+    with patch.object(RecruitmentService, "_screening_root_task_filter", return_value="ROOT_FILTER"), \
+            patch("app.services.recruitment_service_impl._screening_worker_active_task_ids", {stale_row.id, fresh_row.id}):
+        payload = service.resume_screening_queue_on_startup()
+
+    assert payload["requeued_task_ids"] == [stale_row.id]
+    assert stale_row.status == "queued"
+    assert stale_row.stage == "queued"
+    assert fresh_row.status == "pending"
+    service.db.commit.assert_called_once()
+    service._dispatch_screening_queue.assert_called_once()
 
 
 def test_prepare_json_request_context_uses_remaining_budget_as_effective_timeout():

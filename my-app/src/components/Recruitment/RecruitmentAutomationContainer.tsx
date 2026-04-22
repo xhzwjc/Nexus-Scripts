@@ -188,6 +188,7 @@ const PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS = 6000;
 const PAGE_ACTIVITY_POLL_MAX_INTERVAL_MS = 15000;
 const TASK_MONITOR_VISIBLE_INTERVAL_MS = 1200;
 const TASK_MONITOR_HIDDEN_INTERVAL_MS = 5000;
+const SYSTEM_BASE_SKILL_CODES = new Set(["skill-jd-base", "skill-testing-rule", "skill-interview-structure"]);
 const TASK_MONITOR_MAX_INTERVAL_MS = 15000;
 
 function getPollingDelay(
@@ -611,9 +612,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const skillMap = useMemo(() => new Map(skills.map((item) => [item.id, item])), [skills]);
     const enabledSkills = useMemo(() => skills.filter((skill) => skill.is_enabled !== false), [skills]);
     const enabledSkillMap = useMemo(() => new Map(enabledSkills.map((item) => [item.id, item])), [enabledSkills]);
-    const jdAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "jd"), [enabledSkills]);
-    const screeningAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "screening"), [enabledSkills]);
-    const interviewAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "interview"), [enabledSkills]);
+    const positionSelectableSkills = useMemo(
+        () => enabledSkills.filter((skill) => !SYSTEM_BASE_SKILL_CODES.has(skill.skill_code)),
+        [enabledSkills],
+    );
+    const jdAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(positionSelectableSkills, "jd"), [positionSelectableSkills]);
+    const screeningAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(positionSelectableSkills, "screening"), [positionSelectableSkills]);
+    const interviewAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(positionSelectableSkills, "interview"), [positionSelectableSkills]);
     const mailSenderMap = useMemo(() => new Map(mailSenderConfigs.map((item) => [item.id, item])), [mailSenderConfigs]);
     const mailRecipientMap = useMemo(() => new Map(mailRecipients.map((item) => [item.id, item])), [mailRecipients]);
     const currentJDVersion = positionDetail?.current_jd_version || null;
@@ -5355,9 +5360,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                                                 <Field label={isZh ? "Skill 与自动化配置" : "Skills & Automation"}>
                                                     <div className="grid gap-3 md:grid-cols-2">
-                                                        <InfoTile label={isZh ? "JD 生成 Skill" : "JD Skills"} value={formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap)}/>
-                                                        <InfoTile label={isZh ? "初筛绑定 Skills" : "Screening Skills"} value={formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap)}/>
-                                                        <InfoTile label={isZh ? "面试题 Skill" : "Interview Skills"} value={formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap)}/>
+                                                        <InfoTile label={isZh ? "JD 生成 Skill" : "JD Skills"} value={(positionDetail.position.jd_skill_ids || []).length ? formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
+                                                        <InfoTile label={isZh ? "初筛绑定 Skills" : "Screening Skills"} value={(positionDetail.position.screening_skill_ids || []).length ? formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
+                                                        <InfoTile label={isZh ? "面试题 Skill" : "Interview Skills"} value={(positionDetail.position.interview_skill_ids || []).length ? formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
                                                         <InfoTile label={isZh ? "自动流程" : "Automation"} value={`${positionDetail.position.auto_screen_on_upload ? (isZh ? "上传自动初筛已开启" : "Auto-screen on upload is on") : (isZh ? "上传自动初筛未开启" : "Auto-screen on upload is off")} · ${positionDetail.position.auto_advance_on_screening === false ? (isZh ? "通过后自动推进关闭" : "Auto-advance after pass is off") : (isZh ? "通过后自动推进开启" : "Auto-advance after pass is on")}`}/>
                                                     </div>
                                                 </Field>
@@ -6262,7 +6267,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             </div>
                                         </div>
                                         <div className="space-y-3">
-                                            <p className="text-sm text-slate-600 dark:text-slate-300">岗位可分别绑定 JD 生成、初筛、面试题三类 Skill；这里会显示全部已启用 Skill，你可以手动选择。任务标签或 frontmatter 不是必填，只会影响排序提示。每类默认不选，不选时对应链路不会传 Skills。</p>
+                                            <p className="text-sm text-slate-600 dark:text-slate-300">每个岗位可以分别绑定 1 条 JD Skill、1 条初筛 Skill、1 条面试题 Skill。若某一类不选择，系统会自动使用该任务的内置通用基座约束。</p>
                                             <div className="grid gap-4 xl:grid-cols-3">
                                                 <div className="space-y-2">
                                                     <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">JD 生成 Skill</p>
@@ -6284,7 +6289,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             >
                                                                 {skill.name}
                                                             </button>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用 Skill</p>}
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无自定义 JD Skill，不选择时将使用系统通用基座</p>}
                                                     </div>
                                                 </div>
                                                 <div className="space-y-2">
@@ -6307,7 +6312,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             >
                                                                 {skill.name}
                                                             </button>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用 Skill</p>}
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无自定义初筛 Skill，不选择时将使用系统通用基座</p>}
                                                     </div>
                                                 </div>
                                                 <div className="space-y-2">
@@ -6330,7 +6335,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             >
                                                                 {skill.name}
                                                             </button>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用 Skill</p>}
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无自定义面试题 Skill，不选择时将使用系统通用基座</p>}
                                                     </div>
                                                 </div>
                                             </div>

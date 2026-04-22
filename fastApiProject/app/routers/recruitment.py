@@ -1,11 +1,15 @@
 import json
 import queue
+import shutil
 import threading
 import time
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
+import anyio
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response, StreamingResponse
@@ -38,8 +42,11 @@ from ..schema_maintenance import ensure_recruitment_schema
 from ..script_hub_session import require_script_hub_permission
 from ..services.recruitment_service import RecruitmentConflictError, RecruitmentService
 from ..services.recruitment_task_control import RecruitmentTaskCancelled
+from ..services.recruitment_utils import RECRUITMENT_UPLOAD_ROOT
 from ..services.script_hub_audit_service import write_audit_log
 recruitment_router = APIRouter(prefix="/recruitment", tags=["AI 招聘自动化管理"])
+
+UPLOAD_STREAM_CHUNK_SIZE = 1024 * 1024
 
 
 def get_recruitment_service(db: Session = Depends(get_db)) -> RecruitmentService:
@@ -60,6 +67,28 @@ def _run_recruitment_service_call(method_name: str, *args: Any, **kwargs: Any) -
 
 def _encode_sse_event(event: str, payload: Dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def _stage_upload_file(item: UploadFile, staging_dir: Path) -> Dict[str, Any]:
+    file_name = Path(item.filename or "resume.bin").name or "resume.bin"
+    staged_name = f"{uuid.uuid4().hex}{Path(file_name).suffix.lower()}"
+    staged_path = staging_dir / staged_name
+    file_size = 0
+    await item.seek(0)
+    async with await anyio.open_file(staged_path, "wb") as file_obj:
+        while True:
+            chunk = await item.read(UPLOAD_STREAM_CHUNK_SIZE)
+            if not chunk:
+                break
+            file_size += len(chunk)
+            await file_obj.write(chunk)
+    await item.close()
+    return {
+        "file_name": file_name,
+        "content_type": item.content_type,
+        "staged_path": str(staged_path),
+        "file_size": file_size,
+    }
 
 
 @recruitment_router.get("/metadata")
@@ -254,10 +283,13 @@ async def get_candidate_status_history(candidate_id: int, _session: Dict[str, An
 
 @recruitment_router.post("/candidates/upload-resumes")
 async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
-    uploaded_files = []
-    for item in files:
-        uploaded_files.append({"file_name": item.filename or "resume.bin", "content_type": item.content_type, "content": await item.read()})
+    staging_root = RECRUITMENT_UPLOAD_ROOT / "_staging"
+    staging_root.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(tempfile.mkdtemp(prefix="resume-batch-", dir=str(staging_root)))
+    uploaded_files: List[Dict[str, Any]] = []
     try:
+        for item in files:
+            uploaded_files.append(await _stage_upload_file(item, staging_dir))
         rows = service.upload_resume_files(uploaded_files, position_id, _session.get("id") or "unknown")
         auto_screen_queued_count = 0
         auto_screen_skipped_existing_live_task_count = 0
@@ -300,6 +332,8 @@ async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optio
         return {"success": True, "data": {"items": rows, "uploaded_count": len(rows), "auto_screen_queued_count": auto_screen_queued_count, "auto_screen_skipped_existing_live_task_count": auto_screen_skipped_existing_live_task_count, "auto_screen_failed_count": auto_screen_failed_count, "auto_screen_task_ids": [task.get("task_id") for task in auto_screen_tasks if task.get("task_id")], "auto_screen_tasks": auto_screen_tasks}, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    finally:
+        await run_in_threadpool(shutil.rmtree, staging_dir, True)
 
 
 @recruitment_router.post("/candidates/{candidate_id}/parse")

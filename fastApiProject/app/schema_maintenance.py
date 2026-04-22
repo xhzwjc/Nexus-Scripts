@@ -146,6 +146,28 @@ def _extract_schema_skill_tasks(row: RecruitmentSkill) -> list[str]:
             if any(any(keyword in haystack for keyword in keywords) for haystack in haystacks if haystack):
                 tasks.append(task_kind)
     return tasks
+
+
+def _extract_schema_skill_pack_meta(row: RecruitmentSkill) -> dict[str, str]:
+    tags = json.loads(row.tags_json or "[]") if row.tags_json else []
+    if not isinstance(tags, list):
+        tags = []
+    tag_texts = [str(item or "").strip() for item in tags if str(item or "").strip()]
+    frontmatter = _parse_skill_frontmatter(row.content or "")
+    group = str(getattr(row, "skill_group", None) or frontmatter.get("skill_group") or frontmatter.get("group") or "").strip()
+    version = str(getattr(row, "version", None) or frontmatter.get("version") or frontmatter.get("skill_version") or "").strip()
+    for tag in tag_texts:
+        lower_tag = tag.lower()
+        if not group and lower_tag.startswith("group:"):
+            group = tag.split(":", 1)[1].strip()
+        if not version and lower_tag.startswith("version:"):
+            version = tag.split(":", 1)[1].strip()
+    return {
+        "group": group,
+        "version": version,
+    }
+
+
 def _sync_script_hub_catalog() -> None:
     db = SessionLocal()
     try:
@@ -325,6 +347,16 @@ def ensure_recruitment_schema() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN interview_skill_ids_json TEXT NULL"))
             logger.info("Added recruitment_positions.interview_skill_ids_json column")
+
+        skill_columns = {column["name"] for column in inspector.get_columns("recruitment_skills")}
+        if "skill_group" not in skill_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN skill_group VARCHAR(120) NULL"))
+            logger.info("Added recruitment_skills.skill_group column")
+        if "version" not in skill_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN version VARCHAR(40) NULL"))
+            logger.info("Added recruitment_skills.version column")
 
         ai_task_columns = {column["name"] for column in inspector.get_columns("recruitment_ai_task_logs")}
         if "screening_run_id" not in ai_task_columns:
@@ -510,14 +542,19 @@ def ensure_recruitment_schema() -> None:
                     db.add(RecruitmentRuleConfig(config_key=config_key, config_type="json", scope="global", scope_id=None, config_value=json.dumps(config_value, ensure_ascii=False), description=f"Default recruitment config: {config_key}"))
 
             for skill in DEFAULT_SKILLS:
+                seed_frontmatter = _parse_skill_frontmatter(skill.get("content") or "")
+                seed_group = str(skill.get("skill_group") or seed_frontmatter.get("skill_group") or seed_frontmatter.get("group") or "").strip() or None
+                seed_version = str(skill.get("version") or seed_frontmatter.get("version") or seed_frontmatter.get("skill_version") or "").strip() or None
                 exists = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == skill["skill_code"]).first()
                 if not exists:
-                    db.add(RecruitmentSkill(skill_code=skill["skill_code"], name=skill["name"], description=skill.get("description"), content=skill["content"], tags_json=json.dumps(skill.get("tags") or [], ensure_ascii=False), sort_order=skill.get("sort_order") or 99, is_enabled=True, created_by="system", updated_by="system", deleted=False))
+                    db.add(RecruitmentSkill(skill_code=skill["skill_code"], name=skill["name"], description=skill.get("description"), skill_group=seed_group, version=seed_version, content=skill["content"], tags_json=json.dumps(skill.get("tags") or [], ensure_ascii=False), sort_order=skill.get("sort_order") or 99, is_enabled=True, created_by="system", updated_by="system", deleted=False))
                 elif exists.deleted:
                     continue
                 elif (exists.updated_by or "system") == "system" or _needs_legacy_default_skill_refresh(exists):
                     exists.name = skill["name"]
                     exists.description = skill.get("description")
+                    exists.skill_group = seed_group
+                    exists.version = seed_version
                     exists.content = skill["content"]
                     exists.tags_json = json.dumps(skill.get("tags") or [], ensure_ascii=False)
                     exists.sort_order = skill.get("sort_order") or 99
@@ -578,9 +615,7 @@ def ensure_recruitment_schema() -> None:
 
             db.commit()
 
-            default_position_links = [
-                ("IoT测试工程师", ["skill-iot-screening-score"]),
-            ]
+            default_position_links: list[tuple[str, list[str]]] = []
             skill_rows = {
                 row.skill_code: row
                 for row in db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).all()
@@ -609,6 +644,14 @@ def ensure_recruitment_schema() -> None:
                 row.id: row
                 for row in db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).all()
             }
+            for skill_row in all_skill_rows.values():
+                pack_meta = _extract_schema_skill_pack_meta(skill_row)
+                if not skill_row.skill_group and pack_meta["group"]:
+                    skill_row.skill_group = pack_meta["group"]
+                if not skill_row.version and pack_meta["version"]:
+                    skill_row.version = pack_meta["version"]
+                db.add(skill_row)
+            db.commit()
             positions = db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False)).all()
             for position in positions:
                 if (
