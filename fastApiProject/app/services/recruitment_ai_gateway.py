@@ -922,10 +922,11 @@ def _clone_runtime_config_with_task_overrides(
 def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_mode: str, system_prompt: str, user_prompt: str) -> str:
     temperature = _resolve_request_temperature(config, response_mode=response_mode)
     response_format: Optional[Dict[str, str]] = None
+    json_user_prompt = _compose_json_user_prompt(user_prompt) if response_mode == "json" else user_prompt
     if config.runtime_provider == "gemini":
         request_body = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
-            "contents": [{"role": "user", "parts": [{"text": f"{user_prompt}\n\n请仅返回有效 JSON。"} if response_mode == "json" else {"text": user_prompt}]}],
+            "contents": [{"role": "user", "parts": [{"text": json_user_prompt}]}],
             "generationConfig": {"temperature": temperature, **({"responseMimeType": "application/json"} if response_mode == "json" else {})},
         }
         endpoint = f"{(config.base_url or 'https://generativelanguage.googleapis.com').rstrip('/')}/v1beta/models/{config.model_name}:generateContent"
@@ -935,7 +936,7 @@ def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_m
             "max_tokens": 4000,
             "temperature": temperature,
             "system": system_prompt,
-            "messages": [{"role": "user", "content": f"{user_prompt}\n\nReturn valid JSON only." if response_mode == "json" else user_prompt}],
+            "messages": [{"role": "user", "content": json_user_prompt}],
         }
         endpoint = f"{(config.base_url or 'https://api.anthropic.com').rstrip('/')}/v1/messages"
     else:
@@ -944,7 +945,7 @@ def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_m
             "temperature": temperature,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"{user_prompt}\n\nPlease return valid JSON only." if response_mode == "json" else user_prompt},
+                {"role": "user", "content": json_user_prompt},
             ],
         }
         if response_mode == "json":
@@ -967,6 +968,30 @@ def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_m
             "request_body": request_body,
         }
     )
+
+
+_JSON_ONLY_USER_PROMPT_SUFFIX = "只返回 strict JSON，不要 markdown，不要解释。"
+_JSON_ONLY_DUPLICATE_SUFFIXES = (
+    _JSON_ONLY_USER_PROMPT_SUFFIX,
+    "请仅返回有效 JSON。",
+    "Please return valid JSON only.",
+    "Return valid JSON only.",
+)
+
+
+def _compose_json_user_prompt(user_prompt: str) -> str:
+    prompt = str(user_prompt or "").rstrip()
+    stripped = prompt.rstrip()
+    while stripped:
+        matched = False
+        for suffix in _JSON_ONLY_DUPLICATE_SUFFIXES:
+            if stripped.endswith(suffix):
+                stripped = stripped[: -len(suffix)].rstrip()
+                matched = True
+                break
+        if not matched:
+            break
+    return f"{stripped}\n\n{_JSON_ONLY_USER_PROMPT_SUFFIX}" if stripped else _JSON_ONLY_USER_PROMPT_SUFFIX
 
 
 def _is_retryable_error(exc: Exception) -> bool:
@@ -1257,11 +1282,12 @@ class RecruitmentAIGateway:
         user_prompt: str,
         response_mode: str,
     ) -> list[dict[str, Any]]:
+        composed_user_prompt = _compose_json_user_prompt(user_prompt) if response_mode == "json" else user_prompt
         return [
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
-                "content": f"{user_prompt}\n\nPlease return valid JSON only." if response_mode == "json" else user_prompt,
+                "content": composed_user_prompt,
             },
         ]
 
@@ -1734,7 +1760,11 @@ class RecruitmentAIGateway:
             raise RuntimeError("Missing API key for Gemini")
         base_url = (config.base_url or "https://generativelanguage.googleapis.com").rstrip("/")
         url = f"{base_url}/v1beta/models/{config.model_name}:generateContent"
-        body = {"system_instruction": {"parts": [{"text": system_prompt}]}, "contents": [{"role": "user", "parts": [{"text": f"{user_prompt}\n\n请仅返回有效 JSON。"}]}], "generationConfig": {"temperature": 0, "responseMimeType": "application/json"}}
+        body = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": _compose_json_user_prompt(user_prompt)}]}],
+            "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
+        }
         configured_timeout_seconds = _derive_primary_timeout_seconds(config)
         client = self._build_httpx_client(
             config,
@@ -1837,7 +1867,17 @@ class RecruitmentAIGateway:
             read_timeout_override=read_timeout_override,
         )
         try:
-            response = client.post(f"{base_url}/v1/messages", headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json={"model": config.model_name, "max_tokens": 4000, "temperature": 0, "system": system_prompt, "messages": [{"role": "user", "content": f"{user_prompt}\n\nReturn valid JSON only."}]})
+            response = client.post(
+                f"{base_url}/v1/messages",
+                headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={
+                    "model": config.model_name,
+                    "max_tokens": 4000,
+                    "temperature": 0,
+                    "system": system_prompt,
+                    "messages": [{"role": "user", "content": _compose_json_user_prompt(user_prompt)}],
+                },
+            )
             response.raise_for_status()
             if cancel_control:
                 cancel_control.raise_if_cancelled()
