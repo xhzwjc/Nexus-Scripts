@@ -5,13 +5,15 @@ from unittest.mock import Mock, patch
 
 import httpx
 
-from app.services.recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentLLMRuntimeConfig
+from app.services.recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentLLMRuntimeConfig, _compose_json_user_prompt
 from app.services.recruitment_ai_gateway import RecruitmentAIScreeningTotalTimeoutError, SCREENING_TOTAL_TIMEOUT_SECONDS
 from app.services.recruitment_prompts import (
+    RESUME_SCREENING_SYSTEM_PROMPT,
     RESUME_PARSE_SYSTEM_PROMPT,
     RESUME_SCORE_SYSTEM_PROMPT,
     SCORE_ONLY_OUTPUT_SCHEMA,
     SCREENING_OUTPUT_SCHEMA,
+    _COMMON_EVIDENCE_RULES,
 )
 from app.services.recruitment_service_impl import (
     RAW_SCREENING_SCORE_STORAGE_FORMAT,
@@ -75,6 +77,20 @@ def _build_screening_rule_skill_snapshots() -> list[dict[str, str]]:
 | IoT协议 | 30% | 5 | 核心第一优先，必须提供与 BLE / Zigbee 相关的简历原文证据 |
 | 自动化测试 | 20% | 3 | 需要体现自动化脚本或测试平台经验 |
 | 文档输出能力 | 10% | 2 | 需要体现测试方案、报告或文档交付能力 |
+""".strip(),
+        }
+    ]
+
+
+def _build_variable_max_score_skill_snapshots() -> list[dict[str, str]]:
+    return [
+        {
+            "name": "动态总分规则",
+            "content": """
+| 维度 | 权重 | 满分 | 说明 |
+| --- | --- | --- | --- |
+| 核心经验 | 60% | 8 | 需要直接项目或岗位经历证据 |
+| 自动化能力 | 40% | 4 | 需要自动化脚本或平台建设证据 |
 """.strip(),
         }
     ]
@@ -2677,11 +2693,107 @@ def test_trigger_latest_score_propagates_cancel_control_when_parse_missing():
 def test_resume_score_prompt_uses_score_only_schema():
     assert SCORE_ONLY_OUTPUT_SCHEMA in RESUME_SCORE_SYSTEM_PROMPT
     assert SCREENING_OUTPUT_SCHEMA not in RESUME_SCORE_SYSTEM_PROMPT
+    assert _COMMON_EVIDENCE_RULES in RESUME_SCORE_SYSTEM_PROMPT
     assert "Do not return parsed_resume in resume_score tasks." in RESUME_SCORE_SYSTEM_PROMPT
+    assert "match_percent must equal round(total_score / MAX_POSSIBLE_SCORE * 100)." in RESUME_SCORE_SYSTEM_PROMPT
     assert "The top-level object must contain only total_score, match_percent, advantages, concerns, recommendation, suggested_status, and dimensions." in RESUME_SCORE_SYSTEM_PROMPT
-    assert "Return exactly one final JSON object once." in RESUME_SCORE_SYSTEM_PROMPT
+    assert "Output exactly one final JSON object" in RESUME_SCORE_SYSTEM_PROMPT
     assert "OTA压测" not in RESUME_SCORE_SYSTEM_PROMPT
     assert "智能家居生态" not in RESUME_SCORE_SYSTEM_PROMPT
+
+
+def test_resume_screening_prompt_reuses_common_evidence_rules():
+    assert SCREENING_OUTPUT_SCHEMA in RESUME_SCREENING_SYSTEM_PROMPT
+    assert _COMMON_EVIDENCE_RULES in RESUME_SCREENING_SYSTEM_PROMPT
+    assert "Return strict JSON only." not in RESUME_SCREENING_SYSTEM_PROMPT
+    assert "match_percent must equal round(total_score * 10)." in RESUME_SCREENING_SYSTEM_PROMPT
+
+
+def test_resume_prompt_builders_inject_dynamic_max_possible_score():
+    service = RecruitmentService(Mock())
+    service._get_position_screening_payload = Mock(return_value={"title": "测试工程师"})
+    candidate = SimpleNamespace(name="候选人A")
+    skill_snapshots = _build_variable_max_score_skill_snapshots()
+
+    screening_prompt = service._build_resume_screening_prompt(
+        candidate=candidate,
+        raw_text="简历原文",
+        skill_snapshots=skill_snapshots,
+        custom_requirements="",
+        status_rules={},
+    )
+    score_prompt = service._build_resume_score_prompt(
+        candidate=candidate,
+        parsed_resume_helper_payload={"basic_info": {"name": "候选人A"}},
+        raw_resume_text="简历原文",
+        skill_snapshots=skill_snapshots,
+        custom_requirements="",
+        status_rules={},
+    )
+
+    assert "MAX_POSSIBLE_SCORE:" not in screening_prompt
+    assert "MAX_POSSIBLE_SCORE: 12.0" in score_prompt
+    assert screening_prompt.endswith("只返回 strict JSON，不要 markdown，不要解释。")
+    assert score_prompt.endswith("只返回 strict JSON，不要 markdown，不要解释。")
+
+
+def test_validate_screening_payload_warnings_uses_dimension_max_score_formula():
+    schema_config = _build_screening_schema_config(_build_variable_max_score_skill_snapshots())
+    payload = {
+        "parsed_resume": {
+            "basic_info": {
+                "name": "候选人A",
+                "phone": "",
+                "email": "",
+                "years_of_experience": "",
+                "education": "",
+                "location": "",
+            },
+            "work_experiences": [],
+            "education_experiences": [],
+            "skills": [],
+            "projects": [],
+            "summary": "",
+        },
+        "score": {
+            "total_score": 9.0,
+            "match_percent": 75,
+            "advantages": ["核心经验匹配较强。"],
+            "concerns": ["自动化能力仍需面试核实。"],
+            "recommendation": "建议继续评估",
+            "suggested_status": "talent_pool",
+            "dimensions": [
+                {
+                    "label": "核心经验",
+                    "score": 6.0,
+                    "max_score": 8.0,
+                    "reason": "命中",
+                    "evidence": "核心项目经验",
+                    "is_inferred": False,
+                },
+                {
+                    "label": "自动化能力",
+                    "score": 3.0,
+                    "max_score": 4.0,
+                    "reason": "命中",
+                    "evidence": "自动化脚本经验",
+                    "is_inferred": False,
+                },
+            ],
+        },
+    }
+
+    warnings = _validate_screening_payload_warnings(payload, schema_config)
+
+    assert not any("score.match_percent 与 round(total_score / max_possible_score * 100) 不一致" in item for item in warnings)
+
+
+def test_compose_json_user_prompt_keeps_single_chinese_suffix():
+    prompt = _compose_json_user_prompt("TASK")
+    assert prompt == "TASK\n\n只返回 strict JSON，不要 markdown，不要解释。"
+    assert _compose_json_user_prompt("TASK\n\nPlease return valid JSON only.") == prompt
+    assert _compose_json_user_prompt("TASK\n\nReturn valid JSON only.") == prompt
+    assert _compose_json_user_prompt("TASK\n\n只返回 strict JSON，不要 markdown，不要解释。") == prompt
 
 
 def test_extract_model_score_payload_warns_on_nested_score_response():
