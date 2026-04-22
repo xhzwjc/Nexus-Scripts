@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 import xml.etree.ElementTree as ET
 import zipfile
@@ -9,7 +10,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-import pypdfium2 as pdfium
+try:
+    from pypdf import PdfReader
+except Exception:  # pragma: no cover - optional dependency fallback
+    PdfReader = None
+
+try:
+    import pypdfium2 as pdfium
+except Exception:  # pragma: no cover - optional dependency fallback
+    pdfium = None
 
 FASTAPI_ROOT = Path(__file__).resolve().parents[2]
 RECRUITMENT_UPLOAD_ROOT = FASTAPI_ROOT / "data" / "recruitment_uploads" / "resumes"
@@ -716,7 +725,21 @@ def extract_text_from_docx(file_path: Path) -> str:
     return "\n".join(chunks)
 
 
-def extract_text_from_pdf(file_path: Path) -> str:
+def _extract_text_from_pdf_with_pypdf(file_path: Path) -> str:
+    if PdfReader is None:
+        raise RuntimeError("pypdf is unavailable")
+    reader = PdfReader(str(file_path))
+    chunks: List[str] = []
+    for page in reader.pages:
+        text = page.extract_text() or ""
+        if text:
+            chunks.append(text)
+    return "\n".join(chunks).strip()
+
+
+def _extract_text_from_pdf_with_pdfium(file_path: Path) -> str:
+    if pdfium is None:
+        raise RuntimeError("pypdfium2 is unavailable")
     document = pdfium.PdfDocument(str(file_path))
     chunks: List[str] = []
     for index in range(len(document)):
@@ -738,6 +761,16 @@ def extract_text_from_pdf(file_path: Path) -> str:
     except Exception:
         pass
     return "\n".join(chunk for chunk in chunks if chunk).strip()
+
+
+def extract_text_from_pdf(file_path: Path) -> str:
+    if PdfReader is not None:
+        return _extract_text_from_pdf_with_pypdf(file_path)
+    if os.getenv("RECRUITMENT_ENABLE_PDFIUM_FALLBACK", "").strip() == "1" and pdfium is not None:
+        return _extract_text_from_pdf_with_pdfium(file_path)
+    raise RuntimeError(
+        "PDF text extraction dependency unavailable: install pypdf, or set RECRUITMENT_ENABLE_PDFIUM_FALLBACK=1 to use pypdfium2."
+    )
 
 
 def extract_resume_text(file_path: Path, file_ext: str) -> str:
