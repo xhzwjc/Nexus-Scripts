@@ -940,7 +940,47 @@ def _sanitize_screening_payload_structure(
     }
 
 
-def _auto_correct_score_metrics_from_dimensions(score_payload: Any) -> Tuple[Dict[str, Any], List[str]]:
+def _resolve_dimension_max_possible_score(
+    value: Any,
+    *,
+    fallback_max_possible_score: Optional[float] = None,
+) -> Optional[float]:
+    dimensions = value if isinstance(value, list) else []
+    total_max_score = 0.0
+    has_dimension_max_score = False
+    for item in dimensions:
+        if not isinstance(item, dict):
+            continue
+        numeric_max_score = _parse_score_number(item.get("max_score"))
+        if numeric_max_score is None:
+            continue
+        total_max_score += float(numeric_max_score)
+        has_dimension_max_score = True
+    if has_dimension_max_score and total_max_score > 0:
+        return round(total_max_score + 1e-9, 1)
+    fallback = _parse_score_number(fallback_max_possible_score)
+    if fallback is not None and fallback > 0:
+        return round(float(fallback) + 1e-9, 1)
+    return None
+
+
+def _calculate_match_percent_from_total_score(
+    total_score: Optional[float],
+    *,
+    max_possible_score: Optional[float],
+) -> Optional[int]:
+    numeric_total_score = _parse_score_number(total_score)
+    numeric_max_possible_score = _parse_score_number(max_possible_score)
+    if numeric_total_score is None or numeric_max_possible_score is None or numeric_max_possible_score <= 0:
+        return None
+    return int(max(0, min(100, round((float(numeric_total_score) / float(numeric_max_possible_score) * 100) + 1e-9))))
+
+
+def _auto_correct_score_metrics_from_dimensions(
+    score_payload: Any,
+    *,
+    fallback_max_possible_score: Optional[float] = None,
+) -> Tuple[Dict[str, Any], List[str]]:
     payload = dict(score_payload if isinstance(score_payload, dict) else {})
     dimensions = payload.get("dimensions") if isinstance(payload.get("dimensions"), list) else []
     if not dimensions:
@@ -956,7 +996,14 @@ def _auto_correct_score_metrics_from_dimensions(score_payload: Any) -> Tuple[Dic
         dimension_scores.append(float(numeric_score))
 
     dimension_total = round(sum(dimension_scores) + 1e-9, 1)
-    expected_match_percent = int(round((dimension_total * 10) + 1e-9))
+    max_possible_score = _resolve_dimension_max_possible_score(
+        dimensions,
+        fallback_max_possible_score=fallback_max_possible_score,
+    )
+    expected_match_percent = _calculate_match_percent_from_total_score(
+        dimension_total,
+        max_possible_score=max_possible_score,
+    )
     warnings: List[str] = []
 
     current_total_score = _parse_score_number(payload.get("total_score"))
@@ -965,9 +1012,10 @@ def _auto_correct_score_metrics_from_dimensions(score_payload: Any) -> Tuple[Dic
     payload["total_score"] = dimension_total
 
     current_match_percent = _parse_score_number(payload.get("match_percent"))
-    if current_match_percent is None or abs(current_match_percent - expected_match_percent) > 0.5:
-        warnings.append("score.match_percent 已按 total_score 自动校正")
-    payload["match_percent"] = expected_match_percent
+    if expected_match_percent is not None:
+        if current_match_percent is None or abs(current_match_percent - expected_match_percent) > 0.5:
+            warnings.append("score.match_percent 已按维度满分自动校正")
+        payload["match_percent"] = expected_match_percent
 
     return payload, warnings
 
@@ -1014,9 +1062,17 @@ def _validate_screening_payload_warnings(payload: Dict[str, Any], schema_config:
     if total_score is not None and abs(total_score - dimension_total) > 0.1:
         warnings.append(f"score.total_score 与 dimensions 求和不一致：当前为 {total_score:.1f}，维度求和为 {dimension_total:.1f}。")
     if total_score is not None and match_percent is not None:
-        expected_match_percent = round((total_score * 10) + 1e-9, 1)
-        if abs(match_percent - expected_match_percent) > 0.1:
-            warnings.append(f"score.match_percent 与 total_score * 10 不一致：当前为 {match_percent:.1f}，按总分应为 {expected_match_percent:.1f}。")
+        expected_match_percent = _calculate_match_percent_from_total_score(
+            total_score,
+            max_possible_score=_resolve_dimension_max_possible_score(
+                dimensions,
+                fallback_max_possible_score=score_config.get("max_possible_score"),
+            ),
+        )
+        if expected_match_percent is not None and abs(match_percent - expected_match_percent) > 0.1:
+            warnings.append(
+                f"score.match_percent 与 round(total_score / max_possible_score * 100) 不一致：当前为 {match_percent:.1f}，按维度满分应为 {expected_match_percent:.1f}。"
+            )
 
     current_status = _normalize_suggested_status(score_payload.get("suggested_status"))
     current_recommendation = _compact_recommendation(score_payload.get("recommendation"))
@@ -1205,10 +1261,17 @@ def _derive_deterministic_suggested_status(
     match_percent = _parse_score_number(payload.get("match_percent"))
     if total_score is None and match_percent is None:
         return None, []
-    if total_score is None and match_percent is not None:
-        total_score = round(float(match_percent) / 10.0 + 1e-9, 1)
+    max_possible_score = _resolve_dimension_max_possible_score(
+        dimensions,
+        fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
+    )
+    if total_score is None and match_percent is not None and max_possible_score is not None:
+        total_score = round((float(match_percent) / 100.0 * max_possible_score) + 1e-9, 1)
     if match_percent is None and total_score is not None:
-        match_percent = round((float(total_score) * 10) + 1e-9, 1)
+        match_percent = _calculate_match_percent_from_total_score(
+            total_score,
+            max_possible_score=max_possible_score,
+        )
     if total_score is None or match_percent is None:
         return None, []
 
@@ -1256,7 +1319,10 @@ def sanitize_screening_payload(
     normalized_final_suggested_status = raw_model_suggested_status
 
     if sanitized_score.get("dimensions"):
-        sanitized_score, metric_warnings = _auto_correct_score_metrics_from_dimensions(sanitized_score)
+        sanitized_score, metric_warnings = _auto_correct_score_metrics_from_dimensions(
+            sanitized_score,
+            fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
+        )
         repair_warnings.extend(metric_warnings)
         sanitized_payload["score"] = sanitized_score
 
@@ -1344,7 +1410,10 @@ def sanitize_screening_payload_fast(
 
     # Step 1: auto-correct total_score and match_percent from dimensions
     if sanitized_score.get("dimensions"):
-        sanitized_score, metric_warnings = _auto_correct_score_metrics_from_dimensions(sanitized_score)
+        sanitized_score, metric_warnings = _auto_correct_score_metrics_from_dimensions(
+            sanitized_score,
+            fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
+        )
         repair_warnings.extend(metric_warnings)
         sanitized_payload["score"] = sanitized_score
 
@@ -1419,6 +1488,7 @@ def _build_screening_schema_config(
             **dict(SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
             "required_dimension_labels": required_dimension_labels,
             "required_core_dimension_labels": required_core_dimension_labels,
+            "max_possible_score": _resolve_dimension_max_possible_score(dimension_rules),
             "dimension_rule_notes": tuple(
                 str(item.get("note") or "").strip()
                 for item in dimension_rules
@@ -2071,12 +2141,12 @@ def _humanize_invalid_result_reason(value: Any) -> str:
         return ""
     if text.startswith("score.total_score 与 dimensions 求和不一致"):
         return "总分与维度求和不一致"
-    if text.startswith("score.match_percent 与 total_score * 10 不一致"):
+    if text.startswith("score.match_percent 与 round(total_score / max_possible_score * 100) 不一致"):
         return "匹配度与总分不一致"
     if text.startswith("score.total_score 已按 dimensions 自动校正") or text.startswith("score.total_score 已按 dimensions 求和自动归一化"):
         return "总分已按维度求和归一化"
-    if text.startswith("score.match_percent 已按 total_score 自动校正") or text.startswith("score.match_percent 已按 total_score 自动归一化"):
-        return "匹配度已按总分归一化"
+    if text.startswith("score.match_percent 已按维度满分自动校正") or text.startswith("score.match_percent 已按维度满分自动归一化"):
+        return "匹配度已按维度满分归一化"
     if text.startswith("score.suggested_status 缺失或无效"):
         return "建议状态缺失或无效"
     if text.startswith("score.recommendation 缺失或无效"):
@@ -2123,7 +2193,7 @@ def _is_score_metric_consistency_warning(value: Any) -> bool:
     text = str(value or "").strip()
     return (
         text.startswith("score.total_score 与 dimensions 求和不一致")
-        or text.startswith("score.match_percent 与 total_score * 10 不一致")
+        or text.startswith("score.match_percent 与 round(total_score / max_possible_score * 100) 不一致")
     )
 
 
@@ -2131,9 +2201,9 @@ def _is_score_metric_auto_correction_warning(value: Any) -> bool:
     text = str(value or "").strip()
     return (
         text.startswith("score.total_score 已按 dimensions 自动校正")
-        or text.startswith("score.match_percent 已按 total_score 自动校正")
+        or text.startswith("score.match_percent 已按维度满分自动校正")
         or text.startswith("score.total_score 已按 dimensions 求和自动归一化")
-        or text.startswith("score.match_percent 已按 total_score 自动归一化")
+        or text.startswith("score.match_percent 已按维度满分自动归一化")
     )
 
 
@@ -2170,7 +2240,7 @@ def _build_score_normalization_warnings(
         and normalized_match_percent is not None
         and abs(raw_match_percent - normalized_match_percent) > 0.1
     ):
-        warnings.append("score.match_percent 已按 total_score 自动校正")
+        warnings.append("score.match_percent 已按维度满分自动校正")
     return warnings
 
 
@@ -2442,7 +2512,11 @@ def _merge_warning_items(*values: Any, limit: int = 8) -> List[str]:
     return merged
 
 
-def _derive_score_metrics_from_dimensions(value: Any) -> Tuple[Optional[float], Optional[float]]:
+def _derive_score_metrics_from_dimensions(
+    value: Any,
+    *,
+    fallback_max_possible_score: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[float]]:
     dimensions = _normalize_score_dimensions(value, limit=32)
     total_score = 0.0
     has_dimension_score = False
@@ -2455,7 +2529,13 @@ def _derive_score_metrics_from_dimensions(value: Any) -> Tuple[Optional[float], 
     if not has_dimension_score:
         return None, None
     total_score = round(total_score + 1e-9, 1)
-    match_percent = round((total_score * 10) + 1e-9, 1)
+    match_percent = _calculate_match_percent_from_total_score(
+        total_score,
+        max_possible_score=_resolve_dimension_max_possible_score(
+            dimensions,
+            fallback_max_possible_score=fallback_max_possible_score,
+        ),
+    )
     return total_score, match_percent
 
 
@@ -2506,10 +2586,13 @@ def _build_score_quality_warnings(
             f"标准化后的 total_score 与 dimensions 汇总仍不一致：当前为 {normalized_total_score:.1f}，维度汇总为 {derived_total_score_from_dimensions:.1f}。"
         )
     if normalized_total_score is not None and normalized_match_percent is not None:
-        expected_match_percent = round((normalized_total_score * 10) + 1e-9, 1)
-        if abs(normalized_match_percent - expected_match_percent) > 0.5:
+        expected_match_percent = _calculate_match_percent_from_total_score(
+            normalized_total_score,
+            max_possible_score=_resolve_dimension_max_possible_score(normalized_score.get("dimensions")),
+        )
+        if expected_match_percent is not None and abs(normalized_match_percent - expected_match_percent) > 0.5:
             warnings.append(
-                f"标准化后的 match_percent 与 total_score * 10 不一致：当前为 {normalized_match_percent:.1f}，按总分应为 {expected_match_percent:.1f}。"
+                f"标准化后的 match_percent 与 round(total_score / max_possible_score * 100) 不一致：当前为 {normalized_match_percent:.1f}，按维度满分应为 {expected_match_percent:.1f}。"
             )
     elif (
         derived_match_percent_from_dimensions is not None
@@ -8159,6 +8242,7 @@ class RecruitmentService:
 
     def _build_resume_score_prompt(self, *, candidate: RecruitmentCandidate, parsed_resume_helper_payload: Dict[str, Any], raw_resume_text: str, skill_snapshots: Sequence[Dict[str, Any]], custom_requirements: str, status_rules: Dict[str, Any]) -> str:
         dimension_rules = _distill_dimension_rules(skill_snapshots, limit=12)
+        max_possible_score = _resolve_dimension_max_possible_score(dimension_rules) or 0.0
         position_payload = self._get_position_screening_payload(candidate)
         return "\n\n".join([
             "TASK: 请基于岗位要求和评分维度，对候选人进行简历评分。",
@@ -8167,6 +8251,7 @@ class RecruitmentService:
             f"CUSTOM_REQUIREMENTS: {custom_requirements or '无'}",
             "DIMENSION_RULES:",
             json_dumps_safe(dimension_rules),
+            f"MAX_POSSIBLE_SCORE: {max_possible_score:.1f}",
             "PARSED_RESUME_HELPER:",
             json_dumps_safe(parsed_resume_helper_payload),
             "RAW_RESUME_TEXT:",
