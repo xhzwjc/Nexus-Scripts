@@ -52,7 +52,7 @@ from .recruitment_mailer import RecruitmentMailSenderRuntime, build_resume_email
 from .recruitment_prompts import INTERVIEW_QUESTION_STREAM_PREVIEW_SYSTEM_PROMPT, INTERVIEW_QUESTION_SYSTEM_PROMPT, JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, JD_GENERATION_SYSTEM_PROMPT, RESUME_PARSE_SYSTEM_PROMPT, RESUME_SCORE_PROMPT_VERSION, RESUME_SCORE_SYSTEM_PROMPT, RESUME_SCREENING_PROMPT_VERSION, RESUME_SCREENING_SYSTEM_PROMPT
 from .recruitment_publish_adapters import build_publish_adapter
 from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl, recruitment_task_registry
-from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_interview_structured_fallback, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_interview_generation_constraints, extract_keywords, extract_resume_structured_data, extract_resume_text, extract_screening_dimension_rules, infer_interview_capability_domains, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text
+from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_interview_structured_fallback, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_interview_generation_constraints, extract_keywords, extract_resume_structured_data, extract_resume_text, extract_screening_dimension_rules, extract_skill_interview_modules, infer_interview_capability_domains, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text
 
 SCREENING_FLOW_TASK_TYPE = "screening_flow"
 SCREENING_DEBUG_TASK_TYPE = "resume_screening_debug"
@@ -11600,6 +11600,7 @@ class RecruitmentService:
             skill_snapshots,
             parsed_resume_payload,
         )
+        skill_modules = extract_skill_interview_modules(skill_snapshots)
         fallback_structured = build_interview_structured_fallback(
             str(candidate_payload.get("name") or "未命名候选人"),
             str((position_payload or {}).get("title") or "当前岗位"),
@@ -11620,6 +11621,7 @@ class RecruitmentService:
             "memory_source": memory_source,
             "active_skill_ids": [skill.get("id") for skill in skill_snapshots],
             "capability_domains": capability_domains,
+            "skill_modules": skill_modules,
             "hidden_generation_constraints": extract_interview_generation_constraints(skill_snapshots, custom_requirements),
             "domain_evidence_catalog": [
                 {

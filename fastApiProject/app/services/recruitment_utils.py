@@ -64,14 +64,136 @@ DEFAULT_RULE_CONFIGS = {
     },
 }
 
-IOT_INTERVIEW_CAPABILITY_DOMAINS = [
-    "智能家居生态与联动测试",
-    "IoT 通信协议测试",
-    "软件测试基础",
-    "硬件测试与系统联调",
-    "嵌入式/固件/OTA",
-    "AI 工具使用",
-    "综合匹配度与转型意愿",
+ROLE_FAMILY_DOMAINS = {
+    # qa 放在最前面，因为其关键词（测试/qa/iot）更具体，不应被 software 的"工程师"抢匹配
+    "qa": {
+        "keywords": ["测试", "qa", "质量", "iot", "自动化测试", "接口测试",
+                     "test", "qe"],
+        "domains": [
+            "测试策略与用例设计",
+            "核心项目与业务理解",
+            "问题定位与缺陷闭环",
+            "自动化与效率工具",
+            "硬件/协议/系统联调",
+            "跨团队协作与沟通",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "software": {
+        "keywords": ["前端", "后端", "全栈", "ios", "android", "移动端",
+                     "软件", "开发", "developer", "engineer", "java",
+                     "python", "go", "php", "node", "vue", "react"],
+        "domains": [
+            "核心项目与技术深度",
+            "系统设计与架构思维",
+            "代码质量与工程规范",
+            "问题定位与调试能力",
+            "技术选型与方案判断",
+            "协作与推进能力",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "algorithm": {
+        "keywords": ["算法", "机器学习", "深度学习", "ml", "ai", "大模型",
+                     "nlp", "cv", "推荐", "搜索", "数据科学", "data science",
+                     "强化学习", "llm"],
+        "domains": [
+            "算法基础与数学能力",
+            "模型设计与训练经验",
+            "工程落地与系统集成",
+            "数据处理与特征工程",
+            "实验设计与指标体系",
+            "业务理解与效果评估",
+            "综合匹配度与研究潜力",
+        ]
+    },
+    "hardware": {
+        "keywords": ["硬件", "嵌入式", "电子", "结构", "pcb", "电路",
+                     "单片机", "fpga", "固件", "驱动", "射频", "电源"],
+        "domains": [
+            "硬件设计与原理图能力",
+            "嵌入式开发与调试经验",
+            "测试验证与问题定位",
+            "可靠性与量产经验",
+            "跨专业协同能力",
+            "工具与仪器使用",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "product_design": {
+        "keywords": ["产品", "ui", "ux", "交互", "视觉", "设计师",
+                     "product manager", "pm", "用户研究"],
+        "domains": [
+            "需求理解与产品思维",
+            "核心项目与业务成果",
+            "设计方法与工具能力",
+            "用户洞察与数据意识",
+            "跨职能协作与推动力",
+            "表达与文档能力",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "marketing": {
+        "keywords": ["运营", "市场", "营销", "品牌", "增长", "seo",
+                     "内容", "推广", "bd", "商务拓展"],
+        "domains": [
+            "核心项目与业务成果",
+            "策略制定与执行能力",
+            "数据分析与效果评估",
+            "用户理解与内容能力",
+            "资源整合与跨团队协作",
+            "创新思维与应变能力",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "hr_admin": {
+        "keywords": ["人事", "hr", "招聘", "hrbp", "人力资源", "行政",
+                     "培训", "薪酬", "绩效", "组织发展"],
+        "domains": [
+            "核心职能与专业能力",
+            "业务理解与HR策略",
+            "沟通协调与影响力",
+            "流程设计与执行能力",
+            "数据分析与决策支持",
+            "合规意识与风险把控",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "finance_legal": {
+        "keywords": ["财务", "会计", "审计", "法务", "合规", "税务",
+                     "法律", "风控", "内控"],
+        "domains": [
+            "专业知识与证书背景",
+            "核心业务经历与深度",
+            "合规意识与风险把控",
+            "数据处理与分析能力",
+            "跨部门沟通与协作",
+            "工具与系统使用能力",
+            "综合匹配度与职业稳定性",
+        ]
+    },
+    "sales": {
+        "keywords": ["销售", "商务", "客服", "客户成功", "客户经理",
+                     "account", "sales", "bd"],
+        "domains": [
+            "销售业绩与目标达成",
+            "客户开发与关系维护",
+            "产品理解与方案能力",
+            "谈判与成单能力",
+            "抗压与自驱动力",
+            "团队协作与资源整合",
+            "综合匹配度与稳定性",
+        ]
+    },
+}
+
+GENERIC_DOMAINS = [
+    "核心项目经历与角色边界",
+    "专业技能与业务深度",
+    "问题解决与思维方式",
+    "跨团队协作与沟通",
+    "学习能力与成长潜力",
+    "综合匹配度与稳定意愿",
 ]
 
 INTERVIEW_RULE_LEAK_MARKERS = (
@@ -1880,21 +2002,62 @@ def _find_resume_evidence(lines: Iterable[str], topic: str, *, limit: int = 2) -
     return results[:limit]
 
 
-def _infer_interview_topics(parsed_resume: Optional[Dict[str, Any]]) -> List[str]:
-    searchable_text = _join_resume_search_text(parsed_resume or {})
-    topics: List[str] = []
-    mapping = [
-        ("业务场景与目标理解", ["业务", "场景", "行业", "平台", "生态", "用户", "产品", "智能家居", "homekit", "鸿蒙", "涂鸦"]),
-        ("系统集成与接口协同", ["协议", "接口", "api", "sdk", "联动", "互联互通", "mqtt", "ble", "zigbee", "thread", "配网", "组网"]),
-        ("测试策略与质量方法", ["接口测试", "app测试", "测试用例", "回归测试", "postman", "apifox", "charles", "jmeter", "jira", "测试方案", "测试指导书"]),
-        ("问题定位与风险闭环", ["问题定位", "定位", "排查", "日志", "缺陷", "复盘", "故障", "异常", "ota", "固件", "串口"]),
-        ("自动化与效率工具", ["自动化", "脚本", "python", "playwright", "selenium", "appium", "pytest", "ai", "prompt", "模型", "copilot", "cursor"]),
-        ("硬件/终端协同经验", ["硬件", "设备", "终端", "联调", "整机", "稳定性测试", "安全测试"]),
-    ]
-    for label, keywords in mapping:
-        if any(keyword.lower() in searchable_text for keyword in keywords):
-            topics.append(label)
-    return topics[:6]
+# Marker lines that indicate a module entry (module name + duration in parentheses).
+_MODULE_DURATION_MARKERS = ("约", "分钟", "mins", "min)")
+
+
+def extract_skill_interview_modules(
+    skills: Iterable[Any],
+) -> List[Dict[str, Any]]:
+    """
+    Extract interview module structure and time allocation from skill content.
+    Each skill's content is parsed for lines matching "模块名（时长）" patterns
+    (e.g. "智能家居生态模块（重点）约 12 分钟").
+    Returns a list of dicts with keys: module_title, recommended_minutes, is重点, raw_line.
+    """
+    results: List[Dict[str, Any]] = []
+    seen_titles: set[str] = set()
+
+    for skill in (skills or []):
+        content = str(skill.get("content") or "") if isinstance(skill, dict) else str(skill)
+        in_module_block = False
+        for line in content.split("\n"):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Detect module block (时长分配 lines)
+            if "模块时长分配" in stripped or "时长分配" in stripped:
+                in_module_block = True
+                continue
+            if in_module_block and stripped.startswith("##"):
+                # Next section reached
+                break
+            if not in_module_block:
+                continue
+            # Skip separator lines, empty lines, and known non-module lines
+            if stripped in {"", "模块"} or "专业词释义规范" in stripped or "HTML 输出规范" in stripped:
+                continue
+            # Check if this line looks like a module entry (contains duration info)
+            if any(m in stripped for m in _MODULE_DURATION_MARKERS):
+                # Extract module title (before the first parenthesis or "约 X 分钟")
+                title = stripped
+                is重点 = "（重点）" in title or "(重点)" in title
+                # Remove the timing/annotation suffix to get clean title
+                title = re.sub(r"[（(][^）)]*[）)].*$", "", title).strip()
+                if not title or title in seen_titles:
+                    continue
+                seen_titles.add(title)
+                # Extract minutes
+                minute_match = re.search(r"约?\s*(\d+)\s*(?:分钟|mins?)", stripped)
+                minutes = int(minute_match.group(1)) if minute_match else 5
+                results.append({
+                    "module_title": title,
+                    "recommended_minutes": minutes,
+                    "is重点": is重点,
+                    "raw_line": stripped,
+                })
+
+    return results
 
 
 def infer_interview_capability_domains(
@@ -1902,21 +2065,36 @@ def infer_interview_capability_domains(
     skills: Iterable[Any],
     parsed_resume: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
-    inferred = _infer_interview_topics(parsed_resume)
-    generic_domains = [
-        "核心项目经历与角色边界",
-        "测试策略与质量方法",
-        "问题定位与风险闭环",
-        "自动化与效率工具",
-        "跨团队协作与风险沟通",
-        "综合匹配度与转型意愿",
-    ]
-    merged: List[str] = []
-    for item in [*inferred, *generic_domains]:
-        label = str(item or "").strip()
-        if label and label not in merged:
-            merged.append(label)
-    return merged[:7]
+    # 1. skill content 里检测到 ## 模块二 之后的所有行（不含下一个 ## 标题）即为 capability domains
+    for skill in (skills or []):
+        content = skill.get("content") if isinstance(skill, dict) else str(skill)
+        if not content:
+            continue
+        if "## 模块二" not in content:
+            continue
+        domain_lines: List[str] = []
+        after_marker = False
+        for line in content.split("\n"):
+            stripped = line.strip()
+            if not after_marker:
+                if "## 模块二" in stripped:
+                    after_marker = True
+                continue
+            if stripped.startswith("## "):
+                break
+            if stripped:
+                domain_lines.append(stripped)
+        if domain_lines:
+            return domain_lines[:7]
+
+    # 2. 按 position_title 匹配岗位族
+    title_lower = (position_title or "").lower()
+    for family, config in ROLE_FAMILY_DOMAINS.items():
+        if any(kw in title_lower for kw in config["keywords"]):
+            return config["domains"]
+
+    # 3. 都匹配不上，返回通用兜底
+    return GENERIC_DOMAINS
 
 
 def extract_interview_generation_constraints(

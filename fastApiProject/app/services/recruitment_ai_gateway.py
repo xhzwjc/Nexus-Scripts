@@ -26,8 +26,8 @@ OPENAI_STREAM_JSON_TASK_WHITELIST: frozenset[str] = frozenset({
     "resume_score",
     "resume_parse",
 })
-STRICT_JSON_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass"})
-STRICT_JSON_RECOVERY_RETRY_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass"})
+STRICT_JSON_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass", "interview_question_generation"})
+STRICT_JSON_RECOVERY_RETRY_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass", "interview_question_generation"})
 STRICT_SCORE_REQUIRED_FIELDS: tuple[str, ...] = (
     "total_score",
     "match_percent",

@@ -1,5 +1,11 @@
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.sql import func
+
+
+def MediumText():
+    """Cross-database MediumText: uses MEDIUMTEXT on MySQL/MariaDB, Text elsewhere."""
+    return Text(16777215)
 
 from .database import Base
 
@@ -102,12 +108,12 @@ class RecruitmentResumeParseResult(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     candidate_id = Column(Integer, nullable=False, index=True)
     resume_file_id = Column(Integer, nullable=False, index=True)
-    raw_text = Column(Text)
-    basic_info_json = Column(Text)
-    work_experiences_json = Column(Text)
-    education_experiences_json = Column(Text)
-    skills_json = Column(Text)
-    projects_json = Column(Text)
+    raw_text = Column(MediumText())
+    basic_info_json = Column(MediumText())
+    work_experiences_json = Column(MediumText())
+    education_experiences_json = Column(MediumText())
+    skills_json = Column(MediumText())
+    projects_json = Column(MediumText())
     summary_text = Column(Text)
     status = Column(String(50), default="success", nullable=False, index=True)
     error_message = Column(Text)
@@ -120,7 +126,7 @@ class RecruitmentCandidateScore(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     candidate_id = Column(Integer, nullable=False, index=True)
     parse_result_id = Column(Integer, nullable=False, index=True)
-    score_json = Column(Text)
+    score_json = Column(MediumText())
     total_score = Column(Float)
     match_percent = Column(Float)
     advantages_text = Column(Text)
@@ -200,22 +206,22 @@ class RecruitmentAITaskLog(Base):
     related_publish_task_id = Column(Integer, index=True)
     memory_source = Column(String(80))
     skill_resolution_source = Column(String(80))
-    skill_resolution_detail_json = Column(Text)
-    score_rule_snapshot_json = Column(Text)
-    timing_breakdown_json = Column(Text)
+    skill_resolution_detail_json = Column(MediumText())
+    score_rule_snapshot_json = Column(MediumText())
+    timing_breakdown_json = Column(MediumText())
     request_hash = Column(String(120), index=True)
     model_provider = Column(String(80))
     model_name = Column(String(120))
-    prompt_snapshot = Column(Text)
-    full_request_snapshot = Column(Text)
+    prompt_snapshot = Column(MediumText())
+    full_request_snapshot = Column(MediumText())
     input_summary = Column(Text)
     output_summary = Column(Text)
-    output_snapshot = Column(Text)
-    raw_response_text = Column(Text)
-    parsed_response_json = Column(Text)
-    sanitized_response_json = Column(Text)
-    validation_meta_json = Column(Text)
-    persisted_result_refs_json = Column(Text)
+    output_snapshot = Column(MediumText())
+    raw_response_text = Column(MediumText())
+    parsed_response_json = Column(MediumText())
+    sanitized_response_json = Column(MediumText())
+    validation_meta_json = Column(MediumText())
+    persisted_result_refs_json = Column(MediumText())
     status = Column(String(50), default="pending", nullable=False, index=True)
     error_message = Column(Text)
     token_usage_json = Column(Text)
