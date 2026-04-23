@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ArrowLeft,
+    Building2,
     Copy,
     History,
     KeyRound,
@@ -44,6 +45,13 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import {
     Table,
     TableBody,
     TableCell,
@@ -61,6 +69,12 @@ interface UserFormState {
     userCode: string;
     displayName: string;
     accessKey: string;
+    primaryOrgCode: string;
+    dataScope: string;
+    customOrgCodesText: string;
+    authorizationBoundaryText: string;
+    dataScopeDowngradeConfirmed: boolean;
+    permissionVersion?: number;
     teamResourcesLoginKeyEnabled: boolean;
     roleCodes: string[];
     grantedPermissions: string[];
@@ -69,6 +83,14 @@ interface UserFormState {
     isSuperAdmin: boolean;
     notes: string;
 }
+
+const DATA_SCOPE_OPTIONS = [
+    { value: 'ALL', label: 'ALL' },
+    { value: 'ORG_AND_CHILDREN', label: 'ORG_AND_CHILDREN' },
+    { value: 'ORG_ONLY', label: 'ORG_ONLY' },
+    { value: 'CUSTOM_ORGS', label: 'CUSTOM_ORGS' },
+    { value: 'SELF', label: 'SELF' },
+];
 
 interface UserFormErrors {
     userCode?: string;
@@ -129,6 +151,12 @@ function createEmptyForm(): UserFormState {
         userCode: '',
         displayName: '',
         accessKey: '',
+        primaryOrgCode: 'group',
+        dataScope: 'ORG_ONLY',
+        customOrgCodesText: '',
+        authorizationBoundaryText: '{}',
+        dataScopeDowngradeConfirmed: false,
+        permissionVersion: undefined,
         teamResourcesLoginKeyEnabled: false,
         roleCodes: [],
         grantedPermissions: [],
@@ -154,6 +182,12 @@ function mapUserToForm(user: ScriptHubManagedUser): UserFormState {
         userCode: user.user_code,
         displayName: user.display_name,
         accessKey: '',
+        primaryOrgCode: user.primary_org_code || 'group',
+        dataScope: user.data_scope || 'ORG_ONLY',
+        customOrgCodesText: (user.custom_org_codes || []).join(', '),
+        authorizationBoundaryText: JSON.stringify(user.authorization_boundary || {}, null, 2),
+        dataScopeDowngradeConfirmed: false,
+        permissionVersion: user.permission_version,
         teamResourcesLoginKeyEnabled: user.team_resources_login_key_enabled,
         roleCodes: [...user.role_codes],
         grantedPermissions: [...user.granted_overrides],
@@ -187,8 +221,28 @@ function normalizeUserForm(form: UserFormState): UserFormState {
         userCode: form.userCode.trim().toLowerCase(),
         displayName: form.displayName.trim(),
         accessKey: form.accessKey.trim(),
+        primaryOrgCode: form.primaryOrgCode.trim() || 'group',
+        dataScope: form.dataScope.trim() || 'ORG_ONLY',
+        customOrgCodesText: form.customOrgCodesText.trim(),
+        authorizationBoundaryText: form.authorizationBoundaryText.trim() || '{}',
         notes: form.notes.trim(),
     };
+}
+
+function parseCsvCodes(value: string) {
+    return value
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function parseJsonObject(value: string) {
+    try {
+        const parsed = JSON.parse(value || '{}');
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+    } catch {
+        return {};
+    }
 }
 
 function normalizeRoleForm(form: RoleFormState): RoleFormState {
@@ -231,6 +285,12 @@ function categoryLabel(category: string) {
             return 'Platform';
         case 'collaboration':
             return 'Collaboration';
+        case 'recruitment':
+            return 'Recruitment';
+        case 'recruitment-config':
+            return 'Recruitment Config';
+        case 'compatibility':
+            return 'Compatibility';
         default:
             return category;
     }
@@ -382,6 +442,8 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
             return (
                 user.user_code.toLowerCase().includes(query) ||
                 user.display_name.toLowerCase().includes(query) ||
+                user.primary_org_code.toLowerCase().includes(query) ||
+                user.data_scope.toLowerCase().includes(query) ||
                 roleText.includes(query)
             );
         });
@@ -646,6 +708,12 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
                     user_code: normalizedForm.userCode,
                     display_name: normalizedForm.displayName,
                     access_key: mode === 'create' ? normalizedForm.accessKey || undefined : undefined,
+                    primary_org_code: normalizedForm.primaryOrgCode,
+                    data_scope: normalizedForm.dataScope,
+                    custom_org_codes: parseCsvCodes(normalizedForm.customOrgCodesText),
+                    authorization_boundary: parseJsonObject(normalizedForm.authorizationBoundaryText),
+                    expected_permission_version: mode === 'edit' ? normalizedForm.permissionVersion : undefined,
+                    data_scope_downgrade_confirmed: normalizedForm.dataScopeDowngradeConfirmed,
                     team_resources_login_key_enabled: normalizedForm.teamResourcesLoginKeyEnabled,
                     role_codes: normalizedForm.roleCodes,
                     granted_permissions: filteredGrantedPermissions,
@@ -930,6 +998,8 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>{t.accessControl.userCode}</TableHead>
+                                        <TableHead>{t.accessControl.organization}</TableHead>
+                                        <TableHead>{t.accessControl.dataScope}</TableHead>
                                         <TableHead>{t.accessControl.roles}</TableHead>
                                         <TableHead>{t.accessControl.teamResourcesLoginKey}</TableHead>
                                         <TableHead>{t.accessControl.status}</TableHead>
@@ -945,6 +1015,22 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
                                                 <div className="space-y-1">
                                                     <p className="font-medium">{user.display_name}</p>
                                                     <p className="font-mono text-xs text-muted-foreground">{user.user_code}</p>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="align-top">
+                                                <div className="flex items-center gap-2 text-sm">
+                                                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                                                    <span className="font-mono">{user.primary_org_code}</span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="align-top">
+                                                <div className="space-y-1">
+                                                    <Badge variant="outline">{user.data_scope}</Badge>
+                                                    {user.custom_org_codes.length > 0 && (
+                                                        <p className="text-xs text-muted-foreground">
+                                                            {user.custom_org_codes.join(', ')}
+                                                        </p>
+                                                    )}
                                                 </div>
                                             </TableCell>
                                             <TableCell className="align-top">
@@ -1257,6 +1343,89 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
                                         )}
                                     </div>
                                 )}
+                            </div>
+
+                            <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                                <div className="mb-4">
+                                    <h3 className="text-sm font-semibold">{t.accessControl.orgGovernance}</h3>
+                                    <p className="text-xs text-muted-foreground">{t.accessControl.orgGovernanceDesc}</p>
+                                </div>
+                                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                    <div className="space-y-2">
+                                        <Label>{t.accessControl.organization}</Label>
+                                        <Select
+                                            value={form.primaryOrgCode}
+                                            onValueChange={(value) => setForm((current) => ({ ...current, primaryOrgCode: value }))}
+                                            disabled={saving}
+                                        >
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue placeholder={t.accessControl.organization} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {(overview?.catalog.organizations || []).map((org) => (
+                                                    <SelectItem key={org.org_code} value={org.org_code}>
+                                                        {org.name} ({org.org_code})
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>{t.accessControl.dataScope}</Label>
+                                        <Select
+                                            value={form.dataScope}
+                                            onValueChange={(value) => setForm((current) => ({ ...current, dataScope: value }))}
+                                            disabled={saving}
+                                        >
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue placeholder={t.accessControl.dataScope} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {DATA_SCOPE_OPTIONS.map((item) => (
+                                                    <SelectItem key={item.value} value={item.value}>
+                                                        {item.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="rbac-custom-orgs">{t.accessControl.customOrgs}</Label>
+                                        <Input
+                                            id="rbac-custom-orgs"
+                                            value={form.customOrgCodesText}
+                                            onChange={(event) => setForm((current) => ({ ...current, customOrgCodesText: event.target.value }))}
+                                            placeholder="company-a, company-b"
+                                            disabled={saving}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="rbac-auth-boundary">{t.accessControl.authBoundary}</Label>
+                                        <Textarea
+                                            id="rbac-auth-boundary"
+                                            value={form.authorizationBoundaryText}
+                                            onChange={(event) => setForm((current) => ({ ...current, authorizationBoundaryText: event.target.value }))}
+                                            className="min-h-28 font-mono text-xs"
+                                            disabled={saving}
+                                        />
+                                    </div>
+                                    <div className="flex items-start gap-3 rounded-xl border border-border/70 bg-background p-4">
+                                        <Checkbox
+                                            id="rbac-scope-downgrade-confirm"
+                                            checked={form.dataScopeDowngradeConfirmed}
+                                            onCheckedChange={(checked) => setForm((current) => ({ ...current, dataScopeDowngradeConfirmed: checked === true }))}
+                                            disabled={saving}
+                                        />
+                                        <div className="space-y-1">
+                                            <Label htmlFor="rbac-scope-downgrade-confirm" className="cursor-pointer">
+                                                {t.accessControl.scopeDowngradeConfirm}
+                                            </Label>
+                                            <p className="text-xs text-muted-foreground">{t.accessControl.scopeDowngradeConfirmDesc}</p>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="grid gap-4 md:grid-cols-2">

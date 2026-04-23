@@ -498,6 +498,14 @@ export interface Translations {
     copyKey: string;
     userCode: string;
     displayName: string;
+    organization: string;
+    dataScope: string;
+    customOrgs: string;
+    authBoundary: string;
+    orgGovernance: string;
+    orgGovernanceDesc: string;
+    scopeDowngradeConfirm: string;
+    scopeDowngradeConfirmDesc: string;
     accessKey: string;
     accessKeyHint: string;
     teamResourcesLoginKey: string;

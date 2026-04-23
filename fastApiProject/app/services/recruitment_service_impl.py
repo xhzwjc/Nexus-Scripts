@@ -24,6 +24,14 @@ from sqlalchemy.exc import DataError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
+from ..permission_governance import (
+    PermissionContext,
+    ROOT_ORG_CODE,
+    build_permission_context,
+    normalize_org_code,
+    normalize_share_policy,
+    resource_is_visible_to_context,
+)
 from ..recruitment_models import (
     RecruitmentAITaskLog,
     RecruitmentCandidate,
@@ -5182,6 +5190,64 @@ class RecruitmentService:
     def __init__(self, db: Session):
         self.db = db
         self.ai_gateway = RecruitmentAIGateway(db)
+        self.permission_context: Optional[PermissionContext] = None
+
+    def set_permission_context(self, session: Optional[Dict[str, Any]]) -> "RecruitmentService":
+        self.permission_context = build_permission_context(self.db, session)
+        self.ai_gateway.set_permission_context(self.permission_context)
+        return self
+
+    def _current_org_code(self) -> str:
+        if self.permission_context:
+            return self.permission_context.primary_org_code
+        return ROOT_ORG_CODE
+
+    def _can_access_org_resource(self, row: Any) -> bool:
+        if not self.permission_context:
+            return True
+        return resource_is_visible_to_context(
+            self.db,
+            self.permission_context,
+            resource_org_code=getattr(row, "org_code", ROOT_ORG_CODE),
+            share_policy=getattr(row, "share_policy", "PRIVATE"),
+            allow_sub_org_use=getattr(row, "allow_sub_org_use", False),
+        )
+
+    def _apply_business_org_filter(self, builder: Any, model: Any) -> Any:
+        if not self.permission_context or self.permission_context.has_all_orgs:
+            return builder
+        org_codes = list(self.permission_context.visible_org_codes or ())
+        if hasattr(model, "org_code"):
+            builder = builder.filter(model.org_code.in_(org_codes))
+        if self.permission_context.is_self_scope and hasattr(model, "created_by"):
+            builder = builder.filter(model.created_by == self.permission_context.actor_user_code)
+        return builder
+
+    def _assert_business_row_visible(self, row: Any) -> None:
+        if not self.permission_context or self.permission_context.has_all_orgs:
+            return
+        row_org_code = normalize_org_code(getattr(row, "org_code", None))
+        if row_org_code not in set(self.permission_context.visible_org_codes or ()):
+            raise ValueError("操作失败")
+        owner = getattr(row, "created_by", None) or getattr(row, "uploaded_by", None)
+        if self.permission_context.is_self_scope and owner != self.permission_context.actor_user_code:
+            raise ValueError("操作失败")
+
+    def _assert_resource_manageable(self, row: Any, actor_id: str) -> None:
+        if not self.permission_context or self.permission_context.has_all_orgs:
+            return
+        row_org_code = normalize_org_code(getattr(row, "org_code", None))
+        if row_org_code in set(self.permission_context.visible_org_codes or ()):
+            return
+        if getattr(row, "created_by", None) == actor_id:
+            return
+        raise ValueError("鎿嶄綔澶辫触")
+
+    def _assert_can_create_in_org(self, org_code: str) -> None:
+        if not self.permission_context or self.permission_context.has_all_orgs:
+            return
+        if normalize_org_code(org_code) not in set(self.permission_context.visible_org_codes or ()):
+            raise ValueError("鎿嶄綔澶辫触")
 
     def _build_request_hash(self, *parts: Any) -> str:
         raw = "||".join([str(part or "") for part in parts])
@@ -6158,17 +6224,21 @@ class RecruitmentService:
         row = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == position_id, RecruitmentPosition.deleted.is_(False)).first()
         if not row:
             raise ValueError("鎿嶄綔澶辫触")
+        self._assert_business_row_visible(row)
         return row
 
     def _get_candidate(self, candidate_id: int) -> RecruitmentCandidate:
         row = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == candidate_id, RecruitmentCandidate.deleted.is_(False)).first()
         if not row:
             raise ValueError("鎿嶄綔澶辫触")
+        self._assert_business_row_visible(row)
         return row
 
     def _get_skill(self, skill_id: int) -> RecruitmentSkill:
         row = self.db.query(RecruitmentSkill).filter(RecruitmentSkill.id == skill_id, RecruitmentSkill.deleted.is_(False)).first()
         if not row:
+            raise ValueError("鎿嶄綔澶辫触")
+        if not self._can_access_org_resource(row):
             raise ValueError("鎿嶄綔澶辫触")
         return row
 
@@ -6176,6 +6246,7 @@ class RecruitmentService:
         row = self.db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.id == resume_file_id).first()
         if not row:
             raise ValueError("绠€鍘嗘枃浠朵笉瀛樺湪")
+        self._assert_business_row_visible(row)
         return row
 
     def _rebuild_candidate_resume_references(self, candidate: RecruitmentCandidate, actor_id: str) -> None:
@@ -6387,7 +6458,7 @@ class RecruitmentService:
         row = self._get_workflow_memory(candidate.id)
         if row:
             return row
-        row = RecruitmentCandidateWorkflowMemory(candidate_id=candidate.id, position_id=candidate.position_id, screening_skill_ids_json=json_dumps_safe([]), interview_skill_ids_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id)
+        row = RecruitmentCandidateWorkflowMemory(org_code=normalize_org_code(getattr(candidate, "org_code", None)), candidate_id=candidate.id, position_id=candidate.position_id, screening_skill_ids_json=json_dumps_safe([]), interview_skill_ids_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id)
         self.db.add(row)
         self.db.flush()
         return row
@@ -6400,12 +6471,14 @@ class RecruitmentService:
         if enabled_only:
             query = query.filter(RecruitmentSkill.is_enabled.is_(True))
         rows = query.order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.id.asc()).all()
+        rows = [row for row in rows if self._can_access_org_resource(row)]
         order_map = {skill_id: index for index, skill_id in enumerate(normalized)}
         rows.sort(key=lambda item: order_map.get(item.id, 9999))
         return rows
 
     def _load_enabled_skills(self) -> List[RecruitmentSkill]:
-        return self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False), RecruitmentSkill.is_enabled.is_(True)).order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.id.asc()).all()
+        rows = self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False), RecruitmentSkill.is_enabled.is_(True)).order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.id.asc()).all()
+        return [row for row in rows if self._can_access_org_resource(row)]
 
     def _load_system_base_skill_rows(self, task_kind: str) -> List[RecruitmentSkill]:
         skill_code = SYSTEM_BASE_SKILL_CODES.get(task_kind)
@@ -6499,7 +6572,7 @@ class RecruitmentService:
             self.db.add(RecruitmentPositionSkillLink(position_id=position_id, skill_id=skill_id, created_by=actor_id, updated_by=actor_id))
         self.db.flush()
     def _create_status_history(self, candidate: RecruitmentCandidate, to_status: str, reason: str, actor_id: str, source: str) -> None:
-        self.db.add(RecruitmentCandidateStatusHistory(candidate_id=candidate.id, from_status=candidate.status, to_status=to_status, reason=reason or None, changed_by=actor_id, source=source))
+        self.db.add(RecruitmentCandidateStatusHistory(org_code=normalize_org_code(getattr(candidate, "org_code", None)), candidate_id=candidate.id, from_status=candidate.status, to_status=to_status, reason=reason or None, changed_by=actor_id, source=source))
         candidate.status = to_status
         candidate.updated_by = actor_id
         self.db.flush()
@@ -6576,8 +6649,18 @@ class RecruitmentService:
     ) -> RecruitmentAITaskLog:
         now = datetime.now()
         initial_runtime = self._resolve_initial_ai_task_runtime(task_type)
+        org_code = self._current_org_code()
+        if related_candidate_id:
+            candidate_row = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == related_candidate_id).first()
+            if candidate_row:
+                org_code = normalize_org_code(getattr(candidate_row, "org_code", None))
+        elif related_position_id:
+            position_row = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == related_position_id).first()
+            if position_row:
+                org_code = normalize_org_code(getattr(position_row, "org_code", None))
         row = RecruitmentAITaskLog(
             task_type=task_type,
+            org_code=org_code,
             screening_run_id=screening_run_id,
             batch_id=batch_id,
             parent_task_id=parent_task_id,
@@ -7113,7 +7196,7 @@ class RecruitmentService:
 
     def _serialize_skill(self, row: RecruitmentSkill) -> Dict[str, Any]:
         meta = _extract_skill_runtime_meta(row)
-        return {"id": row.id, "skill_code": row.skill_code, "name": row.name, "description": row.description, "skill_group": row.skill_group or meta.get("group"), "version": row.version or meta.get("version"), "task_types": list(meta.get("tasks") or []), "content": row.content, "tags": json_loads_safe(row.tags_json, []), "sort_order": row.sort_order, "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "skill_code": row.skill_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "is_system_base": bool(getattr(row, "is_system_base", False)), "name": row.name, "description": row.description, "skill_group": row.skill_group or meta.get("group"), "version": row.version or meta.get("version"), "task_types": list(meta.get("tasks") or []), "content": row.content, "tags": json_loads_safe(row.tags_json, []), "sort_order": row.sort_order, "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _serialize_skill_snapshot(self, skill: Any, fallback_index: int = 0) -> Dict[str, Any]:
         if isinstance(skill, dict):
@@ -7319,7 +7402,7 @@ class RecruitmentService:
         current_jd = self._get_active_jd_version_for_position(row)
         jd_version_count = self.db.query(func.count(RecruitmentJDVersion.id)).filter(RecruitmentJDVersion.position_id == row.id).scalar() or 0
         candidate_count = self.db.query(func.count(RecruitmentCandidate.id)).filter(RecruitmentCandidate.position_id == row.id, RecruitmentCandidate.deleted.is_(False)).scalar() or 0
-        return {"id": row.id, "position_code": row.position_code, "title": row.title, "department": row.department, "location": row.location, "employment_type": row.employment_type, "salary_range": row.salary_range, "headcount": row.headcount, "key_requirements": row.key_requirements, "bonus_points": row.bonus_points, "summary": row.summary, "status": row.status, "auto_screen_on_upload": bool(row.auto_screen_on_upload), "auto_advance_on_screening": bool(row.auto_advance_on_screening), "auto_mail_enabled": bool(auto_mail_config.get("auto_mail_enabled")), "auto_mail_use_global_recipients": bool(auto_mail_config.get("auto_mail_use_global_recipients")), "auto_mail_use_position_recipients": bool(auto_mail_config.get("auto_mail_use_position_recipients")), "auto_mail_position_recipient_ids": list(auto_mail_config.get("auto_mail_position_recipient_ids") or []), "auto_mail_allowed_candidate_statuses": list(auto_mail_config.get("auto_mail_allowed_candidate_statuses") or []), "auto_mail_template_id": auto_mail_config.get("auto_mail_template_id"), "auto_mail_dedup_mode": auto_mail_config.get("auto_mail_dedup_mode"), "auto_mail_cc_recipient_ids": list(auto_mail_config.get("auto_mail_cc_recipient_ids") or []), "auto_mail_bcc_recipient_ids": list(auto_mail_config.get("auto_mail_bcc_recipient_ids") or []), "jd_skill_ids": [skill.id for skill in jd_skill_rows], "jd_skills": [self._serialize_skill(skill) for skill in jd_skill_rows], "screening_skill_ids": [skill.id for skill in screening_skill_rows], "screening_skills": [self._serialize_skill(skill) for skill in screening_skill_rows], "interview_skill_ids": [skill.id for skill in interview_skill_rows], "interview_skills": [self._serialize_skill(skill) for skill in interview_skill_rows], "tags": json_loads_safe(row.tags_json, []), "current_jd_version_id": row.current_jd_version_id, "current_jd_title": current_jd.title if current_jd else None, "active_jd_snapshot": self._serialize_active_jd_snapshot(row), "jd_version_count": int(jd_version_count), "candidate_count": int(candidate_count), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "position_code": row.position_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "title": row.title, "department": row.department, "location": row.location, "employment_type": row.employment_type, "salary_range": row.salary_range, "headcount": row.headcount, "key_requirements": row.key_requirements, "bonus_points": row.bonus_points, "summary": row.summary, "status": row.status, "auto_screen_on_upload": bool(row.auto_screen_on_upload), "auto_advance_on_screening": bool(row.auto_advance_on_screening), "auto_mail_enabled": bool(auto_mail_config.get("auto_mail_enabled")), "auto_mail_use_global_recipients": bool(auto_mail_config.get("auto_mail_use_global_recipients")), "auto_mail_use_position_recipients": bool(auto_mail_config.get("auto_mail_use_position_recipients")), "auto_mail_position_recipient_ids": list(auto_mail_config.get("auto_mail_position_recipient_ids") or []), "auto_mail_allowed_candidate_statuses": list(auto_mail_config.get("auto_mail_allowed_candidate_statuses") or []), "auto_mail_template_id": auto_mail_config.get("auto_mail_template_id"), "auto_mail_dedup_mode": auto_mail_config.get("auto_mail_dedup_mode"), "auto_mail_cc_recipient_ids": list(auto_mail_config.get("auto_mail_cc_recipient_ids") or []), "auto_mail_bcc_recipient_ids": list(auto_mail_config.get("auto_mail_bcc_recipient_ids") or []), "jd_skill_ids": [skill.id for skill in jd_skill_rows], "jd_skills": [self._serialize_skill(skill) for skill in jd_skill_rows], "screening_skill_ids": [skill.id for skill in screening_skill_rows], "screening_skills": [self._serialize_skill(skill) for skill in screening_skill_rows], "interview_skill_ids": [skill.id for skill in interview_skill_rows], "interview_skills": [self._serialize_skill(skill) for skill in interview_skill_rows], "tags": json_loads_safe(row.tags_json, []), "current_jd_version_id": row.current_jd_version_id, "current_jd_title": current_jd.title if current_jd else None, "active_jd_snapshot": self._serialize_active_jd_snapshot(row), "jd_version_count": int(jd_version_count), "candidate_count": int(candidate_count), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _serialize_resume_file(self, row: RecruitmentResumeFile) -> Dict[str, Any]:
         parse_status = row.parse_status
@@ -7357,9 +7440,11 @@ class RecruitmentService:
         }
 
     def get_dashboard(self) -> Dict[str, Any]:
-        positions = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False)).all()
-        candidates = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)).all()
-        recent_candidates = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)).order_by(RecruitmentCandidate.created_at.desc(), RecruitmentCandidate.id.desc()).limit(8).all()
+        position_builder = self._apply_business_org_filter(self.db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False)), RecruitmentPosition)
+        candidate_builder = self._apply_business_org_filter(self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)), RecruitmentCandidate)
+        positions = position_builder.all()
+        candidates = candidate_builder.all()
+        recent_candidates = candidate_builder.order_by(RecruitmentCandidate.created_at.desc(), RecruitmentCandidate.id.desc()).limit(8).all()
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow_start = today_start + timedelta(days=1)
         today_ai_task_count = (
@@ -7393,7 +7478,7 @@ class RecruitmentService:
         }
 
     def list_positions(self, query: Optional[str] = None, status: Optional[str] = None) -> List[Dict[str, Any]]:
-        builder = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False))
+        builder = self._apply_business_org_filter(self.db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False)), RecruitmentPosition)
         if status:
             builder = builder.filter(RecruitmentPosition.status == status)
         if query:
@@ -7402,7 +7487,9 @@ class RecruitmentService:
         return [self._serialize_position(row) for row in builder.order_by(RecruitmentPosition.updated_at.desc(), RecruitmentPosition.id.desc()).all()]
 
     def create_position(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
-        row = RecruitmentPosition(position_code=f"TMP-{uuid.uuid4().hex[:8]}", title=str(payload.get("title") or "").strip(), department=payload.get("department"), location=payload.get("location"), employment_type=payload.get("employment_type"), salary_range=payload.get("salary_range"), headcount=int(payload.get("headcount") or 1), key_requirements=payload.get("key_requirements"), bonus_points=payload.get("bonus_points"), summary=payload.get("summary"), status=payload.get("status") or "draft", auto_screen_on_upload=bool(payload.get("auto_screen_on_upload")), auto_advance_on_screening=payload.get("auto_advance_on_screening") is not False, jd_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("jd_skill_ids") or [])), screening_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("screening_skill_ids") or [])), interview_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("interview_skill_ids") or [])), tags_json=json_dumps_safe(payload.get("tags") or []), created_by=actor_id, updated_by=actor_id, deleted=False)
+        org_code = normalize_org_code(payload.get("org_code") or self._current_org_code())
+        self._assert_can_create_in_org(org_code)
+        row = RecruitmentPosition(position_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=org_code, title=str(payload.get("title") or "").strip(), department=payload.get("department"), location=payload.get("location"), employment_type=payload.get("employment_type"), salary_range=payload.get("salary_range"), headcount=int(payload.get("headcount") or 1), key_requirements=payload.get("key_requirements"), bonus_points=payload.get("bonus_points"), summary=payload.get("summary"), status=payload.get("status") or "draft", auto_screen_on_upload=bool(payload.get("auto_screen_on_upload")), auto_advance_on_screening=payload.get("auto_advance_on_screening") is not False, jd_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("jd_skill_ids") or [])), screening_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("screening_skill_ids") or [])), interview_skill_ids_json=json_dumps_safe(_dedupe_ints(payload.get("interview_skill_ids") or [])), tags_json=json_dumps_safe(payload.get("tags") or []), created_by=actor_id, updated_by=actor_id, deleted=False)
         self.db.add(row)
         self.db.flush()
         row.position_code = f"POS-{row.id:05d}"
@@ -7489,11 +7576,14 @@ class RecruitmentService:
         return {"position": self._serialize_position(row), "current_jd_version": self._serialize_jd_version(current_jd) if current_jd else None, "jd_versions": [self._serialize_jd_version(item) for item in jd_versions], "jd_generation": jd_generation, "publish_tasks": [self._serialize_publish_task(item) for item in publish_tasks], "candidates": [self._serialize_candidate_summary(item) for item in candidates]}
 
     def list_skills(self) -> List[Dict[str, Any]]:
-        return [self._serialize_skill(row) for row in self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.id.asc()).all()]
+        rows = self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.id.asc()).all()
+        return [self._serialize_skill(row) for row in rows if self._can_access_org_resource(row)]
 
     def create_skill(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         meta = _extract_skill_runtime_meta(payload)
-        row = RecruitmentSkill(skill_code=f"skill-{_slugify(str(payload.get('name') or 'skill'))}-{uuid.uuid4().hex[:4]}", name=str(payload.get("name") or "").strip(), description=payload.get("description"), skill_group=str(payload.get("skill_group") or meta.get("group") or "").strip() or None, version=str(payload.get("version") or meta.get("version") or "").strip() or None, content=str(payload.get("content") or "").strip(), tags_json=json_dumps_safe(payload.get("tags") or []), sort_order=int(payload.get("sort_order") or 99), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
+        org_code = normalize_org_code(payload.get("org_code") or self._current_org_code())
+        self._assert_can_create_in_org(org_code)
+        row = RecruitmentSkill(skill_code=f"skill-{_slugify(str(payload.get('name') or 'skill'))}-{uuid.uuid4().hex[:4]}", org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), is_system_base=False, name=str(payload.get("name") or "").strip(), description=payload.get("description"), skill_group=str(payload.get("skill_group") or meta.get("group") or "").strip() or None, version=str(payload.get("version") or meta.get("version") or "").strip() or None, content=str(payload.get("content") or "").strip(), tags_json=json_dumps_safe(payload.get("tags") or []), sort_order=int(payload.get("sort_order") or 99), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
@@ -7501,9 +7591,16 @@ class RecruitmentService:
 
     def update_skill(self, skill_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         row = self._get_skill(skill_id)
-        for field in ["name", "description", "content", "sort_order", "is_enabled"]:
+        self._assert_resource_manageable(row, actor_id)
+        for field in ["name", "description", "content", "sort_order", "is_enabled", "scope_level", "allow_sub_org_use", "allow_copy"]:
             if field in payload:
                 setattr(row, field, payload.get(field))
+        if "share_policy" in payload:
+            row.share_policy = normalize_share_policy(payload.get("share_policy"))
+        if "org_code" in payload:
+            next_org_code = normalize_org_code(payload.get("org_code"))
+            self._assert_can_create_in_org(next_org_code)
+            row.org_code = next_org_code
         if "tags" in payload:
             row.tags_json = json_dumps_safe(payload.get("tags") or [])
         runtime_meta = _extract_skill_runtime_meta(
@@ -7529,6 +7626,7 @@ class RecruitmentService:
 
     def delete_skill(self, skill_id: int, actor_id: str) -> None:
         row = self._get_skill(skill_id)
+        self._assert_resource_manageable(row, actor_id)
         row.deleted = True
         row.updated_by = actor_id
         self.db.add(row)
@@ -7536,6 +7634,7 @@ class RecruitmentService:
 
     def toggle_skill(self, skill_id: int, enabled: bool, actor_id: str) -> Dict[str, Any]:
         row = self._get_skill(skill_id)
+        self._assert_resource_manageable(row, actor_id)
         row.is_enabled = bool(enabled)
         row.updated_by = actor_id
         self.db.add(row)
@@ -7859,10 +7958,10 @@ class RecruitmentService:
         position_screening_skill_rows = self._get_position_task_skill_rows(position.id, "screening") if position else []
         position_interview_skill_rows = self._get_position_task_skill_rows(position.id, "interview") if position else []
         position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position else []
-        return {"id": row.id, "candidate_code": row.candidate_code, "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None) -> List[Dict[str, Any]]:
-        builder = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False))
+        builder = self._apply_business_org_filter(self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)), RecruitmentCandidate)
         if position_id:
             builder = builder.filter(RecruitmentCandidate.position_id == position_id)
         if query:
@@ -8042,14 +8141,15 @@ class RecruitmentService:
                 content = item.get("content") or b""
                 storage_path.write_bytes(content)
                 file_size = len(content)
-            candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", position_id=position.id if position else None, name=safe_file_stem(file_name), source="manual_upload", source_detail=file_name, status="pending_screening", tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
+            candidate_org_code = normalize_org_code(getattr(position, "org_code", None) if position else self._current_org_code())
+            candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=candidate_org_code, position_id=position.id if position else None, name=safe_file_stem(file_name), source="manual_upload", source_detail=file_name, status="pending_screening", tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
             self.db.add(candidate)
             self.db.flush()
             candidate.candidate_code = f"CAD-{candidate.id:05d}"
             upload_mime_type = str(item.get("content_type") or "").strip()
             if not upload_mime_type or upload_mime_type in {"application/octet-stream", "binary/octet-stream"}:
                 upload_mime_type = mimetypes.guess_type(file_name)[0] or None
-            resume_file = RecruitmentResumeFile(candidate_id=candidate.id, original_name=file_name, stored_name=stored_name, file_ext=ext, mime_type=upload_mime_type or None, file_size=file_size, storage_path=str(storage_path), parse_status="pending", uploaded_by=actor_id)
+            resume_file = RecruitmentResumeFile(org_code=candidate_org_code, candidate_id=candidate.id, original_name=file_name, stored_name=stored_name, file_ext=ext, mime_type=upload_mime_type or None, file_size=file_size, storage_path=str(storage_path), parse_status="pending", uploaded_by=actor_id)
             self.db.add(resume_file)
             self.db.flush()
             candidate.latest_resume_file_id = resume_file.id
@@ -8179,6 +8279,7 @@ class RecruitmentService:
             advantages = raw_score.get("advantages") if isinstance(raw_score.get("advantages"), list) else []
             concerns = raw_score.get("concerns") if isinstance(raw_score.get("concerns"), list) else []
             score_row = RecruitmentCandidateScore(
+                org_code=normalize_org_code(getattr(candidate, "org_code", None)),
                 candidate_id=candidate.id,
                 parse_result_id=parse_row.id,
                 score_json=json_dumps_safe(content),
@@ -8225,6 +8326,7 @@ class RecruitmentService:
         compatibility_score = payload.get("score") if isinstance(payload.get("score"), dict) else _build_score_compat_payload(normalized_score, score_enhancements)
         normalized = _normalize_resume_score_payload(compatibility_score)
         score_row = RecruitmentCandidateScore(
+            org_code=normalize_org_code(getattr(candidate, "org_code", None)),
             candidate_id=candidate.id,
             parse_result_id=parse_row.id,
             score_json=json_dumps_safe(payload),
@@ -9051,6 +9153,7 @@ class RecruitmentService:
             raise
 
         parse_row = RecruitmentResumeParseResult(
+            org_code=normalize_org_code(getattr(candidate, "org_code", None)),
             candidate_id=candidate.id,
             resume_file_id=resume_file.id,
             raw_text=raw_text,
@@ -9319,7 +9422,7 @@ class RecruitmentService:
                 sanitized_resume,
                 extra_warnings=[*sanitize_warnings, *gateway_warnings],
             )
-            parse_row = RecruitmentResumeParseResult(candidate_id=candidate.id, resume_file_id=resume_file.id, raw_text=raw_text, basic_info_json=json_dumps_safe(sanitized_resume.get("basic_info") or {}), work_experiences_json=json_dumps_safe(sanitized_resume.get("work_experiences") or []), education_experiences_json=json_dumps_safe(sanitized_resume.get("education_experiences") or []), skills_json=json_dumps_safe(sanitized_resume.get("skills") or []), projects_json=json_dumps_safe(sanitized_resume.get("projects") or []), summary_text=sanitized_resume.get("summary") or "", status="success", error_message=parse_error_message)
+            parse_row = RecruitmentResumeParseResult(org_code=normalize_org_code(getattr(candidate, "org_code", None)), candidate_id=candidate.id, resume_file_id=resume_file.id, raw_text=raw_text, basic_info_json=json_dumps_safe(sanitized_resume.get("basic_info") or {}), work_experiences_json=json_dumps_safe(sanitized_resume.get("work_experiences") or []), education_experiences_json=json_dumps_safe(sanitized_resume.get("education_experiences") or []), skills_json=json_dumps_safe(sanitized_resume.get("skills") or []), projects_json=json_dumps_safe(sanitized_resume.get("projects") or []), summary_text=sanitized_resume.get("summary") or "", status="success", error_message=parse_error_message)
             self.db.add(parse_row)
             self.db.flush()
             basic_info = sanitized_resume.get("basic_info") or {}
@@ -11939,7 +12042,7 @@ class RecruitmentService:
                 },
             )
             raise
-        row = RecruitmentInterviewQuestion(candidate_id=candidate.id, position_id=candidate.position_id, skill_ids_json=json_dumps_safe([skill.id for skill in skill_rows]), round_name=round_name or "初试", custom_requirements=custom_requirements or None, html_content=html, markdown_content=markdown, status="generated", created_by=actor_id)
+        row = RecruitmentInterviewQuestion(org_code=normalize_org_code(getattr(candidate, "org_code", None)), candidate_id=candidate.id, position_id=candidate.position_id, skill_ids_json=json_dumps_safe([skill.id for skill in skill_rows]), round_name=round_name or "初试", custom_requirements=custom_requirements or None, html_content=html, markdown_content=markdown, status="generated", created_by=actor_id)
         self.db.add(row)
         self.db.flush()
         workflow_row = self._get_or_create_workflow_memory(candidate, actor_id)
@@ -12079,7 +12182,7 @@ class RecruitmentService:
             html = markdown_to_html(markdown)
             publish_text = render_publish_ready_jd(structured)
             version_no = (self.db.query(func.max(RecruitmentJDVersion.version_no)).filter(RecruitmentJDVersion.position_id == position.id).scalar() or 0) + 1
-            row = RecruitmentJDVersion(position_id=position.id, version_no=version_no, title=f"{position.title} V{version_no}", prompt_snapshot=task.get("prompt_snapshot"), jd_markdown=markdown, jd_html=html, publish_text=publish_text, notes=extra_prompt or None, is_active=bool(auto_activate), created_by=actor_id)
+            row = RecruitmentJDVersion(org_code=normalize_org_code(getattr(position, "org_code", None)), position_id=position.id, version_no=version_no, title=f"{position.title} V{version_no}", prompt_snapshot=task.get("prompt_snapshot"), jd_markdown=markdown, jd_html=html, publish_text=publish_text, notes=extra_prompt or None, is_active=bool(auto_activate), created_by=actor_id)
             self.db.add(row)
             self.db.flush()
             if auto_activate:
@@ -12168,7 +12271,7 @@ class RecruitmentService:
         html = markdown_to_html(markdown)
         publish_text = render_publish_ready_jd(structured)
         version_no = (self.db.query(func.max(RecruitmentJDVersion.version_no)).filter(RecruitmentJDVersion.position_id == position.id).scalar() or 0) + 1
-        row = RecruitmentJDVersion(position_id=position.id, version_no=version_no, title=f"{position.title} V{version_no}", prompt_snapshot=task.get("prompt_snapshot"), jd_markdown=markdown, jd_html=html, publish_text=publish_text, notes=extra_prompt or None, is_active=bool(auto_activate), created_by=actor_id)
+        row = RecruitmentJDVersion(org_code=normalize_org_code(getattr(position, "org_code", None)), position_id=position.id, version_no=version_no, title=f"{position.title} V{version_no}", prompt_snapshot=task.get("prompt_snapshot"), jd_markdown=markdown, jd_html=html, publish_text=publish_text, notes=extra_prompt or None, is_active=bool(auto_activate), created_by=actor_id)
         self.db.add(row)
         self.db.flush()
         if auto_activate:
@@ -12184,7 +12287,7 @@ class RecruitmentService:
     def save_jd_version(self, position_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         position = self._get_position(position_id)
         version_no = (self.db.query(func.max(RecruitmentJDVersion.version_no)).filter(RecruitmentJDVersion.position_id == position.id).scalar() or 0) + 1
-        row = RecruitmentJDVersion(position_id=position.id, version_no=version_no, title=str(payload.get("title") or position.title).strip(), prompt_snapshot=None, jd_markdown=str(payload.get("jd_markdown") or ""), jd_html=payload.get("jd_html") or markdown_to_html(str(payload.get("jd_markdown") or "")), publish_text=payload.get("publish_text") or strip_markdown(str(payload.get("jd_markdown") or "")), notes=payload.get("notes"), is_active=bool(payload.get("auto_activate")), created_by=actor_id)
+        row = RecruitmentJDVersion(org_code=normalize_org_code(getattr(position, "org_code", None)), position_id=position.id, version_no=version_no, title=str(payload.get("title") or position.title).strip(), prompt_snapshot=None, jd_markdown=str(payload.get("jd_markdown") or ""), jd_html=payload.get("jd_html") or markdown_to_html(str(payload.get("jd_markdown") or "")), publish_text=payload.get("publish_text") or strip_markdown(str(payload.get("jd_markdown") or "")), notes=payload.get("notes"), is_active=bool(payload.get("auto_activate")), created_by=actor_id)
         self.db.add(row)
         self.db.flush()
         if payload.get("auto_activate"):
@@ -12213,55 +12316,72 @@ class RecruitmentService:
 
     def _serialize_llm_config(self, row: RecruitmentLLMConfig) -> Dict[str, Any]:
         runtime = self.ai_gateway.resolve_runtime_config_for_row(row)
-        return {"id": row.id, "config_key": row.config_key, "task_type": row.task_type, "provider": row.provider, "model_name": row.model_name, "base_url": row.base_url, "api_key_env": row.api_key_env, "api_key_masked": runtime.api_key_masked, "has_stored_api_key": bool(row.api_key_ciphertext), "has_runtime_api_key": bool(runtime.api_key), "extra_config": json_loads_safe(row.extra_config_json, None), "is_active": bool(row.is_active), "priority": row.priority, "resolved_provider": runtime.provider, "resolved_model_name": runtime.model_name, "resolved_base_url": runtime.base_url, "resolved_source": runtime.source, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "config_key": row.config_key, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "task_type": row.task_type, "provider": row.provider, "model_name": row.model_name, "base_url": row.base_url, "api_key_env": row.api_key_env, "api_key_masked": runtime.api_key_masked, "has_stored_api_key": bool(row.api_key_ciphertext), "has_runtime_api_key": bool(runtime.api_key), "extra_config": json_loads_safe(row.extra_config_json, None), "is_active": bool(row.is_active), "priority": row.priority, "resolved_provider": runtime.provider, "resolved_model_name": runtime.model_name, "resolved_base_url": runtime.base_url, "resolved_source": runtime.source, "created_by": getattr(row, "created_by", None), "updated_by": getattr(row, "updated_by", None), "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def list_llm_configs(self) -> List[Dict[str, Any]]:
         rows = self.db.query(RecruitmentLLMConfig).order_by(RecruitmentLLMConfig.task_type.asc(), RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).all()
-        return [self._serialize_llm_config(row) for row in rows]
+        return [self._serialize_llm_config(row) for row in rows if self._can_access_org_resource(row)]
 
-    def create_llm_config(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        row = RecruitmentLLMConfig(config_key=str(payload.get("config_key") or "").strip(), task_type=payload.get("task_type") or "default", provider=str(payload.get("provider") or "openai-compatible").strip(), model_name=str(payload.get("model_name") or "").strip(), base_url=payload.get("base_url"), api_key_env=payload.get("api_key_env"), api_key_ciphertext=self._safe_encrypt_secret(str(payload.get("api_key_value") or "")) if payload.get("api_key_value") else None, extra_config_json=json_dumps_safe(payload.get("extra_config") or {}), is_active=payload.get("is_active") is not False, priority=int(payload.get("priority") or 99))
+    def create_llm_config(self, payload: Dict[str, Any], actor_id: str = "unknown") -> Dict[str, Any]:
+        org_code = normalize_org_code(payload.get("org_code") or self._current_org_code())
+        self._assert_can_create_in_org(org_code)
+        row = RecruitmentLLMConfig(config_key=str(payload.get("config_key") or "").strip(), org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), task_type=payload.get("task_type") or "default", provider=str(payload.get("provider") or "openai-compatible").strip(), model_name=str(payload.get("model_name") or "").strip(), base_url=payload.get("base_url"), api_key_env=payload.get("api_key_env"), api_key_ciphertext=self._safe_encrypt_secret(str(payload.get("api_key_value") or "")) if payload.get("api_key_value") else None, extra_config_json=json_dumps_safe(payload.get("extra_config") or {}), is_active=payload.get("is_active") is not False, priority=int(payload.get("priority") or 99), created_by=actor_id, updated_by=actor_id)
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
         return self._serialize_llm_config(row)
 
-    def update_llm_config(self, config_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def update_llm_config(self, config_id: int, payload: Dict[str, Any], actor_id: str = "unknown") -> Dict[str, Any]:
         row = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.id == config_id).first()
         if not row:
             raise ValueError("鎿嶄綔澶辫触")
-        for field in ["config_key", "task_type", "provider", "model_name", "base_url", "api_key_env", "is_active", "priority"]:
+        if not self._can_access_org_resource(row):
+            raise ValueError("鎿嶄綔澶辫触")
+        self._assert_resource_manageable(row, actor_id)
+        for field in ["config_key", "task_type", "provider", "model_name", "base_url", "api_key_env", "is_active", "priority", "scope_level", "allow_sub_org_use", "allow_copy"]:
             if field in payload:
                 setattr(row, field, payload.get(field))
+        if "share_policy" in payload:
+            row.share_policy = normalize_share_policy(payload.get("share_policy"))
+        if "org_code" in payload:
+            next_org_code = normalize_org_code(payload.get("org_code"))
+            self._assert_can_create_in_org(next_org_code)
+            row.org_code = next_org_code
         if "extra_config" in payload:
             row.extra_config_json = json_dumps_safe(payload.get("extra_config") or {})
         api_key_value = str(payload.get("api_key_value") or "").strip()
         if api_key_value:
             row.api_key_ciphertext = self._safe_encrypt_secret(api_key_value)
+        row.updated_by = actor_id
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
         return self._serialize_llm_config(row)
 
-    def delete_llm_config(self, config_id: int) -> None:
+    def delete_llm_config(self, config_id: int, actor_id: str = "unknown") -> None:
         row = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.id == config_id).first()
         if not row:
             raise ValueError("鎿嶄綔澶辫触")
+        if not self._can_access_org_resource(row):
+            raise ValueError("鎿嶄綔澶辫触")
+        self._assert_resource_manageable(row, actor_id)
         self.db.delete(row)
         self.db.commit()
 
     def _serialize_mail_sender(self, row: RecruitmentMailSenderConfig) -> Dict[str, Any]:
         password = decrypt_secret(row.password_ciphertext or "")
-        return {"id": row.id, "name": row.name, "from_name": row.from_name, "from_email": row.from_email, "smtp_host": row.smtp_host, "smtp_port": row.smtp_port, "username": row.username, "password_masked": mask_secret(password), "has_password": bool(password), "use_ssl": bool(row.use_ssl), "use_starttls": bool(row.use_starttls), "is_default": bool(row.is_default), "is_enabled": bool(row.is_enabled), "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "name": row.name, "from_name": row.from_name, "from_email": row.from_email, "smtp_host": row.smtp_host, "smtp_port": row.smtp_port, "username": row.username, "password_masked": mask_secret(password), "has_password": bool(password), "use_ssl": bool(row.use_ssl), "use_starttls": bool(row.use_starttls), "is_default": bool(row.is_default), "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def list_mail_senders(self) -> List[Dict[str, Any]]:
         rows = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.deleted.is_(False)).order_by(RecruitmentMailSenderConfig.is_default.desc(), RecruitmentMailSenderConfig.id.asc()).all()
-        return [self._serialize_mail_sender(row) for row in rows]
+        return [self._serialize_mail_sender(row) for row in rows if self._can_access_org_resource(row)]
 
     def create_mail_sender(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
+        org_code = normalize_org_code(payload.get("org_code") or self._current_org_code())
+        self._assert_can_create_in_org(org_code)
         if payload.get("is_default"):
-            self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.deleted.is_(False)).update({RecruitmentMailSenderConfig.is_default: False}, synchronize_session=False)
-        row = RecruitmentMailSenderConfig(name=str(payload.get("name") or "").strip(), from_name=payload.get("from_name"), from_email=str(payload.get("from_email") or "").strip(), smtp_host=str(payload.get("smtp_host") or "").strip(), smtp_port=int(payload.get("smtp_port") or 465), username=str(payload.get("username") or "").strip(), password_ciphertext=self._safe_encrypt_secret(str(payload.get("password") or "")) if payload.get("password") else None, use_ssl=payload.get("use_ssl") is not False, use_starttls=bool(payload.get("use_starttls")), is_default=bool(payload.get("is_default")), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
+            self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.deleted.is_(False), RecruitmentMailSenderConfig.org_code == org_code).update({RecruitmentMailSenderConfig.is_default: False}, synchronize_session=False)
+        row = RecruitmentMailSenderConfig(org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), name=str(payload.get("name") or "").strip(), from_name=payload.get("from_name"), from_email=str(payload.get("from_email") or "").strip(), smtp_host=str(payload.get("smtp_host") or "").strip(), smtp_port=int(payload.get("smtp_port") or 465), username=str(payload.get("username") or "").strip(), password_ciphertext=self._safe_encrypt_secret(str(payload.get("password") or "")) if payload.get("password") else None, use_ssl=payload.get("use_ssl") is not False, use_starttls=bool(payload.get("use_starttls")), is_default=bool(payload.get("is_default")), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
@@ -12271,11 +12391,20 @@ class RecruitmentService:
         row = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == sender_id, RecruitmentMailSenderConfig.deleted.is_(False)).first()
         if not row:
             raise ValueError("鎿嶄綔澶辫触")
+        if not self._can_access_org_resource(row):
+            raise ValueError("鎿嶄綔澶辫触")
+        self._assert_resource_manageable(row, actor_id)
         if payload.get("is_default"):
-            self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.deleted.is_(False), RecruitmentMailSenderConfig.id != sender_id).update({RecruitmentMailSenderConfig.is_default: False}, synchronize_session=False)
-        for field in ["name", "from_name", "from_email", "smtp_host", "smtp_port", "username", "use_ssl", "use_starttls", "is_default", "is_enabled"]:
+            self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.deleted.is_(False), RecruitmentMailSenderConfig.org_code == row.org_code, RecruitmentMailSenderConfig.id != sender_id).update({RecruitmentMailSenderConfig.is_default: False}, synchronize_session=False)
+        for field in ["name", "from_name", "from_email", "smtp_host", "smtp_port", "username", "use_ssl", "use_starttls", "is_default", "is_enabled", "scope_level", "allow_sub_org_use", "allow_copy"]:
             if field in payload:
                 setattr(row, field, payload.get(field))
+        if "share_policy" in payload:
+            row.share_policy = normalize_share_policy(payload.get("share_policy"))
+        if "org_code" in payload:
+            next_org_code = normalize_org_code(payload.get("org_code"))
+            self._assert_can_create_in_org(next_org_code)
+            row.org_code = next_org_code
         password = str(payload.get("password") or "").strip()
         if password:
             row.password_ciphertext = self._safe_encrypt_secret(password)
@@ -12289,6 +12418,9 @@ class RecruitmentService:
         row = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == sender_id, RecruitmentMailSenderConfig.deleted.is_(False)).first()
         if not row:
             raise ValueError("鎿嶄綔澶辫触")
+        if not self._can_access_org_resource(row):
+            raise ValueError("鎿嶄綔澶辫触")
+        self._assert_resource_manageable(row, actor_id)
         row.deleted = True
         row.updated_by = actor_id
         row.is_default = False
@@ -12296,14 +12428,16 @@ class RecruitmentService:
         self.db.commit()
 
     def _serialize_mail_recipient(self, row: RecruitmentMailRecipient) -> Dict[str, Any]:
-        return {"id": row.id, "name": row.name, "email": row.email, "department": row.department, "role_title": row.role_title, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "is_enabled": bool(row.is_enabled), "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "name": row.name, "email": row.email, "department": row.department, "role_title": row.role_title, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def list_mail_recipients(self) -> List[Dict[str, Any]]:
         rows = self.db.query(RecruitmentMailRecipient).filter(RecruitmentMailRecipient.deleted.is_(False)).order_by(RecruitmentMailRecipient.id.asc()).all()
-        return [self._serialize_mail_recipient(row) for row in rows]
+        return [self._serialize_mail_recipient(row) for row in rows if self._can_access_org_resource(row)]
 
     def create_mail_recipient(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
-        row = RecruitmentMailRecipient(name=str(payload.get("name") or "").strip(), email=str(payload.get("email") or "").strip(), department=payload.get("department"), role_title=payload.get("role_title"), tags_json=json_dumps_safe(payload.get("tags") or []), notes=payload.get("notes"), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
+        org_code = normalize_org_code(payload.get("org_code") or self._current_org_code())
+        self._assert_can_create_in_org(org_code)
+        row = RecruitmentMailRecipient(org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), name=str(payload.get("name") or "").strip(), email=str(payload.get("email") or "").strip(), department=payload.get("department"), role_title=payload.get("role_title"), tags_json=json_dumps_safe(payload.get("tags") or []), notes=payload.get("notes"), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
@@ -12313,9 +12447,18 @@ class RecruitmentService:
         row = self.db.query(RecruitmentMailRecipient).filter(RecruitmentMailRecipient.id == recipient_id, RecruitmentMailRecipient.deleted.is_(False)).first()
         if not row:
             raise ValueError("鎿嶄綔澶辫触")
-        for field in ["name", "email", "department", "role_title", "notes", "is_enabled"]:
+        if not self._can_access_org_resource(row):
+            raise ValueError("鎿嶄綔澶辫触")
+        self._assert_resource_manageable(row, actor_id)
+        for field in ["name", "email", "department", "role_title", "notes", "is_enabled", "scope_level", "allow_sub_org_use", "allow_copy"]:
             if field in payload:
                 setattr(row, field, payload.get(field))
+        if "share_policy" in payload:
+            row.share_policy = normalize_share_policy(payload.get("share_policy"))
+        if "org_code" in payload:
+            next_org_code = normalize_org_code(payload.get("org_code"))
+            self._assert_can_create_in_org(next_org_code)
+            row.org_code = next_org_code
         if "tags" in payload:
             row.tags_json = json_dumps_safe(payload.get("tags") or [])
         row.updated_by = actor_id
@@ -12328,6 +12471,9 @@ class RecruitmentService:
         row = self.db.query(RecruitmentMailRecipient).filter(RecruitmentMailRecipient.id == recipient_id, RecruitmentMailRecipient.deleted.is_(False)).first()
         if not row:
             raise ValueError("鎿嶄綔澶辫触")
+        if not self._can_access_org_resource(row):
+            raise ValueError("鎿嶄綔澶辫触")
+        self._assert_resource_manageable(row, actor_id)
         row.deleted = True
         row.updated_by = actor_id
         self.db.add(row)
@@ -12346,17 +12492,21 @@ class RecruitmentService:
                     RecruitmentMailSenderConfig.deleted.is_(False),
                     RecruitmentMailSenderConfig.is_enabled.is_(True),
                 ).first()
+                if sender_row and not self._can_access_org_resource(sender_row):
+                    sender_row = None
         if not sender_row:
-            sender_row = self.db.query(RecruitmentMailSenderConfig).filter(
+            sender_rows = self.db.query(RecruitmentMailSenderConfig).filter(
                 RecruitmentMailSenderConfig.deleted.is_(False),
                 RecruitmentMailSenderConfig.is_enabled.is_(True),
                 RecruitmentMailSenderConfig.is_default.is_(True),
-            ).first()
+            ).order_by(RecruitmentMailSenderConfig.id.asc()).all()
+            sender_row = next((row for row in sender_rows if self._can_access_org_resource(row)), None)
         if not sender_row:
-            sender_row = self.db.query(RecruitmentMailSenderConfig).filter(
+            sender_rows = self.db.query(RecruitmentMailSenderConfig).filter(
                 RecruitmentMailSenderConfig.deleted.is_(False),
                 RecruitmentMailSenderConfig.is_enabled.is_(True),
-            ).order_by(RecruitmentMailSenderConfig.id.asc()).first()
+            ).order_by(RecruitmentMailSenderConfig.id.asc()).all()
+            sender_row = next((row for row in sender_rows if self._can_access_org_resource(row)), None)
         return sender_row
 
     def _normalize_mail_address_groups(
@@ -12482,11 +12632,22 @@ class RecruitmentService:
         dedup_key: Optional[str] = None,
         trigger_rule_payload: Optional[Dict[str, Any]] = None,
     ) -> RecruitmentResumeMailDispatch:
+        org_code = self._current_org_code()
+        candidate_id_values = list(candidate_ids)
+        if candidate_id_values:
+            first_candidate = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == int(candidate_id_values[0])).first()
+            if first_candidate:
+                org_code = normalize_org_code(getattr(first_candidate, "org_code", None))
+        elif position_id:
+            position_row = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == position_id).first()
+            if position_row:
+                org_code = normalize_org_code(getattr(position_row, "org_code", None))
         row = RecruitmentResumeMailDispatch(
+            org_code=org_code,
             sender_config_id=sender_row.id if sender_row else None,
             position_id=position_id,
             screening_score_id=screening_score_id,
-            candidate_ids_json=json_dumps_safe(list(candidate_ids)),
+            candidate_ids_json=json_dumps_safe(candidate_id_values),
             recipient_ids_json=json_dumps_safe(list(recipient_ids)),
             recipient_emails_json=json_dumps_safe(list(recipient_emails)),
             cc_recipient_ids_json=json_dumps_safe(list(cc_recipient_ids)),
@@ -12887,7 +13048,8 @@ class RecruitmentService:
         return RecruitmentMailSenderRuntime(from_email=row.from_email, from_name=row.from_name, smtp_host=row.smtp_host, smtp_port=row.smtp_port, username=row.username, password=password, use_ssl=bool(row.use_ssl), use_starttls=bool(row.use_starttls))
 
     def list_resume_mail_dispatches(self) -> List[Dict[str, Any]]:
-        rows = self.db.query(RecruitmentResumeMailDispatch).order_by(RecruitmentResumeMailDispatch.created_at.desc(), RecruitmentResumeMailDispatch.id.desc()).all()
+        builder = self._apply_business_org_filter(self.db.query(RecruitmentResumeMailDispatch), RecruitmentResumeMailDispatch)
+        rows = builder.order_by(RecruitmentResumeMailDispatch.created_at.desc(), RecruitmentResumeMailDispatch.id.desc()).all()
         return [self._serialize_mail_dispatch(row) for row in rows]
 
     def send_resume_mail_dispatch(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
@@ -12935,12 +13097,13 @@ class RecruitmentService:
         if not normalized:
             return []
         rows = self.db.query(RecruitmentMailRecipient).filter(RecruitmentMailRecipient.id.in_(normalized), RecruitmentMailRecipient.deleted.is_(False), RecruitmentMailRecipient.is_enabled.is_(True)).all()
+        rows = [row for row in rows if self._can_access_org_resource(row)]
         order_map = {item: index for index, item in enumerate(normalized)}
         rows.sort(key=lambda row: order_map.get(row.id, 9999))
         return rows
 
     def list_ai_task_logs(self, task_type: Optional[str] = None, status: Optional[str] = None) -> List[Dict[str, Any]]:
-        builder = self.db.query(RecruitmentAITaskLog)
+        builder = self._apply_business_org_filter(self.db.query(RecruitmentAITaskLog), RecruitmentAITaskLog)
         if task_type:
             builder = builder.filter(RecruitmentAITaskLog.task_type == task_type)
         else:
@@ -12963,6 +13126,7 @@ class RecruitmentService:
         row = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.id == task_id).first()
         if not row:
             raise ValueError("鎿嶄綔澶辫触")
+        self._assert_business_row_visible(row)
         if self._settle_orphaned_live_task(row):
             self.db.commit()
             self.db.refresh(row)
@@ -12985,7 +13149,7 @@ class RecruitmentService:
         current_jd = self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.id == position.current_jd_version_id).first() if position.current_jd_version_id else None
         payload = {"position_id": position.id, "target_platform": target_platform, "mode": mode, "title": position.title, "department": position.department, "location": position.location, "publish_text": current_jd.publish_text if current_jd else None}
         adapter = build_publish_adapter(target_platform, mode)
-        row = RecruitmentPublishTask(position_id=position.id, target_platform=target_platform, mode=mode, adapter_code=adapter.adapter_code, status="pending", request_payload=json_dumps_safe(payload), created_by=actor_id)
+        row = RecruitmentPublishTask(org_code=normalize_org_code(getattr(position, "org_code", None)), position_id=position.id, target_platform=target_platform, mode=mode, adapter_code=adapter.adapter_code, status="pending", request_payload=json_dumps_safe(payload), created_by=actor_id)
         self.db.add(row)
         self.db.flush()
         try:
@@ -13003,7 +13167,7 @@ class RecruitmentService:
         return self._serialize_publish_task(row)
 
     def list_publish_tasks(self, position_id: Optional[int] = None) -> List[Dict[str, Any]]:
-        builder = self.db.query(RecruitmentPublishTask)
+        builder = self._apply_business_org_filter(self.db.query(RecruitmentPublishTask), RecruitmentPublishTask)
         if position_id:
             builder = builder.filter(RecruitmentPublishTask.position_id == position_id)
         rows = builder.order_by(RecruitmentPublishTask.created_at.desc(), RecruitmentPublishTask.id.desc()).all()
@@ -13023,7 +13187,7 @@ class RecruitmentService:
     def update_chat_context(self, user_id: str, position_id: Optional[int], skill_ids: Iterable[Any], candidate_id: Optional[int]) -> Dict[str, Any]:
         row = self.db.query(RecruitmentChatContextMemory).filter(RecruitmentChatContextMemory.user_id == user_id).first()
         if not row:
-            row = RecruitmentChatContextMemory(user_id=user_id, position_id=position_id, candidate_id=candidate_id, skill_ids_json=json_dumps_safe(_dedupe_ints(skill_ids)), context_json=json_dumps_safe({}))
+            row = RecruitmentChatContextMemory(org_code=self._current_org_code(), user_id=user_id, position_id=position_id, candidate_id=candidate_id, skill_ids_json=json_dumps_safe(_dedupe_ints(skill_ids)), context_json=json_dumps_safe({}))
             self.db.add(row)
         else:
             row.position_id = position_id

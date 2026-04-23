@@ -46,6 +46,21 @@ class ScriptHubRolePermission(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
+class ScriptHubOrganization(Base):
+    __tablename__ = "script_hub_organizations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    org_code = Column(String(100), unique=True, index=True, nullable=False)
+    name = Column(String(120), nullable=False)
+    org_type = Column(String(50), default="company", nullable=False, index=True)
+    parent_org_code = Column(String(100), index=True)
+    path = Column(String(500), nullable=False, index=True)
+    sort_order = Column(Integer, default=99, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class ScriptHubUser(Base):
     __tablename__ = "script_hub_users"
 
@@ -55,6 +70,11 @@ class ScriptHubUser(Base):
     access_key_lookup_hash = Column(String(64), unique=True, index=True, nullable=False)
     access_key_salt = Column(String(64), nullable=False)
     access_key_hash = Column(String(128), nullable=False)
+    primary_org_code = Column(String(100), default="group", nullable=False, index=True)
+    data_scope = Column(String(40), default="ORG_ONLY", nullable=False, index=True)
+    custom_org_codes_json = Column(Text)
+    authorization_boundary_json = Column(Text)
+    permission_version = Column(Integer, default=1, nullable=False)
     team_resources_access_enabled = Column(Boolean, default=True, nullable=False)
     is_super_admin = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -64,6 +84,8 @@ class ScriptHubUser(Base):
     last_login_at = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __mapper_args__ = {"version_id_col": permission_version, "version_id_generator": False}
 
 
 class ScriptHubUserRole(Base):
@@ -101,6 +123,8 @@ class ScriptHubAuditLog(Base):
     action = Column(String(100), nullable=False, index=True)
     target_type = Column(String(50), nullable=False, index=True)
     target_code = Column(String(100), nullable=False, index=True)
+    target_org_code = Column(String(100), index=True)
+    sensitivity = Column(String(40), default="normal", nullable=False, index=True)
     result = Column(String(20), nullable=False, default="success")
     ip_address = Column(String(64))
     user_agent = Column(String(512))

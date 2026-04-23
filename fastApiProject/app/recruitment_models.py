@@ -15,6 +15,7 @@ class RecruitmentPosition(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     position_code = Column(String(64), unique=True, index=True, nullable=False)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     title = Column(String(200), nullable=False, index=True)
     department = Column(String(120))
     location = Column(String(120))
@@ -44,6 +45,7 @@ class RecruitmentJDVersion(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     position_id = Column(Integer, nullable=False, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     version_no = Column(Integer, nullable=False)
     title = Column(String(200), nullable=False)
     prompt_snapshot = Column(Text)
@@ -61,6 +63,7 @@ class RecruitmentCandidate(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     candidate_code = Column(String(64), unique=True, index=True, nullable=False)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     position_id = Column(Integer, index=True)
     name = Column(String(120), nullable=False, index=True)
     phone = Column(String(40), index=True)
@@ -90,6 +93,7 @@ class RecruitmentResumeFile(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     candidate_id = Column(Integer, nullable=False, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     original_name = Column(String(255), nullable=False)
     stored_name = Column(String(255), nullable=False)
     file_ext = Column(String(20))
@@ -108,6 +112,7 @@ class RecruitmentResumeParseResult(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     candidate_id = Column(Integer, nullable=False, index=True)
     resume_file_id = Column(Integer, nullable=False, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     raw_text = Column(MediumText())
     basic_info_json = Column(MediumText())
     work_experiences_json = Column(MediumText())
@@ -126,6 +131,7 @@ class RecruitmentCandidateScore(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     candidate_id = Column(Integer, nullable=False, index=True)
     parse_result_id = Column(Integer, nullable=False, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     score_json = Column(MediumText())
     total_score = Column(Float)
     match_percent = Column(Float)
@@ -144,6 +150,7 @@ class RecruitmentCandidateStatusHistory(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     candidate_id = Column(Integer, nullable=False, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     from_status = Column(String(50))
     to_status = Column(String(50), nullable=False, index=True)
     reason = Column(Text)
@@ -157,6 +164,12 @@ class RecruitmentSkill(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     skill_code = Column(String(64), unique=True, index=True, nullable=False)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
+    scope_level = Column(String(40), default="ORG", nullable=False, index=True)
+    share_policy = Column(String(40), default="PRIVATE", nullable=False, index=True)
+    allow_sub_org_use = Column(Boolean, default=False, nullable=False)
+    allow_copy = Column(Boolean, default=False, nullable=False)
+    is_system_base = Column(Boolean, default=False, nullable=False, index=True)
     name = Column(String(120), nullable=False, index=True)
     description = Column(String(255))
     skill_group = Column(String(120), index=True)
@@ -189,6 +202,7 @@ class RecruitmentAITaskLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     task_type = Column(String(80), nullable=False, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     screening_run_id = Column(String(80), index=True)
     batch_id = Column(String(80), index=True)
     parent_task_id = Column(Integer, index=True)
@@ -234,6 +248,7 @@ class RecruitmentRuleConfig(Base):
     __tablename__ = "recruitment_rule_configs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     config_key = Column(String(120), nullable=False, index=True)
     config_type = Column(String(50), nullable=False)
     scope = Column(String(50), default="global", nullable=False, index=True)
@@ -249,6 +264,11 @@ class RecruitmentLLMConfig(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     config_key = Column(String(120), unique=True, index=True, nullable=False)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
+    scope_level = Column(String(40), default="ORG", nullable=False, index=True)
+    share_policy = Column(String(40), default="PRIVATE", nullable=False, index=True)
+    allow_sub_org_use = Column(Boolean, default=False, nullable=False)
+    allow_copy = Column(Boolean, default=False, nullable=False)
     task_type = Column(String(80), nullable=False, index=True)
     provider = Column(String(80), nullable=False)
     model_name = Column(String(120), nullable=False)
@@ -258,6 +278,8 @@ class RecruitmentLLMConfig(Base):
     extra_config_json = Column(Text)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     priority = Column(Integer, default=99, nullable=False)
+    created_by = Column(String(100))
+    updated_by = Column(String(100))
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -268,6 +290,7 @@ class RecruitmentInterviewQuestion(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     candidate_id = Column(Integer, nullable=False, index=True)
     position_id = Column(Integer, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     skill_ids_json = Column(Text)
     round_name = Column(String(80), default="初试", nullable=False)
     custom_requirements = Column(Text)
@@ -285,6 +308,7 @@ class RecruitmentCandidateWorkflowMemory(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     candidate_id = Column(Integer, nullable=False, unique=True, index=True)
     position_id = Column(Integer, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     screening_skill_ids_json = Column(Text)
     screening_memory_source = Column(String(80))
     screening_rule_snapshot_json = Column(Text)
@@ -304,6 +328,7 @@ class RecruitmentChatContextMemory(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String(100), nullable=False, unique=True, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     position_id = Column(Integer, index=True)
     candidate_id = Column(Integer, index=True)
     skill_ids_json = Column(Text)
@@ -316,6 +341,11 @@ class RecruitmentMailSenderConfig(Base):
     __tablename__ = "recruitment_mail_sender_configs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
+    scope_level = Column(String(40), default="ORG", nullable=False, index=True)
+    share_policy = Column(String(40), default="PRIVATE", nullable=False, index=True)
+    allow_sub_org_use = Column(Boolean, default=False, nullable=False)
+    allow_copy = Column(Boolean, default=False, nullable=False)
     name = Column(String(120), nullable=False, index=True)
     from_name = Column(String(120))
     from_email = Column(String(180), nullable=False, index=True)
@@ -338,6 +368,11 @@ class RecruitmentMailRecipient(Base):
     __tablename__ = "recruitment_mail_recipients"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
+    scope_level = Column(String(40), default="ORG", nullable=False, index=True)
+    share_policy = Column(String(40), default="PRIVATE", nullable=False, index=True)
+    allow_sub_org_use = Column(Boolean, default=False, nullable=False)
+    allow_copy = Column(Boolean, default=False, nullable=False)
     name = Column(String(120), nullable=False, index=True)
     email = Column(String(180), nullable=False, index=True)
     department = Column(String(120))
@@ -356,6 +391,7 @@ class RecruitmentResumeMailDispatch(Base):
     __tablename__ = "recruitment_resume_mail_dispatches"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     sender_config_id = Column(Integer, index=True)
     position_id = Column(Integer, index=True)
     screening_score_id = Column(Integer, index=True)
@@ -389,6 +425,7 @@ class RecruitmentInterviewResult(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     candidate_id = Column(Integer, nullable=False, index=True)
     position_id = Column(Integer, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     interviewer_name = Column(String(120))
     round_name = Column(String(80), default="初试", nullable=False)
     notes_text = Column(Text)
@@ -405,6 +442,7 @@ class RecruitmentPublishTask(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     position_id = Column(Integer, nullable=False, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
     target_platform = Column(String(80), nullable=False, index=True)
     mode = Column(String(50), nullable=False)
     adapter_code = Column(String(80), nullable=False)

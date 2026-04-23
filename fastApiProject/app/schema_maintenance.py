@@ -8,7 +8,8 @@ from sqlalchemy import inspect, text
 
 from .database import Base, SessionLocal, engine
 from .rbac_catalog import PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
-from .rbac_models import ScriptHubPermission, ScriptHubRole, ScriptHubRolePermission
+from .permission_governance import ROOT_ORG_CODE
+from .rbac_models import ScriptHubOrganization, ScriptHubPermission, ScriptHubRole, ScriptHubRolePermission
 from .recruitment_models import (
     RecruitmentLLMConfig,
     RecruitmentMailRecipient,
@@ -33,6 +34,47 @@ _SCHEMA_SKILL_TASK_KEYWORDS = {
     "interview": {"interview", "question", "questions", "interview-question", "面试", "面试题", "出题"},
     "jd": {"jd", "job_description", "job-description", "岗位jd", "职位jd", "jd生成", "生成jd", "岗位描述", "职位描述"},
 }
+
+
+def _add_column_if_missing(
+    inspector,
+    table_name: str,
+    column_name: str,
+    ddl: str,
+    log_message: str,
+) -> None:
+    columns = {column["name"] for column in inspector.get_columns(table_name)}
+    if column_name in columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(text(ddl))
+    try:
+        inspector.clear_cache()
+    except Exception:
+        pass
+    logger.info(log_message)
+
+
+def _sync_default_organization(db) -> None:
+    root = db.query(ScriptHubOrganization).filter(ScriptHubOrganization.org_code == ROOT_ORG_CODE).first()
+    if not root:
+        db.add(
+            ScriptHubOrganization(
+                org_code=ROOT_ORG_CODE,
+                name="集团总部",
+                org_type="group",
+                parent_org_code=None,
+                path=ROOT_ORG_CODE,
+                sort_order=10,
+                is_active=True,
+            )
+        )
+    else:
+        root.name = root.name or "集团总部"
+        root.org_type = root.org_type or "group"
+        root.path = root.path or ROOT_ORG_CODE
+        root.sort_order = root.sort_order or 10
+        root.is_active = True
 
 
 def _build_default_recruitment_llm_seed() -> dict:
@@ -171,6 +213,7 @@ def _extract_schema_skill_pack_meta(row: RecruitmentSkill) -> dict[str, str]:
 def _sync_script_hub_catalog() -> None:
     db = SessionLocal()
     try:
+        _sync_default_organization(db)
         permission_rows = {
             row.permission_key: row
             for row in db.query(ScriptHubPermission).all()
@@ -274,6 +317,31 @@ def ensure_script_hub_schema() -> None:
             return
 
         columns = {column["name"] for column in inspector.get_columns("script_hub_users")}
+        if "primary_org_code" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN primary_org_code VARCHAR(100) NOT NULL DEFAULT 'group'"))
+            logger.info("Added script_hub_users.primary_org_code column")
+
+        if "data_scope" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN data_scope VARCHAR(40) NOT NULL DEFAULT 'ORG_ONLY'"))
+            logger.info("Added script_hub_users.data_scope column")
+
+        if "custom_org_codes_json" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN custom_org_codes_json TEXT NULL"))
+            logger.info("Added script_hub_users.custom_org_codes_json column")
+
+        if "authorization_boundary_json" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN authorization_boundary_json TEXT NULL"))
+            logger.info("Added script_hub_users.authorization_boundary_json column")
+
+        if "permission_version" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN permission_version INTEGER NOT NULL DEFAULT 1"))
+            logger.info("Added script_hub_users.permission_version column")
+
         if "team_resources_access_enabled" not in columns:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN team_resources_access_enabled BOOLEAN NOT NULL DEFAULT TRUE"))
@@ -300,6 +368,17 @@ def ensure_script_hub_schema() -> None:
                 connection.execute(text("ALTER TABLE script_hub_roles ADD COLUMN deleted_at DATETIME NULL"))
             logger.info("Added script_hub_roles.deleted_at column")
 
+        audit_columns = {column["name"] for column in inspector.get_columns("script_hub_audit_logs")}
+        if "target_org_code" not in audit_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE script_hub_audit_logs ADD COLUMN target_org_code VARCHAR(100) NULL"))
+            logger.info("Added script_hub_audit_logs.target_org_code column")
+
+        if "sensitivity" not in audit_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE script_hub_audit_logs ADD COLUMN sensitivity VARCHAR(40) NOT NULL DEFAULT 'normal'"))
+            logger.info("Added script_hub_audit_logs.sensitivity column")
+
         _sync_script_hub_catalog()
         _schema_ensured = True
 
@@ -319,6 +398,59 @@ def ensure_recruitment_schema() -> None:
         if not inspector.has_table("recruitment_rule_configs"):
             _recruitment_schema_ensured = True
             return
+
+        for table_name in [
+            "recruitment_positions",
+            "recruitment_jd_versions",
+            "recruitment_candidates",
+            "recruitment_resume_files",
+            "recruitment_resume_parse_results",
+            "recruitment_candidate_scores",
+            "recruitment_candidate_status_history",
+            "recruitment_ai_task_logs",
+            "recruitment_rule_configs",
+            "recruitment_interview_questions",
+            "recruitment_candidate_workflow_memories",
+            "recruitment_chat_context_memories",
+            "recruitment_resume_mail_dispatches",
+            "recruitment_interview_results",
+            "recruitment_publish_tasks",
+        ]:
+            if inspector.has_table(table_name):
+                _add_column_if_missing(
+                    inspector,
+                    table_name,
+                    "org_code",
+                    f"ALTER TABLE {table_name} ADD COLUMN org_code VARCHAR(100) NOT NULL DEFAULT 'group'",
+                    f"Added {table_name}.org_code column",
+                )
+
+        for table_name in [
+            "recruitment_skills",
+            "recruitment_llm_configs",
+            "recruitment_mail_sender_configs",
+            "recruitment_mail_recipients",
+        ]:
+            if not inspector.has_table(table_name):
+                continue
+            _add_column_if_missing(inspector, table_name, "org_code", f"ALTER TABLE {table_name} ADD COLUMN org_code VARCHAR(100) NOT NULL DEFAULT 'group'", f"Added {table_name}.org_code column")
+            _add_column_if_missing(inspector, table_name, "scope_level", f"ALTER TABLE {table_name} ADD COLUMN scope_level VARCHAR(40) NOT NULL DEFAULT 'ORG'", f"Added {table_name}.scope_level column")
+            _add_column_if_missing(inspector, table_name, "share_policy", f"ALTER TABLE {table_name} ADD COLUMN share_policy VARCHAR(40) NOT NULL DEFAULT 'PRIVATE'", f"Added {table_name}.share_policy column")
+            _add_column_if_missing(inspector, table_name, "allow_sub_org_use", f"ALTER TABLE {table_name} ADD COLUMN allow_sub_org_use BOOLEAN NOT NULL DEFAULT FALSE", f"Added {table_name}.allow_sub_org_use column")
+            _add_column_if_missing(inspector, table_name, "allow_copy", f"ALTER TABLE {table_name} ADD COLUMN allow_copy BOOLEAN NOT NULL DEFAULT FALSE", f"Added {table_name}.allow_copy column")
+
+        if inspector.has_table("recruitment_skills"):
+            _add_column_if_missing(
+                inspector,
+                "recruitment_skills",
+                "is_system_base",
+                "ALTER TABLE recruitment_skills ADD COLUMN is_system_base BOOLEAN NOT NULL DEFAULT FALSE",
+                "Added recruitment_skills.is_system_base column",
+            )
+
+        if inspector.has_table("recruitment_llm_configs"):
+            _add_column_if_missing(inspector, "recruitment_llm_configs", "created_by", "ALTER TABLE recruitment_llm_configs ADD COLUMN created_by VARCHAR(100) NULL", "Added recruitment_llm_configs.created_by column")
+            _add_column_if_missing(inspector, "recruitment_llm_configs", "updated_by", "ALTER TABLE recruitment_llm_configs ADD COLUMN updated_by VARCHAR(100) NULL", "Added recruitment_llm_configs.updated_by column")
 
         jd_columns = {column["name"] for column in inspector.get_columns("recruitment_jd_versions")}
         if "publish_text" not in jd_columns:
@@ -547,7 +679,7 @@ def ensure_recruitment_schema() -> None:
                 seed_version = str(skill.get("version") or seed_frontmatter.get("version") or seed_frontmatter.get("skill_version") or "").strip() or None
                 exists = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == skill["skill_code"]).first()
                 if not exists:
-                    db.add(RecruitmentSkill(skill_code=skill["skill_code"], name=skill["name"], description=skill.get("description"), skill_group=seed_group, version=seed_version, content=skill["content"], tags_json=json.dumps(skill.get("tags") or [], ensure_ascii=False), sort_order=skill.get("sort_order") or 99, is_enabled=True, created_by="system", updated_by="system", deleted=False))
+                    db.add(RecruitmentSkill(skill_code=skill["skill_code"], org_code=ROOT_ORG_CODE, scope_level="GLOBAL", share_policy="SHARED_READONLY", allow_sub_org_use=True, allow_copy=False, is_system_base=True, name=skill["name"], description=skill.get("description"), skill_group=seed_group, version=seed_version, content=skill["content"], tags_json=json.dumps(skill.get("tags") or [], ensure_ascii=False), sort_order=skill.get("sort_order") or 99, is_enabled=True, created_by="system", updated_by="system", deleted=False))
                 elif exists.deleted:
                     continue
                 elif (exists.updated_by or "system") == "system" or _needs_legacy_default_skill_refresh(exists):
@@ -559,6 +691,12 @@ def ensure_recruitment_schema() -> None:
                     exists.tags_json = json.dumps(skill.get("tags") or [], ensure_ascii=False)
                     exists.sort_order = skill.get("sort_order") or 99
                     exists.is_enabled = bool(exists.is_enabled)
+                    exists.org_code = getattr(exists, "org_code", None) or ROOT_ORG_CODE
+                    exists.scope_level = "GLOBAL"
+                    exists.share_policy = "SHARED_READONLY"
+                    exists.allow_sub_org_use = True
+                    exists.allow_copy = False
+                    exists.is_system_base = True
                     exists.updated_by = "system"
 
             legacy_combined_skill = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == "skill-iot-resume-screener").first()
@@ -580,10 +718,21 @@ def ensure_recruitment_schema() -> None:
                     legacy_default.api_key_env = default_seed["api_key_env"]
                     legacy_default.priority = 1
                     legacy_default.is_active = True
+                    legacy_default.org_code = getattr(legacy_default, "org_code", None) or ROOT_ORG_CODE
+                    legacy_default.scope_level = "GLOBAL"
+                    legacy_default.share_policy = "SHARED_READONLY"
+                    legacy_default.allow_sub_org_use = True
+                    legacy_default.allow_copy = False
+                    legacy_default.updated_by = "system"
                 else:
                     db.add(
                         RecruitmentLLMConfig(
                             config_key=default_seed["config_key"],
+                            org_code=ROOT_ORG_CODE,
+                            scope_level="GLOBAL",
+                            share_policy="SHARED_READONLY",
+                            allow_sub_org_use=True,
+                            allow_copy=False,
                             task_type="default",
                             provider=default_seed["provider"],
                             model_name=default_seed["model_name"],
@@ -592,6 +741,8 @@ def ensure_recruitment_schema() -> None:
                             extra_config_json=None,
                             is_active=True,
                             priority=1,
+                            created_by="system",
+                            updated_by="system",
                         ),
                     )
 
@@ -601,6 +752,11 @@ def ensure_recruitment_schema() -> None:
                 db.add(
                     RecruitmentLLMConfig(
                         config_key=glm_seed["config_key"],
+                        org_code=ROOT_ORG_CODE,
+                        scope_level="GLOBAL",
+                        share_policy="SHARED_COPYABLE",
+                        allow_sub_org_use=True,
+                        allow_copy=True,
                         task_type=glm_seed["task_type"],
                         provider=glm_seed["provider"],
                         model_name=glm_seed["model_name"],
@@ -610,6 +766,8 @@ def ensure_recruitment_schema() -> None:
                         extra_config_json=glm_seed["extra_config_json"],
                         is_active=glm_seed["is_active"],
                         priority=glm_seed["priority"],
+                        created_by="system",
+                        updated_by="system",
                     ),
                 )
 

@@ -41,11 +41,28 @@ PERMISSION_DEFINITIONS: Tuple[PermissionDefinition, ...] = (
     PermissionDefinition("server-monitoring", "运维中心", "platform", "可访问服务器监控与指标", 170),
     PermissionDefinition("dev-tools", "开发工具", "platform", "可访问开发工具页面", 180),
     PermissionDefinition("rbac-manage", "权限管理中心", "platform", "可管理用户、角色与权限", 190),
+    PermissionDefinition("resource-sharing-manage", "资源共享治理", "platform", "可管理跨组织资源共享策略", 195),
+    PermissionDefinition("audit-log-view", "审计日志查看", "platform", "可按数据范围查看审计日志", 196),
+    PermissionDefinition("audit-log-sensitive-view", "敏感审计查看", "platform", "可查看敏感配置变更审计详情", 197),
     PermissionDefinition("agent-chat", "Agent 助手", "collaboration", "可使用 Agent Chat", 200),
-    PermissionDefinition("ai-recruitment", "AI 招聘自动化", "collaboration", "可访问 AI 招聘自动化管理工作台", 210),
-    PermissionDefinition("ai-recruitment-manage", "AI 招聘配置管理", "collaboration", "可管理 AI 招聘模块中的模型配置与 Skills", 220),
-    PermissionDefinition("biz-scene", "业务场景管理", "business", "可初始化业务场景数据", 230),
-    PermissionDefinition("biz-task", "任务管理", "business", "可初始化任务数据", 240),
+    PermissionDefinition("recruitment-dashboard-view", "招聘看板查看", "recruitment", "可查看招聘看板和统计", 210),
+    PermissionDefinition("recruitment-position-manage", "岗位管理", "recruitment", "可创建、编辑、删除招聘岗位", 211),
+    PermissionDefinition("recruitment-candidate-manage", "候选人管理", "recruitment", "可上传、编辑、推进候选人", 212),
+    PermissionDefinition("recruitment-process-execute", "招聘流程执行", "recruitment", "可执行 JD 生成、初筛、面试题和发布任务", 213),
+    PermissionDefinition("recruitment-log-view", "招聘日志查看", "recruitment", "可查看招聘 AI 任务和流程日志", 214),
+    PermissionDefinition("recruitment-skill-view", "Skill 查看", "recruitment-config", "可查看招聘 Skill 配置", 220),
+    PermissionDefinition("recruitment-skill-bind", "Skill 绑定", "recruitment-config", "可将 Skill 绑定到岗位或任务", 221),
+    PermissionDefinition("recruitment-skill-manage", "Skill 管理", "recruitment-config", "可创建、编辑、删除招聘 Skill", 222),
+    PermissionDefinition("recruitment-mail-view", "邮件中心查看", "recruitment-config", "可查看邮件中心配置和发送记录", 230),
+    PermissionDefinition("recruitment-mail-send", "邮件发送", "recruitment-config", "可发送候选人邮件", 231),
+    PermissionDefinition("recruitment-mail-config-manage", "邮件配置管理", "recruitment-config", "可管理收件人、模板和自动推送规则", 232),
+    PermissionDefinition("recruitment-mail-sender-manage", "发件箱管理", "recruitment-config", "可管理 SMTP 发件箱配置", 233),
+    PermissionDefinition("recruitment-llm-config-view", "模型配置查看", "recruitment-config", "可查看招聘模型配置", 240),
+    PermissionDefinition("recruitment-llm-config-manage", "模型配置管理", "recruitment-config", "可创建、编辑、删除招聘模型配置", 241),
+    PermissionDefinition("ai-recruitment", "AI 招聘自动化（兼容）", "compatibility", "兼容权限包：招聘使用与查看能力，后续废弃", 250),
+    PermissionDefinition("ai-recruitment-manage", "AI 招聘配置管理（兼容）", "compatibility", "兼容权限包：招聘配置管理能力，后续废弃", 251),
+    PermissionDefinition("biz-scene", "业务场景管理", "business", "可初始化业务场景数据", 260),
+    PermissionDefinition("biz-task", "任务管理", "business", "可初始化任务数据", 270),
 )
 
 
@@ -55,14 +72,14 @@ PERMISSION_INDEX: Dict[str, PermissionDefinition] = {permission.key: permission 
 
 ROLE_DEFINITIONS: Tuple[RoleDefinition, ...] = (
     RoleDefinition("admin", "系统超管", "拥有所有权限的系统管理员，可管理平台、资源和全部业务工具", 10, ALL_PERMISSION_KEYS),
-    RoleDefinition("operations-manager", "业务管理员", "负责核心业务流程执行与协同，不包含平台级危险操作", 20, ("settlement", "commission", "balance", "task-automation", "sms_operations_center", "tax-reporting", "tax-calculation", "settlement-sim", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "ai-recruitment", "biz-scene", "biz-task")),
-    RoleDefinition("operator", "运营专员", "负责日常运营、交付和查询类工作，不修改资源配置与平台设置", 30, ("tax-reporting", "tax-calculation", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "ai-recruitment")),
+    RoleDefinition("operations-manager", "业务管理员", "负责核心业务流程执行与协同，不包含平台级危险操作", 20, ("settlement", "commission", "balance", "task-automation", "sms_operations_center", "tax-reporting", "tax-calculation", "settlement-sim", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "recruitment-dashboard-view", "recruitment-position-manage", "recruitment-candidate-manage", "recruitment-process-execute", "recruitment-log-view", "recruitment-skill-view", "recruitment-skill-bind", "recruitment-mail-view", "recruitment-mail-send", "ai-recruitment", "biz-scene", "biz-task")),
+    RoleDefinition("operator", "运营专员", "负责日常运营、交付和查询类工作，不修改资源配置与平台设置", 30, ("tax-reporting", "tax-calculation", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "recruitment-dashboard-view", "recruitment-candidate-manage", "recruitment-process-execute", "recruitment-skill-view", "recruitment-skill-bind", "recruitment-mail-view", "recruitment-mail-send", "ai-recruitment")),
     RoleDefinition("finance-analyst", "财务分析", "负责财务核验、分析与报表工具，不直接执行高风险业务操作", 40, ("commission", "balance", "tax-reporting", "tax-calculation", "payment-stats", "team-resources", "ai-resources")),
-    RoleDefinition("resource-manager", "资源管理员", "负责维护团队资源、AI 资源及相关健康检测配置", 50, ("team-resources", "team-resources-manage", "ai-resources", "ai-resources-manage", "cert-health", "agent-chat", "ocr-tool")),
+    RoleDefinition("resource-manager", "资源管理员", "负责维护团队资源、AI 资源及相关健康检测配置", 50, ("team-resources", "team-resources-manage", "ai-resources", "ai-resources-manage", "cert-health", "agent-chat", "ocr-tool", "resource-sharing-manage")),
     RoleDefinition("platform-engineer", "平台运维", "负责运维中心、系统健康、排障和平台工具", 60, ("server-monitoring", "cert-health", "dev-tools", "team-resources", "ai-resources", "agent-chat", "ocr-tool")),
-    RoleDefinition("product-manager", "产品经理", "负责跨模块跟进与业务观察，可查看平台状态但不直接管理资源", 70, ("settlement", "commission", "balance", "task-automation", "tax-reporting", "tax-calculation", "settlement-sim", "payment-stats", "delivery-tool", "ocr-tool", "cert-health", "server-monitoring", "team-resources", "ai-resources", "agent-chat", "ai-recruitment")),
-    RoleDefinition("qa-engineer", "测试与质保", "负责回归验证、平台排障与资源维护，接近管理员但不直接拥有超管身份", 80, ("settlement", "commission", "balance", "task-automation", "sms_operations_center", "sms-admin-login", "tax-reporting", "tax-calculation", "settlement-sim", "payment-stats", "delivery-tool", "ocr-tool", "dev-tools", "cert-health", "server-monitoring", "team-resources", "team-resources-manage", "ai-resources", "ai-resources-manage", "agent-chat", "ai-recruitment", "ai-recruitment-manage")),
-    RoleDefinition("auditor", "审计/只读", "用于只读检查与巡视，避免执行写操作", 90, ("payment-stats", "team-resources", "ai-resources", "cert-health", "server-monitoring")),
+    RoleDefinition("product-manager", "产品经理", "负责跨模块跟进与业务观察，可查看平台状态但不直接管理资源", 70, ("settlement", "commission", "balance", "task-automation", "tax-reporting", "tax-calculation", "settlement-sim", "payment-stats", "delivery-tool", "ocr-tool", "cert-health", "server-monitoring", "team-resources", "ai-resources", "agent-chat", "recruitment-dashboard-view", "recruitment-log-view", "recruitment-skill-view", "recruitment-mail-view", "ai-recruitment")),
+    RoleDefinition("qa-engineer", "测试与质保", "负责回归验证、平台排障与资源维护，接近管理员但不直接拥有超管身份", 80, ("settlement", "commission", "balance", "task-automation", "sms_operations_center", "sms-admin-login", "tax-reporting", "tax-calculation", "settlement-sim", "payment-stats", "delivery-tool", "ocr-tool", "dev-tools", "cert-health", "server-monitoring", "team-resources", "team-resources-manage", "ai-resources", "ai-resources-manage", "agent-chat", "recruitment-dashboard-view", "recruitment-position-manage", "recruitment-candidate-manage", "recruitment-process-execute", "recruitment-log-view", "recruitment-skill-view", "recruitment-skill-bind", "recruitment-skill-manage", "recruitment-mail-view", "recruitment-mail-send", "recruitment-mail-config-manage", "recruitment-mail-sender-manage", "recruitment-llm-config-view", "recruitment-llm-config-manage", "resource-sharing-manage", "audit-log-view", "ai-recruitment", "ai-recruitment-manage")),
+    RoleDefinition("auditor", "审计/只读", "用于只读检查与巡视，避免执行写操作", 90, ("payment-stats", "team-resources", "ai-resources", "cert-health", "server-monitoring", "audit-log-view", "recruitment-dashboard-view", "recruitment-log-view")),
 )
 
 
@@ -83,4 +100,3 @@ def normalize_role_code(role_code: str) -> str:
     if normalized in ROLE_INDEX:
         return normalized
     return LEGACY_ROLE_MAPPING.get(normalized, "operator")
-

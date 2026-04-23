@@ -10,6 +10,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..permission_governance import PermissionContext, resource_is_visible_to_context
 from ..recruitment_models import RecruitmentLLMConfig
 from ..secret_crypto import decrypt_secret, mask_secret
 from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl
@@ -1068,6 +1069,22 @@ class RecruitmentLLMRuntimeConfig:
 class RecruitmentAIGateway:
     def __init__(self, db: Session):
         self.db = db
+        self.permission_context: Optional[PermissionContext] = None
+
+    def set_permission_context(self, context: Optional[PermissionContext]) -> "RecruitmentAIGateway":
+        self.permission_context = context
+        return self
+
+    def _config_visible(self, config: RecruitmentLLMConfig) -> bool:
+        if not self.permission_context:
+            return True
+        return resource_is_visible_to_context(
+            self.db,
+            self.permission_context,
+            resource_org_code=getattr(config, "org_code", None),
+            share_policy=getattr(config, "share_policy", "PRIVATE"),
+            allow_sub_org_use=getattr(config, "allow_sub_org_use", False),
+        )
 
     def _resolve_api_key_from_provider(self, definition: ProviderDefinition) -> Optional[str]:
         for env_name in definition.env_names:
@@ -1120,9 +1137,11 @@ class RecruitmentAIGateway:
         )
 
     def resolve_config(self, task_type: str) -> RecruitmentLLMRuntimeConfig:
-        config = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.is_active.is_(True), RecruitmentLLMConfig.task_type == task_type).order_by(RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).first()
+        configs = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.is_active.is_(True), RecruitmentLLMConfig.task_type == task_type).order_by(RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).all()
+        config = next((row for row in configs if self._config_visible(row)), None)
         if not config:
-            config = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.is_active.is_(True), RecruitmentLLMConfig.task_type == "default").order_by(RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).first()
+            configs = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.is_active.is_(True), RecruitmentLLMConfig.task_type == "default").order_by(RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).all()
+            config = next((row for row in configs if self._config_visible(row)), None)
         if config:
             return self.resolve_runtime_config_for_row(config)
 

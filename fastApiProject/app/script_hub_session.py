@@ -8,6 +8,8 @@ from typing import Any, Callable, Dict, Optional, Sequence
 
 from fastapi import HTTPException, Request, status
 
+from .permission_governance import has_any_permission, has_permission
+
 DEFAULT_SESSION_TTL_MS = 12 * 60 * 60 * 1000
 
 
@@ -84,6 +86,12 @@ def create_script_hub_session(user: Dict[str, Any]) -> Dict[str, Any]:
             "roles": payload.get("roles") or [],
             "name": payload.get("name"),
             "permissions": payload.get("permissions") or {},
+            "isSuperAdmin": bool(payload.get("isSuperAdmin")),
+            "primaryOrgCode": payload.get("primaryOrgCode") or "group",
+            "dataScope": payload.get("dataScope") or "ORG_ONLY",
+            "customOrgCodes": payload.get("customOrgCodes") or [],
+            "authorizationBoundary": payload.get("authorizationBoundary") or {},
+            "permissionVersion": int(payload.get("permissionVersion") or 1),
             "teamResourcesLoginKeyEnabled": bool(payload.get("teamResourcesLoginKeyEnabled")),
         },
         "expiresAt": payload["exp"],
@@ -125,8 +133,7 @@ def require_script_hub_permission(permission: Optional[str] = None) -> Callable[
         if not session:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session")
 
-        permissions = session.get("permissions") or {}
-        if permission and not permissions.get(permission):
+        if permission and not has_permission(session, permission):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
         request.state.script_hub_session = session
@@ -147,8 +154,7 @@ def require_script_hub_any_permission(permissions: Sequence[str]) -> Callable[[R
         if not session:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session")
 
-        session_permissions = session.get("permissions") or {}
-        if required and not any(session_permissions.get(permission) for permission in required):
+        if required and not has_any_permission(session, required):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
         request.state.script_hub_session = session

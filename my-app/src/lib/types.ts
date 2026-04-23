@@ -13,6 +13,12 @@ export interface User {
     roles?: string[];
     permissions: Permission;
     name?: string;
+    isSuperAdmin?: boolean;
+    primaryOrgCode?: string;
+    dataScope?: string;
+    customOrgCodes?: string[];
+    authorizationBoundary?: Record<string, unknown>;
+    permissionVersion?: number;
     teamResourcesLoginKeyEnabled?: boolean;
 }
 
@@ -35,9 +41,24 @@ export interface ScriptHubRoleDefinition {
     assigned_user_count: number;
 }
 
+export interface ScriptHubOrganizationDefinition {
+    org_code: string;
+    name: string;
+    org_type: string;
+    parent_org_code?: string | null;
+    path: string;
+    sort_order: number;
+    is_active: boolean;
+}
+
 export interface ScriptHubManagedUser {
     user_code: string;
     display_name: string;
+    primary_org_code: string;
+    data_scope: string;
+    custom_org_codes: string[];
+    authorization_boundary: Record<string, unknown>;
+    permission_version: number;
     primary_role: string;
     role_codes: string[];
     role_permission_keys: string[];
@@ -60,6 +81,8 @@ export interface ScriptHubAuditLogEntry {
     action: string;
     target_type: string;
     target_code: string;
+    target_org_code?: string | null;
+    sensitivity?: string | null;
     result: string;
     ip_address?: string | null;
     user_agent?: string | null;
@@ -71,6 +94,7 @@ export interface ScriptHubRbacOverview {
     catalog: {
         permissions: ScriptHubPermissionDefinition[];
         roles: ScriptHubRoleDefinition[];
+        organizations: ScriptHubOrganizationDefinition[];
     };
     users: ScriptHubManagedUser[];
     audit_logs: ScriptHubAuditLogEntry[];

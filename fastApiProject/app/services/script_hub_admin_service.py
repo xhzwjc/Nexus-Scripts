@@ -1,10 +1,24 @@
 import secrets
+import json
 from datetime import datetime
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.orm import Session
 
+from ..permission_governance import (
+    DATA_SCOPE_ALL,
+    DATA_SCOPE_CUSTOM_ORGS,
+    DATA_SCOPE_ORG_AND_CHILDREN,
+    DATA_SCOPE_ORG_ONLY,
+    DATA_SCOPE_SELF,
+    build_permission_context,
+    normalize_data_scope,
+    normalize_org_code,
+    normalize_org_code_list,
+)
 from ..rbac_models import (
+    ScriptHubOrganization,
     ScriptHubPermission,
     ScriptHubRole,
     ScriptHubRolePermission,
@@ -19,7 +33,7 @@ from .script_hub_auth_service import (
     load_user_permission_overrides,
     resolve_primary_role,
 )
-from .script_hub_audit_service import list_recent_audit_logs
+from .script_hub_audit_service import list_recent_audit_logs, list_recent_audit_logs_for_session
 from ..rbac_schemas import ROLE_CODE_RE, USER_CODE_RE
 
 
@@ -39,6 +53,134 @@ def _normalize_text(value: Optional[str]) -> Optional[str]:
 
 def _generate_access_key() -> str:
     return f"sh_{secrets.token_urlsafe(24).replace('-', 'A').replace('_', 'B')[:28]}"
+
+
+class RbacMutationConflictError(ValueError):
+    pass
+
+
+def _json_dumps_safe(value: Any) -> str:
+    return json.dumps(value if value is not None else {}, ensure_ascii=False)
+
+
+def _json_loads_safe(value: Optional[str], fallback: Any) -> Any:
+    if not value:
+        return fallback
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return fallback
+    return parsed
+
+
+def _serialize_organization(row: ScriptHubOrganization) -> Dict[str, object]:
+    return {
+        "org_code": row.org_code,
+        "name": row.name,
+        "org_type": row.org_type,
+        "parent_org_code": row.parent_org_code,
+        "path": row.path,
+        "sort_order": row.sort_order,
+        "is_active": bool(row.is_active),
+    }
+
+
+def _list_organizations(db: Session) -> List[Dict[str, object]]:
+    return [
+        _serialize_organization(row)
+        for row in db.query(ScriptHubOrganization)
+        .filter(ScriptHubOrganization.is_active.is_(True))
+        .order_by(ScriptHubOrganization.path.asc(), ScriptHubOrganization.sort_order.asc(), ScriptHubOrganization.org_code.asc())
+        .all()
+    ]
+
+
+def _ensure_org_exists(db: Session, org_code: str) -> str:
+    normalized = normalize_org_code(org_code)
+    if normalized == "group" and not db.query(ScriptHubOrganization).filter(ScriptHubOrganization.org_code == normalized).first():
+        db.add(
+            ScriptHubOrganization(
+                org_code="group",
+                name="集团总部",
+                org_type="group",
+                parent_org_code=None,
+                path="group",
+                sort_order=10,
+                is_active=True,
+            )
+        )
+        db.flush()
+    if not db.query(ScriptHubOrganization).filter(ScriptHubOrganization.org_code == normalized).first():
+        raise ValueError(f"Unknown organization: {normalized}")
+    return normalized
+
+
+def _data_scope_rank(value: str) -> int:
+    return {
+        DATA_SCOPE_ALL: 50,
+        DATA_SCOPE_ORG_AND_CHILDREN: 40,
+        DATA_SCOPE_CUSTOM_ORGS: 30,
+        DATA_SCOPE_ORG_ONLY: 20,
+        DATA_SCOPE_SELF: 10,
+    }.get(normalize_data_scope(value), 20)
+
+
+def _is_data_scope_downgrade(
+    *,
+    current_scope: str,
+    next_scope: str,
+    current_custom_orgs: Iterable[str],
+    next_custom_orgs: Iterable[str],
+) -> bool:
+    if _data_scope_rank(next_scope) < _data_scope_rank(current_scope):
+        return True
+    if normalize_data_scope(current_scope) == DATA_SCOPE_CUSTOM_ORGS and normalize_data_scope(next_scope) == DATA_SCOPE_CUSTOM_ORGS:
+        return not set(next_custom_orgs).issuperset(set(current_custom_orgs))
+    return False
+
+
+def _actor_has_unbounded_grant(actor: Optional[Dict[str, Any]]) -> bool:
+    if not actor:
+        return True
+    roles = set(actor.get("roles") or [])
+    return bool(actor.get("isSuperAdmin")) or "admin" in roles
+
+
+def _validate_authorization_boundary(
+    db: Session,
+    *,
+    actor: Optional[Dict[str, Any]],
+    target_org_code: str,
+    role_codes: Iterable[str],
+    granted_permissions: Iterable[str],
+    data_scope: str,
+) -> None:
+    if _actor_has_unbounded_grant(actor):
+        return
+
+    context = build_permission_context(db, actor)
+    boundary = actor.get("authorizationBoundary") if actor else {}
+    if not isinstance(boundary, dict) or not boundary.get("allow_grant"):
+        raise ValueError("Actor is not allowed to grant permissions")
+
+    managed_orgs = set(normalize_org_code_list(boundary.get("managed_org_codes") or []))
+    if managed_orgs and target_org_code not in managed_orgs:
+        raise ValueError("Target organization is outside the actor authorization boundary")
+
+    if not context.has_all_orgs and target_org_code not in set(context.visible_org_codes or ()):
+        raise ValueError("Target organization is outside the actor data scope")
+
+    assignable_roles = set(str(item or "").strip() for item in boundary.get("assignable_role_codes") or [])
+    if assignable_roles and not set(role_codes).issubset(assignable_roles):
+        raise ValueError("Role assignment exceeds actor authorization boundary")
+
+    assignable_permissions = set(str(item or "").strip() for item in boundary.get("assignable_permission_keys") or [])
+    if assignable_permissions and not set(granted_permissions).issubset(assignable_permissions):
+        raise ValueError("Permission grant exceeds actor authorization boundary")
+
+    max_data_scope = normalize_data_scope(boundary.get("max_data_scope") or DATA_SCOPE_SELF)
+    if _data_scope_rank(data_scope) > _data_scope_rank(max_data_scope):
+        raise ValueError("Data scope exceeds actor authorization boundary")
 
 
 def _permission_rows(db: Session) -> Dict[str, ScriptHubPermission]:
@@ -173,6 +315,11 @@ def serialize_admin_user(db: Session, user: ScriptHubUser) -> Dict[str, object]:
     return {
         "user_code": user.user_code,
         "display_name": user.display_name,
+        "primary_org_code": user.primary_org_code or "group",
+        "data_scope": normalize_data_scope(user.data_scope),
+        "custom_org_codes": normalize_org_code_list(user.custom_org_codes_json),
+        "authorization_boundary": _json_loads_safe(user.authorization_boundary_json, {}),
+        "permission_version": int(user.permission_version or 1),
         "primary_role": resolve_primary_role(role_codes),
         "role_codes": role_codes,
         "role_permission_keys": role_permission_keys,
@@ -216,7 +363,7 @@ def _guard_last_admin(db: Session, user: ScriptHubUser, next_is_active: bool, ne
         raise ValueError("At least one active administrator must remain in the system")
 
 
-def list_rbac_overview(db: Session) -> Dict[str, object]:
+def list_rbac_overview(db: Session, actor: Optional[Dict[str, Any]] = None) -> Dict[str, object]:
     permissions = [
         {
             "key": permission.permission_key,
@@ -254,9 +401,14 @@ def list_rbac_overview(db: Session) -> Dict[str, object]:
         "catalog": {
             "permissions": permissions,
             "roles": roles,
+            "organizations": _list_organizations(db),
         },
         "users": users,
-        "audit_logs": list_recent_audit_logs(db, limit=60),
+        "audit_logs": (
+            list_recent_audit_logs_for_session(db, session=actor, limit=60)
+            if actor else
+            list_recent_audit_logs(db, limit=60)
+        ),
     }
 
 
@@ -364,9 +516,14 @@ def update_rbac_role(
 def create_rbac_user(
     db: Session,
     *,
+    actor: Optional[Dict[str, Any]] = None,
     user_code: str,
     display_name: str,
     access_key: Optional[str],
+    primary_org_code: str = "group",
+    data_scope: str = DATA_SCOPE_ORG_ONLY,
+    custom_org_codes: Optional[Iterable[str]] = None,
+    authorization_boundary: Optional[Dict[str, Any]] = None,
     role_codes: Iterable[str],
     granted_permissions: Iterable[str],
     revoked_permissions: Iterable[str],
@@ -390,6 +547,20 @@ def create_rbac_user(
     normalized_role_codes = _normalize_role_codes(role_codes, role_rows)
     normalized_granted_permissions = _normalize_permission_keys(granted_permissions, permission_rows)
     normalized_revoked_permissions = _normalize_permission_keys(revoked_permissions, permission_rows)
+    normalized_primary_org_code = _ensure_org_exists(db, primary_org_code)
+    normalized_data_scope = normalize_data_scope(data_scope)
+    normalized_custom_org_codes = [
+        _ensure_org_exists(db, org_code)
+        for org_code in normalize_org_code_list(custom_org_codes or [])
+    ]
+    _validate_authorization_boundary(
+        db,
+        actor=actor,
+        target_org_code=normalized_primary_org_code,
+        role_codes=normalized_role_codes,
+        granted_permissions=normalized_granted_permissions,
+        data_scope=normalized_data_scope,
+    )
 
     plain_access_key = (access_key or "").strip() or _generate_access_key()
     material = create_access_key_material(plain_access_key)
@@ -405,6 +576,10 @@ def create_rbac_user(
         access_key_lookup_hash=material["lookup_hash"],
         access_key_salt=material["salt"],
         access_key_hash=material["hash"],
+        primary_org_code=normalized_primary_org_code,
+        data_scope=normalized_data_scope,
+        custom_org_codes_json=json.dumps(normalized_custom_org_codes, ensure_ascii=False),
+        authorization_boundary_json=_json_dumps_safe(authorization_boundary or {}),
         team_resources_access_enabled=bool(team_resources_login_key_enabled),
         is_active=bool(is_active),
         is_super_admin=bool(is_super_admin),
@@ -431,7 +606,14 @@ def update_rbac_user(
     db: Session,
     user_code: str,
     *,
+    actor: Optional[Dict[str, Any]] = None,
+    expected_permission_version: Optional[int] = None,
+    data_scope_downgrade_confirmed: bool = False,
     display_name: Optional[str] = None,
+    primary_org_code: Optional[str] = None,
+    data_scope: Optional[str] = None,
+    custom_org_codes: Optional[Iterable[str]] = None,
+    authorization_boundary: Optional[Dict[str, Any]] = None,
     role_codes: Optional[Iterable[str]] = None,
     granted_permissions: Optional[Iterable[str]] = None,
     revoked_permissions: Optional[Iterable[str]] = None,
@@ -447,6 +629,8 @@ def update_rbac_user(
     ).first()
     if not user:
         raise ValueError("User not found")
+    if expected_permission_version is not None and int(user.permission_version or 1) != int(expected_permission_version):
+        raise RbacMutationConflictError("User permissions changed. Refresh before saving again")
 
     permission_rows = _permission_rows(db)
     role_rows = _role_rows(db)
@@ -461,8 +645,33 @@ def update_rbac_user(
         if revoked_permissions is not None else
         [permission_key for permission_key, granted in load_user_permission_overrides(db, user.id) if not granted]
     )
+    next_primary_org_code = _ensure_org_exists(db, primary_org_code) if primary_org_code is not None else normalize_org_code(user.primary_org_code)
+    next_data_scope = normalize_data_scope(data_scope) if data_scope is not None else normalize_data_scope(user.data_scope)
+    current_custom_org_codes = normalize_org_code_list(user.custom_org_codes_json)
+    next_custom_org_codes = (
+        [_ensure_org_exists(db, org_code) for org_code in normalize_org_code_list(custom_org_codes)]
+        if custom_org_codes is not None else
+        current_custom_org_codes
+    )
     next_is_active = user.is_active if is_active is None else bool(is_active)
     next_is_super_admin = user.is_super_admin if is_super_admin is None else bool(is_super_admin)
+
+    if _is_data_scope_downgrade(
+        current_scope=normalize_data_scope(user.data_scope),
+        next_scope=next_data_scope,
+        current_custom_orgs=current_custom_org_codes,
+        next_custom_orgs=next_custom_org_codes,
+    ) and not data_scope_downgrade_confirmed:
+        raise ValueError("Data scope downgrade requires explicit confirmation")
+
+    _validate_authorization_boundary(
+        db,
+        actor=actor,
+        target_org_code=next_primary_org_code,
+        role_codes=next_role_codes,
+        granted_permissions=next_granted_permissions,
+        data_scope=next_data_scope,
+    )
 
     _guard_last_admin(db, user, next_is_active, next_is_super_admin, next_role_codes)
 
@@ -474,6 +683,11 @@ def update_rbac_user(
 
     user.is_active = next_is_active
     user.is_super_admin = next_is_super_admin
+    user.primary_org_code = next_primary_org_code
+    user.data_scope = next_data_scope
+    user.custom_org_codes_json = json.dumps(next_custom_org_codes, ensure_ascii=False)
+    if authorization_boundary is not None:
+        user.authorization_boundary_json = _json_dumps_safe(authorization_boundary or {})
     if team_resources_login_key_enabled is not None:
         user.team_resources_access_enabled = bool(team_resources_login_key_enabled)
     if notes is not None:
@@ -488,7 +702,12 @@ def update_rbac_user(
         permission_rows,
     )
 
-    db.commit()
+    user.permission_version = int(user.permission_version or 1) + 1
+    try:
+        db.commit()
+    except StaleDataError as exc:
+        db.rollback()
+        raise RbacMutationConflictError("User permissions changed. Refresh before saving again") from exc
     db.refresh(user)
     return serialize_admin_user(db, user)
 

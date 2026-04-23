@@ -15,6 +15,58 @@ export interface SessionPayload extends SessionUser {
     exp: number;
 }
 
+const LEGACY_RECRUITMENT_VIEW_PERMISSIONS = [
+    'recruitment-dashboard-view',
+    'recruitment-position-manage',
+    'recruitment-candidate-manage',
+    'recruitment-process-execute',
+    'recruitment-log-view',
+    'recruitment-skill-view',
+    'recruitment-skill-bind',
+    'recruitment-mail-view',
+    'recruitment-mail-send',
+];
+
+const LEGACY_RECRUITMENT_MANAGE_PERMISSIONS = [
+    'recruitment-skill-manage',
+    'recruitment-mail-config-manage',
+    'recruitment-mail-sender-manage',
+    'recruitment-llm-config-view',
+    'recruitment-llm-config-manage',
+    'resource-sharing-manage',
+];
+
+function expandPermissionAliases(permissions: User['permissions'] = {}) {
+    const expanded: User['permissions'] = { ...permissions };
+
+    if (expanded['ai-recruitment']) {
+        LEGACY_RECRUITMENT_VIEW_PERMISSIONS.forEach((key) => {
+            expanded[key] = true;
+        });
+    }
+
+    if (expanded['ai-recruitment-manage']) {
+        expanded['ai-recruitment'] = true;
+        [...LEGACY_RECRUITMENT_VIEW_PERMISSIONS, ...LEGACY_RECRUITMENT_MANAGE_PERMISSIONS].forEach((key) => {
+            expanded[key] = true;
+        });
+    }
+
+    if ([...LEGACY_RECRUITMENT_VIEW_PERMISSIONS, ...LEGACY_RECRUITMENT_MANAGE_PERMISSIONS].some((key) => expanded[key])) {
+        expanded['ai-recruitment'] = true;
+    }
+
+    if (LEGACY_RECRUITMENT_MANAGE_PERMISSIONS.some((key) => expanded[key])) {
+        expanded['ai-recruitment-manage'] = true;
+    }
+
+    if (expanded['rbac-manage']) {
+        expanded['audit-log-view'] = true;
+    }
+
+    return expanded;
+}
+
 function getSessionSecret() {
     const configured = process.env.SCRIPT_HUB_SESSION_SECRET?.trim();
     if (configured) {
@@ -124,7 +176,8 @@ export function requireScriptHubPermission(request: Request, permission?: string
         };
     }
 
-    if (permission && !session.permissions?.[permission]) {
+    const permissions = expandPermissionAliases(session.permissions);
+    if (permission && !permissions[permission]) {
         return {
             response: NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
         };

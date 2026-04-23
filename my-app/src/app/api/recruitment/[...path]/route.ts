@@ -10,23 +10,51 @@ function resolveRecruitmentPermission(path: string, method: string) {
   const normalizedMethod = method.toUpperCase();
 
   if (path === "llm-configs" || path.startsWith("llm-configs/")) {
-    return "ai-recruitment-manage";
+    return normalizedMethod === "GET" || normalizedMethod === "HEAD"
+      ? "recruitment-llm-config-view"
+      : "recruitment-llm-config-manage";
+  }
+
+  if (path === "ai-task-logs" || path.startsWith("ai-task-logs/")) {
+    return "recruitment-log-view";
+  }
+
+  if (path === "resume-mail-dispatches/send") {
+    return "recruitment-mail-send";
+  }
+
+  if (path === "mail-senders" || path.startsWith("mail-senders/")) {
+    return normalizedMethod === "GET" || normalizedMethod === "HEAD"
+      ? "recruitment-mail-view"
+      : "recruitment-mail-sender-manage";
+  }
+
+  if (
+    path === "mail-recipients"
+    || path.startsWith("mail-recipients/")
+    || path === "mail-auto-config"
+  ) {
+    return normalizedMethod === "GET" || normalizedMethod === "HEAD"
+      ? "recruitment-mail-view"
+      : "recruitment-mail-config-manage";
+  }
+
+  if (path === "skills" || path.startsWith("skills/")) {
+    return normalizedMethod === "GET" || normalizedMethod === "HEAD"
+      ? "recruitment-skill-view"
+      : "recruitment-skill-manage";
   }
 
   if (normalizedMethod !== "GET" && normalizedMethod !== "HEAD") {
-    if (
-      path === "skills"
-      || path.startsWith("skills/")
-      || path === "mail-senders"
-      || path.startsWith("mail-senders/")
-      || path === "mail-recipients"
-      || path.startsWith("mail-recipients/")
-    ) {
-      return "ai-recruitment-manage";
+    if (path.startsWith("positions")) {
+      return "recruitment-position-manage";
+    }
+    if (path.startsWith("candidates")) {
+      return "recruitment-candidate-manage";
     }
   }
 
-  return "ai-recruitment";
+  return "recruitment-dashboard-view";
 }
 
 async function proxyRecruitmentRequest(

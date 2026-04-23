@@ -50,9 +50,24 @@ class ScriptHubAdminRoleSchema(BaseModel):
     assigned_user_count: int
 
 
+class ScriptHubOrganizationSchema(BaseModel):
+    org_code: str
+    name: str
+    org_type: str
+    parent_org_code: Optional[str] = None
+    path: str
+    sort_order: int
+    is_active: bool
+
+
 class ScriptHubAdminUserSchema(BaseModel):
     user_code: str
     display_name: str
+    primary_org_code: str
+    data_scope: str
+    custom_org_codes: List[str]
+    authorization_boundary: Dict[str, Any]
+    permission_version: int
     primary_role: str
     role_codes: List[str]
     role_permission_keys: List[str]
@@ -71,6 +86,7 @@ class ScriptHubAdminUserSchema(BaseModel):
 class ScriptHubRbacCatalogSchema(BaseModel):
     permissions: List[ScriptHubAdminPermissionSchema]
     roles: List[ScriptHubAdminRoleSchema]
+    organizations: List[ScriptHubOrganizationSchema]
 
 
 class ScriptHubAuditLogSchema(BaseModel):
@@ -80,6 +96,8 @@ class ScriptHubAuditLogSchema(BaseModel):
     action: str
     target_type: str
     target_code: str
+    target_org_code: Optional[str] = None
+    sensitivity: str = "normal"
     result: str
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
@@ -97,6 +115,10 @@ class ScriptHubUserCreateRequest(BaseModel):
     user_code: str = Field(min_length=2, max_length=100)
     display_name: str = Field(min_length=1, max_length=100)
     access_key: Optional[str] = Field(default=None, max_length=255)
+    primary_org_code: str = Field(default="group", max_length=100)
+    data_scope: str = Field(default="ORG_ONLY", max_length=40)
+    custom_org_codes: List[str] = Field(default_factory=list)
+    authorization_boundary: Dict[str, Any] = Field(default_factory=dict)
     role_codes: List[str] = Field(default_factory=list, min_length=1)
     granted_permissions: List[str] = Field(default_factory=list)
     revoked_permissions: List[str] = Field(default_factory=list)
@@ -126,7 +148,22 @@ class ScriptHubUserCreateRequest(BaseModel):
     def normalize_optional_fields(cls, value: Optional[str]) -> Optional[str]:
         return _normalize_optional_text(value)
 
-    @field_validator("role_codes", "granted_permissions", "revoked_permissions", mode="before")
+    @field_validator("primary_org_code")
+    @classmethod
+    def normalize_primary_org_code(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        return normalized or "group"
+
+    @field_validator("data_scope")
+    @classmethod
+    def normalize_data_scope(cls, value: str) -> str:
+        normalized = str(value or "").strip().upper() or "ORG_ONLY"
+        allowed = {"ALL", "ORG_AND_CHILDREN", "ORG_ONLY", "CUSTOM_ORGS", "SELF"}
+        if normalized not in allowed:
+            raise ValueError("Invalid data scope")
+        return normalized
+
+    @field_validator("role_codes", "granted_permissions", "revoked_permissions", "custom_org_codes", mode="before")
     @classmethod
     def normalize_list_fields(cls, value: Optional[List[str]]) -> Optional[List[str]]:
         return _normalize_string_list(value)
@@ -141,6 +178,12 @@ class ScriptHubUserCreateRequest(BaseModel):
 
 class ScriptHubUserUpdateRequest(BaseModel):
     display_name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    primary_org_code: Optional[str] = Field(default=None, max_length=100)
+    data_scope: Optional[str] = Field(default=None, max_length=40)
+    custom_org_codes: Optional[List[str]] = None
+    authorization_boundary: Optional[Dict[str, Any]] = None
+    expected_permission_version: Optional[int] = Field(default=None, ge=1)
+    data_scope_downgrade_confirmed: bool = False
     role_codes: Optional[List[str]] = None
     granted_permissions: Optional[List[str]] = None
     revoked_permissions: Optional[List[str]] = None
@@ -164,7 +207,26 @@ class ScriptHubUserUpdateRequest(BaseModel):
     def normalize_update_optional_fields(cls, value: Optional[str]) -> Optional[str]:
         return _normalize_optional_text(value)
 
-    @field_validator("role_codes", "granted_permissions", "revoked_permissions", mode="before")
+    @field_validator("primary_org_code")
+    @classmethod
+    def normalize_updated_primary_org_code(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value or "").strip()
+        return normalized or "group"
+
+    @field_validator("data_scope")
+    @classmethod
+    def normalize_updated_data_scope(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value or "").strip().upper() or "ORG_ONLY"
+        allowed = {"ALL", "ORG_AND_CHILDREN", "ORG_ONLY", "CUSTOM_ORGS", "SELF"}
+        if normalized not in allowed:
+            raise ValueError("Invalid data scope")
+        return normalized
+
+    @field_validator("role_codes", "granted_permissions", "revoked_permissions", "custom_org_codes", mode="before")
     @classmethod
     def normalize_update_list_fields(cls, value: Optional[List[str]]) -> Optional[List[str]]:
         return _normalize_string_list(value)

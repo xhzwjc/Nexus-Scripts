@@ -39,7 +39,12 @@ from ..recruitment_schemas import (
     SkillUpsertRequest,
 )
 from ..schema_maintenance import ensure_recruitment_schema
-from ..script_hub_session import require_script_hub_permission
+from ..script_hub_session import (
+    get_script_hub_token_from_request,
+    require_script_hub_any_permission,
+    require_script_hub_permission,
+    verify_script_hub_session,
+)
 from ..services.recruitment_service import RecruitmentConflictError, RecruitmentService
 from ..services.recruitment_task_control import RecruitmentTaskCancelled
 from ..services.recruitment_utils import RECRUITMENT_UPLOAD_ROOT
@@ -49,16 +54,25 @@ recruitment_router = APIRouter(prefix="/recruitment", tags=["AI 招聘自动化�
 UPLOAD_STREAM_CHUNK_SIZE = 1024 * 1024
 
 
-def get_recruitment_service(db: Session = Depends(get_db)) -> RecruitmentService:
+def get_recruitment_service(request: Request, db: Session = Depends(get_db)) -> RecruitmentService:
     ensure_recruitment_schema()
-    return RecruitmentService(db)
+    session = getattr(request.state, "script_hub_session", None)
+    if not session:
+        token = get_script_hub_token_from_request(request)
+        session = verify_script_hub_session(token) if token else None
+    return RecruitmentService(db).set_permission_context(session)
 
 
-def _run_recruitment_service_call(method_name: str, *args: Any, **kwargs: Any) -> Any:
+def _run_recruitment_service_call(
+    method_name: str,
+    *args: Any,
+    governance_session: Optional[Dict[str, Any]] = None,
+    **kwargs: Any,
+) -> Any:
     ensure_recruitment_schema()
     db = SessionLocal()
     try:
-        service = RecruitmentService(db)
+        service = RecruitmentService(db).set_permission_context(governance_session)
         method = getattr(service, method_name)
         return method(*args, **kwargs)
     finally:
@@ -153,6 +167,7 @@ async def generate_jd(position_id: int, payload: JDGenerateRequest, _session: Di
             position_id,
             payload.extra_prompt or "",
             _session.get("id") or "unknown",
+            governance_session=_session,
             auto_activate=payload.auto_activate,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -171,6 +186,7 @@ async def start_generate_jd(position_id: int, payload: JDGenerateRequest, _sessi
             position_id,
             payload.extra_prompt or "",
             _session.get("id") or "unknown",
+            governance_session=_session,
             auto_activate=payload.auto_activate,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -344,6 +360,7 @@ async def trigger_candidate_parse(candidate_id: int, _session: Dict[str, Any] = 
             "trigger_latest_parse",
             candidate_id,
             _session.get("id") or "unknown",
+            governance_session=_session,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -367,6 +384,7 @@ async def screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _
             allow_reuse_parse=payload.allow_reuse_parse,
             allow_score_only_rerun=payload.allow_score_only_rerun,
             screening_mode=payload.screening_mode,
+            governance_session=_session,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -392,6 +410,7 @@ async def start_screen_candidate(candidate_id: int, payload: CandidateScreenRequ
             allow_reuse_parse=payload.allow_reuse_parse,
             allow_score_only_rerun=payload.allow_score_only_rerun,
             screening_mode=payload.screening_mode,
+            governance_session=_session,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -418,6 +437,7 @@ async def batch_start_screen_candidates(payload: CandidateScreenBatchStartReques
             allow_reuse_parse=payload.allow_reuse_parse,
             allow_score_only_rerun=payload.allow_score_only_rerun,
             screening_mode=payload.screening_mode,
+            governance_session=_session,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -433,6 +453,7 @@ async def query_screening_batch(payload: CandidateScreenBatchQueryRequest, _sess
             _run_recruitment_service_call,
             "get_screening_batch_status",
             payload.batch_id,
+            governance_session=_session,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -449,6 +470,7 @@ async def cancel_screening_batch(payload: CandidateScreenBatchCancelRequest, _se
             "cancel_screening_batch",
             payload.batch_id,
             _session.get("id") or "unknown",
+            governance_session=_session,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -464,6 +486,7 @@ async def trigger_candidate_score(candidate_id: int, _session: Dict[str, Any] = 
             "trigger_latest_score",
             candidate_id,
             _session.get("id") or "unknown",
+            governance_session=_session,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -483,6 +506,7 @@ async def generate_interview_questions(candidate_id: int, payload: InterviewQues
             _session.get("id") or "unknown",
             use_candidate_memory=payload.use_candidate_memory,
             use_position_skills=payload.use_position_skills,
+            governance_session=_session,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -502,7 +526,7 @@ async def stream_generate_interview_questions(candidate_id: int, payload: Interv
 
     def worker() -> None:
         db = SessionLocal()
-        service = RecruitmentService(db)
+        service = RecruitmentService(db).set_permission_context(_session)
         try:
             candidate = service._get_candidate(candidate_id)
             skill_rows, memory_source = service._resolve_interview_skills(
@@ -635,6 +659,7 @@ async def start_generate_interview_questions(candidate_id: int, payload: Intervi
             _session.get("id") or "unknown",
             use_candidate_memory=payload.use_candidate_memory,
             use_position_skills=payload.use_position_skills,
+            governance_session=_session,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -703,37 +728,40 @@ async def delete_resume_file(
 
 
 @recruitment_router.get("/skills")
-async def list_skills(_session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_skills(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-skill-view", "recruitment-skill-bind", "recruitment-skill-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_skills()
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.post("/skills")
-async def create_skill(payload: SkillUpsertRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def create_skill(http_request: Request, payload: SkillUpsertRequest, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-skill-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.create_skill(payload.model_dump(), _session.get("id") or "unknown")
+    write_audit_log(db, actor=_session, request=http_request, action="recruitment.skill.create", target_type="recruitment-skill", target_code=str(data.get("skill_code") or data.get("id")), target_org_code=data.get("org_code"), details={"name": data.get("name"), "share_policy": data.get("share_policy")})
     return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.patch("/skills/{skill_id}")
-async def update_skill(skill_id: int, payload: SkillUpsertRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def update_skill(http_request: Request, skill_id: int, payload: SkillUpsertRequest, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-skill-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.update_skill(skill_id, payload.model_dump(), _session.get("id") or "unknown")
+        write_audit_log(db, actor=_session, request=http_request, action="recruitment.skill.update", target_type="recruitment-skill", target_code=str(data.get("skill_code") or skill_id), target_org_code=data.get("org_code"), details={"skill_id": skill_id, "share_policy": data.get("share_policy")})
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
 @recruitment_router.delete("/skills/{skill_id}")
-async def delete_skill(skill_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def delete_skill(http_request: Request, skill_id: int, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-skill-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         service.delete_skill(skill_id, _session.get("id") or "unknown")
+        write_audit_log(db, actor=_session, request=http_request, action="recruitment.skill.delete", target_type="recruitment-skill", target_code=str(skill_id), target_org_code=_session.get("primaryOrgCode"), details={"skill_id": skill_id})
         return {"success": True, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
 @recruitment_router.post("/skills/{skill_id}/toggle")
-async def toggle_skill(skill_id: int, enabled: bool = Query(...), _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def toggle_skill(skill_id: int, enabled: bool = Query(...), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-skill-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.toggle_skill(skill_id, enabled, _session.get("id") or "unknown")
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -742,73 +770,79 @@ async def toggle_skill(skill_id: int, enabled: bool = Query(...), _session: Dict
 
 
 @recruitment_router.get("/llm-configs")
-async def list_llm_configs(_session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_llm_configs(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-llm-config-view", "recruitment-llm-config-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_llm_configs()
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.post("/llm-configs")
-async def create_llm_config(payload: RecruitmentLLMConfigUpsertRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def create_llm_config(http_request: Request, payload: RecruitmentLLMConfigUpsertRequest, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-llm-config-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
-        data = service.create_llm_config(payload.model_dump())
+        data = service.create_llm_config(payload.model_dump(), _session.get("id") or "unknown")
+        write_audit_log(db, actor=_session, request=http_request, action="recruitment.llm-config.create", target_type="recruitment-llm-config", target_code=str(data.get("config_key") or data.get("id")), target_org_code=data.get("org_code"), sensitivity="sensitive", details={"config_key": data.get("config_key"), "provider": data.get("provider"), "share_policy": data.get("share_policy"), "api_key_value": payload.api_key_value})
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
 @recruitment_router.patch("/llm-configs/{config_id}")
-async def update_llm_config(config_id: int, payload: RecruitmentLLMConfigUpsertRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def update_llm_config(http_request: Request, config_id: int, payload: RecruitmentLLMConfigUpsertRequest, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-llm-config-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
-        data = service.update_llm_config(config_id, payload.model_dump(exclude_none=True))
+        data = service.update_llm_config(config_id, payload.model_dump(exclude_none=True), _session.get("id") or "unknown")
+        write_audit_log(db, actor=_session, request=http_request, action="recruitment.llm-config.update", target_type="recruitment-llm-config", target_code=str(data.get("config_key") or config_id), target_org_code=data.get("org_code"), sensitivity="sensitive", details={"config_id": config_id, "share_policy": data.get("share_policy"), "api_key_value": payload.api_key_value})
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
 @recruitment_router.delete("/llm-configs/{config_id}")
-async def delete_llm_config(config_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def delete_llm_config(http_request: Request, config_id: int, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-llm-config-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
-        service.delete_llm_config(config_id)
+        service.delete_llm_config(config_id, _session.get("id") or "unknown")
+        write_audit_log(db, actor=_session, request=http_request, action="recruitment.llm-config.delete", target_type="recruitment-llm-config", target_code=str(config_id), target_org_code=_session.get("primaryOrgCode"), sensitivity="sensitive", details={"config_id": config_id})
         return {"success": True, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
 @recruitment_router.get("/mail-senders")
-async def list_mail_senders(_session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_mail_senders(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-mail-view", "recruitment-mail-sender-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_mail_senders()
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.post("/mail-senders")
-async def create_mail_sender(payload: RecruitmentMailSenderUpsertRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def create_mail_sender(http_request: Request, payload: RecruitmentMailSenderUpsertRequest, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-sender-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.create_mail_sender(payload.model_dump(), _session.get("id") or "unknown")
+        write_audit_log(db, actor=_session, request=http_request, action="recruitment.mail-sender.create", target_type="recruitment-mail-sender", target_code=str(data.get("id")), target_org_code=data.get("org_code"), sensitivity="sensitive", details={"name": data.get("name"), "from_email": data.get("from_email"), "share_policy": data.get("share_policy"), "password": payload.password})
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
 @recruitment_router.patch("/mail-senders/{sender_id}")
-async def update_mail_sender(sender_id: int, payload: RecruitmentMailSenderUpsertRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def update_mail_sender(http_request: Request, sender_id: int, payload: RecruitmentMailSenderUpsertRequest, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-sender-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.update_mail_sender(sender_id, payload.model_dump(exclude_none=True), _session.get("id") or "unknown")
+        write_audit_log(db, actor=_session, request=http_request, action="recruitment.mail-sender.update", target_type="recruitment-mail-sender", target_code=str(sender_id), target_org_code=data.get("org_code"), sensitivity="sensitive", details={"sender_id": sender_id, "share_policy": data.get("share_policy"), "password": payload.password})
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
 @recruitment_router.delete("/mail-senders/{sender_id}")
-async def delete_mail_sender(sender_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def delete_mail_sender(http_request: Request, sender_id: int, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-sender-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         service.delete_mail_sender(sender_id, _session.get("id") or "unknown")
+        write_audit_log(db, actor=_session, request=http_request, action="recruitment.mail-sender.delete", target_type="recruitment-mail-sender", target_code=str(sender_id), target_org_code=_session.get("primaryOrgCode"), sensitivity="sensitive", details={"sender_id": sender_id})
         return {"success": True, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
 @recruitment_router.get("/mail-recipients")
-async def list_mail_recipients(_session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_mail_recipients(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-mail-view", "recruitment-mail-config-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_mail_recipients()
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
@@ -819,33 +853,37 @@ async def get_mail_auto_push_global_config(_session: Dict[str, Any] = Depends(re
 
 
 @recruitment_router.patch("/mail-auto-config")
-async def update_mail_auto_push_global_config(payload: RecruitmentMailAutoPushGlobalConfigRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def update_mail_auto_push_global_config(http_request: Request, payload: RecruitmentMailAutoPushGlobalConfigRequest, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-config-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.update_mail_auto_push_global_config(payload.model_dump())
+    write_audit_log(db, actor=_session, request=http_request, action="recruitment.mail-auto-config.update", target_type="recruitment-mail-auto-config", target_code="global", target_org_code=_session.get("primaryOrgCode"), details=data)
     return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.post("/mail-recipients")
-async def create_mail_recipient(payload: RecruitmentMailRecipientUpsertRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def create_mail_recipient(http_request: Request, payload: RecruitmentMailRecipientUpsertRequest, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-config-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.create_mail_recipient(payload.model_dump(), _session.get("id") or "unknown")
+        write_audit_log(db, actor=_session, request=http_request, action="recruitment.mail-recipient.create", target_type="recruitment-mail-recipient", target_code=str(data.get("id")), target_org_code=data.get("org_code"), details={"name": data.get("name"), "email": data.get("email"), "share_policy": data.get("share_policy")})
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
 @recruitment_router.patch("/mail-recipients/{recipient_id}")
-async def update_mail_recipient(recipient_id: int, payload: RecruitmentMailRecipientUpsertRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def update_mail_recipient(http_request: Request, recipient_id: int, payload: RecruitmentMailRecipientUpsertRequest, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-config-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.update_mail_recipient(recipient_id, payload.model_dump(exclude_none=True), _session.get("id") or "unknown")
+        write_audit_log(db, actor=_session, request=http_request, action="recruitment.mail-recipient.update", target_type="recruitment-mail-recipient", target_code=str(recipient_id), target_org_code=data.get("org_code"), details={"recipient_id": recipient_id, "share_policy": data.get("share_policy")})
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
 @recruitment_router.delete("/mail-recipients/{recipient_id}")
-async def delete_mail_recipient(recipient_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def delete_mail_recipient(http_request: Request, recipient_id: int, db: Session = Depends(get_db), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-config-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         service.delete_mail_recipient(recipient_id, _session.get("id") or "unknown")
+        write_audit_log(db, actor=_session, request=http_request, action="recruitment.mail-recipient.delete", target_type="recruitment-mail-recipient", target_code=str(recipient_id), target_org_code=_session.get("primaryOrgCode"), details={"recipient_id": recipient_id})
         return {"success": True, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -858,13 +896,14 @@ async def list_resume_mail_dispatches(_session: Dict[str, Any] = Depends(require
 
 
 @recruitment_router.post("/resume-mail-dispatches/send")
-async def send_resume_mail_dispatch(payload: RecruitmentResumeMailSendRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def send_resume_mail_dispatch(payload: RecruitmentResumeMailSendRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-send"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
             "send_resume_mail_dispatch",
             payload.model_dump(),
             _session.get("id") or "unknown",
+            governance_session=_session,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -872,13 +911,13 @@ async def send_resume_mail_dispatch(payload: RecruitmentResumeMailSendRequest, _
 
 
 @recruitment_router.get("/ai-task-logs")
-async def list_ai_task_logs(task_type: Optional[str] = Query(None), status: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_ai_task_logs(task_type: Optional[str] = Query(None), status: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-log-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_ai_task_logs(task_type=task_type, status=status)
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/ai-task-logs/{task_id}")
-async def get_ai_task_log(task_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def get_ai_task_log(task_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-log-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         return {"success": True, "data": service.get_ai_task_log(task_id), "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -928,6 +967,7 @@ async def chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depen
         _session.get("name") or "unknown",
         payload.message,
         payload.context,
+        governance_session=_session,
     )
     return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
 
@@ -941,6 +981,7 @@ async def start_chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] =
         _session.get("name") or "unknown",
         payload.message,
         payload.context,
+        governance_session=_session,
     )
     return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
 
@@ -957,7 +998,7 @@ async def stream_chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] 
 
     def worker() -> None:
         db = SessionLocal()
-        service = RecruitmentService(db)
+        service = RecruitmentService(db).set_permission_context(_session)
         try:
             current_context = payload.context or {}
             skill_ids = current_context.get("skill_ids") or []

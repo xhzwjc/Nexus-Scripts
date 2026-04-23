@@ -132,6 +132,11 @@ class CandidateScreenBatchCancelRequest(BaseModel):
 
 
 class SkillUpsertRequest(BaseModel):
+    org_code: Optional[str] = Field(None, max_length=100)
+    scope_level: str = Field("ORG", max_length=40)
+    share_policy: str = Field("PRIVATE", max_length=40)
+    allow_sub_org_use: bool = False
+    allow_copy: bool = False
     name: str = Field(..., min_length=1, max_length=120)
     description: Optional[str] = None
     skill_group: Optional[str] = Field(None, max_length=120)
@@ -178,6 +183,11 @@ class RecruitmentChatRequest(BaseModel):
 
 class RecruitmentLLMConfigUpsertRequest(BaseModel):
     config_key: str = Field(..., min_length=1, max_length=120)
+    org_code: Optional[str] = Field(None, max_length=100)
+    scope_level: str = Field("ORG", max_length=40)
+    share_policy: str = Field("PRIVATE", max_length=40)
+    allow_sub_org_use: bool = False
+    allow_copy: bool = False
     task_type: str = Field("default", min_length=1, max_length=80)
     provider: str = Field(..., min_length=1, max_length=80)
     model_name: str = Field(..., min_length=1, max_length=120)
@@ -190,6 +200,11 @@ class RecruitmentLLMConfigUpsertRequest(BaseModel):
 
 
 class RecruitmentMailSenderUpsertRequest(BaseModel):
+    org_code: Optional[str] = Field(None, max_length=100)
+    scope_level: str = Field("ORG", max_length=40)
+    share_policy: str = Field("PRIVATE", max_length=40)
+    allow_sub_org_use: bool = False
+    allow_copy: bool = False
     name: str = Field(..., min_length=1, max_length=120)
     from_name: Optional[str] = None
     from_email: str = Field(..., min_length=3, max_length=180)
@@ -204,6 +219,11 @@ class RecruitmentMailSenderUpsertRequest(BaseModel):
 
 
 class RecruitmentMailRecipientUpsertRequest(BaseModel):
+    org_code: Optional[str] = Field(None, max_length=100)
+    scope_level: str = Field("ORG", max_length=40)
+    share_policy: str = Field("PRIVATE", max_length=40)
+    allow_sub_org_use: bool = False
+    allow_copy: bool = False
     name: str = Field(..., min_length=1, max_length=120)
     email: str = Field(..., min_length=3, max_length=180)
     department: Optional[str] = None

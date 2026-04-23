@@ -25,6 +25,7 @@ from ..script_hub_session import (
     verify_script_hub_session,
 )
 from ..services.script_hub_admin_service import (
+    RbacMutationConflictError,
     create_rbac_role,
     create_rbac_user,
     delete_rbac_role,
@@ -140,10 +141,10 @@ async def verify_auth_session(request: Request, db: Session = Depends(get_db)):
 @rbac_router.get("/overview", response_model=ScriptHubRbacOverviewResponse)
 async def get_rbac_overview(
     db: Session = Depends(get_db),
-    _session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     ensure_script_hub_schema()
-    return list_rbac_overview(db)
+    return list_rbac_overview(db, actor=session)
 
 
 @rbac_router.post("/users", response_model=ScriptHubUserMutationResponse)
@@ -157,9 +158,14 @@ async def create_rbac_user_endpoint(
         ensure_script_hub_schema()
         user, generated_access_key = create_rbac_user(
             db,
+            actor=session,
             user_code=payload.user_code,
             display_name=payload.display_name,
             access_key=payload.access_key,
+            primary_org_code=payload.primary_org_code,
+            data_scope=payload.data_scope,
+            custom_org_codes=payload.custom_org_codes,
+            authorization_boundary=payload.authorization_boundary,
             role_codes=payload.role_codes,
             granted_permissions=payload.granted_permissions,
             revoked_permissions=payload.revoked_permissions,
@@ -175,13 +181,14 @@ async def create_rbac_user_endpoint(
             action="user.create",
             target_type="user",
             target_code=user["user_code"],
+            target_org_code=user.get("primary_org_code"),
             details=_audit_details_from_payload(payload),
         )
         return {
             "user": user,
             "generated_access_key": generated_access_key,
         }
-    except ValueError as exc:
+    except RbacMutationConflictError as exc:
         _write_failed_audit_log(
             db=db,
             actor=session,
@@ -250,7 +257,14 @@ async def update_rbac_user_endpoint(
         user = update_rbac_user(
             db,
             user_code,
+            actor=session,
+            expected_permission_version=payload.expected_permission_version,
+            data_scope_downgrade_confirmed=payload.data_scope_downgrade_confirmed,
             display_name=payload.display_name,
+            primary_org_code=payload.primary_org_code,
+            data_scope=payload.data_scope,
+            custom_org_codes=payload.custom_org_codes,
+            authorization_boundary=payload.authorization_boundary,
             role_codes=payload.role_codes,
             granted_permissions=payload.granted_permissions,
             revoked_permissions=payload.revoked_permissions,
@@ -266,12 +280,25 @@ async def update_rbac_user_endpoint(
             action="user.update",
             target_type="user",
             target_code=user["user_code"],
+            target_org_code=user.get("primary_org_code"),
             details=_audit_details_from_payload(payload),
         )
         return {
             "user": user,
             "generated_access_key": None,
         }
+    except ValueError as exc:
+        _write_failed_audit_log(
+            db=db,
+            actor=session,
+            request=request,
+            action="user.update",
+            target_type="user",
+            target_code=user_code,
+            details=_audit_details_from_payload(payload),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
         _write_failed_audit_log(
             db=db,

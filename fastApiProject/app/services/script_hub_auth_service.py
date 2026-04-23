@@ -1,12 +1,14 @@
 import base64
 import hashlib
 import hmac
+import json
 import os
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
+from ..permission_governance import DATA_SCOPE_ALL, DATA_SCOPE_ORG_ONLY, expand_permission_aliases
 from ..rbac_catalog import ALL_PERMISSION_KEYS, ROLE_INDEX, normalize_role_code
 from ..rbac_models import (
     ScriptHubPermission,
@@ -109,7 +111,7 @@ def build_permission_map(db: Session, user: ScriptHubUser) -> Dict[str, bool]:
         else:
             granted.pop(permission_key, None)
 
-    return granted
+    return expand_permission_aliases(granted)
 
 
 def resolve_primary_role(role_codes: Iterable[str]) -> str:
@@ -132,14 +134,35 @@ def resolve_primary_role(role_codes: Iterable[str]) -> str:
 def serialize_user_session(db: Session, user: ScriptHubUser) -> Dict[str, Any]:
     roles = load_roles_for_user(db, user.id)
     role_codes = [role.role_code for role in roles]
+    session_data_scope = (
+        DATA_SCOPE_ALL
+        if user.is_super_admin or "admin" in role_codes
+        else user.data_scope or DATA_SCOPE_ORG_ONLY
+    )
     return {
         "id": user.user_code,
         "role": resolve_primary_role(role_codes),
         "roles": role_codes,
         "name": user.display_name,
         "permissions": build_permission_map(db, user),
+        "isSuperAdmin": bool(user.is_super_admin),
+        "primaryOrgCode": user.primary_org_code or "group",
+        "dataScope": session_data_scope,
+        "customOrgCodes": json_loads_safe(user.custom_org_codes_json, []),
+        "authorizationBoundary": json_loads_safe(user.authorization_boundary_json, {}),
+        "permissionVersion": int(user.permission_version or 1),
         "teamResourcesLoginKeyEnabled": bool(user.team_resources_access_enabled),
     }
+
+
+def json_loads_safe(value: Optional[str], fallback: Any) -> Any:
+    if not value:
+        return fallback
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return fallback
+    return parsed
 
 
 def get_active_user_by_code(db: Session, user_code: str) -> Optional[ScriptHubUser]:
