@@ -188,7 +188,6 @@ const PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS = 6000;
 const PAGE_ACTIVITY_POLL_MAX_INTERVAL_MS = 15000;
 const TASK_MONITOR_VISIBLE_INTERVAL_MS = 1200;
 const TASK_MONITOR_HIDDEN_INTERVAL_MS = 5000;
-const SYSTEM_BASE_SKILL_CODES = new Set(["skill-jd-base", "skill-testing-rule", "skill-interview-structure"]);
 const TASK_MONITOR_MAX_INTERVAL_MS = 15000;
 
 function getPollingDelay(
@@ -612,13 +611,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const skillMap = useMemo(() => new Map(skills.map((item) => [item.id, item])), [skills]);
     const enabledSkills = useMemo(() => skills.filter((skill) => skill.is_enabled !== false), [skills]);
     const enabledSkillMap = useMemo(() => new Map(enabledSkills.map((item) => [item.id, item])), [enabledSkills]);
-    const positionSelectableSkills = useMemo(
-        () => enabledSkills.filter((skill) => !SYSTEM_BASE_SKILL_CODES.has(skill.skill_code)),
-        [enabledSkills],
-    );
-    const jdAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(positionSelectableSkills, "jd"), [positionSelectableSkills]);
-    const screeningAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(positionSelectableSkills, "screening"), [positionSelectableSkills]);
-    const interviewAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(positionSelectableSkills, "interview"), [positionSelectableSkills]);
+    const jdAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "jd"), [enabledSkills]);
+    const screeningAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "screening"), [enabledSkills]);
+    const interviewAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "interview"), [enabledSkills]);
     const mailSenderMap = useMemo(() => new Map(mailSenderConfigs.map((item) => [item.id, item])), [mailSenderConfigs]);
     const mailRecipientMap = useMemo(() => new Map(mailRecipients.map((item) => [item.id, item])), [mailRecipients]);
     const currentJDVersion = positionDetail?.current_jd_version || null;
@@ -6289,7 +6284,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             >
                                                                 {skill.name}
                                                             </button>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无自定义 JD Skill，不选择时将使用系统通用基座</p>}
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用 JD Skill，不选择时将使用系统通用基座</p>}
                                                     </div>
                                                 </div>
                                                 <div className="space-y-2">
@@ -6312,7 +6307,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             >
                                                                 {skill.name}
                                                             </button>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无自定义初筛 Skill，不选择时将使用系统通用基座</p>}
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用初筛 Skill，不选择时将使用系统通用基座</p>}
                                                     </div>
                                                 </div>
                                                 <div className="space-y-2">
@@ -6335,7 +6330,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             >
                                                                 {skill.name}
                                                             </button>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无自定义面试题 Skill，不选择时将使用系统通用基座</p>}
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用面试题 Skill，不选择时将使用系统通用基座</p>}
                                                     </div>
                                                 </div>
                                             </div>
