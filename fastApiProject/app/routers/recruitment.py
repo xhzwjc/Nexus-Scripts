@@ -34,6 +34,7 @@ from ..recruitment_schemas import (
     RecruitmentMailAutoPushGlobalConfigRequest,
     RecruitmentMailRecipientUpsertRequest,
     RecruitmentMailSenderUpsertRequest,
+    RecruitmentResourceGovernanceUpdateRequest,
     RecruitmentResumeMailSendRequest,
     SaveJDVersionRequest,
     SkillUpsertRequest,
@@ -765,6 +766,74 @@ async def toggle_skill(skill_id: int, enabled: bool = Query(...), _session: Dict
     try:
         data = service.toggle_skill(skill_id, enabled, _session.get("id") or "unknown")
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.patch("/resource-governance/{resource_kind}/{resource_id}")
+async def update_resource_governance(
+    http_request: Request,
+    resource_kind: str,
+    resource_id: int,
+    payload: RecruitmentResourceGovernanceUpdateRequest,
+    db: Session = Depends(get_db),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("resource-sharing-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    patch = payload.model_dump(exclude_none=True)
+    if not patch:
+        raise HTTPException(status_code=400, detail="No governance fields provided")
+
+    try:
+        if resource_kind == "skill":
+            data = service.update_skill(resource_id, patch, _session.get("id") or "unknown")
+            target_type = "recruitment-skill"
+            target_code = str(data.get("skill_code") or resource_id)
+            sensitivity = "normal"
+        elif resource_kind == "model":
+            model_patch = dict(patch)
+            if "is_enabled" in model_patch:
+                model_patch["is_active"] = model_patch.pop("is_enabled")
+            data = service.update_llm_config(resource_id, model_patch, _session.get("id") or "unknown")
+            target_type = "recruitment-llm-config"
+            target_code = str(data.get("config_key") or resource_id)
+            sensitivity = "sensitive"
+        elif resource_kind == "mail-sender":
+            data = service.update_mail_sender(resource_id, patch, _session.get("id") or "unknown")
+            target_type = "recruitment-mail-sender"
+            target_code = str(resource_id)
+            sensitivity = "sensitive"
+        elif resource_kind == "mail-recipient":
+            data = service.update_mail_recipient(resource_id, patch, _session.get("id") or "unknown")
+            target_type = "recruitment-mail-recipient"
+            target_code = str(resource_id)
+            sensitivity = "normal"
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported resource kind")
+
+        write_audit_log(
+            db,
+            actor=_session,
+            request=http_request,
+            action="recruitment.resource-governance.update",
+            target_type=target_type,
+            target_code=target_code,
+            target_org_code=data.get("org_code"),
+            sensitivity=sensitivity,
+            details={
+                "resource_kind": resource_kind,
+                "resource_id": resource_id,
+                "org_code": data.get("org_code"),
+                "scope_level": data.get("scope_level"),
+                "share_policy": data.get("share_policy"),
+                "allow_sub_org_use": data.get("allow_sub_org_use"),
+                "allow_copy": data.get("allow_copy"),
+                "is_enabled": data.get("is_enabled", data.get("is_active")),
+            },
+        )
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 

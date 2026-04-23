@@ -22,6 +22,59 @@ export interface User {
     teamResourcesLoginKeyEnabled?: boolean;
 }
 
+export type AccessControlView = 'overview' | 'organizations' | 'users' | 'roles' | 'resources' | 'audit';
+
+export type DataScope = 'ALL' | 'ORG_AND_CHILDREN' | 'ORG_ONLY' | 'CUSTOM_ORGS' | 'SELF';
+
+export interface AuthorizationBoundary {
+    canGrant: boolean;
+    manageableOrgCodes: string[];
+    assignableRoleCodes: string[];
+    assignablePermissionKeys: string[];
+    maxDataScope: DataScope;
+}
+
+export type ResourceDomain = 'mail' | 'skill' | 'model';
+
+export type ResourceKind = 'skill' | 'model' | 'mail-sender' | 'mail-recipient';
+
+export type SharePolicy = 'PRIVATE' | 'SHARED_READONLY' | 'SHARED_COPYABLE' | 'PUBLIC_IN_GROUP';
+
+export type ResourceStatus = 'active' | 'inactive' | 'draft' | 'disabled';
+
+export interface ResourceListItem {
+    id: string;
+    rawId?: number | string;
+    resourceKind?: ResourceKind;
+    domain: ResourceDomain;
+    name: string;
+    ownerOrgCode: string;
+    scopeLevel?: string | null;
+    sharePolicy: SharePolicy;
+    status: ResourceStatus;
+    allowSubOrgUse?: boolean;
+    allowCopy?: boolean;
+    updatedAt?: string | null;
+    description?: string | null;
+}
+
+export interface AccessControlUserViewModel {
+    userCode: string;
+    displayName: string;
+    primaryOrgCode: string;
+    primaryOrgName: string;
+    roleCodes: string[];
+    roleNames: string[];
+    dataScope: DataScope;
+    customOrgCodes: string[];
+    configPermissionState: 'enabled' | 'partial' | 'none';
+    isActive: boolean;
+    isSuperAdmin: boolean;
+    effectivePermissionCount: number;
+    effectivePermissionKeys: string[];
+    lastLoginAt?: string | null;
+}
+
 export interface ScriptHubPermissionDefinition {
     key: string;
     name: string;

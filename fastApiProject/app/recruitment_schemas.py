@@ -233,6 +233,15 @@ class RecruitmentMailRecipientUpsertRequest(BaseModel):
     is_enabled: bool = True
 
 
+class RecruitmentResourceGovernanceUpdateRequest(BaseModel):
+    org_code: Optional[str] = Field(None, max_length=100)
+    scope_level: Optional[str] = Field(None, max_length=40)
+    share_policy: Optional[str] = Field(None, max_length=40)
+    allow_sub_org_use: Optional[bool] = None
+    allow_copy: Optional[bool] = None
+    is_enabled: Optional[bool] = None
+
+
 class RecruitmentResumeMailSendRequest(BaseModel):
     sender_config_id: Optional[int] = None
     candidate_ids: List[int] = Field(..., min_length=1)

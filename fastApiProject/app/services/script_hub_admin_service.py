@@ -34,13 +34,28 @@ from .script_hub_auth_service import (
     resolve_primary_role,
 )
 from .script_hub_audit_service import list_recent_audit_logs, list_recent_audit_logs_for_session
-from ..rbac_schemas import ROLE_CODE_RE, USER_CODE_RE
+from ..rbac_schemas import ORG_CODE_RE, ROLE_CODE_RE, USER_CODE_RE
 
 
 def _normalize_user_code(user_code: str) -> str:
     normalized = (user_code or "").strip().lower()
     if not USER_CODE_RE.match(normalized):
         raise ValueError("User code must use lowercase letters, numbers, dots, underscores, or hyphens")
+    return normalized
+
+
+def _normalize_org_code_for_mutation(org_code: str) -> str:
+    normalized = (org_code or "").strip().lower()
+    if not ORG_CODE_RE.match(normalized):
+        raise ValueError("Organization code must use lowercase letters, numbers, dots, underscores, or hyphens")
+    return normalized
+
+
+def _normalize_org_type(org_type: Optional[str]) -> str:
+    normalized = (org_type or "company").strip().lower()
+    allowed = {"group", "sub_group", "company", "department"}
+    if normalized not in allowed:
+        raise ValueError("Invalid organization type")
     return normalized
 
 
@@ -89,10 +104,13 @@ def _list_organizations(db: Session) -> List[Dict[str, object]]:
     return [
         _serialize_organization(row)
         for row in db.query(ScriptHubOrganization)
-        .filter(ScriptHubOrganization.is_active.is_(True))
-        .order_by(ScriptHubOrganization.path.asc(), ScriptHubOrganization.sort_order.asc(), ScriptHubOrganization.org_code.asc())
+        .order_by(ScriptHubOrganization.path.asc(), ScriptHubOrganization.is_active.desc(), ScriptHubOrganization.sort_order.asc(), ScriptHubOrganization.org_code.asc())
         .all()
     ]
+
+
+def _get_org_row(db: Session, org_code: str) -> Optional[ScriptHubOrganization]:
+    return db.query(ScriptHubOrganization).filter(ScriptHubOrganization.org_code == normalize_org_code(org_code)).first()
 
 
 def _ensure_org_exists(db: Session, org_code: str) -> str:
@@ -110,7 +128,7 @@ def _ensure_org_exists(db: Session, org_code: str) -> str:
             )
         )
         db.flush()
-    if not db.query(ScriptHubOrganization).filter(ScriptHubOrganization.org_code == normalized).first():
+    if not db.query(ScriptHubOrganization).filter(ScriptHubOrganization.org_code == normalized, ScriptHubOrganization.is_active.is_(True)).first():
         raise ValueError(f"Unknown organization: {normalized}")
     return normalized
 
@@ -146,6 +164,42 @@ def _actor_has_unbounded_grant(actor: Optional[Dict[str, Any]]) -> bool:
     return bool(actor.get("isSuperAdmin")) or "admin" in roles
 
 
+def _boundary_allows_grant(boundary: Dict[str, Any]) -> bool:
+    return bool(boundary.get("allow_grant") or boundary.get("can_grant"))
+
+
+def _boundary_managed_org_codes(boundary: Dict[str, Any]) -> Set[str]:
+    return set(normalize_org_code_list(boundary.get("managed_org_codes") or boundary.get("manageable_org_codes") or []))
+
+
+def _validate_org_mutation_boundary(
+    db: Session,
+    *,
+    actor: Optional[Dict[str, Any]],
+    target_org_code: str,
+    parent_org_code: Optional[str] = None,
+) -> None:
+    if _actor_has_unbounded_grant(actor):
+        return
+
+    context = build_permission_context(db, actor)
+    boundary = actor.get("authorizationBoundary") if actor else {}
+    if not isinstance(boundary, dict) or not _boundary_allows_grant(boundary):
+        raise ValueError("Actor is not allowed to manage organizations")
+
+    checked_org_codes = [normalize_org_code(target_org_code)]
+    if parent_org_code:
+        checked_org_codes.append(normalize_org_code(parent_org_code))
+
+    managed_orgs = _boundary_managed_org_codes(boundary)
+    visible_orgs = set(context.visible_org_codes or ())
+    for org_code in checked_org_codes:
+        if managed_orgs and org_code not in managed_orgs:
+            raise ValueError("Organization is outside the actor authorization boundary")
+        if not context.has_all_orgs and org_code not in visible_orgs:
+            raise ValueError("Organization is outside the actor data scope")
+
+
 def _validate_authorization_boundary(
     db: Session,
     *,
@@ -160,10 +214,10 @@ def _validate_authorization_boundary(
 
     context = build_permission_context(db, actor)
     boundary = actor.get("authorizationBoundary") if actor else {}
-    if not isinstance(boundary, dict) or not boundary.get("allow_grant"):
+    if not isinstance(boundary, dict) or not _boundary_allows_grant(boundary):
         raise ValueError("Actor is not allowed to grant permissions")
 
-    managed_orgs = set(normalize_org_code_list(boundary.get("managed_org_codes") or []))
+    managed_orgs = _boundary_managed_org_codes(boundary)
     if managed_orgs and target_org_code not in managed_orgs:
         raise ValueError("Target organization is outside the actor authorization boundary")
 
@@ -410,6 +464,173 @@ def list_rbac_overview(db: Session, actor: Optional[Dict[str, Any]] = None) -> D
             list_recent_audit_logs(db, limit=60)
         ),
     }
+
+
+def _resolve_parent_org(db: Session, parent_org_code: Optional[str]) -> Optional[ScriptHubOrganization]:
+    if not parent_org_code:
+        return None
+    parent = db.query(ScriptHubOrganization).filter(
+        ScriptHubOrganization.org_code == normalize_org_code(parent_org_code),
+        ScriptHubOrganization.is_active.is_(True),
+    ).first()
+    if not parent:
+        raise ValueError("Parent organization not found")
+    return parent
+
+
+def _build_org_path(org_code: str, parent: Optional[ScriptHubOrganization]) -> str:
+    return f"{parent.path}/{org_code}" if parent else org_code
+
+
+def _org_has_active_children(db: Session, org_code: str) -> bool:
+    return db.query(ScriptHubOrganization).filter(
+        ScriptHubOrganization.parent_org_code == normalize_org_code(org_code),
+        ScriptHubOrganization.is_active.is_(True),
+    ).first() is not None
+
+
+def _org_has_user_references(db: Session, org_code: str) -> bool:
+    normalized = normalize_org_code(org_code)
+    users = db.query(ScriptHubUser).filter(ScriptHubUser.is_deleted.is_(False)).all()
+    for user in users:
+        if normalize_org_code(user.primary_org_code) == normalized:
+            return True
+        if normalized in set(normalize_org_code_list(user.custom_org_codes_json)):
+            return True
+    return False
+
+
+def _update_descendant_org_paths(db: Session, *, old_path: str, new_path: str) -> None:
+    descendants = db.query(ScriptHubOrganization).filter(
+        ScriptHubOrganization.path.like(f"{old_path}/%")
+    ).all()
+    for descendant in descendants:
+        suffix = str(descendant.path or "")[len(old_path):]
+        descendant.path = f"{new_path}{suffix}"
+
+
+def create_organization(
+    db: Session,
+    *,
+    actor: Optional[Dict[str, Any]] = None,
+    org_code: str,
+    name: str,
+    org_type: str = "company",
+    parent_org_code: Optional[str] = "group",
+    sort_order: int = 99,
+    is_active: bool = True,
+) -> Dict[str, object]:
+    normalized_org_code = _normalize_org_code_for_mutation(org_code)
+    if db.query(ScriptHubOrganization).filter(ScriptHubOrganization.org_code == normalized_org_code).first():
+        raise ValueError("Organization code already exists")
+
+    normalized_name = (name or "").strip()
+    if not normalized_name:
+        raise ValueError("Organization name is required")
+
+    parent = _resolve_parent_org(db, parent_org_code)
+    _validate_org_mutation_boundary(
+        db,
+        actor=actor,
+        target_org_code=parent.org_code if parent else normalized_org_code,
+    )
+
+    row = ScriptHubOrganization(
+        org_code=normalized_org_code,
+        name=normalized_name,
+        org_type=_normalize_org_type(org_type),
+        parent_org_code=parent.org_code if parent else None,
+        path=_build_org_path(normalized_org_code, parent),
+        sort_order=int(sort_order),
+        is_active=bool(is_active),
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _serialize_organization(row)
+
+
+def update_organization(
+    db: Session,
+    org_code: str,
+    *,
+    actor: Optional[Dict[str, Any]] = None,
+    name: Optional[str] = None,
+    org_type: Optional[str] = None,
+    parent_org_code: Optional[str] = None,
+    sort_order: Optional[int] = None,
+    is_active: Optional[bool] = None,
+) -> Dict[str, object]:
+    normalized_org_code = _normalize_org_code_for_mutation(org_code)
+    row = _get_org_row(db, normalized_org_code)
+    if not row:
+        raise ValueError("Organization not found")
+
+    next_parent_code = row.parent_org_code if parent_org_code is None else normalize_org_code(parent_org_code)
+    if normalized_org_code == "group":
+        if parent_org_code is not None and parent_org_code:
+            raise ValueError("Root organization cannot have a parent")
+        next_parent_code = None
+    elif parent_org_code is not None and not parent_org_code:
+        raise ValueError("Non-root organization must have a parent")
+
+    parent = _resolve_parent_org(db, next_parent_code)
+    if parent and parent.org_code == normalized_org_code:
+        raise ValueError("Organization cannot be its own parent")
+    if parent and str(parent.path or "").startswith(f"{row.path}/"):
+        raise ValueError("Organization cannot be moved under its descendant")
+
+    _validate_org_mutation_boundary(
+        db,
+        actor=actor,
+        target_org_code=normalized_org_code,
+        parent_org_code=parent.org_code if parent else None,
+    )
+
+    next_is_active = row.is_active if is_active is None else bool(is_active)
+    if normalized_org_code == "group" and not next_is_active:
+        raise ValueError("Root organization cannot be disabled")
+    if row.is_active and not next_is_active:
+        if _org_has_active_children(db, normalized_org_code):
+            raise ValueError("Organization has active children")
+        if _org_has_user_references(db, normalized_org_code):
+            raise ValueError("Organization is still assigned to users")
+
+    if name is not None:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("Organization name is required")
+        row.name = normalized_name
+    if org_type is not None:
+        row.org_type = _normalize_org_type(org_type)
+    if sort_order is not None:
+        row.sort_order = int(sort_order)
+
+    old_path = row.path
+    new_path = _build_org_path(normalized_org_code, parent)
+    row.parent_org_code = parent.org_code if parent else None
+    row.path = new_path
+    row.is_active = next_is_active
+    if old_path != new_path:
+        _update_descendant_org_paths(db, old_path=old_path, new_path=new_path)
+
+    db.commit()
+    db.refresh(row)
+    return _serialize_organization(row)
+
+
+def delete_organization(
+    db: Session,
+    org_code: str,
+    *,
+    actor: Optional[Dict[str, Any]] = None,
+) -> Dict[str, object]:
+    return update_organization(
+        db,
+        org_code,
+        actor=actor,
+        is_active=False,
+    )
 
 
 def _set_role_permissions(db: Session, role_id: int, permission_keys: List[str], permission_rows: Dict[str, ScriptHubPermission]):

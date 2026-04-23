@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 USER_CODE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,99}$")
 ROLE_CODE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,99}$")
+ORG_CODE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,99}$")
 
 
 def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
@@ -58,6 +59,83 @@ class ScriptHubOrganizationSchema(BaseModel):
     path: str
     sort_order: int
     is_active: bool
+
+
+class ScriptHubOrganizationCreateRequest(BaseModel):
+    org_code: str = Field(min_length=2, max_length=100)
+    name: str = Field(min_length=1, max_length=120)
+    org_type: str = Field(default="company", max_length=50)
+    parent_org_code: Optional[str] = Field(default="group", max_length=100)
+    sort_order: int = Field(default=99, ge=0, le=9999)
+    is_active: bool = True
+
+    @field_validator("org_code")
+    @classmethod
+    def validate_org_code(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not ORG_CODE_RE.match(normalized):
+            raise ValueError("Organization code must use lowercase letters, numbers, dots, underscores, or hyphens")
+        return normalized
+
+    @field_validator("name")
+    @classmethod
+    def validate_org_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Organization name is required")
+        return normalized
+
+    @field_validator("org_type")
+    @classmethod
+    def normalize_org_type(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower() or "company"
+        allowed = {"group", "sub_group", "company", "department"}
+        if normalized not in allowed:
+            raise ValueError("Invalid organization type")
+        return normalized
+
+    @field_validator("parent_org_code", mode="before")
+    @classmethod
+    def normalize_parent_org_code(cls, value: Optional[str]) -> Optional[str]:
+        return _normalize_optional_text(value)
+
+
+class ScriptHubOrganizationUpdateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    org_type: Optional[str] = Field(default=None, max_length=50)
+    parent_org_code: Optional[str] = Field(default=None, max_length=100)
+    sort_order: Optional[int] = Field(default=None, ge=0, le=9999)
+    is_active: Optional[bool] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_updated_org_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Organization name is required")
+        return normalized
+
+    @field_validator("org_type")
+    @classmethod
+    def normalize_updated_org_type(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value or "").strip().lower() or "company"
+        allowed = {"group", "sub_group", "company", "department"}
+        if normalized not in allowed:
+            raise ValueError("Invalid organization type")
+        return normalized
+
+    @field_validator("parent_org_code", mode="before")
+    @classmethod
+    def normalize_updated_parent_org_code(cls, value: Optional[str]) -> Optional[str]:
+        return _normalize_optional_text(value)
+
+
+class ScriptHubOrganizationMutationResponse(BaseModel):
+    organization: ScriptHubOrganizationSchema
 
 
 class ScriptHubAdminUserSchema(BaseModel):

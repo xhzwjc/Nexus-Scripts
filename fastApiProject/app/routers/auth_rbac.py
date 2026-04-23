@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..rbac_schemas import (
     ScriptHubDeleteResponse,
+    ScriptHubOrganizationCreateRequest,
+    ScriptHubOrganizationMutationResponse,
+    ScriptHubOrganizationUpdateRequest,
     ScriptHubRbacOverviewResponse,
     ScriptHubRotateAccessKeyRequest,
     ScriptHubRoleCreateRequest,
@@ -26,12 +29,15 @@ from ..script_hub_session import (
 )
 from ..services.script_hub_admin_service import (
     RbacMutationConflictError,
+    create_organization,
     create_rbac_role,
     create_rbac_user,
+    delete_organization,
     delete_rbac_role,
     delete_rbac_user,
     list_rbac_overview,
     rotate_user_access_key,
+    update_organization,
     update_rbac_role,
     update_rbac_user,
 )
@@ -188,7 +194,7 @@ async def create_rbac_user_endpoint(
             "user": user,
             "generated_access_key": generated_access_key,
         }
-    except RbacMutationConflictError as exc:
+    except ValueError as exc:
         _write_failed_audit_log(
             db=db,
             actor=session,
@@ -244,6 +250,50 @@ async def create_rbac_role_endpoint(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@rbac_router.post("/organizations", response_model=ScriptHubOrganizationMutationResponse)
+async def create_rbac_organization_endpoint(
+    request: Request,
+    payload: ScriptHubOrganizationCreateRequest,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        ensure_script_hub_schema()
+        organization = create_organization(
+            db,
+            actor=session,
+            org_code=payload.org_code,
+            name=payload.name,
+            org_type=payload.org_type,
+            parent_org_code=payload.parent_org_code,
+            sort_order=payload.sort_order,
+            is_active=payload.is_active,
+        )
+        write_audit_log(
+            db,
+            actor=session,
+            request=request,
+            action="organization.create",
+            target_type="organization",
+            target_code=organization["org_code"],
+            target_org_code=organization["org_code"],
+            details=_audit_details_from_payload(payload),
+        )
+        return {"organization": organization}
+    except ValueError as exc:
+        _write_failed_audit_log(
+            db=db,
+            actor=session,
+            request=request,
+            action="organization.create",
+            target_type="organization",
+            target_code=payload.org_code,
+            details=_audit_details_from_payload(payload),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @rbac_router.patch("/users/{user_code}", response_model=ScriptHubUserMutationResponse)
 async def update_rbac_user_endpoint(
     request: Request,
@@ -287,7 +337,7 @@ async def update_rbac_user_endpoint(
             "user": user,
             "generated_access_key": None,
         }
-    except ValueError as exc:
+    except RbacMutationConflictError as exc:
         _write_failed_audit_log(
             db=db,
             actor=session,
@@ -307,6 +357,51 @@ async def update_rbac_user_endpoint(
             action="user.update",
             target_type="user",
             target_code=user_code,
+            details=_audit_details_from_payload(payload),
+            error=str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@rbac_router.patch("/organizations/{org_code}", response_model=ScriptHubOrganizationMutationResponse)
+async def update_rbac_organization_endpoint(
+    request: Request,
+    org_code: str,
+    payload: ScriptHubOrganizationUpdateRequest,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        ensure_script_hub_schema()
+        organization = update_organization(
+            db,
+            org_code,
+            actor=session,
+            name=payload.name,
+            org_type=payload.org_type,
+            parent_org_code=payload.parent_org_code,
+            sort_order=payload.sort_order,
+            is_active=payload.is_active,
+        )
+        write_audit_log(
+            db,
+            actor=session,
+            request=request,
+            action="organization.update",
+            target_type="organization",
+            target_code=organization["org_code"],
+            target_org_code=organization["org_code"],
+            details=_audit_details_from_payload(payload),
+        )
+        return {"organization": organization}
+    except ValueError as exc:
+        _write_failed_audit_log(
+            db=db,
+            actor=session,
+            request=request,
+            action="organization.update",
+            target_type="organization",
+            target_code=org_code,
             details=_audit_details_from_payload(payload),
             error=str(exc),
         )
@@ -427,6 +522,40 @@ async def delete_rbac_user_endpoint(
             action="user.delete",
             target_type="user",
             target_code=user_code,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@rbac_router.delete("/organizations/{org_code}", response_model=ScriptHubDeleteResponse)
+async def delete_rbac_organization_endpoint(
+    request: Request,
+    org_code: str,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        ensure_script_hub_schema()
+        deleted = delete_organization(db, org_code, actor=session)
+        write_audit_log(
+            db,
+            actor=session,
+            request=request,
+            action="organization.delete",
+            target_type="organization",
+            target_code=deleted["org_code"],
+            target_org_code=deleted["org_code"],
+            details=deleted,
+        )
+        return {"message": "Organization disabled", "target_code": deleted["org_code"]}
+    except ValueError as exc:
+        _write_failed_audit_log(
+            db=db,
+            actor=session,
+            request=request,
+            action="organization.delete",
+            target_type="organization",
+            target_code=org_code,
             error=str(exc),
         )
         raise HTTPException(status_code=400, detail=str(exc))

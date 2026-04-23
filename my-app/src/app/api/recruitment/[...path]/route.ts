@@ -23,6 +23,10 @@ function resolveRecruitmentPermission(path: string, method: string) {
     return "recruitment-mail-send";
   }
 
+  if (path === "resource-governance" || path.startsWith("resource-governance/")) {
+    return "resource-sharing-manage";
+  }
+
   if (path === "mail-senders" || path.startsWith("mail-senders/")) {
     return normalizedMethod === "GET" || normalizedMethod === "HEAD"
       ? "recruitment-mail-view"
