@@ -431,6 +431,26 @@ SCREENING_RULE_IGNORE_MARKERS = (
     "user:",
 )
 
+SCREENING_DIMENSION_SECTION_MARKERS = (
+    "评分维度",
+    "打分维度",
+    "维度与满分",
+    "评分项",
+)
+
+SCREENING_DIMENSION_SECTION_STOP_MARKERS = (
+    "判定规则",
+    "初筛结论",
+    "输出要求",
+    "输出约束",
+    "优势与风险",
+    "advantages",
+    "concerns",
+    "suggested_status",
+    "recommendation",
+    "批量简历",
+)
+
 
 def json_loads_safe(value: Optional[str], default: Any) -> Any:
     if not value:
@@ -1832,6 +1852,100 @@ def _looks_like_iot_screening_rule_context(*texts: Any) -> bool:
     return any(marker in combined for marker in IOT_SCREENING_CONTEXT_MARKERS)
 
 
+def _parse_prompt_style_screening_dimension_line(
+    line: str,
+    *,
+    iot_context: bool,
+) -> Optional[Dict[str, Any]]:
+    plain = strip_markdown(str(line or "")).strip()
+    plain = re.sub(r"^[\-\*\d\.\)）\s•]+", "", plain).strip()
+    ignored_markers = [
+        marker
+        for marker in SCREENING_RULE_IGNORE_MARKERS
+        if str(marker or "").strip().lower() != "加分项"
+    ]
+    if (
+        not plain
+        or any(marker.lower() in plain.lower() for marker in ignored_markers)
+        or any(token in plain for token in ("总分", "合计", "满分10分", "10分制"))
+    ):
+        return None
+
+    score_match = re.search(r"(?:满分\s*)?([0-9]+(?:\.[0-9])?)\s*分", plain, flags=re.IGNORECASE)
+    if not score_match:
+        return None
+
+    label_text = plain[:score_match.start()].strip("：:，,。；;|-— ")
+    if "：" in label_text:
+        label_text = label_text.split("：", 1)[0].strip()
+    elif ":" in label_text:
+        label_text = label_text.split(":", 1)[0].strip()
+    label_text = re.sub(r"(满分|最高|建议|权重|优先级)$", "", label_text).strip()
+    label = _normalize_screening_dimension_label(label_text)
+    if not label:
+        return None
+
+    max_score = _parse_score_number(score_match.group(1))
+    if max_score is None:
+        return None
+
+    weight_match = re.search(r"(\d{1,3}\s*%)", plain)
+    note = plain[score_match.end():].strip("。；;，, ：:-")
+    is_core = any(marker in plain for marker in ("核心", "第一优先", "硬性要求", "必须命中"))
+    keywords = IOT_SCREENING_DIMENSION_KEYWORDS.get(label, []) if iot_context else []
+
+    return {
+        "label": label,
+        "weight_text": weight_match.group(1) if weight_match else "",
+        "max_score": round(float(max_score), 1),
+        "note": re.sub(r"\s+", " ", note).strip(),
+        "is_core": is_core,
+        "keywords": keywords,
+    }
+
+
+def _extract_prompt_style_screening_dimension_rules(
+    body: str,
+    *,
+    iot_context: bool,
+    limit: int,
+) -> List[Dict[str, Any]]:
+    rules: List[Dict[str, Any]] = []
+    seen_labels: set[str] = set()
+    in_dimension_section = False
+
+    for raw_line in body.splitlines():
+        plain = strip_markdown(raw_line).strip()
+        lowered = plain.lower()
+        if not plain:
+            continue
+
+        if any(marker in lowered for marker in (item.lower() for item in SCREENING_DIMENSION_SECTION_MARKERS)):
+            in_dimension_section = True
+            continue
+
+        if not in_dimension_section:
+            continue
+
+        if any(marker in lowered for marker in (item.lower() for item in SCREENING_DIMENSION_SECTION_STOP_MARKERS)):
+            if rules:
+                break
+            continue
+
+        rule = _parse_prompt_style_screening_dimension_line(plain, iot_context=iot_context)
+        if not rule:
+            continue
+        label = str(rule.get("label") or "").strip()
+        if not label or label in seen_labels:
+            continue
+        seen_labels.add(label)
+        rules.append(rule)
+        if len(rules) >= limit:
+            break
+
+    return rules[:limit]
+
+
 def extract_screening_dimension_rules(skills: Optional[Iterable[Any]], limit: int = 12) -> List[Dict[str, Any]]:
     rules: List[Dict[str, Any]] = []
     seen_labels: set[str] = set()
@@ -1890,6 +2004,18 @@ def extract_screening_dimension_rules(skills: Optional[Iterable[Any]], limit: in
                     "keywords": IOT_SCREENING_DIMENSION_KEYWORDS.get(label, []) if iot_context else [],
                 }
             )
+            if len(rules) >= limit:
+                return rules[:limit]
+        if rules:
+            break
+        for item in _extract_prompt_style_screening_dimension_rules(body, iot_context=iot_context, limit=limit):
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or "").strip()
+            if not label or label in seen_labels:
+                continue
+            seen_labels.add(label)
+            rules.append(item)
             if len(rules) >= limit:
                 return rules[:limit]
         if rules:
@@ -2005,6 +2131,66 @@ def _find_resume_evidence(lines: Iterable[str], topic: str, *, limit: int = 2) -
 # Marker lines that indicate a module entry (module name + duration in parentheses).
 _MODULE_DURATION_MARKERS = ("约", "分钟", "mins", "min)")
 
+INTERVIEW_MODULE_IGNORE_MARKERS = (
+    "模块时长分配",
+    "时长分配",
+    "模块二",
+    "触发方式",
+    "强制规则",
+    "系统强制",
+    "每道题必须包含",
+    "输出规范",
+    "html 输出规范",
+    "专业词释义规范",
+)
+
+INTERVIEW_MODULE_TITLE_ALIASES = {
+    "智能家居生态": "智能家居生态与联动测试",
+    "智能家居生态与联动测试": "智能家居生态与联动测试",
+    "iot通信协议": "IoT 通信协议测试",
+    "通信协议": "IoT 通信协议测试",
+    "iot通信协议测试": "IoT 通信协议测试",
+    "软件测试基础": "软件测试基础",
+    "硬件能力": "硬件测试与系统联调",
+    "硬件测试与系统联调": "硬件测试与系统联调",
+    "嵌入式固件测试": "嵌入式/固件/OTA",
+    "嵌入式/固件测试": "嵌入式/固件/OTA",
+    "嵌入式固件ota": "嵌入式/固件/OTA",
+    "嵌入式/固件/ota": "嵌入式/固件/OTA",
+    "ai工具使用": "AI 工具使用",
+    "综合转型意愿": "综合匹配度与转型意愿",
+    "综合/转型意愿": "综合匹配度与转型意愿",
+    "综合匹配度与转型意愿": "综合匹配度与转型意愿",
+}
+
+
+def _normalize_interview_module_title(raw_title: str) -> str:
+    cleaned = strip_markdown(str(raw_title or "")).strip()
+    cleaned = re.sub(r"^[\-\*\d\.\s•|]+", "", cleaned)
+    cleaned = cleaned.strip(" |：:，,。；;")
+    if not cleaned:
+        return ""
+    if any(marker in cleaned for marker in INTERVIEW_MODULE_IGNORE_MARKERS):
+        return ""
+    cleaned = re.sub(r"[（(]重点[）)]", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = re.sub(r"模块$", "", cleaned).strip(" |：:，,。；;")
+    if not cleaned:
+        return ""
+    alias_key = re.sub(r"[\s\-_/·•]+", "", cleaned.lower())
+    if alias_key in INTERVIEW_MODULE_TITLE_ALIASES:
+        return INTERVIEW_MODULE_TITLE_ALIASES[alias_key]
+
+    fuzzy_matches = [
+        (len(key), canonical)
+        for key, canonical in INTERVIEW_MODULE_TITLE_ALIASES.items()
+        if key and (alias_key.endswith(key) or key in alias_key)
+    ]
+    if fuzzy_matches:
+        return max(fuzzy_matches, key=lambda item: item[0])[1]
+
+    return cleaned
+
 
 def extract_skill_interview_modules(
     skills: Iterable[Any],
@@ -2020,42 +2206,28 @@ def extract_skill_interview_modules(
 
     for skill in (skills or []):
         content = str(skill.get("content") or "") if isinstance(skill, dict) else str(skill)
-        in_module_block = False
-        for line in content.split("\n"):
-            stripped = line.strip()
-            if not stripped:
+        plain_content = strip_markdown(content)
+
+        for match in re.finditer(r"模块(?:[（(]重点[）)])?", plain_content):
+            tail = plain_content[match.end():match.end() + 80]
+            minute_match = re.search(r"约?\s*(\d+)\s*(?:分钟|mins?)", tail)
+            if not minute_match:
                 continue
-            # Detect module block (时长分配 lines)
-            if "模块时长分配" in stripped or "时长分配" in stripped:
-                in_module_block = True
+
+            left = match.start()
+            while left > 0 and plain_content[left - 1] not in "\n\r|，,。；;：:()（）[]【】":
+                left -= 1
+            raw_title = plain_content[left:match.end()]
+            title = _normalize_interview_module_title(raw_title)
+            if not title or title in seen_titles:
                 continue
-            if in_module_block and stripped.startswith("##"):
-                # Next section reached
-                break
-            if not in_module_block:
-                continue
-            # Skip separator lines, empty lines, and known non-module lines
-            if stripped in {"", "模块"} or "专业词释义规范" in stripped or "HTML 输出规范" in stripped:
-                continue
-            # Check if this line looks like a module entry (contains duration info)
-            if any(m in stripped for m in _MODULE_DURATION_MARKERS):
-                # Extract module title (before the first parenthesis or "约 X 分钟")
-                title = stripped
-                is重点 = "（重点）" in title or "(重点)" in title
-                # Remove the timing/annotation suffix to get clean title
-                title = re.sub(r"[（(][^）)]*[）)].*$", "", title).strip()
-                if not title or title in seen_titles:
-                    continue
-                seen_titles.add(title)
-                # Extract minutes
-                minute_match = re.search(r"约?\s*(\d+)\s*(?:分钟|mins?)", stripped)
-                minutes = int(minute_match.group(1)) if minute_match else 5
-                results.append({
-                    "module_title": title,
-                    "recommended_minutes": minutes,
-                    "is重点": is重点,
-                    "raw_line": stripped,
-                })
+            seen_titles.add(title)
+            results.append({
+                "module_title": title,
+                "recommended_minutes": int(minute_match.group(1)),
+                "is重点": "（重点）" in raw_title or "(重点)" in raw_title,
+                "raw_line": plain_content[left:match.end() + minute_match.end()],
+            })
 
     return results
 
@@ -2065,27 +2237,10 @@ def infer_interview_capability_domains(
     skills: Iterable[Any],
     parsed_resume: Optional[Dict[str, Any]] = None,
 ) -> List[str]:
-    # 1. skill content 里检测到 ## 模块二 之后的所有行（不含下一个 ## 标题）即为 capability domains
-    for skill in (skills or []):
-        content = skill.get("content") if isinstance(skill, dict) else str(skill)
-        if not content:
-            continue
-        if "## 模块二" not in content:
-            continue
-        domain_lines: List[str] = []
-        after_marker = False
-        for line in content.split("\n"):
-            stripped = line.strip()
-            if not after_marker:
-                if "## 模块二" in stripped:
-                    after_marker = True
-                continue
-            if stripped.startswith("## "):
-                break
-            if stripped:
-                domain_lines.append(stripped)
-        if domain_lines:
-            return domain_lines[:7]
+    # 1. 优先从 Skill 文本里提取显式模块，兼容 markdown 和 prompt 风格。
+    extracted_modules = extract_skill_interview_modules(skills)
+    if extracted_modules:
+        return [str(item.get("module_title") or "") for item in extracted_modules if str(item.get("module_title") or "").strip()][:7]
 
     # 2. 按 position_title 匹配岗位族
     title_lower = (position_title or "").lower()
@@ -2163,8 +2318,10 @@ def extract_interview_generation_constraints(
         seen_keys.add(rule_key)
         picked.append(cleaned)
 
+    combined_plain_parts: List[str] = []
     for skill in skills or []:
         content = str(skill.get("content") or skill.get("description") or "") if isinstance(skill, dict) else str(skill or "")
+        combined_plain_parts.append(strip_markdown(content))
         for line in re.split(r"[\n\r]+", content):
             plain = strip_markdown(line).strip()
             if not plain:
@@ -2174,10 +2331,28 @@ def extract_interview_generation_constraints(
                 push(plain)
             elif re.match(r"^(所有|每份|必须|不得|如果简历没有直接证据)", plain):
                 push(plain)
+            elif re.search(r"(必须|不得|严禁|至少\s*\d+\s*题|不可为\s*0|必出\s*\d+\s*题)", plain):
+                push(plain)
             if len(picked) >= 10:
                 break
         if len(picked) >= 10:
             break
+
+    combined_plain = "\n".join(part for part in combined_plain_parts if part)
+    compact_plain = re.sub(r"\s+", "", combined_plain.lower())
+    if (
+        ("强制规则" in compact_plain or "强制出题" in compact_plain)
+        and ("必须直接出题" in compact_plain or "不得拒绝" in compact_plain)
+    ):
+        push("强制出题：无论初筛结论如何，只要用户要求出面试题，必须出题，不得拒绝")
+    if "软件测试" in compact_plain and ("至少1题" in compact_plain or "不可为0" in compact_plain):
+        push("软件测试不为零：面试题中软件测试模块至少 1 题，不得为 0")
+    if ("ai工具" in compact_plain or "ai工具使用" in compact_plain) and "必出1题" in compact_plain:
+        push("AI工具必出：每份面试题必须包含 1 道 AI 工具使用考察题")
+    if any(marker in compact_plain for marker in ("严禁虚构", "不得虚构", "技术点必须真实")):
+        push("严禁虚构：所有题目内容必须有候选人简历原文或 JD 原文作为依据，不得推测、编造候选人经历")
+    if "规则变更" in compact_plain and ("只改动指定点" in compact_plain or "保持不变" in compact_plain):
+        push("规则变更原则：用户告知规则变动时，只改动指定点，其他所有规则保持不变")
     if custom_requirements.strip():
         push(f"用户附加要求：{custom_requirements.strip()}")
     if not picked:
@@ -2461,18 +2636,101 @@ def build_interview_structured_fallback(
     }
 
 
-def _find_payload_domain(payload_domains: Sequence[Dict[str, Any]], expected_title: str) -> Optional[Dict[str, Any]]:
-    expected = str(expected_title or "").strip().lower()
-    for item in payload_domains:
-        title = str(item.get("domain_title") or item.get("title") or "").strip().lower()
-        if title == expected:
-            return item
-    for item in payload_domains:
-        title = str(item.get("domain_title") or item.get("title") or "").strip().lower()
-        if expected and expected in title:
-            return item
-    return None
+def _build_generic_interview_domain_defaults(
+    domain_title: str,
+    *,
+    evidence_basis: Sequence[str],
+    evidence_type: str,
+) -> Dict[str, Any]:
+    safe_title = str(domain_title or "未命名模块").strip() or "未命名模块"
+    basis = list(evidence_basis or [])
+    if evidence_type == "direct_evidence":
+        primary_question = (
+            f"请结合你简历或 JD 中提到的“{basis[0] if basis else safe_title}”，详细说明你在“{safe_title}”相关场景里的真实负责范围、"
+            "关键动作、判断依据、问题定位方式以及最终闭环。"
+        )
+    else:
+        primary_question = (
+            f"简历目前没有直接体现“{safe_title}”的实战证据。请不要默认自己做过这类场景，而是结合最接近的一段真实经历，"
+            f"说明哪些能力可以迁移到“{safe_title}”，哪些部分仍需继续核实。"
+        )
+    return {
+        "domain_nature": "重点核实区",
+        "recommended_minutes": 5,
+        "primary_question": primary_question,
+        "answer_points": [
+            "先交代真实项目背景、测试对象或业务场景，以及你本人实际负责的范围。",
+            f"围绕“{safe_title}”说明你的分析思路、验证方法、关键指标或问题闭环。",
+            "明确哪些内容来自真实经历，哪些只是待核实风险，避免把未做过的内容说成做过。",
+        ],
+        "verdict_pass": "回答能落到真实项目、关键动作、判断依据和结果闭环，且前后细节自洽。",
+        "verdict_caution": "回答停留在概念层面，缺少具体证据、关键指标或复盘细节，需要继续追问。",
+        "verdict_fail": "将未做过的内容说成做过，或核心细节明显前后矛盾，无法自证真实经历。",
+        "followups": [
+            f"如果让你复盘一次“{safe_title}”相关项目，你最想补哪一个风险场景？",
+            "这类问题你会如何区分是需求、实现、环境还是测试设计导致的？",
+        ],
+        "interviewer_explanation": f"用于验证候选人在“{safe_title}”上的真实经历深度、方法论和风险判断能力。",
+    }
 
+
+def validate_structured_interview_payload(payload: Any, *, max_errors: int = 12) -> List[str]:
+    errors: List[str] = []
+    if not isinstance(payload, dict):
+        return ["面试题结果不是 JSON object。"]
+
+    overview = payload.get("overview")
+    if not isinstance(overview, dict):
+        errors.append("overview 必须是 object。")
+    else:
+        if not str(overview.get("candidate_summary") or "").strip():
+            errors.append("overview.candidate_summary 不能为空。")
+        if not str(overview.get("screening_status") or "").strip():
+            errors.append("overview.screening_status 不能为空。")
+        if len(_normalize_string_list(overview.get("highlights"), limit=8, min_length=2)) == 0:
+            errors.append("overview.highlights 至少需要 1 项。")
+        if len(_normalize_string_list(overview.get("risks_to_verify"), limit=8, min_length=2)) == 0:
+            errors.append("overview.risks_to_verify 至少需要 1 项。")
+        if not str(overview.get("custom_focus") or "").strip():
+            errors.append("overview.custom_focus 不能为空。")
+
+    domains = payload.get("domains")
+    if not isinstance(domains, list) or not domains:
+        errors.append("domains 必须是非空数组。")
+        return errors[:max_errors]
+
+    for index, raw_domain in enumerate(domains, 1):
+        if not isinstance(raw_domain, dict):
+            errors.append(f"domains[{index}] 必须是 object。")
+            if len(errors) >= max_errors:
+                break
+            continue
+        title = str(raw_domain.get("domain_title") or raw_domain.get("title") or "").strip()
+        if not title:
+            errors.append(f"domains[{index}].domain_title 不能为空。")
+        evidence_type = str(raw_domain.get("evidence_type") or "").strip()
+        if evidence_type not in {"direct_evidence", "risk_to_verify"}:
+            errors.append(f"domains[{index}].evidence_type 必须是 direct_evidence 或 risk_to_verify。")
+        if len(_normalize_string_list(raw_domain.get("evidence_basis"), limit=6, min_length=2)) == 0:
+            errors.append(f"domains[{index}].evidence_basis 至少需要 1 项。")
+        if not str(raw_domain.get("primary_question") or "").strip():
+            errors.append(f"domains[{index}].primary_question 不能为空。")
+        if len(_normalize_string_list(raw_domain.get("answer_points"), limit=8, min_length=2)) < 3:
+            errors.append(f"domains[{index}].answer_points 至少需要 3 项。")
+        if not str(raw_domain.get("verdict_pass") or "").strip():
+            errors.append(f"domains[{index}].verdict_pass 不能为空。")
+        if not str(raw_domain.get("verdict_caution") or "").strip():
+            errors.append(f"domains[{index}].verdict_caution 不能为空。")
+        if not str(raw_domain.get("verdict_fail") or "").strip():
+            errors.append(f"domains[{index}].verdict_fail 不能为空。")
+        if len(_normalize_string_list(raw_domain.get("followups"), limit=6, min_length=2)) < 2:
+            errors.append(f"domains[{index}].followups 至少需要 2 项。")
+        if not str(raw_domain.get("interviewer_explanation") or "").strip():
+            errors.append(f"domains[{index}].interviewer_explanation 不能为空。")
+        if len(errors) >= max_errors:
+            break
+
+    return errors[:max_errors]
 
 def normalize_structured_interview(
     payload: Optional[Dict[str, Any]],
@@ -2485,60 +2743,80 @@ def normalize_structured_interview(
     parsed_resume: Optional[Dict[str, Any]] = None,
     screening_result: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    fallback = build_interview_structured_fallback(
-        candidate_name,
-        position_title,
-        round_name,
-        skills,
-        custom_requirements,
-        parsed_resume=parsed_resume,
-        screening_result=screening_result,
-    )
+    fallback: Optional[Dict[str, Any]] = None
+
+    def _get_fallback() -> Dict[str, Any]:
+        nonlocal fallback
+        if fallback is None:
+            fallback = build_interview_structured_fallback(
+                candidate_name,
+                position_title,
+                round_name,
+                skills,
+                custom_requirements,
+                parsed_resume=parsed_resume,
+                screening_result=screening_result,
+            )
+        return fallback
+
     raw_payload = payload if isinstance(payload, dict) else {}
+    if not raw_payload:
+        return _get_fallback()
     raw_overview = raw_payload.get("overview") if isinstance(raw_payload.get("overview"), dict) else {}
     raw_domains = raw_payload.get("domains") if isinstance(raw_payload.get("domains"), list) else []
+    if not raw_domains:
+        return _get_fallback()
 
     overview = {
-        "candidate_summary": str(raw_overview.get("candidate_summary") or fallback["overview"]["candidate_summary"]).strip(),
-        "screening_status": str(raw_overview.get("screening_status") or fallback["overview"]["screening_status"]).strip(),
-        "highlights": _normalize_string_list(raw_overview.get("highlights"), limit=4, min_length=4) or list(fallback["overview"]["highlights"]),
-        "risks_to_verify": _normalize_string_list(raw_overview.get("risks_to_verify"), limit=4, min_length=4) or list(fallback["overview"]["risks_to_verify"]),
-        "custom_focus": str(raw_overview.get("custom_focus") or fallback["overview"]["custom_focus"]).strip(),
+        "candidate_summary": str(raw_overview.get("candidate_summary") or _get_fallback()["overview"]["candidate_summary"]).strip(),
+        "screening_status": str(raw_overview.get("screening_status") or _get_fallback()["overview"]["screening_status"]).strip(),
+        "highlights": _normalize_string_list(raw_overview.get("highlights"), limit=8, min_length=2) or list(_get_fallback()["overview"]["highlights"]),
+        "risks_to_verify": _normalize_string_list(raw_overview.get("risks_to_verify"), limit=8, min_length=2) or list(_get_fallback()["overview"]["risks_to_verify"]),
+        "custom_focus": str(raw_overview.get("custom_focus") or _get_fallback()["overview"]["custom_focus"]).strip(),
     }
 
     normalized_domains: List[Dict[str, Any]] = []
-    for fallback_domain in fallback["domains"]:
-        raw_domain = _find_payload_domain(raw_domains, fallback_domain["domain_title"]) or {}
-        evidence_basis = _normalize_string_list(raw_domain.get("evidence_basis"), limit=3, min_length=4) or list(fallback_domain["evidence_basis"])
-        evidence_type = str(raw_domain.get("evidence_type") or fallback_domain["evidence_type"]).strip()
+    for index, raw_domain in enumerate(raw_domains, 1):
+        if not isinstance(raw_domain, dict):
+            continue
+        domain_title = str(raw_domain.get("domain_title") or raw_domain.get("title") or "").strip()
+        if not domain_title:
+            domain_title = f"模块 {index}"
+        evidence_basis = _normalize_string_list(raw_domain.get("evidence_basis"), limit=6, min_length=2)
+        evidence_type = str(raw_domain.get("evidence_type") or "").strip()
         if evidence_type not in {"direct_evidence", "risk_to_verify"}:
-            evidence_type = fallback_domain["evidence_type"]
-        answer_points = _normalize_string_list(raw_domain.get("answer_points"), limit=5, min_length=6)
-        followups = _normalize_string_list(raw_domain.get("followups"), limit=4, min_length=6)
-        primary_question = str(raw_domain.get("primary_question") or "").strip()
-        if evidence_type == "risk_to_verify":
-            if not primary_question or "没有直接" not in primary_question and "未" not in primary_question and "待核实" not in primary_question:
-                primary_question = fallback_domain["primary_question"]
-        elif not primary_question or len(primary_question) < 24:
-            primary_question = fallback_domain["primary_question"]
-
+            evidence_type = "direct_evidence" if evidence_basis else "risk_to_verify"
+        if not evidence_basis:
+            evidence_basis = [f"简历或 JD 中暂未发现“{domain_title}”的直接证据，建议继续核实。"]
+        generic_defaults = _build_generic_interview_domain_defaults(
+            domain_title,
+            evidence_basis=evidence_basis,
+            evidence_type=evidence_type,
+        )
+        try:
+            recommended_minutes = int(raw_domain.get("recommended_minutes") or generic_defaults["recommended_minutes"] or 5)
+        except (TypeError, ValueError):
+            recommended_minutes = int(generic_defaults["recommended_minutes"] or 5)
         normalized_domains.append({
-            "domain_title": fallback_domain["domain_title"],
-            "domain_nature": fallback_domain["domain_nature"],
-            "recommended_minutes": fallback_domain["recommended_minutes"],
+            "domain_title": domain_title,
+            "domain_nature": str(raw_domain.get("domain_nature") or generic_defaults["domain_nature"]).strip() or generic_defaults["domain_nature"],
+            "recommended_minutes": max(1, recommended_minutes),
             "evidence_basis": evidence_basis,
             "evidence_type": evidence_type,
-            "primary_question": primary_question,
-            "answer_points": answer_points[:5] or list(fallback_domain["answer_points"]),
-            "verdict_pass": str(raw_domain.get("verdict_pass") or fallback_domain["verdict_pass"]).strip(),
-            "verdict_caution": str(raw_domain.get("verdict_caution") or fallback_domain["verdict_caution"]).strip(),
-            "verdict_fail": str(raw_domain.get("verdict_fail") or fallback_domain["verdict_fail"]).strip(),
-            "followups": followups[:4] or list(fallback_domain["followups"]),
-            "interviewer_explanation": str(raw_domain.get("interviewer_explanation") or fallback_domain["interviewer_explanation"]).strip(),
+            "primary_question": str(raw_domain.get("primary_question") or generic_defaults["primary_question"]).strip(),
+            "answer_points": _normalize_string_list(raw_domain.get("answer_points"), limit=8, min_length=2) or list(generic_defaults["answer_points"]),
+            "verdict_pass": str(raw_domain.get("verdict_pass") or generic_defaults["verdict_pass"]).strip(),
+            "verdict_caution": str(raw_domain.get("verdict_caution") or generic_defaults["verdict_caution"]).strip(),
+            "verdict_fail": str(raw_domain.get("verdict_fail") or generic_defaults["verdict_fail"]).strip(),
+            "followups": _normalize_string_list(raw_domain.get("followups"), limit=6, min_length=2) or list(generic_defaults["followups"]),
+            "interviewer_explanation": str(raw_domain.get("interviewer_explanation") or generic_defaults["interviewer_explanation"]).strip(),
         })
 
+    if not normalized_domains:
+        return _get_fallback()
+
     return {
-        "title": str(raw_payload.get("title") or fallback["title"]).strip() or fallback["title"],
+        "title": str(raw_payload.get("title") or _get_fallback()["title"]).strip() or _get_fallback()["title"],
         "candidate_name": candidate_name,
         "position_title": position_title,
         "round_name": round_name,

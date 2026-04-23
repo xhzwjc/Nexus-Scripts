@@ -137,6 +137,9 @@ function getAuditPageLocale(language = getCurrentLanguage()) {
         noSkillContent: isZh ? "暂无内容" : "No content",
         scoreRuleSnapshot: isZh ? "评分维度快照" : "Score Rule Snapshot",
         pointsSuffix: isZh ? " 分" : " pts",
+        durationNotStarted: isZh ? "未开始" : "Not Started",
+        durationInProgress: isZh ? "进行中" : "In Progress",
+        durationStopping: isZh ? "停止中" : "Stopping",
         sourceSkillMissing: isZh ? "未记录来源 Skill" : "Source skill missing",
         coreDimension: isZh ? "核心维度" : "Core Dimension",
         nonCoreDimension: isZh ? "非核心维度" : "Non-core Dimension",
@@ -266,6 +269,50 @@ function formatDurationValue(value: unknown) {
         return `${(numeric / 1000).toFixed(1)}s`;
     }
     return `${Math.round(numeric)}ms`;
+}
+
+function hasAuditText(value: unknown): value is string {
+    return typeof value === "string" && value.trim().length > 0;
+}
+
+function formatAuditStageLabel(stage?: string | null) {
+    return hasAuditText(stage) ? labelForScreeningTaskStage(stage) : null;
+}
+
+function formatAuditModelLabel(
+    log: Pick<AITaskLog, "model_provider" | "model_name">,
+    unrecordedLabel: string,
+) {
+    const providerLabel = hasAuditText(log.model_provider) ? labelForProvider(log.model_provider) : "";
+    const modelName = hasAuditText(log.model_name) ? log.model_name.trim() : "";
+    if (providerLabel && modelName) {
+        return `${providerLabel} · ${modelName}`;
+    }
+    return providerLabel || modelName || unrecordedLabel;
+}
+
+function formatAuditDurationLabel(
+    log: Pick<AITaskLog, "duration_ms" | "status">,
+    labels: {
+        unrecorded: string;
+        notStarted: string;
+        inProgress: string;
+        stopping: string;
+    },
+) {
+    if (log.status === "pending" || log.status === "queued") {
+        return labels.notStarted;
+    }
+    if (log.status === "running") {
+        return labels.inProgress;
+    }
+    if (log.status === "cancelling") {
+        return labels.stopping;
+    }
+    if (typeof log.duration_ms === "number" && Number.isFinite(log.duration_ms)) {
+        return formatDurationValue(log.duration_ms);
+    }
+    return labels.unrecorded;
 }
 
 function findVirtualAuditRowStartIndex(metrics: VirtualAuditRowMetric[], scrollTop: number) {
@@ -472,13 +519,13 @@ export function AuditPage({
         [selectedFlowAuditView],
     );
     const selectedDisplayTaskStatus = selectedFlowAuditView?.effectiveRootStatus || selectedLogDetail?.status || "pending";
-    const selectedDisplayTaskStage = selectedFlowAuditView?.effectiveRootStage || selectedLogDetail?.stage || "pending";
+    const selectedDisplayTaskStage = selectedFlowAuditView?.effectiveRootStage || selectedLogDetail?.stage || null;
     const selectedDisplayTaskStatusLabel = selectedFlowAuditView?.autoRequeueScheduled
         ? tr.retryQueued
         : labelForTaskExecutionStatus(selectedDisplayTaskStatus);
     const selectedDisplayTaskStageLabel = selectedFlowAuditView?.autoRequeueScheduled
         ? tr.waitingRetry
-        : labelForScreeningTaskStage(selectedDisplayTaskStage);
+        : formatAuditStageLabel(selectedDisplayTaskStage);
     const selectedRootNotice = selectedFlowAuditView?.rootNotice || null;
     const selectedRootNoticeClassName = selectedFlowAuditView?.autoRequeueScheduled
         ? "mt-3 rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100"
@@ -488,6 +535,22 @@ export function AuditPage({
     const selectedNextRetryAt = selectedFlowAuditView?.nextRetryAt || null;
     const selectedParseDetailLog = selectedFlowAuditView?.parseDetailLog || null;
     const selectedScoreDetailLog = selectedFlowAuditView?.scoreDetailLog || null;
+    const selectedModelLabel = React.useMemo(
+        () => formatAuditModelLabel(
+            {
+                model_provider: selectedLogDetail?.model_provider || selectedScoreDetailLog?.model_provider || null,
+                model_name: selectedLogDetail?.model_name || selectedScoreDetailLog?.model_name || null,
+            },
+            tr.unrecorded,
+        ),
+        [
+            selectedLogDetail?.model_name,
+            selectedLogDetail?.model_provider,
+            selectedScoreDetailLog?.model_name,
+            selectedScoreDetailLog?.model_provider,
+            tr.unrecorded,
+        ],
+    );
     const selectedSkillResolutionDetail = React.useMemo(
         () => toRecord(selectedLogDetail?.skill_resolution_detail || selectedLogOutputRecord?.skill_resolution_detail),
         [selectedLogDetail?.skill_resolution_detail, selectedLogOutputRecord],
@@ -517,9 +580,17 @@ export function AuditPage({
                 <div className="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                         <InfoTile label={tr.sourceLog} value={log ? `#${log.id} / ${labelForAuditLogTask(log)}` : tr.unrecorded}/>
-                        <InfoTile label={tr.stage} value={log ? labelForScreeningTaskStage(log.stage) : tr.unrecorded}/>
+                        <InfoTile label={tr.stage} value={log ? (formatAuditStageLabel(log.stage) || tr.unrecorded) : tr.unrecorded}/>
                         <InfoTile label={tr.status} value={log ? labelForTaskExecutionStatus(log.status) : tr.unrecorded}/>
-                        <InfoTile label={tr.duration} value={formatDurationValue(log?.duration_ms)}/>
+                        <InfoTile
+                            label={tr.duration}
+                            value={log ? formatAuditDurationLabel(log, {
+                                unrecorded: tr.unrecorded,
+                                notStarted: tr.durationNotStarted,
+                                inProgress: tr.durationInProgress,
+                                stopping: tr.durationStopping,
+                            }) : tr.unrecorded}
+                        />
                     </div>
                     {log ? (
                         <>
@@ -818,40 +889,52 @@ export function AuditPage({
                                                                 />
                                                             </TableRow>
                                                         ) : null}
-                                                        {visibleAuditLogWindow.map((log) => (
-                                                            <TableRow
-                                                                key={log.id}
-                                                                ref={createAuditRowMeasureRef(log.id)}
-                                                                className={cn("cursor-pointer", selectedLogId === log.id && "bg-slate-100 dark:bg-slate-900")}
-                                                                onClick={() => setSelectedLogId(log.id)}
-                                                            >
-                                                                <TableCell style={{width: auditListDisplayColumnWidths.taskType, minWidth: auditListDisplayColumnWidths.taskType, maxWidth: auditListDisplayColumnWidths.taskType}}>
-                                                                    <HoverRevealText text={labelForAuditLogTask(log)}/>
-                                                                </TableCell>
-                                                                <TableCell style={{width: auditListDisplayColumnWidths.object, minWidth: auditListDisplayColumnWidths.object, maxWidth: auditListDisplayColumnWidths.object}}>
-                                                                    <HoverRevealText text={buildLogObjectLabel(log, positionMap, candidateMap, skillMap)}/>
-                                                                </TableCell>
-                                                                <TableCell style={{width: auditListDisplayColumnWidths.status, minWidth: auditListDisplayColumnWidths.status, maxWidth: auditListDisplayColumnWidths.status}}>
-                                                                    <div className="space-y-1">
-                                                                        <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
-                                                                            {labelForTaskExecutionStatus(log.status)}
-                                                                        </Badge>
-                                                                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                                            {labelForScreeningTaskStage(log.stage)}
-                                                                        </p>
-                                                                    </div>
-                                                                </TableCell>
-                                                                <TableCell style={{width: auditListDisplayColumnWidths.model, minWidth: auditListDisplayColumnWidths.model, maxWidth: auditListDisplayColumnWidths.model}}>
-                                                                    <HoverRevealText text={`${labelForProvider(log.model_provider)} · ${log.model_name || "-"}`}/>
-                                                                </TableCell>
-                                                                <TableCell style={{width: auditListDisplayColumnWidths.duration, minWidth: auditListDisplayColumnWidths.duration, maxWidth: auditListDisplayColumnWidths.duration}} className="tabular-nums">
-                                                                    {log.duration_ms != null ? `${(log.duration_ms / 1000).toFixed(1)}s` : "-"}
-                                                                </TableCell>
-                                                                <TableCell style={{width: auditListDisplayColumnWidths.time, minWidth: auditListDisplayColumnWidths.time, maxWidth: auditListDisplayColumnWidths.time}} className="whitespace-nowrap pr-4 text-right tabular-nums">
-                                                                    {formatDateTime(log.created_at)}
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        ))}
+                                                        {visibleAuditLogWindow.map((log) => {
+                                                            const stageLabel = formatAuditStageLabel(log.stage);
+                                                            const modelLabel = formatAuditModelLabel(log, tr.unrecorded);
+                                                            const durationLabel = formatAuditDurationLabel(log, {
+                                                                unrecorded: tr.unrecorded,
+                                                                notStarted: tr.durationNotStarted,
+                                                                inProgress: tr.durationInProgress,
+                                                                stopping: tr.durationStopping,
+                                                            });
+                                                            return (
+                                                                <TableRow
+                                                                    key={log.id}
+                                                                    ref={createAuditRowMeasureRef(log.id)}
+                                                                    className={cn("cursor-pointer", selectedLogId === log.id && "bg-slate-100 dark:bg-slate-900")}
+                                                                    onClick={() => setSelectedLogId(log.id)}
+                                                                >
+                                                                    <TableCell style={{width: auditListDisplayColumnWidths.taskType, minWidth: auditListDisplayColumnWidths.taskType, maxWidth: auditListDisplayColumnWidths.taskType}}>
+                                                                        <HoverRevealText text={labelForAuditLogTask(log)}/>
+                                                                    </TableCell>
+                                                                    <TableCell style={{width: auditListDisplayColumnWidths.object, minWidth: auditListDisplayColumnWidths.object, maxWidth: auditListDisplayColumnWidths.object}}>
+                                                                        <HoverRevealText text={buildLogObjectLabel(log, positionMap, candidateMap, skillMap)}/>
+                                                                    </TableCell>
+                                                                    <TableCell style={{width: auditListDisplayColumnWidths.status, minWidth: auditListDisplayColumnWidths.status, maxWidth: auditListDisplayColumnWidths.status}}>
+                                                                        <div className="space-y-1">
+                                                                            <Badge className={cn("rounded-full border", statusBadgeClass("task", log.status))}>
+                                                                                {labelForTaskExecutionStatus(log.status)}
+                                                                            </Badge>
+                                                                            {stageLabel ? (
+                                                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                                                    {stageLabel}
+                                                                                </p>
+                                                                            ) : null}
+                                                                        </div>
+                                                                    </TableCell>
+                                                                    <TableCell style={{width: auditListDisplayColumnWidths.model, minWidth: auditListDisplayColumnWidths.model, maxWidth: auditListDisplayColumnWidths.model}}>
+                                                                        <HoverRevealText text={modelLabel}/>
+                                                                    </TableCell>
+                                                                    <TableCell style={{width: auditListDisplayColumnWidths.duration, minWidth: auditListDisplayColumnWidths.duration, maxWidth: auditListDisplayColumnWidths.duration}} className="tabular-nums">
+                                                                        {durationLabel}
+                                                                    </TableCell>
+                                                                    <TableCell style={{width: auditListDisplayColumnWidths.time, minWidth: auditListDisplayColumnWidths.time, maxWidth: auditListDisplayColumnWidths.time}} className="whitespace-nowrap pr-4 text-right tabular-nums">
+                                                                        {formatDateTime(log.created_at)}
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            );
+                                                        })}
                                                         {auditListVirtualMetrics.bottomSpacerHeight > 0 ? (
                                                             <TableRow aria-hidden="true" className="border-0">
                                                                 <TableCell
@@ -895,13 +978,15 @@ export function AuditPage({
                                         {selectedDisplayTaskStatusLabel}
                                     </Badge>
                                     <Badge variant="outline" className="rounded-full">{labelForAuditLogTask(selectedLogDetail)}</Badge>
-                                    <Badge variant="outline" className="rounded-full">{selectedDisplayTaskStageLabel}</Badge>
+                                    {selectedDisplayTaskStageLabel ? (
+                                        <Badge variant="outline" className="rounded-full">{selectedDisplayTaskStageLabel}</Badge>
+                                    ) : null}
                                 </div>
                                 <h3 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
                                     {buildLogObjectLabel(selectedLogDetail, positionMap, candidateMap, skillMap)}
                                 </h3>
                                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                                    {labelForProvider(selectedLogDetail.model_provider || selectedScoreDetailLog?.model_provider || null)} · {selectedLogDetail.model_name || selectedScoreDetailLog?.model_name || "-"} · {formatLongDateTime(selectedLogDetail.created_at)}
+                                    {selectedModelLabel} · {formatLongDateTime(selectedLogDetail.created_at)}
                                 </p>
                                 {selectedRootNotice ? (
                                     <div className={selectedRootNoticeClassName}>
@@ -917,7 +1002,7 @@ export function AuditPage({
                             <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
                                 <div className="min-w-0 space-y-5 px-6 py-6">
                                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                        <InfoTile label={tr.currentStage} value={selectedDisplayTaskStageLabel}/>
+                                        <InfoTile label={tr.currentStage} value={selectedDisplayTaskStageLabel || tr.unrecorded}/>
                                         <InfoTile label={tr.runId} value={selectedLogDetail.screening_run_id || tr.unrecorded}/>
                                         <InfoTile label={tr.skillUsage} value={selectedSkillUsageText}/>
                                         <InfoTile label={tr.memorySource} value={labelForMemorySource(selectedLogDetail.memory_source)}/>

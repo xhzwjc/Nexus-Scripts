@@ -345,6 +345,29 @@ function OutputSnippet({content}: { content: string }) {
     );
 }
 
+function parseInterviewQuestionMetrics(htmlContent: string) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlContent, "text/html");
+    const questionCards = Array.from(doc.querySelectorAll(".qcard"));
+    const moduleTitles = questionCards
+        .map((card) => (
+            card.querySelector(".qcard-heading h2")?.textContent?.trim()
+            || card.querySelector("h2")?.textContent?.trim()
+            || ""
+        ))
+        .filter(Boolean);
+    const fallbackTitles = moduleTitles.length
+        ? moduleTitles
+        : Array.from(doc.querySelectorAll("section h2"))
+            .map((heading) => heading.textContent?.trim() || "")
+            .filter(Boolean);
+
+    return {
+        modules: fallbackTitles,
+        questionCount: questionCards.length || fallbackTitles.length || null,
+    };
+}
+
 function InterviewQuestionCard({
     question,
     onDownload,
@@ -355,24 +378,12 @@ function InterviewQuestionCard({
     onPreview: () => void;
 }) {
     const tr = React.useMemo(() => getCandidatesLocale(), []);
-    const modules = React.useMemo(() => {
-        if (!question.html_content) return [];
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(question.html_content, "text/html");
-        const headings = Array.from(doc.querySelectorAll("h2, h3"));
-        return headings
-            .map((heading) => heading.textContent?.trim() || "")
-            .filter(Boolean)
-            .slice(0, 6);
-    }, [question.html_content]);
-
-    const questionCount = React.useMemo(() => {
-        if (!question.html_content) return null;
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(question.html_content, "text/html");
-        const listCount = doc.querySelectorAll("li").length;
-        return listCount || null;
-    }, [question.html_content]);
+    const {modules, questionCount} = React.useMemo(
+        () => question.html_content
+            ? parseInterviewQuestionMetrics(question.html_content)
+            : {modules: [], questionCount: null as number | null},
+        [question.html_content],
+    );
 
     return (
         <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/85 dark:border-slate-800 dark:bg-slate-950/70">
