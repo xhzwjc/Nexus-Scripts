@@ -281,7 +281,7 @@ export function UserForm({
                                     <CompactBadgeList items={selectedCustomOrganizations} max={3} emptyLabel={labels.emptySelection} />
                                     <p className="text-xs text-muted-foreground">{labels.customOrgsHelp}</p>
                                 </div>
-                                <label className="flex items-start gap-3 rounded-md border bg-background p-3">
+                                <label className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50/70 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
                                     <Checkbox
                                         checked={form.dataScopeDowngradeConfirmed}
                                         onCheckedChange={(checked) => onChange({ ...form, dataScopeDowngradeConfirmed: checked === true })}
@@ -289,7 +289,7 @@ export function UserForm({
                                     />
                                     <div className="space-y-1">
                                         <p className="text-sm font-medium">{labels.scopeDowngradeConfirm}</p>
-                                        <p className="text-xs text-muted-foreground">{labels.scopeDowngradeConfirmDesc}</p>
+                                        <p className="text-xs text-amber-800 dark:text-amber-200">{labels.scopeDowngradeConfirmDesc}</p>
                                     </div>
                                 </label>
                             </div>

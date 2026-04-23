@@ -27,6 +27,7 @@ from ..database import SessionLocal
 from ..permission_governance import (
     PermissionContext,
     ROOT_ORG_CODE,
+    SHARE_POLICY_SHARED_COPYABLE,
     build_permission_context,
     normalize_org_code,
     normalize_share_policy,
@@ -999,12 +1000,14 @@ def _resolve_dimension_max_possible_score(
 def _calculate_match_percent_from_total_score(
     total_score: Optional[float],
     *,
-    max_possible_score: Optional[float],
+    max_possible_score: Optional[float] = None,
 ) -> Optional[int]:
     numeric_total_score = _parse_score_number(total_score)
     numeric_max_possible_score = _parse_score_number(max_possible_score)
-    if numeric_total_score is None or numeric_max_possible_score is None or numeric_max_possible_score <= 0:
+    if numeric_total_score is None:
         return None
+    if numeric_max_possible_score is None or numeric_max_possible_score <= 0:
+        return int(max(0, min(100, round((float(numeric_total_score) * 10) + 1e-9))))
     return int(max(0, min(100, round((float(numeric_total_score) / float(numeric_max_possible_score) * 100) + 1e-9))))
 
 
@@ -1028,10 +1031,7 @@ def _auto_correct_score_metrics_from_dimensions(
         dimension_scores.append(float(numeric_score))
 
     dimension_total = round(sum(dimension_scores) + 1e-9, 1)
-    max_possible_score = _resolve_dimension_max_possible_score(
-        dimensions,
-        fallback_max_possible_score=fallback_max_possible_score,
-    )
+    max_possible_score = _parse_score_number(fallback_max_possible_score)
     expected_match_percent = _calculate_match_percent_from_total_score(
         dimension_total,
         max_possible_score=max_possible_score,
@@ -1046,7 +1046,7 @@ def _auto_correct_score_metrics_from_dimensions(
     current_match_percent = _parse_score_number(payload.get("match_percent"))
     if expected_match_percent is not None:
         if current_match_percent is None or abs(current_match_percent - expected_match_percent) > 0.5:
-            warnings.append("score.match_percent 已按维度满分自动校正")
+            warnings.append("score.match_percent 已按 total_score 自动校正")
         payload["match_percent"] = expected_match_percent
 
     return payload, warnings
@@ -1094,16 +1094,20 @@ def _validate_screening_payload_warnings(payload: Dict[str, Any], schema_config:
     if total_score is not None and abs(total_score - dimension_total) > 0.1:
         warnings.append(f"score.total_score 与 dimensions 求和不一致：当前为 {total_score:.1f}，维度求和为 {dimension_total:.1f}。")
     if total_score is not None and match_percent is not None:
+        configured_max_possible_score = _parse_score_number(score_config.get("max_possible_score"))
         expected_match_percent = _calculate_match_percent_from_total_score(
             total_score,
-            max_possible_score=_resolve_dimension_max_possible_score(
-                dimensions,
-                fallback_max_possible_score=score_config.get("max_possible_score"),
-            ),
+            max_possible_score=configured_max_possible_score,
         )
         if expected_match_percent is not None and abs(match_percent - expected_match_percent) > 0.1:
+            if configured_max_possible_score is not None and configured_max_possible_score > 0:
+                formula = "round(total_score / max_possible_score * 100)"
+                expected_hint = "按维度满分应为"
+            else:
+                formula = "round(total_score * 10)"
+                expected_hint = "按 10 分制应为"
             warnings.append(
-                f"score.match_percent 与 round(total_score / max_possible_score * 100) 不一致：当前为 {match_percent:.1f}，按维度满分应为 {expected_match_percent:.1f}。"
+                f"score.match_percent 与 {formula} 不一致：当前为 {match_percent:.1f}，{expected_hint} {expected_match_percent:.1f}。"
             )
 
     current_status = _normalize_suggested_status(score_payload.get("suggested_status"))
@@ -1214,6 +1218,7 @@ def _backfill_missing_required_dimensions_as_zero_score(
     score_payload: Any,
     *,
     expected_dimensions: Sequence[Dict[str, Any]],
+    fallback_max_possible_score: Optional[float] = None,
 ) -> Tuple[Dict[str, Any], List[str]]:
     payload = dict(score_payload if isinstance(score_payload, dict) else {})
     actual_dimensions = [dict(item) for item in (payload.get("dimensions") or []) if isinstance(item, dict)]
@@ -1257,7 +1262,10 @@ def _backfill_missing_required_dimensions_as_zero_score(
     warnings: List[str] = []
     if backfilled_labels:
         warnings.append(f"score.dimensions 缺少维度，已按规则补零：{'、'.join(backfilled_labels[:8])}")
-        payload, metric_warnings = _auto_correct_score_metrics_from_dimensions(payload)
+        payload, metric_warnings = _auto_correct_score_metrics_from_dimensions(
+            payload,
+            fallback_max_possible_score=fallback_max_possible_score,
+        )
         warnings.extend(metric_warnings)
     return payload, _normalize_score_warning_items(warnings, limit=12)
 
@@ -1293,10 +1301,7 @@ def _derive_deterministic_suggested_status(
     match_percent = _parse_score_number(payload.get("match_percent"))
     if total_score is None and match_percent is None:
         return None, []
-    max_possible_score = _resolve_dimension_max_possible_score(
-        dimensions,
-        fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
-    )
+    max_possible_score = _parse_score_number((schema_config.get("score") or {}).get("max_possible_score"))
     if total_score is None and match_percent is not None and max_possible_score is not None:
         total_score = round((float(match_percent) / 100.0 * max_possible_score) + 1e-9, 1)
     if match_percent is None and total_score is not None:
@@ -1367,6 +1372,7 @@ def sanitize_screening_payload(
             sanitized_score, backfill_warnings = _backfill_missing_required_dimensions_as_zero_score(
                 sanitized_score,
                 expected_dimensions=expected_dimensions,
+                fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
             )
             repair_warnings.extend(backfill_warnings)
         if (
@@ -1458,6 +1464,7 @@ def sanitize_screening_payload_fast(
         sanitized_score, backfill_warnings = _backfill_missing_required_dimensions_as_zero_score(
             sanitized_score,
             expected_dimensions=expected_dimensions,
+            fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
         )
         repair_warnings.extend(backfill_warnings)
         sanitized_payload["score"] = sanitized_score
@@ -2175,8 +2182,12 @@ def _humanize_invalid_result_reason(value: Any) -> str:
         return "总分与维度求和不一致"
     if text.startswith("score.match_percent 与 round(total_score / max_possible_score * 100) 不一致"):
         return "匹配度与总分不一致"
+    if text.startswith("score.match_percent 与 round(total_score * 10) 不一致"):
+        return "匹配度与总分不一致"
     if text.startswith("score.total_score 已按 dimensions 自动校正") or text.startswith("score.total_score 已按 dimensions 求和自动归一化"):
         return "总分已按维度求和归一化"
+    if text.startswith("score.match_percent 已按 total_score 自动校正"):
+        return "匹配度已按总分归一化"
     if text.startswith("score.match_percent 已按维度满分自动校正") or text.startswith("score.match_percent 已按维度满分自动归一化"):
         return "匹配度已按维度满分归一化"
     if text.startswith("score.suggested_status 缺失或无效"):
@@ -2226,6 +2237,7 @@ def _is_score_metric_consistency_warning(value: Any) -> bool:
     return (
         text.startswith("score.total_score 与 dimensions 求和不一致")
         or text.startswith("score.match_percent 与 round(total_score / max_possible_score * 100) 不一致")
+        or text.startswith("score.match_percent 与 round(total_score * 10) 不一致")
     )
 
 
@@ -2233,6 +2245,7 @@ def _is_score_metric_auto_correction_warning(value: Any) -> bool:
     text = str(value or "").strip()
     return (
         text.startswith("score.total_score 已按 dimensions 自动校正")
+        or text.startswith("score.match_percent 已按 total_score 自动校正")
         or text.startswith("score.match_percent 已按维度满分自动校正")
         or text.startswith("score.total_score 已按 dimensions 求和自动归一化")
         or text.startswith("score.match_percent 已按维度满分自动归一化")
@@ -2272,7 +2285,7 @@ def _build_score_normalization_warnings(
         and normalized_match_percent is not None
         and abs(raw_match_percent - normalized_match_percent) > 0.1
     ):
-        warnings.append("score.match_percent 已按维度满分自动校正")
+        warnings.append("score.match_percent 已按 total_score 自动校正")
     return warnings
 
 
@@ -2563,10 +2576,7 @@ def _derive_score_metrics_from_dimensions(
     total_score = round(total_score + 1e-9, 1)
     match_percent = _calculate_match_percent_from_total_score(
         total_score,
-        max_possible_score=_resolve_dimension_max_possible_score(
-            dimensions,
-            fallback_max_possible_score=fallback_max_possible_score,
-        ),
+        max_possible_score=_parse_score_number(fallback_max_possible_score),
     )
     return total_score, match_percent
 
@@ -2620,11 +2630,11 @@ def _build_score_quality_warnings(
     if normalized_total_score is not None and normalized_match_percent is not None:
         expected_match_percent = _calculate_match_percent_from_total_score(
             normalized_total_score,
-            max_possible_score=_resolve_dimension_max_possible_score(normalized_score.get("dimensions")),
+            max_possible_score=None,
         )
         if expected_match_percent is not None and abs(normalized_match_percent - expected_match_percent) > 0.5:
             warnings.append(
-                f"标准化后的 match_percent 与 round(total_score / max_possible_score * 100) 不一致：当前为 {normalized_match_percent:.1f}，按维度满分应为 {expected_match_percent:.1f}。"
+                f"标准化后的 match_percent 与 round(total_score * 10) 不一致：当前为 {normalized_match_percent:.1f}，按 10 分制应为 {expected_match_percent:.1f}。"
             )
     elif (
         derived_match_percent_from_dimensions is not None
@@ -5243,6 +5253,14 @@ class RecruitmentService:
             return
         raise ValueError("鎿嶄綔澶辫触")
 
+    def _assert_resource_copyable(self, row: Any) -> None:
+        if not self._can_access_org_resource(row):
+            raise ValueError("鎿嶄綔澶辫触")
+        if normalize_share_policy(getattr(row, "share_policy", None)) != SHARE_POLICY_SHARED_COPYABLE:
+            raise ValueError("资源不允许复制")
+        if not bool(getattr(row, "allow_copy", False)):
+            raise ValueError("资源不允许复制")
+
     def _assert_can_create_in_org(self, org_code: str) -> None:
         if not self.permission_context or self.permission_context.has_all_orgs:
             return
@@ -6032,15 +6050,18 @@ class RecruitmentService:
                 if stale_rows_touched:
                     dispatch_db.commit()
                 claim_now = datetime.now()
-                queued_rows = dispatch_db.query(RecruitmentAITaskLog).filter(
+                queued_query = dispatch_db.query(RecruitmentAITaskLog).filter(
                     dispatch_service._screening_root_task_filter(),
                     RecruitmentAITaskLog.status == "queued",
                 ).order_by(
                     RecruitmentAITaskLog.created_at.asc(),
                     RecruitmentAITaskLog.id.asc(),
-                ).with_for_update(skip_locked=True).limit(
-                    min(SCREENING_BATCH_MAX_SIZE, max(available_slots * 4, max(available_slots, 1)))
-                ).all()
+                )
+                queued_limit = min(SCREENING_BATCH_MAX_SIZE, max(available_slots * 4, max(available_slots, 1)))
+                locked_query = queued_query.with_for_update(skip_locked=True)
+                queued_rows = locked_query.limit(queued_limit).all()
+                if not isinstance(queued_rows, list):
+                    queued_rows = queued_query.limit(queued_limit).all()
                 for row in queued_rows:
                     if not dispatch_service._task_is_ready_for_dispatch(row):
                         continue
@@ -7572,7 +7593,14 @@ class RecruitmentService:
         latest_log = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.task_type == "jd_generation", RecruitmentAITaskLog.related_position_id == row.id).order_by(RecruitmentAITaskLog.created_at.desc(), RecruitmentAITaskLog.id.desc()).first()
         jd_generation = None if not latest_log else {"status": latest_log.status, "task_id": latest_log.id, "last_generated_at": isoformat_or_none(latest_log.updated_at or latest_log.created_at), "started_at": isoformat_or_none(latest_log.created_at), "error_message": latest_log.error_message, "model_provider": latest_log.model_provider, "model_name": latest_log.model_name}
         publish_tasks = self.db.query(RecruitmentPublishTask).filter(RecruitmentPublishTask.position_id == row.id).order_by(RecruitmentPublishTask.created_at.desc(), RecruitmentPublishTask.id.desc()).all()
-        candidates = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.position_id == row.id, RecruitmentCandidate.deleted.is_(False)).order_by(RecruitmentCandidate.updated_at.desc(), RecruitmentCandidate.id.desc()).all()
+        candidate_builder = self._apply_business_org_filter(
+            self.db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.position_id == row.id,
+                RecruitmentCandidate.deleted.is_(False),
+            ),
+            RecruitmentCandidate,
+        )
+        candidates = candidate_builder.order_by(RecruitmentCandidate.updated_at.desc(), RecruitmentCandidate.id.desc()).all()
         return {"position": self._serialize_position(row), "current_jd_version": self._serialize_jd_version(current_jd) if current_jd else None, "jd_versions": [self._serialize_jd_version(item) for item in jd_versions], "jd_generation": jd_generation, "publish_tasks": [self._serialize_publish_task(item) for item in publish_tasks], "candidates": [self._serialize_candidate_summary(item) for item in candidates]}
 
     def list_skills(self) -> List[Dict[str, Any]]:
@@ -7619,6 +7647,36 @@ class RecruitmentService:
         if "version" in payload or "content" in payload or "tags" in payload:
             row.version = str(payload.get("version") or runtime_meta.get("version") or "").strip() or None
         row.updated_by = actor_id
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return self._serialize_skill(row)
+
+    def copy_skill(self, skill_id: int, actor_id: str, target_org_code: Optional[str] = None) -> Dict[str, Any]:
+        source = self._get_skill(skill_id)
+        self._assert_resource_copyable(source)
+        org_code = normalize_org_code(target_org_code or self._current_org_code())
+        self._assert_can_create_in_org(org_code)
+        row = RecruitmentSkill(
+            skill_code=f"skill-{_slugify(str(source.name or 'skill'))}-{uuid.uuid4().hex[:4]}",
+            org_code=org_code,
+            scope_level="ORG",
+            share_policy="PRIVATE",
+            allow_sub_org_use=False,
+            allow_copy=False,
+            is_system_base=False,
+            name=f"{source.name} Copy",
+            description=source.description,
+            skill_group=source.skill_group,
+            version=source.version,
+            content=source.content,
+            tags_json=source.tags_json,
+            sort_order=source.sort_order,
+            is_enabled=bool(source.is_enabled),
+            created_by=actor_id,
+            updated_by=actor_id,
+            deleted=False,
+        )
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
@@ -8082,7 +8140,24 @@ class RecruitmentService:
 
     def update_candidate(self, candidate_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
-        for field in ["position_id", "name", "phone", "email", "current_company", "years_of_experience", "education", "notes"]:
+        if "position_id" in payload:
+            next_position_id = payload.get("position_id")
+            if next_position_id:
+                next_position = self._get_position(int(next_position_id))
+                candidate.position_id = next_position.id
+                next_org_code = normalize_org_code(getattr(next_position, "org_code", None))
+                if normalize_org_code(getattr(candidate, "org_code", None)) != next_org_code:
+                    self.db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.candidate_id == candidate.id).update({RecruitmentResumeFile.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentResumeParseResult).filter(RecruitmentResumeParseResult.candidate_id == candidate.id).update({RecruitmentResumeParseResult.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.candidate_id == candidate.id).update({RecruitmentCandidateScore.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentCandidateStatusHistory).filter(RecruitmentCandidateStatusHistory.candidate_id == candidate.id).update({RecruitmentCandidateStatusHistory.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentCandidateWorkflowMemory).filter(RecruitmentCandidateWorkflowMemory.candidate_id == candidate.id).update({RecruitmentCandidateWorkflowMemory.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentInterviewQuestion).filter(RecruitmentInterviewQuestion.candidate_id == candidate.id).update({RecruitmentInterviewQuestion.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.related_candidate_id == candidate.id).update({RecruitmentAITaskLog.org_code: next_org_code}, synchronize_session=False)
+                    candidate.org_code = next_org_code
+            else:
+                candidate.position_id = None
+        for field in ["name", "phone", "email", "current_company", "years_of_experience", "education", "notes"]:
             if field in payload:
                 setattr(candidate, field, payload.get(field))
         if "tags" in payload:
@@ -12358,6 +12433,37 @@ class RecruitmentService:
         self.db.refresh(row)
         return self._serialize_llm_config(row)
 
+    def copy_llm_config(self, config_id: int, actor_id: str = "unknown", target_org_code: Optional[str] = None) -> Dict[str, Any]:
+        source = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.id == config_id).first()
+        if not source:
+            raise ValueError("鎿嶄綔澶辫触")
+        self._assert_resource_copyable(source)
+        org_code = normalize_org_code(target_org_code or self._current_org_code())
+        self._assert_can_create_in_org(org_code)
+        row = RecruitmentLLMConfig(
+            config_key=f"{source.config_key}-copy-{uuid.uuid4().hex[:4]}",
+            org_code=org_code,
+            scope_level="ORG",
+            share_policy="PRIVATE",
+            allow_sub_org_use=False,
+            allow_copy=False,
+            task_type=source.task_type,
+            provider=source.provider,
+            model_name=source.model_name,
+            base_url=source.base_url,
+            api_key_env=source.api_key_env,
+            api_key_ciphertext=source.api_key_ciphertext,
+            extra_config_json=source.extra_config_json,
+            is_active=bool(source.is_active),
+            priority=source.priority,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return self._serialize_llm_config(row)
+
     def delete_llm_config(self, config_id: int, actor_id: str = "unknown") -> None:
         row = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.id == config_id).first()
         if not row:
@@ -12414,6 +12520,39 @@ class RecruitmentService:
         self.db.refresh(row)
         return self._serialize_mail_sender(row)
 
+    def copy_mail_sender(self, sender_id: int, actor_id: str, target_org_code: Optional[str] = None) -> Dict[str, Any]:
+        source = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == sender_id, RecruitmentMailSenderConfig.deleted.is_(False)).first()
+        if not source:
+            raise ValueError("鎿嶄綔澶辫触")
+        self._assert_resource_copyable(source)
+        org_code = normalize_org_code(target_org_code or self._current_org_code())
+        self._assert_can_create_in_org(org_code)
+        row = RecruitmentMailSenderConfig(
+            org_code=org_code,
+            scope_level="ORG",
+            share_policy="PRIVATE",
+            allow_sub_org_use=False,
+            allow_copy=False,
+            name=f"{source.name} Copy",
+            from_name=source.from_name,
+            from_email=source.from_email,
+            smtp_host=source.smtp_host,
+            smtp_port=source.smtp_port,
+            username=source.username,
+            password_ciphertext=source.password_ciphertext,
+            use_ssl=bool(source.use_ssl),
+            use_starttls=bool(source.use_starttls),
+            is_default=False,
+            is_enabled=bool(source.is_enabled),
+            created_by=actor_id,
+            updated_by=actor_id,
+            deleted=False,
+        )
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return self._serialize_mail_sender(row)
+
     def delete_mail_sender(self, sender_id: int, actor_id: str) -> None:
         row = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == sender_id, RecruitmentMailSenderConfig.deleted.is_(False)).first()
         if not row:
@@ -12462,6 +12601,35 @@ class RecruitmentService:
         if "tags" in payload:
             row.tags_json = json_dumps_safe(payload.get("tags") or [])
         row.updated_by = actor_id
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return self._serialize_mail_recipient(row)
+
+    def copy_mail_recipient(self, recipient_id: int, actor_id: str, target_org_code: Optional[str] = None) -> Dict[str, Any]:
+        source = self.db.query(RecruitmentMailRecipient).filter(RecruitmentMailRecipient.id == recipient_id, RecruitmentMailRecipient.deleted.is_(False)).first()
+        if not source:
+            raise ValueError("鎿嶄綔澶辫触")
+        self._assert_resource_copyable(source)
+        org_code = normalize_org_code(target_org_code or self._current_org_code())
+        self._assert_can_create_in_org(org_code)
+        row = RecruitmentMailRecipient(
+            org_code=org_code,
+            scope_level="ORG",
+            share_policy="PRIVATE",
+            allow_sub_org_use=False,
+            allow_copy=False,
+            name=f"{source.name} Copy",
+            email=source.email,
+            department=source.department,
+            role_title=source.role_title,
+            tags_json=source.tags_json,
+            notes=source.notes,
+            is_enabled=bool(source.is_enabled),
+            created_by=actor_id,
+            updated_by=actor_id,
+            deleted=False,
+        )
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)

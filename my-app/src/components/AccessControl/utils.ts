@@ -311,6 +311,9 @@ export function mapUserMutationError(message: string, labels: AccessControlLabel
     if (message.includes('At least one role is required')) {
         return { field: 'roleCodes', message: labels.validationRoleRequired };
     }
+    if (message.includes('Data scope downgrade requires explicit confirmation')) {
+        return { message: `${labels.scopeDowngradeConfirm}：${labels.scopeDowngradeConfirmDesc}` };
+    }
     return { message: message || labels.validationFormSubmitFailed };
 }
 
@@ -444,6 +447,19 @@ export function getResourceStatusLabel(status: ResourceStatus, labels: AccessCon
             return labels.resourceStatusDraft;
         default:
             return status;
+    }
+}
+
+export function getResourceScopeLevelLabel(scopeLevel: string | null | undefined, labels: AccessControlLabels) {
+    switch (String(scopeLevel || '').toUpperCase()) {
+        case 'ORG':
+            return labels.resourceScopeOrg;
+        case 'ORG_AND_CHILDREN':
+            return labels.resourceScopeOrgAndChildren;
+        case 'GROUP':
+            return labels.resourceScopeGroup;
+        default:
+            return scopeLevel || '-';
     }
 }
 

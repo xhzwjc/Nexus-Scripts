@@ -60,6 +60,17 @@ def _audit_details_from_payload(payload: Any) -> Dict[str, Any]:
     return {}
 
 
+def _rbac_value_error_status(exc: ValueError) -> int:
+    text = str(exc)
+    boundary_markers = (
+        "authorization boundary",
+        "outside the actor data scope",
+        "not allowed to grant",
+        "exceeds actor",
+    )
+    return 403 if any(marker in text for marker in boundary_markers) else 400
+
+
 def _write_failed_audit_log(
     *,
     db: Session,
@@ -205,7 +216,7 @@ async def create_rbac_user_endpoint(
             details=_audit_details_from_payload(payload),
             error=str(exc),
         )
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=_rbac_value_error_status(exc), detail=str(exc))
 
 
 @rbac_router.post("/roles", response_model=ScriptHubRoleMutationResponse)
@@ -247,7 +258,7 @@ async def create_rbac_role_endpoint(
             details=_audit_details_from_payload(payload),
             error=str(exc),
         )
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=_rbac_value_error_status(exc), detail=str(exc))
 
 
 @rbac_router.post("/organizations", response_model=ScriptHubOrganizationMutationResponse)
@@ -291,7 +302,7 @@ async def create_rbac_organization_endpoint(
             details=_audit_details_from_payload(payload),
             error=str(exc),
         )
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=_rbac_value_error_status(exc), detail=str(exc))
 
 
 @rbac_router.patch("/users/{user_code}", response_model=ScriptHubUserMutationResponse)

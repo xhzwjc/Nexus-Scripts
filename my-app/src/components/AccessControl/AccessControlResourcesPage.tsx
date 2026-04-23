@@ -36,7 +36,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { ResourceDomain, ResourceKind, ResourceListItem, SharePolicy } from '@/lib/types';
 import { RESOURCE_DOMAINS, SHARE_POLICY_OPTIONS } from './constants';
-import { formatDateTime, getResourceDomainLabel, getResourceStatusLabel, getSharePolicyLabel } from './utils';
+import { formatDateTime, getResourceDomainLabel, getResourceScopeLevelLabel, getResourceStatusLabel, getSharePolicyLabel } from './utils';
 
 interface RecruitmentListResponse<T> {
     success?: boolean;
@@ -104,6 +104,16 @@ function createGovernanceFormState(item: ResourceListItem | null): ResourceGover
         allowCopy: Boolean(item?.allowCopy),
         isEnabled: item?.status !== 'inactive' && item?.status !== 'disabled',
     };
+}
+
+function canCopyResource(item: ResourceListItem | null) {
+    return Boolean(
+        item?.resourceKind &&
+        item.rawId !== undefined &&
+        item.rawId !== null &&
+        item.sharePolicy === 'SHARED_COPYABLE' &&
+        item.allowCopy,
+    );
 }
 
 async function loadRecruitmentList<T>(path: string): Promise<T[]> {
@@ -183,6 +193,10 @@ export function AccessControlResourcesPage() {
     const [governanceDialogOpen, setGovernanceDialogOpen] = useState(false);
     const [governanceForm, setGovernanceForm] = useState<ResourceGovernanceFormState>(() => createGovernanceFormState(null));
     const [governanceSaving, setGovernanceSaving] = useState(false);
+    const [copyDialogOpen, setCopyDialogOpen] = useState(false);
+    const [copyItem, setCopyItem] = useState<ResourceListItem | null>(null);
+    const [copyTargetOrgCode, setCopyTargetOrgCode] = useState('');
+    const [copySaving, setCopySaving] = useState(false);
 
     const loadResources = useCallback(async () => {
         setLoading(true);
@@ -239,6 +253,13 @@ export function AccessControlResourcesPage() {
         setGovernanceDialogOpen(true);
     };
 
+    const openCopyDialog = (item: ResourceListItem) => {
+        setSelectedItem(item);
+        setCopyItem(item);
+        setCopyTargetOrgCode('');
+        setCopyDialogOpen(true);
+    };
+
     const handleSaveGovernance = async () => {
         if (!selectedItem?.resourceKind || selectedItem.rawId === undefined || selectedItem.rawId === null) {
             toast.error(labels.resourceGovernanceUpdateFailed);
@@ -278,6 +299,39 @@ export function AccessControlResourcesPage() {
             toast.error(error instanceof Error ? error.message : labels.resourceGovernanceUpdateFailed);
         } finally {
             setGovernanceSaving(false);
+        }
+    };
+
+    const handleCopyResource = async () => {
+        if (!canCopyResource(copyItem) || !copyItem?.resourceKind || copyItem.rawId === undefined || copyItem.rawId === null) {
+            toast.error(labels.resourceCopyUnavailable);
+            return;
+        }
+
+        setCopySaving(true);
+        try {
+            const targetOrgCode = copyTargetOrgCode.trim();
+            const response = await authenticatedFetch(`/api/recruitment/resource-governance/${copyItem.resourceKind}/${copyItem.rawId}/copy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target_org_code: targetOrgCode || undefined,
+                }),
+            });
+            const payload = await response.json().catch(() => ({})) as RecruitmentListResponse<unknown>;
+            if (!response.ok || payload.success === false || payload.error) {
+                throw new Error(payload.error || payload.detail || labels.copyResourceFailed);
+            }
+
+            toast.success(labels.copyResourceSuccess);
+            setCopyDialogOpen(false);
+            setCopyItem(null);
+            setCopyTargetOrgCode('');
+            void loadResources();
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : labels.copyResourceFailed);
+        } finally {
+            setCopySaving(false);
         }
     };
 
@@ -393,9 +447,18 @@ export function AccessControlResourcesPage() {
                                                 {formatDateTime(item.updatedAt) || '-'}
                                             </TableCell>
                                             <TableCell className="text-right">
-                                                <div className="flex justify-end gap-2">
+                                                <div className="flex flex-wrap justify-end gap-2">
                                                     <Button variant="outline" size="sm" onClick={() => setSelectedItem(item)}>
                                                         {labels.viewDetails}
+                                                    </Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => openCopyDialog(item)}
+                                                        disabled={!canCopyResource(item)}
+                                                        title={canCopyResource(item) ? labels.copyResource : labels.resourceCopyUnavailable}
+                                                    >
+                                                        {labels.copyResource}
                                                     </Button>
                                                     <Button variant="default" size="sm" onClick={() => openGovernanceDialog(item)} disabled={!item.resourceKind || item.rawId === undefined}>
                                                         {labels.editResourceGovernance}
@@ -434,7 +497,8 @@ export function AccessControlResourcesPage() {
                                 </div>
                                 <div>
                                     <p className="text-xs text-muted-foreground">{labels.resourceScopeLevel}</p>
-                                    <p className="mt-1 font-mono text-sm">{selectedItem.scopeLevel || '-'}</p>
+                                    <p className="mt-1 text-sm">{getResourceScopeLevelLabel(selectedItem.scopeLevel, labels)}</p>
+                                    <p className="mt-1 text-xs text-muted-foreground">{labels.resourceScopeHelp}</p>
                                 </div>
                                 <div>
                                     <p className="text-xs text-muted-foreground">{labels.sharePolicy}</p>
@@ -458,9 +522,23 @@ export function AccessControlResourcesPage() {
                                     <p className="text-xs text-muted-foreground">{labels.resourceDescription}</p>
                                     <p className="mt-1 text-sm text-muted-foreground">{selectedItem.description || '-'}</p>
                                 </div>
-                                <Button className="w-full" onClick={() => openGovernanceDialog(selectedItem)} disabled={!selectedItem.resourceKind || selectedItem.rawId === undefined}>
-                                    {labels.editResourceGovernance}
-                                </Button>
+                                <div className="grid gap-2">
+                                    <Button
+                                        variant="outline"
+                                        className="w-full"
+                                        onClick={() => openCopyDialog(selectedItem)}
+                                        disabled={!canCopyResource(selectedItem)}
+                                        title={canCopyResource(selectedItem) ? labels.copyResource : labels.resourceCopyUnavailable}
+                                    >
+                                        {labels.copyResource}
+                                    </Button>
+                                    {!canCopyResource(selectedItem) && (
+                                        <p className="text-xs text-muted-foreground">{labels.resourceCopyRequirement}</p>
+                                    )}
+                                    <Button className="w-full" onClick={() => openGovernanceDialog(selectedItem)} disabled={!selectedItem.resourceKind || selectedItem.rawId === undefined}>
+                                        {labels.editResourceGovernance}
+                                    </Button>
+                                </div>
                             </>
                         ) : (
                             <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
@@ -494,11 +572,12 @@ export function AccessControlResourcesPage() {
                                 <SelectContent>
                                     {RESOURCE_SCOPE_LEVEL_OPTIONS.map((value) => (
                                         <SelectItem key={value} value={value}>
-                                            {value}
+                                            {getResourceScopeLevelLabel(value, labels)}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <p className="text-xs text-muted-foreground">{labels.resourceScopeHelp}</p>
                         </div>
 
                         <div className="grid gap-2">
@@ -552,6 +631,47 @@ export function AccessControlResourcesPage() {
                         <Button onClick={() => void handleSaveGovernance()} disabled={governanceSaving || !selectedItem?.resourceKind || selectedItem.rawId === undefined}>
                             {governanceSaving && <Loader2 className="h-4 w-4 animate-spin" />}
                             {labels.saveResourceGovernance}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={copyDialogOpen} onOpenChange={(open) => {
+                setCopyDialogOpen(open);
+                if (!open) {
+                    setCopyItem(null);
+                    setCopyTargetOrgCode('');
+                }
+            }}>
+                <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>{labels.copyResourceTitle}</DialogTitle>
+                        <DialogDescription>
+                            {copyItem ? `${copyItem.name} · ${getResourceDomainLabel(copyItem.domain, labels)}` : labels.copyResourceDesc}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="grid gap-4">
+                        <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+                            {labels.copyResourceDesc}
+                        </div>
+                        <div className="grid gap-2">
+                            <p className="text-sm font-medium">{labels.targetOrganizationCode}</p>
+                            <Input
+                                value={copyTargetOrgCode}
+                                onChange={(event) => setCopyTargetOrgCode(event.target.value)}
+                                placeholder={labels.targetOrganizationCodePlaceholder}
+                            />
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setCopyDialogOpen(false)} disabled={copySaving}>
+                            {labels.cancelLabel}
+                        </Button>
+                        <Button onClick={() => void handleCopyResource()} disabled={copySaving || !canCopyResource(copyItem)}>
+                            {copySaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                            {labels.copyResourceSubmit}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

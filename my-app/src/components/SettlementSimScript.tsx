@@ -189,7 +189,7 @@ export default function SettlementSimScript({ onBack }: { onBack: () => void }) 
 
             } else {
                 // 不勾选或 Tab 3/4：单次请求
-                let requestData: Record<string, unknown> = {
+                const requestData: Record<string, unknown> = {
                     env: environment,
                     mode: activeTab,
                     year: yearNum,

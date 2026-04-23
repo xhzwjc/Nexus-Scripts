@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class PositionCreateRequest(BaseModel):
+    org_code: Optional[str] = Field(None, max_length=100)
     title: str = Field(..., min_length=1, max_length=200)
     department: Optional[str] = None
     location: Optional[str] = None
@@ -240,6 +241,10 @@ class RecruitmentResourceGovernanceUpdateRequest(BaseModel):
     allow_sub_org_use: Optional[bool] = None
     allow_copy: Optional[bool] = None
     is_enabled: Optional[bool] = None
+
+
+class RecruitmentResourceCopyRequest(BaseModel):
+    target_org_code: Optional[str] = Field(None, max_length=100)
 
 
 class RecruitmentResumeMailSendRequest(BaseModel):

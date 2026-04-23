@@ -45,7 +45,7 @@ export interface RecruitmentAssistantSkillFilter {
     source: RecruitmentAssistantSkillSource;
 }
 
-export interface RecruitmentAssistantClarificationOption extends RecruitmentAssistantEntityMatch {}
+export type RecruitmentAssistantClarificationOption = RecruitmentAssistantEntityMatch;
 
 export interface RecruitmentAssistantClarificationRequest {
     clarification_id: string;

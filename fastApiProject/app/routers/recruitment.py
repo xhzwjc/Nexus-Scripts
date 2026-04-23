@@ -16,6 +16,7 @@ from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal, get_db
+from ..permission_governance import expand_permission_aliases
 from ..recruitment_schemas import (
     CandidateScreenBatchCancelRequest,
     CandidateScreenBatchQueryRequest,
@@ -34,6 +35,7 @@ from ..recruitment_schemas import (
     RecruitmentMailAutoPushGlobalConfigRequest,
     RecruitmentMailRecipientUpsertRequest,
     RecruitmentMailSenderUpsertRequest,
+    RecruitmentResourceCopyRequest,
     RecruitmentResourceGovernanceUpdateRequest,
     RecruitmentResumeMailSendRequest,
     SaveJDVersionRequest,
@@ -53,6 +55,33 @@ from ..services.script_hub_audit_service import write_audit_log
 recruitment_router = APIRouter(prefix="/recruitment", tags=["AI 招聘自动化管理"])
 
 UPLOAD_STREAM_CHUNK_SIZE = 1024 * 1024
+POSITION_SKILL_BIND_FIELDS = {"jd_skill_ids", "screening_skill_ids", "interview_skill_ids", "skill_pack_ids"}
+
+
+def _session_has_permission(session: Dict[str, Any], permission: str) -> bool:
+    return bool(expand_permission_aliases(dict((session or {}).get("permissions") or {})).get(permission))
+
+
+def _ensure_position_update_allowed(session: Dict[str, Any], patch: Dict[str, Any]) -> None:
+    if _session_has_permission(session, "recruitment-position-manage"):
+        return
+    if _session_has_permission(session, "recruitment-skill-bind") and patch and set(patch).issubset(POSITION_SKILL_BIND_FIELDS):
+        return
+    raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _ensure_resource_copy_allowed(session: Dict[str, Any], resource_kind: str) -> None:
+    required_by_kind = {
+        "skill": "recruitment-skill-manage",
+        "model": "recruitment-llm-config-manage",
+        "mail-sender": "recruitment-mail-sender-manage",
+        "mail-recipient": "recruitment-mail-config-manage",
+    }
+    required = required_by_kind.get(resource_kind)
+    if not required:
+        raise HTTPException(status_code=400, detail="Unsupported resource kind")
+    if not _session_has_permission(session, required):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
 
 def get_recruitment_service(request: Request, db: Session = Depends(get_db)) -> RecruitmentService:
@@ -107,40 +136,42 @@ async def _stage_upload_file(item: UploadFile, staging_dir: Path) -> Dict[str, A
 
 
 @recruitment_router.get("/metadata")
-async def get_metadata(_session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def get_metadata(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     return {"success": True, "data": service.get_metadata(), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/dashboard")
-async def get_dashboard(_session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def get_dashboard(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     return {"success": True, "data": service.get_dashboard(), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/positions")
-async def list_positions(query: Optional[str] = Query(None), status: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_positions(query: Optional[str] = Query(None), status: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_positions(query=query, status=status)
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.post("/positions")
-async def create_position(http_request: Request, payload: PositionCreateRequest, db: Session = Depends(get_db), session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def create_position(http_request: Request, payload: PositionCreateRequest, db: Session = Depends(get_db), session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.create_position(payload.model_dump(), session.get("id") or "unknown")
     write_audit_log(db, actor=session, request=http_request, action="recruitment.position.create", target_type="recruitment-position", target_code=data["position_code"], details={"title": data["title"]})
     return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/positions/{position_id}")
-async def get_position_detail(position_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def get_position_detail(position_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         return {"success": True, "data": service.get_position_detail(position_id), "request_id": str(uuid.uuid4())}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @recruitment_router.patch("/positions/{position_id}")
-async def update_position(http_request: Request, position_id: int, payload: PositionUpdateRequest, db: Session = Depends(get_db), session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def update_position(http_request: Request, position_id: int, payload: PositionUpdateRequest, db: Session = Depends(get_db), session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-position-manage", "recruitment-skill-bind"])), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
-        data = service.update_position(position_id, payload.model_dump(exclude_none=True), session.get("id") or "unknown")
+        patch = payload.model_dump(exclude_none=True)
+        _ensure_position_update_allowed(session, patch)
+        data = service.update_position(position_id, patch, session.get("id") or "unknown")
         write_audit_log(db, actor=session, request=http_request, action="recruitment.position.update", target_type="recruitment-position", target_code=data["position_code"], details={"position_id": position_id})
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -148,7 +179,7 @@ async def update_position(http_request: Request, position_id: int, payload: Posi
 
 
 @recruitment_router.delete("/positions/{position_id}")
-async def delete_position(http_request: Request, position_id: int, db: Session = Depends(get_db), session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def delete_position(http_request: Request, position_id: int, db: Session = Depends(get_db), session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         service.delete_position(position_id, session.get("id") or "unknown")
         try:
@@ -160,7 +191,7 @@ async def delete_position(http_request: Request, position_id: int, db: Session =
         raise HTTPException(status_code=404, detail=str(exc))
 
 @recruitment_router.post("/positions/{position_id}/generate-jd")
-async def generate_jd(position_id: int, payload: JDGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def generate_jd(position_id: int, payload: JDGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -179,7 +210,7 @@ async def generate_jd(position_id: int, payload: JDGenerateRequest, _session: Di
 
 
 @recruitment_router.post("/positions/{position_id}/generate-jd/start")
-async def start_generate_jd(position_id: int, payload: JDGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def start_generate_jd(position_id: int, payload: JDGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -196,7 +227,7 @@ async def start_generate_jd(position_id: int, payload: JDGenerateRequest, _sessi
 
 
 @recruitment_router.post("/positions/{position_id}/jd-versions")
-async def save_jd_version(position_id: int, payload: SaveJDVersionRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def save_jd_version(position_id: int, payload: SaveJDVersionRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.save_jd_version(position_id, payload.model_dump(), _session.get("id") or "unknown")
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -205,7 +236,7 @@ async def save_jd_version(position_id: int, payload: SaveJDVersionRequest, _sess
 
 
 @recruitment_router.get("/positions/{position_id}/jd-versions")
-async def list_jd_versions(position_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_jd_versions(position_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         detail = service.get_position_detail(position_id)
         return {"success": True, "data": detail["jd_versions"], "request_id": str(uuid.uuid4())}
@@ -214,7 +245,7 @@ async def list_jd_versions(position_id: int, _session: Dict[str, Any] = Depends(
 
 
 @recruitment_router.post("/positions/{position_id}/jd-versions/{version_id}/activate")
-async def activate_jd_version(position_id: int, version_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def activate_jd_version(position_id: int, version_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.activate_jd_version(position_id, version_id, _session.get("id") or "unknown")
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -223,21 +254,21 @@ async def activate_jd_version(position_id: int, version_id: int, _session: Dict[
 
 
 @recruitment_router.get("/candidates")
-async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_candidates(query=query, status=status, position_id=position_id, tag=tag)
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/candidates/{candidate_id}")
-async def get_candidate_detail(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def get_candidate_detail(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         return {"success": True, "data": service.get_candidate_detail(candidate_id), "request_id": str(uuid.uuid4())}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @recruitment_router.patch("/candidates/{candidate_id}")
-async def update_candidate(candidate_id: int, payload: CandidateUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def update_candidate(candidate_id: int, payload: CandidateUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.update_candidate(candidate_id, payload.model_dump(exclude_none=True), _session.get("id") or "unknown")
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -250,7 +281,7 @@ async def delete_candidate(
     http_request: Request,
     candidate_id: int,
     db: Session = Depends(get_db),
-    session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
     service: RecruitmentService = Depends(get_recruitment_service),
 ):
     try:
@@ -281,7 +312,7 @@ async def delete_candidate(
 
 
 @recruitment_router.post("/candidates/{candidate_id}/status")
-async def update_candidate_status(candidate_id: int, payload: CandidateStatusUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def update_candidate_status(candidate_id: int, payload: CandidateStatusUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.update_candidate_status(candidate_id, payload.status, payload.reason or "", _session.get("id") or "unknown")
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -290,7 +321,7 @@ async def update_candidate_status(candidate_id: int, payload: CandidateStatusUpd
 
 
 @recruitment_router.get("/candidates/{candidate_id}/status-history")
-async def get_candidate_status_history(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def get_candidate_status_history(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.get_candidate_status_history(candidate_id)
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -299,7 +330,7 @@ async def get_candidate_status_history(candidate_id: int, _session: Dict[str, An
 
 
 @recruitment_router.post("/candidates/upload-resumes")
-async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     staging_root = RECRUITMENT_UPLOAD_ROOT / "_staging"
     staging_root.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(tempfile.mkdtemp(prefix="resume-batch-", dir=str(staging_root)))
@@ -354,7 +385,7 @@ async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optio
 
 
 @recruitment_router.post("/candidates/{candidate_id}/parse")
-async def trigger_candidate_parse(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def trigger_candidate_parse(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -369,7 +400,7 @@ async def trigger_candidate_parse(candidate_id: int, _session: Dict[str, Any] = 
 
 
 @recruitment_router.post("/candidates/{candidate_id}/screen")
-async def screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -395,7 +426,7 @@ async def screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _
 
 
 @recruitment_router.post("/candidates/{candidate_id}/screen/start")
-async def start_screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def start_screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -422,7 +453,7 @@ async def start_screen_candidate(candidate_id: int, payload: CandidateScreenRequ
 
 @recruitment_router.post("/candidates/screen/batch-start")
 @recruitment_router.post("/candidates/screen/batch/start")
-async def batch_start_screen_candidates(payload: CandidateScreenBatchStartRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def batch_start_screen_candidates(payload: CandidateScreenBatchStartRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -448,7 +479,7 @@ async def batch_start_screen_candidates(payload: CandidateScreenBatchStartReques
 
 
 @recruitment_router.post("/candidates/screen/batch/query")
-async def query_screening_batch(payload: CandidateScreenBatchQueryRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def query_screening_batch(payload: CandidateScreenBatchQueryRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -464,7 +495,7 @@ async def query_screening_batch(payload: CandidateScreenBatchQueryRequest, _sess
 
 
 @recruitment_router.post("/candidates/screen/batch/cancel")
-async def cancel_screening_batch(payload: CandidateScreenBatchCancelRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def cancel_screening_batch(payload: CandidateScreenBatchCancelRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -480,7 +511,7 @@ async def cancel_screening_batch(payload: CandidateScreenBatchCancelRequest, _se
         raise HTTPException(status_code=500, detail=str(exc))
 
 @recruitment_router.post("/candidates/{candidate_id}/score")
-async def trigger_candidate_score(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def trigger_candidate_score(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -495,7 +526,7 @@ async def trigger_candidate_score(candidate_id: int, _session: Dict[str, Any] = 
 
 
 @recruitment_router.post("/candidates/{candidate_id}/interview-questions")
-async def generate_interview_questions(candidate_id: int, payload: InterviewQuestionGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def generate_interview_questions(candidate_id: int, payload: InterviewQuestionGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -517,7 +548,7 @@ async def generate_interview_questions(candidate_id: int, payload: InterviewQues
 
 
 @recruitment_router.post("/candidates/{candidate_id}/interview-questions/preview-stream")
-async def stream_generate_interview_questions(candidate_id: int, payload: InterviewQuestionGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def stream_generate_interview_questions(candidate_id: int, payload: InterviewQuestionGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     actor_id = _session.get("id") or "unknown"
     event_queue: "queue.Queue[Optional[str]]" = queue.Queue()
     backend_started_at_ms = int(time.time() * 1000)
@@ -648,7 +679,7 @@ async def stream_generate_interview_questions(candidate_id: int, payload: Interv
 
 
 @recruitment_router.post("/candidates/{candidate_id}/interview-questions/start")
-async def start_generate_interview_questions(candidate_id: int, payload: InterviewQuestionGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def start_generate_interview_questions(candidate_id: int, payload: InterviewQuestionGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -670,7 +701,7 @@ async def start_generate_interview_questions(candidate_id: int, payload: Intervi
 
 
 @recruitment_router.get("/interview-questions/{question_id}/download")
-async def download_interview_question(question_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def download_interview_question(question_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         payload = service.get_interview_question_download(question_id)
         quoted_name = quote(payload["file_name"])
@@ -683,7 +714,7 @@ async def download_interview_question(question_id: int, _session: Dict[str, Any]
 
 
 @recruitment_router.get("/resume-files/{resume_file_id}/download")
-async def download_resume_file(resume_file_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def download_resume_file(resume_file_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         payload = service.get_resume_file_download(resume_file_id)
         file_name = payload["file_name"] or "resume.bin"
@@ -700,7 +731,7 @@ async def delete_resume_file(
     http_request: Request,
     resume_file_id: int,
     db: Session = Depends(get_db),
-    session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
     service: RecruitmentService = Depends(get_recruitment_service),
 ):
     try:
@@ -838,6 +869,63 @@ async def update_resource_governance(
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+@recruitment_router.post("/resource-governance/{resource_kind}/{resource_id}/copy")
+async def copy_resource(
+    http_request: Request,
+    resource_kind: str,
+    resource_id: int,
+    payload: RecruitmentResourceCopyRequest,
+    db: Session = Depends(get_db),
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-skill-manage", "recruitment-llm-config-manage", "recruitment-mail-sender-manage", "recruitment-mail-config-manage"])),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    _ensure_resource_copy_allowed(_session, resource_kind)
+    try:
+        if resource_kind == "skill":
+            data = service.copy_skill(resource_id, _session.get("id") or "unknown", payload.target_org_code)
+            target_type = "recruitment-skill"
+            target_code = str(data.get("skill_code") or data.get("id"))
+            sensitivity = "normal"
+        elif resource_kind == "model":
+            data = service.copy_llm_config(resource_id, _session.get("id") or "unknown", payload.target_org_code)
+            target_type = "recruitment-llm-config"
+            target_code = str(data.get("config_key") or data.get("id"))
+            sensitivity = "sensitive"
+        elif resource_kind == "mail-sender":
+            data = service.copy_mail_sender(resource_id, _session.get("id") or "unknown", payload.target_org_code)
+            target_type = "recruitment-mail-sender"
+            target_code = str(data.get("id"))
+            sensitivity = "sensitive"
+        elif resource_kind == "mail-recipient":
+            data = service.copy_mail_recipient(resource_id, _session.get("id") or "unknown", payload.target_org_code)
+            target_type = "recruitment-mail-recipient"
+            target_code = str(data.get("id"))
+            sensitivity = "normal"
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported resource kind")
+
+        write_audit_log(
+            db,
+            actor=_session,
+            request=http_request,
+            action="recruitment.resource-governance.copy",
+            target_type=target_type,
+            target_code=target_code,
+            target_org_code=data.get("org_code"),
+            sensitivity=sensitivity,
+            details={
+                "resource_kind": resource_kind,
+                "source_resource_id": resource_id,
+                "target_org_code": data.get("org_code"),
+            },
+        )
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+
 @recruitment_router.get("/llm-configs")
 async def list_llm_configs(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-llm-config-view", "recruitment-llm-config-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_llm_configs()
@@ -917,7 +1005,7 @@ async def list_mail_recipients(_session: Dict[str, Any] = Depends(require_script
 
 
 @recruitment_router.get("/mail-auto-config")
-async def get_mail_auto_push_global_config(_session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def get_mail_auto_push_global_config(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     return {"success": True, "data": service.get_mail_auto_push_global_config(), "request_id": str(uuid.uuid4())}
 
 
@@ -959,7 +1047,7 @@ async def delete_mail_recipient(http_request: Request, recipient_id: int, db: Se
 
 
 @recruitment_router.get("/resume-mail-dispatches")
-async def list_resume_mail_dispatches(_session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_resume_mail_dispatches(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_resume_mail_dispatches()
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
@@ -994,7 +1082,7 @@ async def get_ai_task_log(task_id: int, _session: Dict[str, Any] = Depends(requi
 
 
 @recruitment_router.post("/ai-task-logs/{task_id}/cancel")
-async def cancel_ai_task(task_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def cancel_ai_task(task_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         return {"success": True, "data": service.cancel_ai_task(task_id, _session.get("id") or "unknown"), "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -1002,7 +1090,7 @@ async def cancel_ai_task(task_id: int, _session: Dict[str, Any] = Depends(requir
 
 
 @recruitment_router.post("/publish-tasks")
-async def create_publish_task(payload: PublishTaskCreateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def create_publish_task(payload: PublishTaskCreateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
         data = service.create_publish_task(payload.position_id, payload.target_platform, payload.mode, _session.get("id") or "unknown")
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -1011,24 +1099,24 @@ async def create_publish_task(payload: PublishTaskCreateRequest, _session: Dict[
 
 
 @recruitment_router.get("/publish-tasks")
-async def list_publish_tasks(position_id: Optional[int] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def list_publish_tasks(position_id: Optional[int] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.list_publish_tasks(position_id=position_id)
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/chat/context")
-async def get_chat_context(_session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def get_chat_context(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     return {"success": True, "data": service.get_chat_context(_session.get("id") or "unknown"), "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.post("/chat/context")
-async def update_chat_context(payload: RecruitmentChatContextUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def update_chat_context(payload: RecruitmentChatContextUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute")), service: RecruitmentService = Depends(get_recruitment_service)):
     data = service.update_chat_context(_session.get("id") or "unknown", payload.position_id, payload.skill_ids, payload.candidate_id)
     return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.post("/chat")
-async def chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     data = await run_in_threadpool(
         _run_recruitment_service_call,
         "chat",
@@ -1042,7 +1130,7 @@ async def chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depen
 
 
 @recruitment_router.post("/chat/start")
-async def start_chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def start_chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     data = await run_in_threadpool(
         _run_recruitment_service_call,
         "start_chat",
@@ -1056,7 +1144,7 @@ async def start_chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] =
 
 
 @recruitment_router.post("/chat/stream")
-async def stream_chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("ai-recruitment"))):
+async def stream_chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     actor_id = _session.get("id") or "unknown"
     actor_name = _session.get("name") or "unknown"
     event_queue: "queue.Queue[Optional[str]]" = queue.Queue()

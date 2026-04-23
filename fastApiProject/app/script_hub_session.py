@@ -123,6 +123,27 @@ def verify_script_hub_session(token: str) -> Optional[Dict[str, Any]]:
     return payload
 
 
+def _refresh_versioned_session(session: Dict[str, Any]) -> Dict[str, Any]:
+    if "permissionVersion" not in session:
+        return session
+
+    user_code = str(session.get("id") or "").strip()
+    if not user_code:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session payload")
+
+    from .database import SessionLocal
+    from .services.script_hub_auth_service import get_session_user_by_code
+
+    db = SessionLocal()
+    try:
+        user = get_session_user_by_code(db, user_code)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+        return user
+    finally:
+        db.close()
+
+
 def require_script_hub_permission(permission: Optional[str] = None) -> Callable[[Request], Dict[str, Any]]:
     async def dependency(request: Request) -> Dict[str, Any]:
         token = get_script_hub_token_from_request(request)
@@ -132,6 +153,7 @@ def require_script_hub_permission(permission: Optional[str] = None) -> Callable[
         session = verify_script_hub_session(token)
         if not session:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session")
+        session = _refresh_versioned_session(session)
 
         if permission and not has_permission(session, permission):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
@@ -153,6 +175,7 @@ def require_script_hub_any_permission(permissions: Sequence[str]) -> Callable[[R
         session = verify_script_hub_session(token)
         if not session:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session")
+        session = _refresh_versioned_session(session)
 
         if required and not has_any_permission(session, required):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")

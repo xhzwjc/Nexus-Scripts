@@ -5,6 +5,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base
 from app.rbac_catalog import ALL_PERMISSION_KEYS, PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
 from app.rbac_models import (
+    ScriptHubOrganization,
     ScriptHubPermission,
     ScriptHubRole,
     ScriptHubRolePermission,
@@ -20,6 +21,7 @@ RBAC_TABLES = [
     ScriptHubPermission.__table__,
     ScriptHubRole.__table__,
     ScriptHubRolePermission.__table__,
+    ScriptHubOrganization.__table__,
     ScriptHubUser.__table__,
     ScriptHubUserRole.__table__,
     ScriptHubUserPermission.__table__,

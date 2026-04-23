@@ -906,7 +906,7 @@ def _clone_runtime_config_with_task_overrides(
             existing_timeout = float(SCREENING_TOTAL_TIMEOUT_SECONDS)
         extra_config["read_timeout_seconds"] = max(1.0, existing_timeout)
         extra_config["max_retries"] = 0
-        extra_config["use_stream_json"] = True
+        extra_config["use_stream_json"] = False
         extra_config["force_json_object_response"] = True
     return RecruitmentLLMRuntimeConfig(
         provider=config.provider,

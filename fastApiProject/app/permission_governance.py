@@ -133,12 +133,6 @@ def expand_permission_aliases(permissions: Dict[str, bool]) -> Dict[str, bool]:
         expanded.update({key: True for key in LEGACY_RECRUITMENT_VIEW_PERMISSIONS})
         expanded.update({key: True for key in LEGACY_RECRUITMENT_MANAGE_PERMISSIONS})
 
-    if any(expanded.get(key) for key in LEGACY_RECRUITMENT_VIEW_PERMISSIONS | LEGACY_RECRUITMENT_MANAGE_PERMISSIONS):
-        expanded["ai-recruitment"] = True
-
-    if any(expanded.get(key) for key in LEGACY_RECRUITMENT_MANAGE_PERMISSIONS):
-        expanded["ai-recruitment-manage"] = True
-
     if expanded.get("rbac-manage"):
         expanded["audit-log-view"] = True
 
@@ -224,6 +218,9 @@ def build_permission_context(db: Session, session: Optional[Dict[str, Any]]) -> 
     payload = session or {}
     primary_org_code = normalize_org_code(payload.get("primaryOrgCode") or payload.get("primary_org_code"))
     data_scope = normalize_data_scope(payload.get("dataScope") or payload.get("data_scope"))
+    role_codes = {str(item or "").strip() for item in (payload.get("roles") or [])}
+    if bool(payload.get("isSuperAdmin")) or str(payload.get("role") or "").strip() == "admin" or "admin" in role_codes:
+        data_scope = DATA_SCOPE_ALL
     custom_org_codes = tuple(normalize_org_code_list(payload.get("customOrgCodes") or payload.get("custom_org_codes")))
     permissions = expand_permission_aliases(dict(payload.get("permissions") or {}))
 
