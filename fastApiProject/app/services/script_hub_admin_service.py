@@ -580,11 +580,15 @@ def update_organization(
     if parent and str(parent.path or "").startswith(f"{row.path}/"):
         raise ValueError("Organization cannot be moved under its descendant")
 
+    parent_boundary_org_code = None
+    if parent_org_code is not None and normalize_org_code(parent_org_code) != normalize_org_code(row.parent_org_code):
+        parent_boundary_org_code = parent.org_code if parent else None
+
     _validate_org_mutation_boundary(
         db,
         actor=actor,
         target_org_code=normalized_org_code,
-        parent_org_code=parent.org_code if parent else None,
+        parent_org_code=parent_boundary_org_code,
     )
 
     next_is_active = row.is_active if is_active is None else bool(is_active)

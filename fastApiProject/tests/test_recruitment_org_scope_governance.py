@@ -32,7 +32,7 @@ from app.recruitment_models import (
     RecruitmentResumeParseResult,
 )
 from app.services.recruitment_service import RecruitmentService
-from app.services.script_hub_admin_service import create_rbac_user
+from app.services.script_hub_admin_service import create_rbac_user, update_organization
 from app.services.script_hub_auth_service import serialize_user_session
 
 
@@ -319,6 +319,25 @@ def test_recruitment_organization_scope_exposes_only_authorized_nodes_and_ancest
         assert _scope_orgs(cross_scope) == {"group", "chunmiao", "chunmiao-rd", "haoshi"}
         assert "chunmiao-fin" not in _scope_orgs(cross_scope)
         assert "haoshi-ops" not in _scope_orgs(cross_scope)
+    finally:
+        db.close()
+
+
+def test_org_boundary_allows_disabling_managed_child_without_parent_boundary():
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        actor = _grantor_session(
+            "rd-manager",
+            "chunmiao-rd",
+            DATA_SCOPE_ORG_ONLY,
+            managed_orgs=["chunmiao-rd"],
+        )
+
+        updated = update_organization(db, "chunmiao-rd", actor=actor, is_active=False)
+
+        assert updated["org_code"] == "chunmiao-rd"
+        assert updated["is_active"] is False
     finally:
         db.close()
 
