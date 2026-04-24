@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useRef } from 'react';
-import { Loader2 } from 'lucide-react';
+import { type ComponentType, type ReactNode, useMemo, useRef } from 'react';
+import { Building2, CheckCircle2, KeyRound, Layers3, Loader2, ShieldCheck, SlidersHorizontal, UserRound } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -25,6 +25,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import type {
     DataScope,
     ScriptHubOrganizationDefinition,
@@ -64,6 +65,35 @@ interface UserFormProps {
     onFieldChange: (field: keyof UserFormErrors) => void;
     onCancel: () => void;
     onSubmit: () => void;
+}
+
+function FormSection({
+    icon: Icon,
+    title,
+    description,
+    children,
+    className,
+}: {
+    icon: ComponentType<{ className?: string }>;
+    title: string;
+    description?: string;
+    children: ReactNode;
+    className?: string;
+}) {
+    return (
+        <section className={cn("rounded-2xl border border-slate-200/80 bg-white/72 p-4 shadow-[0_1px_8px_rgba(15,23,42,0.04)] backdrop-blur dark:border-slate-800 dark:bg-slate-950/55", className)}>
+            <div className="mb-4 flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200/80 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                    <Icon className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-slate-950 dark:text-slate-100">{title}</h3>
+                    {description ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p> : null}
+                </div>
+            </div>
+            {children}
+        </section>
+    );
 }
 
 export function UserForm({
@@ -121,11 +151,11 @@ export function UserForm({
                             </div>
                         )}
 
-                        <section className="rounded-lg border bg-muted/10 p-4">
-                            <div className="mb-4">
-                                <h3 className="text-sm font-semibold">{labels.userFormBasicInfo}</h3>
-                                <p className="text-xs text-muted-foreground">{labels.userFormBasicInfoDesc}</p>
-                            </div>
+                        <FormSection
+                            icon={UserRound}
+                            title={labels.userFormBasicInfo}
+                            description={labels.userFormBasicInfoDesc}
+                        >
                             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                                 <div className="space-y-2">
                                     <Label htmlFor="rbac-user-code">{labels.userCode}</Label>
@@ -177,13 +207,13 @@ export function UserForm({
                                     </div>
                                 )}
                             </div>
-                        </section>
+                        </FormSection>
 
-                        <section className="rounded-lg border bg-muted/10 p-4">
-                            <div className="mb-4">
-                                <h3 className="text-sm font-semibold">{labels.userFormOrganization}</h3>
-                                <p className="text-xs text-muted-foreground">{labels.orgGovernanceDesc}</p>
-                            </div>
+                        <FormSection
+                            icon={Building2}
+                            title={labels.userFormOrganization}
+                            description={labels.orgGovernanceDesc}
+                        >
                             <div className="grid gap-4 md:grid-cols-2">
                                 <div className="space-y-2">
                                     <Label>{labels.organization}</Label>
@@ -225,35 +255,56 @@ export function UserForm({
                                     />
                                 </div>
                             </div>
-                        </section>
+                        </FormSection>
 
-                        <section className="rounded-lg border bg-muted/10 p-4">
-                            <div className="mb-4">
-                                <h3 className="text-sm font-semibold">{labels.userFormDataScope}</h3>
-                                <p className="text-xs text-muted-foreground">{labels.userFormDataScopeDesc}</p>
-                            </div>
-                            <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)_300px]">
-                                <div className="space-y-2">
-                                    <Label>{labels.dataScope}</Label>
-                                    <Select
-                                        value={form.dataScope}
-                                        onValueChange={(value) => onChange({ ...form, dataScope: value as DataScope })}
-                                        disabled={saving}
-                                    >
-                                        <SelectTrigger>
-                                            <SelectValue placeholder={labels.dataScope} />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {DATA_SCOPE_OPTIONS.map((scope) => (
-                                                <SelectItem key={scope} value={scope}>
-                                                    {getDataScopeLabel(scope, labels)}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                        <FormSection
+                            icon={Layers3}
+                            title={labels.userFormDataScope}
+                            description={labels.userFormDataScopeDesc}
+                        >
+                            <div className="grid gap-4">
+                                <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+                                    <div className="space-y-2">
+                                        <Label>{labels.dataScope}</Label>
+                                        <Select
+                                            value={form.dataScope}
+                                            onValueChange={(value) => onChange({ ...form, dataScope: value as DataScope })}
+                                            disabled={saving}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder={labels.dataScope} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {DATA_SCOPE_OPTIONS.map((scope) => (
+                                                    <SelectItem key={scope} value={scope}>
+                                                        {getDataScopeLabel(scope, labels)}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
+                                        <Checkbox
+                                            checked={form.dataScopeDowngradeConfirmed}
+                                            onCheckedChange={(checked) => onChange({ ...form, dataScopeDowngradeConfirmed: checked === true })}
+                                            disabled={saving}
+                                        />
+                                        <div className="space-y-1">
+                                            <p className="text-sm font-medium">{labels.scopeDowngradeConfirm}</p>
+                                            <p className="text-xs leading-5 text-amber-800 dark:text-amber-200">{labels.scopeDowngradeConfirmDesc}</p>
+                                        </div>
+                                    </label>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>{labels.customOrgs}</Label>
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                        <div>
+                                            <Label>{labels.customOrgs}</Label>
+                                            <p className="mt-1 text-xs leading-5 text-muted-foreground">{labels.customOrgsHelp}</p>
+                                        </div>
+                                        <div className="max-w-full sm:max-w-[50%]">
+                                            <CompactBadgeList items={selectedCustomOrganizations} max={3} emptyLabel={labels.emptySelection} />
+                                        </div>
+                                    </div>
                                     <ScrollArea className="h-48 rounded-md border bg-background">
                                         <div className="space-y-2 p-3 pr-4">
                                             {organizationRows.map((row) => (
@@ -278,31 +329,25 @@ export function UserForm({
                                             ))}
                                         </div>
                                     </ScrollArea>
-                                    <CompactBadgeList items={selectedCustomOrganizations} max={3} emptyLabel={labels.emptySelection} />
-                                    <p className="text-xs text-muted-foreground">{labels.customOrgsHelp}</p>
                                 </div>
-                                <label className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50/70 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
-                                    <Checkbox
-                                        checked={form.dataScopeDowngradeConfirmed}
-                                        onCheckedChange={(checked) => onChange({ ...form, dataScopeDowngradeConfirmed: checked === true })}
-                                        disabled={saving}
-                                    />
-                                    <div className="space-y-1">
-                                        <p className="text-sm font-medium">{labels.scopeDowngradeConfirm}</p>
-                                        <p className="text-xs text-amber-800 dark:text-amber-200">{labels.scopeDowngradeConfirmDesc}</p>
-                                    </div>
-                                </label>
                             </div>
-                        </section>
+                        </FormSection>
 
-                        <section className="rounded-lg border bg-muted/10 p-4">
-                            <div className="mb-4">
-                                <h3 className="text-sm font-semibold">{labels.userFormConfigPermission}</h3>
-                                <p className="text-xs text-muted-foreground">{labels.userFormConfigPermissionDesc}</p>
-                            </div>
+                        <FormSection
+                            icon={KeyRound}
+                            title={labels.userFormConfigPermission}
+                            description={labels.userFormConfigPermissionDesc}
+                        >
                             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                                 <div className="space-y-4">
-                                    <div className="rounded-md border bg-background p-4">
+                                    <div
+                                        className={cn(
+                                            "rounded-2xl border p-4 transition-colors",
+                                            form.teamResourcesLoginKeyEnabled
+                                                ? "border-teal-200 bg-teal-50/80 dark:border-teal-900/70 dark:bg-teal-950/25"
+                                                : "border-slate-200/80 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900/35",
+                                        )}
+                                    >
                                         <div className="flex items-start gap-3">
                                             <Checkbox
                                                 id="rbac-team-resource-key"
@@ -314,7 +359,7 @@ export function UserForm({
                                                 disabled={saving}
                                             />
                                             <div>
-                                                <Label htmlFor="rbac-team-resource-key" className="cursor-pointer font-medium">
+                                                <Label htmlFor="rbac-team-resource-key" className="cursor-pointer font-medium text-slate-950 dark:text-slate-100">
                                                     {labels.teamResourcesLoginKey}
                                                 </Label>
                                                 <p className="mt-1 text-sm text-muted-foreground">{labels.teamResourcesLoginKeyHelp}</p>
@@ -328,9 +373,12 @@ export function UserForm({
                                     </div>
 
                                     <div className="space-y-3">
-                                        <div>
-                                            <h4 className="text-sm font-semibold">{labels.roles}</h4>
-                                            <p className="text-xs text-muted-foreground">{labels.rolePermissions}</p>
+                                        <div className="flex flex-wrap items-start justify-between gap-2">
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-slate-950 dark:text-slate-100">{labels.roles}</h4>
+                                                <p className="text-xs text-muted-foreground">{labels.rolePermissions}</p>
+                                            </div>
+                                            <Badge variant="outline">{form.roleCodes.length}</Badge>
                                         </div>
                                         {showErrors && errors.roleCodes && (
                                             <p className="text-xs text-destructive">{errors.roleCodes}</p>
@@ -341,7 +389,12 @@ export function UserForm({
                                                 return (
                                                     <label
                                                         key={role.code}
-                                                        className="flex cursor-pointer items-start gap-3 rounded-md border bg-background p-3 transition-colors hover:bg-muted/40"
+                                                        className={cn(
+                                                            "group flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition-colors",
+                                                            checked
+                                                                ? "border-teal-200 bg-teal-50/80 dark:border-teal-900/70 dark:bg-teal-950/25"
+                                                                : "border-slate-200/80 bg-white/70 hover:border-slate-300 hover:bg-slate-50/80 dark:border-slate-800 dark:bg-slate-950/35 dark:hover:border-slate-700 dark:hover:bg-slate-900/45",
+                                                        )}
                                                     >
                                                         <Checkbox
                                                             checked={checked}
@@ -356,11 +409,12 @@ export function UserForm({
                                                         />
                                                         <div className="space-y-1">
                                                             <div className="flex flex-wrap items-center gap-2">
-                                                                <span className="font-medium">{role.name}</span>
+                                                                <span className="font-medium text-slate-950 dark:text-slate-100">{role.name}</span>
                                                                 <Badge variant="outline">{role.permission_keys.length}</Badge>
                                                                 {!role.is_system && (
                                                                     <Badge variant="outline">{labels.customRole}</Badge>
                                                                 )}
+                                                                {checked && <CheckCircle2 className="h-3.5 w-3.5 text-teal-600 dark:text-teal-300" />}
                                                             </div>
                                                             <p className="text-xs text-muted-foreground">{role.description}</p>
                                                         </div>
@@ -372,8 +426,11 @@ export function UserForm({
                                 </div>
 
                                 <div className="space-y-4">
-                                    <div className="rounded-md border bg-background p-4">
-                                        <h4 className="mb-3 text-sm font-semibold">{labels.rolePermissions}</h4>
+                                    <div className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-900/35">
+                                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                            <h4 className="text-sm font-semibold text-slate-950 dark:text-slate-100">{labels.rolePermissions}</h4>
+                                            <Badge variant="outline">{selectedRolePermissionKeys.length}</Badge>
+                                        </div>
                                         <CompactBadgeList
                                             items={selectedRolePermissionKeys.map((permissionKey) => permissionMap.get(permissionKey)?.name || permissionKey)}
                                             max={8}
@@ -382,57 +439,85 @@ export function UserForm({
                                     </div>
 
                                     <div className="grid gap-4 md:grid-cols-2">
-                                        <div className="rounded-md border bg-background p-4">
-                                            <h4 className="mb-3 text-sm font-semibold">{labels.grantedPermissions}</h4>
+                                        <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/55 p-4 dark:border-emerald-900/70 dark:bg-emerald-950/20">
+                                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                                <h4 className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">{labels.grantedPermissions}</h4>
+                                                <Badge variant="outline">{form.grantedPermissions.length}</Badge>
+                                            </div>
                                             <ScrollArea className="h-56 pr-3">
                                                 <div className="space-y-3">
-                                                    {grantablePermissions.map((permission) => (
-                                                        <label key={permission.key} className="flex items-start gap-3">
-                                                            <Checkbox
-                                                                checked={form.grantedPermissions.includes(permission.key)}
-                                                                onCheckedChange={(checked) => onChange({
-                                                                    ...form,
-                                                                    grantedPermissions: toggleItem(form.grantedPermissions, permission.key, checked === true),
-                                                                })}
-                                                                disabled={saving}
-                                                            />
-                                                            <span>
-                                                                <span className="block text-sm font-medium">{permission.name}</span>
-                                                                <span className="block text-xs text-muted-foreground">{permission.description}</span>
-                                                            </span>
-                                                        </label>
-                                                    ))}
+                                                    {grantablePermissions.map((permission) => {
+                                                        const checked = form.grantedPermissions.includes(permission.key);
+                                                        return (
+                                                            <label
+                                                                key={permission.key}
+                                                                className={cn(
+                                                                    "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
+                                                                    checked
+                                                                        ? "border-emerald-300 bg-white/85 dark:border-emerald-800 dark:bg-emerald-950/35"
+                                                                        : "border-transparent bg-white/55 hover:border-emerald-200 hover:bg-white/80 dark:bg-slate-950/25 dark:hover:border-emerald-900/60 dark:hover:bg-slate-900/45",
+                                                                )}
+                                                            >
+                                                                <Checkbox
+                                                                    checked={checked}
+                                                                    onCheckedChange={(next) => onChange({
+                                                                        ...form,
+                                                                        grantedPermissions: toggleItem(form.grantedPermissions, permission.key, next === true),
+                                                                    })}
+                                                                    disabled={saving}
+                                                                />
+                                                                <span>
+                                                                    <span className="block text-sm font-medium text-slate-950 dark:text-slate-100">{permission.name}</span>
+                                                                    <span className="block text-xs leading-5 text-muted-foreground">{permission.description}</span>
+                                                                </span>
+                                                            </label>
+                                                        );
+                                                    })}
                                                 </div>
                                             </ScrollArea>
                                         </div>
 
-                                        <div className="rounded-md border bg-background p-4">
-                                            <h4 className="mb-3 text-sm font-semibold">{labels.revokedPermissions}</h4>
+                                        <div className="rounded-2xl border border-rose-200/70 bg-rose-50/55 p-4 dark:border-rose-900/70 dark:bg-rose-950/20">
+                                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                                <h4 className="text-sm font-semibold text-rose-950 dark:text-rose-100">{labels.revokedPermissions}</h4>
+                                                <Badge variant="outline">{form.revokedPermissions.length}</Badge>
+                                            </div>
                                             <ScrollArea className="h-56 pr-3">
                                                 <div className="space-y-3">
-                                                    {revokablePermissions.map((permission) => (
-                                                        <label key={permission.key} className="flex items-start gap-3">
-                                                            <Checkbox
-                                                                checked={form.revokedPermissions.includes(permission.key)}
-                                                                onCheckedChange={(checked) => onChange({
-                                                                    ...form,
-                                                                    revokedPermissions: toggleItem(form.revokedPermissions, permission.key, checked === true),
-                                                                })}
-                                                                disabled={saving}
-                                                            />
-                                                            <span>
-                                                                <span className="block text-sm font-medium">{permission.name}</span>
-                                                                <span className="block text-xs text-muted-foreground">{permission.description}</span>
-                                                            </span>
-                                                        </label>
-                                                    ))}
+                                                    {revokablePermissions.map((permission) => {
+                                                        const checked = form.revokedPermissions.includes(permission.key);
+                                                        return (
+                                                            <label
+                                                                key={permission.key}
+                                                                className={cn(
+                                                                    "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
+                                                                    checked
+                                                                        ? "border-rose-300 bg-white/85 dark:border-rose-800 dark:bg-rose-950/35"
+                                                                        : "border-transparent bg-white/55 hover:border-rose-200 hover:bg-white/80 dark:bg-slate-950/25 dark:hover:border-rose-900/60 dark:hover:bg-slate-900/45",
+                                                                )}
+                                                            >
+                                                                <Checkbox
+                                                                    checked={checked}
+                                                                    onCheckedChange={(next) => onChange({
+                                                                        ...form,
+                                                                        revokedPermissions: toggleItem(form.revokedPermissions, permission.key, next === true),
+                                                                    })}
+                                                                    disabled={saving}
+                                                                />
+                                                                <span>
+                                                                    <span className="block text-sm font-medium text-slate-950 dark:text-slate-100">{permission.name}</span>
+                                                                    <span className="block text-xs leading-5 text-muted-foreground">{permission.description}</span>
+                                                                </span>
+                                                            </label>
+                                                        );
+                                                    })}
                                                 </div>
                                             </ScrollArea>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                        </section>
+                        </FormSection>
 
                         <AuthorizationBoundaryForm
                             value={form.authorizationBoundary}
@@ -444,13 +529,18 @@ export function UserForm({
                             onChange={(authorizationBoundary) => onChange({ ...form, authorizationBoundary })}
                         />
 
-                        <section className="rounded-lg border bg-muted/10 p-4">
-                            <div className="mb-4">
-                                <h3 className="text-sm font-semibold">{labels.userFormStatusNotes}</h3>
-                                <p className="text-xs text-muted-foreground">{labels.userFormStatusNotesDesc}</p>
-                            </div>
+                        <FormSection
+                            icon={SlidersHorizontal}
+                            title={labels.userFormStatusNotes}
+                            description={labels.userFormStatusNotesDesc}
+                        >
                             <div className="grid gap-4 md:grid-cols-2">
-                                <label className="flex items-center gap-3 rounded-md border bg-background p-4">
+                                <label className={cn(
+                                    "flex items-center gap-3 rounded-xl border p-4 transition-colors",
+                                    form.isActive
+                                        ? "border-teal-200 bg-teal-50/80 dark:border-teal-900/70 dark:bg-teal-950/25"
+                                        : "border-slate-200/80 bg-white/70 dark:border-slate-800 dark:bg-slate-950/35",
+                                )}>
                                     <Checkbox
                                         checked={form.isActive}
                                         onCheckedChange={(checked) => onChange({ ...form, isActive: checked === true })}
@@ -458,7 +548,12 @@ export function UserForm({
                                     />
                                     <span className="text-sm font-medium">{labels.active}</span>
                                 </label>
-                                <label className="flex items-center gap-3 rounded-md border bg-background p-4">
+                                <label className={cn(
+                                    "flex items-center gap-3 rounded-xl border p-4 transition-colors",
+                                    form.isSuperAdmin
+                                        ? "border-amber-200 bg-amber-50/80 dark:border-amber-900/70 dark:bg-amber-950/25"
+                                        : "border-slate-200/80 bg-white/70 dark:border-slate-800 dark:bg-slate-950/35",
+                                )}>
                                     <Checkbox
                                         checked={form.isSuperAdmin}
                                         onCheckedChange={(checked) => onChange({ ...form, isSuperAdmin: checked === true })}
@@ -478,7 +573,7 @@ export function UserForm({
                                     disabled={saving}
                                 />
                             </div>
-                        </section>
+                        </FormSection>
                     </div>
                 </div>
 

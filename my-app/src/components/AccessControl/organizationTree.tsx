@@ -133,6 +133,9 @@ interface OrganizationTreeTextProps {
     organizationMap: Map<string, ScriptHubOrganizationDefinition>;
     showCode?: boolean;
     showPath?: boolean;
+    wrap?: boolean;
+    primaryPath?: boolean;
+    indent?: boolean;
 }
 
 export function OrganizationTreeText({
@@ -141,27 +144,31 @@ export function OrganizationTreeText({
     organizationMap,
     showCode = true,
     showPath = true,
+    wrap = false,
+    primaryPath = false,
+    indent = true,
 }: OrganizationTreeTextProps) {
     const { organization, level } = row;
     const displayPath = getOrganizationDisplayPath(organization, organizationMap);
+    const primaryLabel = primaryPath ? displayPath : organization.name;
 
     return (
-        <span className="flex min-w-0 items-start gap-2" style={{ paddingLeft: `${level * 18}px` }}>
+        <span className="flex min-w-0 items-start gap-2" style={{ paddingLeft: `${indent ? level * 18 : 0}px` }}>
             <span className="mt-2 h-px w-3 shrink-0 bg-border" />
             <span className="min-w-0">
-                <span className="flex min-w-0 flex-wrap items-center gap-2">
-                    <span className="truncate font-medium">{organization.name}</span>
-                    <Badge variant="outline" className="text-[10px]">
+                <span className={wrap ? "flex min-w-0 flex-wrap items-center gap-2" : "flex min-w-0 items-center gap-2 overflow-hidden"}>
+                    <span className={wrap ? "break-words font-medium leading-5" : "truncate font-medium"}>{primaryLabel}</span>
+                    <Badge variant="outline" className="shrink-0 text-[10px]">
                         {orgTypeLabel(organization.org_type, labels)}
                     </Badge>
                     {showCode && (
-                        <span className="font-mono text-[11px] text-muted-foreground">
+                        <span className={wrap ? "break-all font-mono text-[11px] text-muted-foreground" : "font-mono text-[11px] text-muted-foreground"}>
                             {organization.org_code}
                         </span>
                     )}
                 </span>
                 {showPath && (
-                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                    <span className={wrap ? "mt-0.5 block break-words text-xs leading-5 text-muted-foreground" : "mt-0.5 block truncate text-xs text-muted-foreground"}>
                         {displayPath}
                     </span>
                 )}
