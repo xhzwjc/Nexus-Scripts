@@ -379,7 +379,7 @@ export const zhCN: Translations = {
         dataScopeCustomOrgs: '指定组织',
         dataScopeSelf: '仅本人',
         customOrgs: '指定组织',
-        customOrgsHelp: '仅在 CUSTOM_ORGS 时生效，请在组织树中勾选可见组织。',
+        customOrgsHelp: '仅在"指定组织"时生效，请在组织树中勾选可见组织。',
         authBoundary: '授权边界',
         authorizationBoundary: '授权边界',
         authorizationBoundaryHelp: '结构化约束该用户是否可授权、可管理哪些组织、可分配哪些角色和权限。',
