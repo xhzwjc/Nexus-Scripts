@@ -5,6 +5,7 @@ import {
     ArrowLeft,
     Bot,
     BriefcaseBusiness,
+    Building2,
     ChevronDown,
     ChevronLeft,
     ChevronRight,
@@ -30,6 +31,7 @@ import {
     Wand2,
 } from "lucide-react";
 import {toast} from "@/lib/toast";
+import type {ScriptHubOrganizationDefinition} from "@/lib/types";
 
 import {authenticatedFetch, getStoredScriptHubSession} from "@/lib/auth";
 import {
@@ -62,6 +64,7 @@ import {
     type RecruitmentMailRecipient,
     type RecruitmentMailSenderConfig,
     type RecruitmentMailAutoPushGlobalConfig,
+    type RecruitmentOrganizationScope,
     type RecruitmentResumeMailDispatch,
     type RecruitmentMetadata,
     type RecruitmentSkill,
@@ -189,6 +192,188 @@ const PAGE_ACTIVITY_POLL_MAX_INTERVAL_MS = 15000;
 const TASK_MONITOR_VISIBLE_INTERVAL_MS = 1200;
 const TASK_MONITOR_HIDDEN_INTERVAL_MS = 5000;
 const TASK_MONITOR_MAX_INTERVAL_MS = 15000;
+const ALL_COMPANY_DEPARTMENTS_VALUE = "__all_company_departments__";
+
+type OrgScopedItem = {
+    org_code?: string | null;
+    scope_level?: string | null;
+    share_policy?: string | null;
+    allow_sub_org_use?: boolean | null;
+};
+
+type OrganizationSelectOption = {
+    value: string;
+    label: string;
+    description?: string;
+    organization?: ScriptHubOrganizationDefinition;
+};
+
+type PositionFormErrors = Partial<Record<"orgCode" | "title" | "headcount", string>>;
+
+function normalizeRecruitmentOrgCode(value?: string | null) {
+    const text = String(value || "").trim();
+    return text || "group";
+}
+
+function getFallbackOrganizationLabel(orgCode?: string | null) {
+    const code = normalizeRecruitmentOrgCode(orgCode);
+    const knownLabels: Record<string, string> = {
+        group: "集团",
+        haoshi: "好柿公司",
+        chunmiao: "春苗公司",
+    };
+    return knownLabels[code] || code;
+}
+
+function isCompanyLikeOrganization(organization?: ScriptHubOrganizationDefinition | null) {
+    const type = String(organization?.org_type || "").toLowerCase();
+    return type === "company" || type === "sub_group" || type === "group";
+}
+
+function isDepartmentOrganization(organization?: ScriptHubOrganizationDefinition | null) {
+    return String(organization?.org_type || "").toLowerCase() === "department";
+}
+
+function getOrganizationDepth(organization?: ScriptHubOrganizationDefinition | null) {
+    return String(organization?.path || organization?.org_code || "")
+        .split("/")
+        .filter(Boolean).length;
+}
+
+function isOrganizationInScope(
+    organizations: Map<string, ScriptHubOrganizationDefinition>,
+    scopeCode: string,
+    orgCode: string,
+) {
+    const normalizedScopeCode = normalizeRecruitmentOrgCode(scopeCode);
+    const normalizedOrgCode = normalizeRecruitmentOrgCode(orgCode);
+    if (normalizedScopeCode === normalizedOrgCode) {
+        return true;
+    }
+    const scope = organizations.get(normalizedScopeCode);
+    const organization = organizations.get(normalizedOrgCode);
+    return Boolean(scope && organization && String(organization.path || "").startsWith(`${scope.path}/`));
+}
+
+function findCompanyScopeCodeForOrg(
+    orgCode: string,
+    organizations: Map<string, ScriptHubOrganizationDefinition>,
+) {
+    let current = organizations.get(normalizeRecruitmentOrgCode(orgCode));
+    const visited = new Set<string>();
+    while (current && !visited.has(current.org_code)) {
+        visited.add(current.org_code);
+        if (isCompanyLikeOrganization(current)) {
+            return current.org_code;
+        }
+        current = current.parent_org_code ? organizations.get(current.parent_org_code) : undefined;
+    }
+    return normalizeRecruitmentOrgCode(orgCode);
+}
+
+function getOrganizationPathLabel(
+    orgCode: string,
+    organizations: Map<string, ScriptHubOrganizationDefinition>,
+) {
+    const organization = organizations.get(normalizeRecruitmentOrgCode(orgCode));
+    if (!organization) {
+        return getFallbackOrganizationLabel(orgCode);
+    }
+    const segments: string[] = [];
+    let current: ScriptHubOrganizationDefinition | undefined = organization;
+    const visited = new Set<string>();
+    while (current && !visited.has(current.org_code)) {
+        visited.add(current.org_code);
+        if (current.org_type !== "group" || current.org_code === organization.org_code) {
+            segments.unshift(current.name || current.org_code);
+        }
+        current = current.parent_org_code ? organizations.get(current.parent_org_code) : undefined;
+    }
+    return segments.join(" / ") || organization.name || organization.org_code;
+}
+
+function getOrganizationRelativePathLabel(
+    orgCode: string,
+    rootOrgCode: string,
+    organizations: Map<string, ScriptHubOrganizationDefinition>,
+) {
+    const organization = organizations.get(normalizeRecruitmentOrgCode(orgCode));
+    if (!organization) {
+        return getFallbackOrganizationLabel(orgCode);
+    }
+
+    const rootCode = normalizeRecruitmentOrgCode(rootOrgCode);
+    const segments: string[] = [];
+    let current: ScriptHubOrganizationDefinition | undefined = organization;
+    const visited = new Set<string>();
+    while (current && !visited.has(current.org_code)) {
+        visited.add(current.org_code);
+        if (current.org_code === rootCode) {
+            break;
+        }
+        if (current.org_type !== "group" || current.org_code === organization.org_code) {
+            segments.unshift(current.name || current.org_code);
+        }
+        current = current.parent_org_code ? organizations.get(current.parent_org_code) : undefined;
+    }
+    return segments.join(" / ") || organization.name || organization.org_code;
+}
+
+function filterBusinessRowsByOrgCodes<T extends OrgScopedItem>(rows: T[], orgCodes: string[]) {
+    const allowedOrgCodes = new Set(orgCodes.map(normalizeRecruitmentOrgCode));
+    if (!allowedOrgCodes.size) {
+        return [];
+    }
+    return rows.filter((row) => allowedOrgCodes.has(normalizeRecruitmentOrgCode(row.org_code)));
+}
+
+function resourceMatchesAnyOrgCode<T extends OrgScopedItem>(
+    row: T,
+    orgCodes: string[],
+    organizations: Map<string, ScriptHubOrganizationDefinition>,
+) {
+    const targetOrgCodes = orgCodes.map(normalizeRecruitmentOrgCode);
+    if (!targetOrgCodes.length) {
+        return false;
+    }
+    const rowOrgCode = normalizeRecruitmentOrgCode(row.org_code);
+    if (targetOrgCodes.includes(rowOrgCode)) {
+        return true;
+    }
+    const scopeLevel = String(row.scope_level || "").toUpperCase();
+    if (scopeLevel === "GLOBAL") {
+        return true;
+    }
+    const sharePolicy = String(row.share_policy || "").toUpperCase();
+    if (sharePolicy === "PUBLIC_IN_GROUP") {
+        return true;
+    }
+    return Boolean(row.allow_sub_org_use) && targetOrgCodes.some((targetOrgCode) => (
+        isOrganizationInScope(organizations, rowOrgCode, targetOrgCode)
+    ));
+}
+
+function filterResourceRowsByOrgCodes<T extends OrgScopedItem>(
+    rows: T[],
+    orgCodes: string[],
+    organizations: Map<string, ScriptHubOrganizationDefinition>,
+) {
+    return rows.filter((row) => resourceMatchesAnyOrgCode(row, orgCodes, organizations));
+}
+
+function sortOrganizationCodes(
+    codes: string[],
+    organizations: Map<string, ScriptHubOrganizationDefinition>,
+) {
+    return [...new Set(codes.map(normalizeRecruitmentOrgCode))].sort((left, right) => {
+        const leftOrg = organizations.get(left);
+        const rightOrg = organizations.get(right);
+        const leftOrder = leftOrg?.sort_order ?? 9999;
+        const rightOrder = rightOrg?.sort_order ?? 9999;
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        return (leftOrg?.path || left).localeCompare(rightOrg?.path || right);
+    });
+}
 
 function getPollingDelay(
     visible: boolean,
@@ -206,11 +391,10 @@ interface RecruitmentAutomationContainerProps {
 }
 
 export default function RecruitmentAutomationContainer({onBack}: RecruitmentAutomationContainerProps) {
-    type PositionFormErrors = Partial<Record<"title" | "headcount", string>>;
-
     const {language} = useI18n();
     const isZh = language === "zh-CN";
     const sessionUser = useMemo(() => getStoredScriptHubSession()?.user ?? null, []);
+    const defaultOrgScope = normalizeRecruitmentOrgCode(sessionUser?.primaryOrgCode);
     const recruitmentToast = useMemo(() => getRecruitmentToastLocale(language), [language]);
     const recruitmentToastEntities = recruitmentToast.entities;
     const jdGenerationInFlightRef = useRef(false);
@@ -223,8 +407,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const selectedLogIdRef = useRef<number | null>(null);
     const selectedPositionIdRef = useRef<number | null>(null);
     const selectedCandidateIdRef = useRef<number | null>(null);
-    const positionsFiltersInitializedRef = useRef(false);
-    const candidatesFiltersInitializedRef = useRef(false);
     const logsFiltersInitializedRef = useRef(false);
     const positionsLoadRequestIdRef = useRef(0);
     const candidatesLoadRequestIdRef = useRef(0);
@@ -274,6 +456,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         refreshing: isZh ? "刷新中..." : "Refreshing...",
         uploadResume: isZh ? "上传简历" : "Upload Resume",
         createPosition: isZh ? "新建岗位" : "New Position",
+        currentOrganization: isZh ? "当前查看组织" : "Current Organization",
+        currentOrgScope: isZh ? "当前组织范围" : "Organization Scope",
+        currentDepartment: isZh ? "当前部门范围" : "Department Scope",
+        allVisibleDepartments: isZh ? "全部可见部门" : "All Visible Departments",
+        organizationField: isZh ? "所属组织/公司" : "Organization / Company",
+        targetOrganization: isZh ? "落地组织/公司" : "Target Organization / Company",
+        chooseTargetOrganization: isZh ? "请选择落地组织/公司" : "Choose a target organization",
+        allVisibleCreateHint: isZh ? "当前范围包含多个可落地组织，请明确选择新岗位归属公司/部门。" : "The current scope contains multiple target organizations. Choose where this position belongs.",
+        allVisibleUploadHint: isZh ? "当前范围包含多个可落地组织，未关联岗位时必须选择简历落地公司/部门。" : "The current scope contains multiple target organizations. Choose a target organization when no position is linked.",
         openAssistantDrawer: isZh ? "打开 AI 助手" : "Open AI Assistant",
         manageSettings: isZh ? "管理设置" : "Management Settings",
         settingsSkillsTitle: isZh ? "Skill 管理" : "Skill Settings",
@@ -407,12 +598,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const pageVisibleRef = useRef(pageVisible);
 
     const [metadata, setMetadata] = useState<RecruitmentMetadata | null>(null);
-    const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+    const [organizationCatalog, setOrganizationCatalog] = useState<ScriptHubOrganizationDefinition[]>([]);
+    const [allPositions, setAllPositions] = useState<PositionSummary[]>([]);
     const [positions, setPositions] = useState<PositionSummary[]>([]);
     const [positionDetail, setPositionDetail] = useState<PositionDetail | null>(null);
+    const [allCandidates, setAllCandidates] = useState<CandidateSummary[]>([]);
     const [candidates, setCandidates] = useState<CandidateSummary[]>([]);
     const [candidateDetail, setCandidateDetail] = useState<CandidateDetail | null>(null);
+    const [allSkills, setAllSkills] = useState<RecruitmentSkill[]>([]);
     const [skills, setSkills] = useState<RecruitmentSkill[]>([]);
+    const [allAiLogs, setAllAiLogs] = useState<AITaskLog[]>([]);
     const [aiLogs, setAiLogs] = useState<AITaskLog[]>([]);
     const [selectedLogDetail, setSelectedLogDetail] = useState<AITaskLog | null>(null);
     const [chatContext, setChatContext] = useState<ChatContext>({
@@ -421,15 +616,24 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         skill_ids: [],
         skills: [],
     });
+    const [allLlmConfigs, setAllLlmConfigs] = useState<RecruitmentLLMConfig[]>([]);
     const [llmConfigs, setLlmConfigs] = useState<RecruitmentLLMConfig[]>([]);
+    const [allMailSenderConfigs, setAllMailSenderConfigs] = useState<RecruitmentMailSenderConfig[]>([]);
     const [mailSenderConfigs, setMailSenderConfigs] = useState<RecruitmentMailSenderConfig[]>([]);
+    const [allMailRecipients, setAllMailRecipients] = useState<RecruitmentMailRecipient[]>([]);
     const [mailRecipients, setMailRecipients] = useState<RecruitmentMailRecipient[]>([]);
+    const [allResumeMailDispatches, setAllResumeMailDispatches] = useState<RecruitmentResumeMailDispatch[]>([]);
     const [resumeMailDispatches, setResumeMailDispatches] = useState<RecruitmentResumeMailDispatch[]>([]);
     const [mailAutoPushGlobalConfig, setMailAutoPushGlobalConfig] = useState<RecruitmentMailAutoPushGlobalConfig>({
         global_default_recipient_ids: [],
         global_default_recipient_emails: [],
         global_auto_push_enabled: false,
     });
+    const [authorizedOrgCodes, setAuthorizedOrgCodes] = useState<string[]>([defaultOrgScope]);
+    const [hasAllOrgScope, setHasAllOrgScope] = useState(false);
+    const [selectedOrgScope, setSelectedOrgScope] = useState(defaultOrgScope);
+    const [selectedDepartmentScope, setSelectedDepartmentScope] = useState(ALL_COMPANY_DEPARTMENTS_VALUE);
+    const [organizationCatalogLoading, setOrganizationCatalogLoading] = useState(false);
 
     const [positionQuery, setPositionQuery] = useState("");
     const [positionStatusFilter, setPositionStatusFilter] = useState("all");
@@ -449,8 +653,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     const [logTaskTypeFilter, setLogTaskTypeFilter] = useState("all");
     const [logStatusFilter, setLogStatusFilter] = useState("all");
-    const positionListRequestKey = `${deferredPositionQuery}::${positionStatusFilter}`;
-    const candidateListRequestKey = `${deferredCandidateQuery}::${candidateStatusFilter}::${candidatePositionFilter}`;
     const auditLogRequestKey = `${logStatusFilter}::${logTaskTypeFilter}`;
     const auditLogRequestKeyRef = useRef(auditLogRequestKey);
 
@@ -507,6 +709,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [resumeUploadOpen, setResumeUploadOpen] = useState(false);
     const [resumeUploadFiles, setResumeUploadFiles] = useState<File[]>([]);
     const [resumeUploadPositionId, setResumeUploadPositionId] = useState("all");
+    const [resumeUploadOrgCode, setResumeUploadOrgCode] = useState(defaultOrgScope);
 
     const [publishDialogOpen, setPublishDialogOpen] = useState(false);
     const [publishPlatform, setPublishPlatform] = useState("boss");
@@ -606,6 +809,114 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [interviewSkillSelectionDirty, setInterviewSkillSelectionDirty] = useState(false);
     const [candidateProcessLogsExpanded, setCandidateProcessLogsExpanded] = useState(false);
 
+    const organizationMap = useMemo(
+        () => new Map(organizationCatalog.map((organization) => [organization.org_code, organization])),
+        [organizationCatalog],
+    );
+    const visibleOrgCodes = useMemo(() => (
+        sortOrganizationCodes(authorizedOrgCodes.length ? authorizedOrgCodes : [defaultOrgScope], organizationMap)
+    ), [authorizedOrgCodes, defaultOrgScope, organizationMap]);
+    const orgScopeOptions = useMemo<OrganizationSelectOption[]>(() => {
+        const companyCodes = new Set<string>();
+
+        if (hasAllOrgScope) {
+            organizationCatalog
+                .filter((organization) => (
+                    organization.is_active !== false
+                    && isCompanyLikeOrganization(organization)
+                    && String(organization.org_type || "").toLowerCase() !== "group"
+                ))
+                .forEach((organization) => companyCodes.add(organization.org_code));
+        }
+
+        visibleOrgCodes.forEach((orgCode) => {
+            const organization = organizationMap.get(orgCode);
+            if (hasAllOrgScope && organization && !isCompanyLikeOrganization(organization)) {
+                return;
+            }
+            companyCodes.add(findCompanyScopeCodeForOrg(orgCode, organizationMap));
+        });
+
+        if (companyCodes.size > 1) {
+            companyCodes.delete("group");
+        }
+        if (!companyCodes.size) {
+            companyCodes.add(findCompanyScopeCodeForOrg(defaultOrgScope, organizationMap));
+        }
+
+        return sortOrganizationCodes([...companyCodes], organizationMap).map((orgCode) => {
+            const organization = organizationMap.get(orgCode);
+            return {
+                value: orgCode,
+                label: organization?.name || getFallbackOrganizationLabel(orgCode),
+                description: organization ? getOrganizationPathLabel(orgCode, organizationMap) : undefined,
+                organization,
+            };
+        });
+    }, [defaultOrgScope, hasAllOrgScope, organizationCatalog, organizationMap, visibleOrgCodes]);
+    const selectedCompanyOrgCodes = useMemo(() => {
+        const selectedCompanyCode = normalizeRecruitmentOrgCode(selectedOrgScope);
+        const scopedCodes = visibleOrgCodes.filter((orgCode) => (
+            orgCode === selectedCompanyCode || isOrganizationInScope(organizationMap, selectedCompanyCode, orgCode)
+        ));
+        return scopedCodes.length ? scopedCodes : [selectedCompanyCode];
+    }, [organizationMap, selectedOrgScope, visibleOrgCodes]);
+    const departmentScopeOptions = useMemo<OrganizationSelectOption[]>(() => {
+        const departmentCodes = selectedCompanyOrgCodes.filter((orgCode) => isDepartmentOrganization(organizationMap.get(orgCode)));
+        const selectedCompanyIsVisible = selectedCompanyOrgCodes.some((orgCode) => orgCode === normalizeRecruitmentOrgCode(selectedOrgScope));
+        const options: OrganizationSelectOption[] = [];
+        if (departmentCodes.length && (selectedCompanyIsVisible || departmentCodes.length > 1)) {
+            options.push({
+                value: ALL_COMPANY_DEPARTMENTS_VALUE,
+                label: recruitmentUiText.allVisibleDepartments,
+            });
+        }
+        departmentCodes.forEach((orgCode) => {
+            const organization = organizationMap.get(orgCode);
+            options.push({
+                value: orgCode,
+                label: getOrganizationRelativePathLabel(orgCode, selectedOrgScope, organizationMap),
+                description: organization ? getOrganizationPathLabel(orgCode, organizationMap) : undefined,
+                organization,
+            });
+        });
+        return options;
+    }, [organizationMap, recruitmentUiText.allVisibleDepartments, selectedCompanyOrgCodes, selectedOrgScope]);
+    const activeBusinessOrgCodes = useMemo(() => {
+        if (
+            selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE
+            && selectedCompanyOrgCodes.includes(normalizeRecruitmentOrgCode(selectedDepartmentScope))
+        ) {
+            const selectedDepartmentCode = normalizeRecruitmentOrgCode(selectedDepartmentScope);
+            const scopedDepartmentCodes = selectedCompanyOrgCodes.filter((orgCode) => (
+                orgCode === selectedDepartmentCode || isOrganizationInScope(organizationMap, selectedDepartmentCode, orgCode)
+            ));
+            return scopedDepartmentCodes.length ? scopedDepartmentCodes : [selectedDepartmentCode];
+        }
+        return selectedCompanyOrgCodes;
+    }, [organizationMap, selectedCompanyOrgCodes, selectedDepartmentScope]);
+    const organizationSelectOptions = useMemo(
+        () => activeBusinessOrgCodes.map((orgCode) => {
+            const organization = organizationMap.get(orgCode);
+            return {
+                value: orgCode,
+                label: getOrganizationPathLabel(orgCode, organizationMap),
+                organization,
+            };
+        }),
+        [activeBusinessOrgCodes, organizationMap],
+    );
+    const showOrganizationFields = organizationSelectOptions.length > 1;
+    const showOrganizationColumn = orgScopeOptions.length > 1 || organizationSelectOptions.length > 1;
+    const getOrganizationLabel = useCallback((orgCode?: string | null) => (
+        getOrganizationPathLabel(normalizeRecruitmentOrgCode(orgCode), organizationMap)
+    ), [organizationMap]);
+    const defaultFormOrgCode = useMemo(() => (
+        organizationSelectOptions[0]?.value || activeBusinessOrgCodes[0] || defaultOrgScope
+    ), [activeBusinessOrgCodes, defaultOrgScope, organizationSelectOptions]);
+    const activeCreateOrgCode = useMemo(() => (
+        showOrganizationFields ? defaultFormOrgCode : (activeBusinessOrgCodes[0] || defaultFormOrgCode)
+    ), [activeBusinessOrgCodes, defaultFormOrgCode, showOrganizationFields]);
     const positionMap = useMemo(() => new Map(positions.map((item) => [item.id, item])), [positions]);
     const candidateMap = useMemo(() => new Map(candidates.map((item) => [item.id, item])), [candidates]);
     const skillMap = useMemo(() => new Map(skills.map((item) => [item.id, item])), [skills]);
@@ -863,8 +1174,41 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         );
     }, [candidates]);
 
+    const visiblePositions = useMemo(() => {
+        const normalizedQuery = deferredPositionQuery.trim().toLowerCase();
+        return positions.filter((position) => {
+            if (positionStatusFilter !== "all" && position.status !== positionStatusFilter) {
+                return false;
+            }
+            if (!normalizedQuery) {
+                return true;
+            }
+            return [
+                position.title,
+                position.department,
+                position.location,
+                position.summary,
+            ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
+        });
+    }, [deferredPositionQuery, positionStatusFilter, positions]);
+
     const visibleCandidates = useMemo(() => {
+        const normalizedQuery = deferredCandidateQuery.trim().toLowerCase();
         return candidates.filter((candidate) => {
+            if (candidatePositionFilter !== "all" && String(candidate.position_id || "") !== candidatePositionFilter) {
+                return false;
+            }
+            if (candidateStatusFilter !== "all" && resolveCandidateDisplayStatus(candidate) !== candidateStatusFilter) {
+                return false;
+            }
+            if (normalizedQuery && ![
+                candidate.name,
+                candidate.phone,
+                candidate.email,
+                candidate.current_company,
+            ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery))) {
+                return false;
+            }
             if (candidateSourceFilter !== "all" && (candidate.source || "未知来源") !== candidateSourceFilter) {
                 return false;
             }
@@ -889,7 +1233,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             return true;
         });
-    }, [candidateMatchFilter, candidateSourceFilter, candidateTimeFilter, candidates]);
+    }, [candidateMatchFilter, candidatePositionFilter, candidateSourceFilter, candidateStatusFilter, candidateTimeFilter, candidates, deferredCandidateQuery]);
+
+    const visibleAiLogs = useMemo(() => {
+        return aiLogs.filter((log) => {
+            if (logTaskTypeFilter !== "all" && log.task_type !== logTaskTypeFilter) {
+                return false;
+            }
+            if (logStatusFilter !== "all" && log.status !== logStatusFilter) {
+                return false;
+            }
+            return true;
+        });
+    }, [aiLogs, logStatusFilter, logTaskTypeFilter]);
 
     const groupedCandidates = useMemo(() => {
         const order = metadata?.candidate_statuses?.map((item) => item.value) || Object.keys(candidateStatusLabels);
@@ -922,6 +1278,33 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return Object.values(auditListDisplayColumnWidths).reduce((sum, width) => sum + width, 0);
     }, [auditListDisplayColumnWidths]);
 
+    const scopedDashboard = useMemo<DashboardData>(() => {
+        const statusDistribution = new Map<string, number>();
+        candidates.forEach((candidate) => {
+            const status = resolveCandidateDisplayStatus(candidate);
+            statusDistribution.set(status, (statusDistribution.get(status) || 0) + 1);
+        });
+        const sortedRecentCandidates = [...candidates]
+            .sort((left, right) => new Date(right.updated_at || right.created_at || 0).getTime() - new Date(left.updated_at || left.created_at || 0).getTime())
+            .slice(0, 8);
+        return {
+            cards: {
+                positions_total: positions.length,
+                positions_recruiting: positions.filter((position) => position.status === "recruiting").length,
+                candidates_total: candidates.length,
+                pending_screening: candidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_screening").length,
+                screening_passed: candidates.filter((candidate) => (
+                    ["screening_passed", "pending_interview", "interview_passed", "pending_offer", "offer_sent", "hired"].includes(resolveCandidateDisplayStatus(candidate))
+                )).length,
+                recent_ai_tasks: aiLogs.filter((log) => isToday(log.created_at)).length,
+            },
+            status_distribution: [...statusDistribution.entries()]
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([status, count]) => ({status, count})),
+            recent_candidates: sortedRecentCandidates,
+        };
+    }, [aiLogs, candidates, positions]);
+
     const todayNewResumes = useMemo(
         () => candidates.filter((candidate) => isToday(candidate.created_at)).length,
         [candidates],
@@ -936,7 +1319,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         };
     }, [candidates, positions]);
 
-    const recentCandidates = dashboard?.recent_candidates || [];
+    const recentCandidates = scopedDashboard.recent_candidates || [];
     const recentLogs = aiLogs.slice(0, 6);
     const candidateFilterSummary = useMemo(() => {
         const positionLabel = candidatePositionFilter === "all"
@@ -982,6 +1365,79 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }, [language, logStatusFilter, logTaskTypeFilter, recruitmentUiText]);
 
     useEffect(() => {
+        const optionValues = new Set(orgScopeOptions.map((option) => option.value));
+        if (!optionValues.size || optionValues.has(selectedOrgScope)) {
+            return;
+        }
+        const defaultCompanyScope = findCompanyScopeCodeForOrg(defaultOrgScope, organizationMap);
+        setSelectedOrgScope(optionValues.has(defaultCompanyScope) ? defaultCompanyScope : orgScopeOptions[0].value);
+    }, [defaultOrgScope, orgScopeOptions, organizationMap, selectedOrgScope]);
+
+    useEffect(() => {
+        const optionValues = new Set(departmentScopeOptions.map((option) => option.value));
+        if (!optionValues.size) {
+            if (selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE) {
+                setSelectedDepartmentScope(ALL_COMPANY_DEPARTMENTS_VALUE);
+            }
+            return;
+        }
+        if (optionValues.has(selectedDepartmentScope)) {
+            return;
+        }
+        const allDepartmentsOption = departmentScopeOptions.find((option) => option.value === ALL_COMPANY_DEPARTMENTS_VALUE);
+        setSelectedDepartmentScope((allDepartmentsOption || departmentScopeOptions[0]).value);
+    }, [departmentScopeOptions, selectedDepartmentScope]);
+
+    useEffect(() => {
+        setPositions(filterBusinessRowsByOrgCodes(allPositions, activeBusinessOrgCodes));
+        setCandidates(filterBusinessRowsByOrgCodes(allCandidates, activeBusinessOrgCodes));
+        setSkills(filterResourceRowsByOrgCodes(allSkills, activeBusinessOrgCodes, organizationMap));
+        setAiLogs(filterBusinessRowsByOrgCodes(allAiLogs, activeBusinessOrgCodes));
+        setLlmConfigs(filterResourceRowsByOrgCodes(allLlmConfigs, activeBusinessOrgCodes, organizationMap));
+        setMailSenderConfigs(filterResourceRowsByOrgCodes(allMailSenderConfigs, activeBusinessOrgCodes, organizationMap));
+        setMailRecipients(filterResourceRowsByOrgCodes(allMailRecipients, activeBusinessOrgCodes, organizationMap));
+        setResumeMailDispatches(filterBusinessRowsByOrgCodes(allResumeMailDispatches, activeBusinessOrgCodes));
+    }, [
+        activeBusinessOrgCodes,
+        allAiLogs,
+        allCandidates,
+        allLlmConfigs,
+        allMailRecipients,
+        allMailSenderConfigs,
+        allPositions,
+        allResumeMailDispatches,
+        allSkills,
+        organizationMap,
+    ]);
+
+    useEffect(() => {
+        setSelectedPositionId((current) => {
+            if (current && visiblePositions.some((position) => position.id === current)) {
+                return current;
+            }
+            return visiblePositions[0]?.id || null;
+        });
+    }, [visiblePositions]);
+
+    useEffect(() => {
+        setSelectedCandidateId((current) => {
+            if (current && visibleCandidates.some((candidate) => candidate.id === current)) {
+                return current;
+            }
+            return visibleCandidates[0]?.id || null;
+        });
+    }, [visibleCandidates]);
+
+    useEffect(() => {
+        setSelectedLogId((current) => {
+            if (!current || visibleAiLogs.some((log) => log.id === current)) {
+                return current;
+            }
+            return visibleAiLogs[0]?.id || null;
+        });
+    }, [visibleAiLogs]);
+
+    useEffect(() => {
         if (!canManageRecruitment && (
             activePage === "settings-skills"
             || activePage === "settings-models"
@@ -998,6 +1454,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     useEffect(() => {
         setSelectedCandidateIds((current) => current.filter((candidateId) => visibleCandidates.some((candidate) => candidate.id === candidateId)));
     }, [visibleCandidates]);
+
+    useEffect(() => {
+        if (
+            candidatePositionFilter !== "all"
+            && !positions.some((position) => String(position.id) === candidatePositionFilter)
+        ) {
+            setCandidatePositionFilter("all");
+        }
+    }, [candidatePositionFilter, positions]);
 
     useEffect(() => {
         selectedLogIdRef.current = selectedLogId;
@@ -1116,11 +1581,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
         async function bootstrap() {
             setBootstrapping(true);
-            positionsFiltersInitializedRef.current = false;
-            candidatesFiltersInitializedRef.current = false;
             logsFiltersInitializedRef.current = false;
             try {
                 await Promise.allSettled([
+                    loadOrganizationCatalog(),
                     loadMetadata(),
                     loadDashboard(),
                     loadPositions(),
@@ -1145,28 +1609,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             cancelled = true;
         };
     }, [canManageRecruitment]);
-
-    useEffect(() => {
-        if (bootstrapping) {
-            return;
-        }
-        if (!positionsFiltersInitializedRef.current) {
-            positionsFiltersInitializedRef.current = true;
-            return;
-        }
-        void loadPositions();
-    }, [bootstrapping, positionListRequestKey]);
-
-    useEffect(() => {
-        if (bootstrapping) {
-            return;
-        }
-        if (!candidatesFiltersInitializedRef.current) {
-            candidatesFiltersInitializedRef.current = true;
-            return;
-        }
-        void loadCandidates();
-    }, [bootstrapping, candidateListRequestKey]);
 
     useEffect(() => {
         if (bootstrapping) {
@@ -1619,12 +2061,47 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
+    async function loadOrganizationCatalog() {
+        setOrganizationCatalogLoading(true);
+        try {
+            const data = await runDedupedRequest("organization-catalog", async () => {
+                return recruitmentApi<RecruitmentOrganizationScope>("/organization-scope");
+            });
+            if (mountedRef.current) {
+                setOrganizationCatalog(data.organizations || []);
+                setAuthorizedOrgCodes(
+                    (data.visible_org_codes && data.visible_org_codes.length)
+                        ? data.visible_org_codes.map(normalizeRecruitmentOrgCode)
+                        : [normalizeRecruitmentOrgCode(data.primary_org_code || defaultOrgScope)],
+                );
+                setHasAllOrgScope(Boolean(data.has_all_orgs));
+            }
+            return data;
+        } catch (error) {
+            const dataScope = String(sessionUser?.dataScope || "ORG_ONLY").toUpperCase();
+            const fallbackOrgCodes = dataScope === "CUSTOM_ORGS" && sessionUser?.customOrgCodes?.length
+                ? sessionUser.customOrgCodes.map(normalizeRecruitmentOrgCode)
+                : [defaultOrgScope];
+            if (mountedRef.current) {
+                setOrganizationCatalog([]);
+                setAuthorizedOrgCodes(fallbackOrgCodes);
+                setHasAllOrgScope(dataScope === "ALL");
+            }
+            return {
+                primary_org_code: defaultOrgScope,
+                data_scope: dataScope,
+                has_all_orgs: dataScope === "ALL",
+                visible_org_codes: fallbackOrgCodes,
+                organizations: [],
+            } satisfies RecruitmentOrganizationScope;
+        } finally {
+            setOrganizationCatalogLoading(false);
+        }
+    }
+
     async function loadDashboard() {
         try {
             const data = await runDedupedRequest("dashboard", () => recruitmentApi<DashboardData>("/dashboard"));
-            if (mountedRef.current) {
-                setDashboard(data);
-            }
             return data;
         } catch (error) {
             toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.workspace, formatActionError(error)));
@@ -1637,21 +2114,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         positionsLoadRequestIdRef.current = requestId;
         setPositionsLoading(true);
         try {
-            const query = buildQuery({query: deferredPositionQuery, status: positionStatusFilter});
             const data = await runDedupedRequest(
-                `positions:${query}`,
-                () => recruitmentApi<PositionSummary[]>(`/positions${query}`),
+                "positions:all",
+                () => recruitmentApi<PositionSummary[]>("/positions"),
             );
             if (!mountedRef.current || positionsLoadRequestIdRef.current !== requestId) {
                 return data;
             }
-            setPositions(data);
-            setSelectedPositionId((current) => {
-                if (current && data.some((item) => item.id === current)) {
-                    return current;
-                }
-                return data[0]?.id || null;
-            });
+            setAllPositions(data);
             return data;
         } catch (error) {
             toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.positions, formatActionError(error)));
@@ -1694,28 +2164,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setCandidatesLoading(true);
         }
         try {
-            const query = buildQuery({
-                query: deferredCandidateQuery,
-                status: candidateStatusFilter,
-                position_id: candidatePositionFilter === "all" ? null : candidatePositionFilter,
-            });
-            const request = () => recruitmentApi<CandidateSummary[]>(`/candidates${query}`);
+            const request = () => recruitmentApi<CandidateSummary[]>("/candidates");
             const data = options?.force
                 ? await request()
                 : await runDedupedRequest(
-                    `candidates:${query}`,
+                    "candidates:all",
                     request,
                 );
             if (!mountedRef.current || candidatesLoadRequestIdRef.current !== requestId) {
                 return data;
             }
-            setCandidates(data);
-            setSelectedCandidateId((current) => {
-                if (current && data.some((item) => item.id === current)) {
-                    return current;
-                }
-                return data[0]?.id || null;
-            });
+            setAllCandidates(data);
             return data;
         } catch (error) {
             if (!options?.silent) {
@@ -1770,20 +2229,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setLogsLoading(true);
         }
         try {
-            const query = buildQuery({task_type: logTaskTypeFilter, status: logStatusFilter});
-            const currentRequestKey = `${logStatusFilter}::${logTaskTypeFilter}`;
             const data = await runDedupedRequest(
-                `logs:${options?.silent ? "silent" : "full"}:${query}`,
-                () => recruitmentApi<AITaskLog[]>(`/ai-task-logs${query}`),
+                `logs:${options?.silent ? "silent" : "full"}:all`,
+                () => recruitmentApi<AITaskLog[]>("/ai-task-logs"),
             );
-            if (mountedRef.current && auditLogRequestKeyRef.current === currentRequestKey) {
-                setAiLogs(data);
-                setSelectedLogId((current) => {
-                    if (current && data.some((item) => item.id === current)) {
-                        return current;
-                    }
-                    return data[0]?.id || null;
-                });
+            if (mountedRef.current) {
+                setAllAiLogs(data);
             }
             return data;
         } catch (error) {
@@ -1828,7 +2279,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         try {
             const data = await runDedupedRequest("skills", () => recruitmentApi<RecruitmentSkill[]>("/skills"));
             if (mountedRef.current) {
-                setSkills(data);
+                setAllSkills(data);
             }
             return data;
         } catch (error) {
@@ -1847,7 +2298,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         try {
             const data = await runDedupedRequest("llm-configs", () => recruitmentApi<RecruitmentLLMConfig[]>("/llm-configs"));
             if (mountedRef.current) {
-                setLlmConfigs(data);
+                setAllLlmConfigs(data);
             }
             return data;
         } catch (error) {
@@ -1889,9 +2340,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 };
             });
             if (mountedRef.current) {
-                setMailSenderConfigs(senders);
-                setMailRecipients(recipients);
-                setResumeMailDispatches(dispatches);
+                setAllMailSenderConfigs(senders);
+                setAllMailRecipients(recipients);
+                setAllResumeMailDispatches(dispatches);
                 setMailAutoPushGlobalConfig(autoPushConfig);
             }
             return {senders, recipients, dispatches, autoPushConfig};
@@ -2013,7 +2464,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             return current.includes(log.id) ? current.filter((item) => item !== log.id) : current;
         });
-        setAiLogs((current) => {
+        setAllAiLogs((current) => {
             const index = current.findIndex((item) => item.id === log.id);
             if (index === -1) {
                 return [log, ...current];
@@ -2797,7 +3248,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     function openCreatePosition() {
         setPositionDialogMode("create");
-        setPositionForm(emptyPositionForm());
+        setPositionForm({
+            ...emptyPositionForm(),
+            orgCode: showOrganizationFields ? "" : activeCreateOrgCode,
+        });
         setPositionFormErrors({});
         setPositionFormSubmitError(null);
         setPositionDialogOpen(true);
@@ -2809,6 +3263,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         setPositionDialogMode("edit");
         setPositionForm({
+            orgCode: normalizeRecruitmentOrgCode(positionDetail.position.org_code),
             title: positionDetail.position.title,
             department: positionDetail.position.department || "",
             location: positionDetail.position.location || "",
@@ -2860,6 +3315,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 delete next.headcount;
                 return next;
             });
+        } else if (field === "orgCode") {
+            setPositionFormErrors((current) => {
+                if (!current.orgCode) return current;
+                const next = {...current};
+                delete next.orgCode;
+                return next;
+            });
         }
     }
 
@@ -2868,6 +3330,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         const title = form.title.trim();
         const headcountText = form.headcount.trim();
         const headcountValue = Number(headcountText || "0");
+        const orgCode = normalizeRecruitmentOrgCode(form.orgCode);
+
+        if (positionDialogMode === "create") {
+            if (!form.orgCode.trim()) {
+                errors.orgCode = recruitmentUiText.chooseTargetOrganization;
+            } else if (!organizationSelectOptions.some((option) => option.value === orgCode)) {
+                errors.orgCode = isZh ? "请选择可用组织" : "Choose an available organization";
+            }
+        }
 
         if (!title) {
             errors.title = isZh ? "请输入岗位名称" : "Please enter a position title";
@@ -2907,6 +3378,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setPositionSubmitting(true);
 
         const payload = {
+            ...(positionDialogMode === "create" ? {org_code: normalizeRecruitmentOrgCode(positionForm.orgCode)} : {}),
             title: positionForm.title.trim(),
             department: positionForm.department.trim() || null,
             location: positionForm.location.trim() || null,
@@ -3148,10 +3620,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             toast.error(recruitmentToast.noResumeSelected);
             return;
         }
+        if (resumeUploadPositionId === "all" && !resumeUploadOrgCode.trim()) {
+            toast.error(recruitmentUiText.chooseTargetOrganization);
+            return;
+        }
         const formData = new FormData();
         resumeUploadFiles.forEach((file) => formData.append("files", file));
         const query = buildQuery({
             position_id: resumeUploadPositionId === "all" ? null : resumeUploadPositionId,
+            org_code: resumeUploadPositionId === "all" ? resumeUploadOrgCode : null,
         });
         try {
             const uploaded = await recruitmentApi<ResumeUploadResponse>(`/candidates/upload-resumes${query}`, {
@@ -3182,8 +3659,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     function openResumeUploadDialog() {
         if (activePage === "positions" && selectedPositionId) {
             setResumeUploadPositionId(String(selectedPositionId));
+            setResumeUploadOrgCode(normalizeRecruitmentOrgCode(positionMap.get(selectedPositionId)?.org_code || activeCreateOrgCode));
         } else {
             setResumeUploadPositionId("all");
+            setResumeUploadOrgCode(showOrganizationFields ? "" : activeCreateOrgCode);
         }
         setResumeUploadOpen(true);
     }
@@ -4923,7 +5402,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     function renderWorkspacePage() {
         return (
             <WorkspacePage
-                dashboard={dashboard}
+                dashboard={scopedDashboard}
                 todayNewResumes={todayNewResumes}
                 todoSummary={todoSummary}
                 recentCandidates={recentCandidates}
@@ -4952,7 +5431,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         : "xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]",
                 )}
             >
-                <div className="relative min-h-0 position-panel">
+                <div className="position-panel relative min-h-0">
                     <div className={cn("position-panel-header", positionListCollapsed && "collapsed")}>
                         {positionListCollapsed ? (
                             <div className="flex items-center justify-center">
@@ -4962,32 +5441,29 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <div>
                                 <div className="flex items-center justify-between">
                                     <span className="position-panel-title">{isZh ? "岗位列表" : "Position List"}</span>
-                                    <span className="position-panel-count">({positions.length})</span>
+                                    <span className="position-panel-count">({visiblePositions.length}/{positions.length})</span>
                                 </div>
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="mt-3 w-full rounded-lg border-[var(--sr-border)] bg-[var(--sr-bg-page)] hover:bg-[var(--sr-bg-hover)] text-[13px]"
+                                    className="mt-3 h-8 w-full rounded-xl border-slate-200/80 bg-white/80 text-xs text-slate-700 shadow-none hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:border-slate-700 dark:hover:bg-slate-900/70"
                                     onClick={openCreatePosition}
                                 >
-                                    <Plus className="h-4 w-4 mr-1"/>
-                                    {isZh ? "新增岗位" : " Add Position"}
+                                    <Plus className="mr-1 h-4 w-4"/>
+                                    {isZh ? "新增岗位" : "Add Position"}
                                 </Button>
                             </div>
                         )}
                     </div>
 
                     {!positionListCollapsed ? (
-                        <div className="px-4 pb-2 flex-shrink-0">
-                            <div className="position-search-wrap">
-                                <input
-                                    type="text"
-                                    className="position-search-input"
-                                    value={positionQuery}
-                                    onChange={(e) => setPositionQuery(e.target.value)}
-                                    placeholder={isZh ? "搜索岗位..." : "Search positions..."}
-                                />
-                            </div>
+                        <div className="flex-shrink-0 px-4 pb-3">
+                            <SearchField
+                                value={positionQuery}
+                                onChange={setPositionQuery}
+                                placeholder={isZh ? "搜索岗位、部门、地点" : "Search positions, departments, locations"}
+                                inputClassName="h-9 rounded-xl border-slate-200/80 bg-white/80 text-xs shadow-none placeholder:text-slate-400 focus-visible:ring-2 dark:border-slate-800 dark:bg-slate-950/60 dark:placeholder:text-slate-500"
+                            />
                             <div className="filter-chips mt-3">
                                 <button
                                     type="button"
@@ -5009,60 +5485,69 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             </div>
                         </div>
                     ) : null}
-                            <div className={cn(
-                                "flex-1 min-h-0 overflow-y-auto p-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0",
-                                positionListCollapsed ? "" : "",
-                            )}>
-                                <div className={cn(positionListCollapsed ? "space-y-2" : "space-y-2.5")}>
-                                    {positionsLoading ? (
-                                        <LoadingCard label={isZh ? "正在加载岗位列表" : "Loading positions"}/>
-                                    ) : positions.length ? positions.map((position) => (
-                                        <button
-                                            key={position.id}
-                                            type="button"
-                                            onClick={() => setSelectedPositionId(position.id)}
-                                            className={cn(
-                                                "w-full text-left transition border-b px-3 py-3",
-                                                selectedPositionId === position.id
-                                                    ? "bg-[var(--sr-bg-selected)] border-[var(--sr-accent)]"
-                                                    : "bg-[var(--sr-bg-surface)] border-[var(--sr-border-light)] hover:bg-[var(--sr-bg-hover)]",
-                                            )}
-                                        >
-                                            {positionListCollapsed ? (
-                                                <div className="space-y-1">
-                                                    <p className="truncate text-[12px] font-semibold leading-5">{position.title}</p>
-                                                    <div className="flex items-center gap-1.5 text-[10px] opacity-75">
-                                                        <span className="truncate">{position.location || position.department || (isZh ? "岗位" : "Position")}</span>
-                                                        <span className="h-1 w-1 shrink-0 rounded-full bg-current/45"/>
-                                                        <span className="shrink-0">{labelForPositionStatus(position.status)}</span>
-                                                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1 [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.75)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.9)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
+                        <div className={cn(positionListCollapsed ? "space-y-2" : "space-y-2.5")}>
+                            {positionsLoading ? (
+                                <LoadingCard label={isZh ? "正在加载岗位列表" : "Loading positions"}/>
+                            ) : visiblePositions.length ? visiblePositions.map((position) => {
+                                const isSelected = selectedPositionId === position.id;
+                                return (
+                                    <button
+                                        key={position.id}
+                                        type="button"
+                                        onClick={() => setSelectedPositionId(position.id)}
+                                        className={cn(
+                                            "group relative w-full rounded-2xl border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/40 dark:focus-visible:ring-slate-500/50",
+                                            isSelected
+                                                ? "border-slate-300 bg-slate-100/90 shadow-sm dark:border-slate-700 dark:bg-slate-900/90"
+                                                : "border-slate-200/70 bg-white/65 hover:border-slate-300 hover:bg-white/95 dark:border-slate-800 dark:bg-slate-950/45 dark:hover:border-slate-700 dark:hover:bg-slate-900/60",
+                                            positionListCollapsed && "px-2.5 py-2.5",
+                                        )}
+                                    >
+                                        {isSelected ? <span className="absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-slate-900 dark:bg-slate-100"/> : null}
+                                        {positionListCollapsed ? (
+                                            <div className="min-w-0 space-y-1 pl-1">
+                                                <p className="truncate text-[12px] font-semibold leading-5 text-slate-900 dark:text-slate-100">{position.title}</p>
+                                                <div className="flex min-w-0 items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                                    <span className="truncate">{position.location || position.department || (isZh ? "岗位" : "Position")}</span>
+                                                    <span className="h-1 w-1 shrink-0 rounded-full bg-current/45"/>
+                                                    <span className="shrink-0">{labelForPositionStatus(position.status)}</span>
                                                 </div>
-                                            ) : (
-                                                <div className="space-y-1.5">
-                                                    <p className={cn("line-clamp-2 text-[13px] font-semibold leading-5", selectedPositionId === position.id ? "text-[var(--sr-accent-text)]" : "text-slate-700 dark:text-slate-200")}>{position.title}</p>
-                                                    <div className={cn("flex flex-wrap items-center gap-2 text-[10px]", selectedPositionId === position.id ? "text-[var(--sr-accent-text)]" : "text-slate-500 dark:text-slate-400")}>
+                                            </div>
+                                        ) : (
+                                            <div className="min-w-0 space-y-2">
+                                                <p className="line-clamp-2 text-[13px] font-semibold leading-5 text-slate-900 dark:text-slate-100">{position.title}</p>
+                                                <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+                                                    {showOrganizationColumn ? (
                                                         <Badge
-                                                            className={cn("rounded-full border px-2 py-0 text-[10px]", selectedPositionId === position.id ? "border-[var(--sr-accent)] bg-[var(--sr-accent-light)] text-[var(--sr-accent-text)]" : statusBadgeClass("position", position.status))}>
-                                                            {labelForPositionStatus(position.status)}
+                                                            variant="outline"
+                                                            className="max-w-full rounded-full border-slate-200/80 bg-slate-50/80 px-2 py-0 text-[10px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300"
+                                                        >
+                                                            <span className="max-w-[160px] truncate">{getOrganizationLabel(position.org_code)}</span>
                                                         </Badge>
-                                                        <span className="text-[11px] font-medium leading-none">
-                                                            {isZh ? `候选人 ${position.candidate_count}` : `Candidates ${position.candidate_count}`}
-                                                        </span>
-                                                    </div>
-                                                    <p
-                                                        className="truncate text-[11px] leading-5 text-slate-500 dark:text-slate-400"
-                                                        title={`${position.department || (isZh ? "未设置部门" : "No department")} · ${position.location || (isZh ? "未设置地点" : "No location")}`}
-                                                    >
-                                                        {position.department || (isZh ? "未设置部门" : "No department")} · {position.location || (isZh ? "未设置地点" : "No location")}
-                                                    </p>
+                                                    ) : null}
+                                                    <Badge className={cn("rounded-full border px-2 py-0 text-[10px]", statusBadgeClass("position", position.status))}>
+                                                        {labelForPositionStatus(position.status)}
+                                                    </Badge>
+                                                    <span className="rounded-full border border-transparent px-1.5 text-[11px] font-medium leading-5 text-slate-500 dark:text-slate-400">
+                                                        {isZh ? `候选人 ${position.candidate_count}` : `Candidates ${position.candidate_count}`}
+                                                    </span>
                                                 </div>
-                                            )}
-                                        </button>
-                                    )) : (
-                                        <EmptyState title={isZh ? "暂无岗位" : "No Positions Yet"} description={isZh ? "先新建一个岗位，再由 AI 生成 JD 并进入招聘流程。" : "Create a position first, then generate a JD and enter the recruiting workflow."}/>
-                                    )}
-                                </div>
-                            </div>
+                                                <p
+                                                    className="truncate text-[11px] leading-5 text-slate-500 dark:text-slate-400"
+                                                    title={`${position.department || (isZh ? "未设置部门" : "No department")} · ${position.location || (isZh ? "未设置地点" : "No location")}`}
+                                                >
+                                                    {position.department || (isZh ? "未设置部门" : "No department")} · {position.location || (isZh ? "未设置地点" : "No location")}
+                                                </p>
+                                            </div>
+                                        )}
+                                    </button>
+                                );
+                            }) : (
+                                <EmptyState title={isZh ? "暂无岗位" : "No Positions Yet"} description={isZh ? "先新建一个岗位，再由 AI 生成 JD 并进入招聘流程。" : "Create a position first, then generate a JD and enter the recruiting workflow."}/>
+                            )}
+                        </div>
+                    </div>
                     <Button
                         type="button"
                         variant="outline"
@@ -5091,12 +5576,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white/70 px-3 py-2 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/60"
                                     >
                                         <div className="flex min-w-0 shrink flex-wrap items-center gap-2">
-                                                <Button
-                                                    size="sm"
-                                                    className="h-8 rounded-xl px-3 text-xs"
-                                                    variant={positionWorkspaceView === "jd" ? "default" : "outline"}
-                                                    onClick={() => setPositionWorkspaceView("jd")}
-                                                >
+                                            <Button
+                                                size="sm"
+                                                className="h-8 rounded-xl px-3 text-xs"
+                                                variant={positionWorkspaceView === "jd" ? "default" : "outline"}
+                                                onClick={() => setPositionWorkspaceView("jd")}
+                                            >
                                                 {isZh ? "当前 JD" : "Current JD"}
                                             </Button>
                                             <Button
@@ -5104,7 +5589,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 className="h-8 rounded-xl px-3 text-xs"
                                                 variant={positionWorkspaceView === "config" ? "default" : "outline"}
                                                 onClick={() => setPositionWorkspaceView("config")}
-                                                >
+                                            >
                                                 {isZh ? "岗位配置" : "Position Settings"}
                                             </Button>
                                             <span className="min-w-0 truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -5345,6 +5830,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 <Field label={isZh ? "岗位基础信息" : "Position Basics"}>
                                                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                                                         <InfoTile label={isZh ? "部门" : "Department"} value={positionDetail.position.department || (isZh ? "未设置部门" : "No department")}/>
+                                                        <InfoTile label={recruitmentUiText.organizationField} value={getOrganizationLabel(positionDetail.position.org_code)}/>
                                                         <InfoTile label={isZh ? "地点 / 用工类型" : "Location / Employment"} value={`${positionDetail.position.location || (isZh ? "未设置地点" : "No location")} · ${positionDetail.position.employment_type || (isZh ? "未设置用工类型" : "No employment type")}`}/>
                                                         <InfoTile label={isZh ? "薪资 / 招聘人数" : "Salary / Headcount"} value={`${positionDetail.position.salary_range || (isZh ? "未设置薪资" : "No salary set")} · ${positionDetail.position.headcount} ${isZh ? "人" : ""}`}/>
                                                         <InfoTile label={isZh ? "标签" : "Tags"} value={joinTags(positionDetail.position.tags) || (isZh ? "未设置" : "Not set")}/>
@@ -5519,6 +6005,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 setSelectedCandidateId={setSelectedCandidateId}
                 toggleCandidateSelection={toggleCandidateSelection}
                 candidateListDisplayColumnWidths={candidateListDisplayColumnWidths}
+                showOrganizationColumn={showOrganizationColumn}
+                getOrganizationLabel={getOrganizationLabel}
                 getCandidateResumeMailSummary={getCandidateResumeMailSummary}
                 groupedCandidates={groupedCandidates}
                 candidateDetailLoading={candidateDetailLoading}
@@ -5574,7 +6062,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 logsLoading={logsLoading}
                 logTaskTypeFilter={logTaskTypeFilter}
                 logStatusFilter={logStatusFilter}
-                aiLogs={aiLogs}
+                aiLogs={visibleAiLogs}
                 selectedLogId={selectedLogId}
                 selectedLogDetail={selectedLogDetail}
                 logDetailLoading={logDetailLoading}
@@ -5718,14 +6206,49 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             <h1 className="shrink-0 text-xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
                                 {pageMeta[activePage].title}
                             </h1>
-                            <p className="hidden min-w-0 truncate text-sm text-slate-500 dark:text-slate-400 2xl:block">
-                                {pageMeta[activePage].description}
-                            </p>
-                            <span className="sr-only">{pageMeta[activePage].title}：{pageMeta[activePage].description}</span>
+                            <span className="sr-only">{pageMeta[activePage].title}</span>
                         </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                        {orgScopeOptions.length ? (
+                            <div className="flex min-w-[210px] items-center gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-2.5 py-1.5 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
+                                <Building2 className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400"/>
+                                <div className="min-w-0 flex-1">
+                                    <p className="sr-only">{recruitmentUiText.currentOrgScope}</p>
+                                    <NativeSelect
+                                        value={selectedOrgScope}
+                                        onChange={(event) => setSelectedOrgScope(event.target.value)}
+                                        disabled={organizationCatalogLoading || orgScopeOptions.length <= 1}
+                                        title={recruitmentUiText.currentOrganization}
+                                        className="h-7 border-0 bg-transparent px-0 py-0 text-xs shadow-none focus-visible:ring-0"
+                                    >
+                                        {orgScopeOptions.map((option) => (
+                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))}
+                                    </NativeSelect>
+                                </div>
+                            </div>
+                        ) : null}
+                        {departmentScopeOptions.length ? (
+                            <div className="flex min-w-[180px] items-center gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-2.5 py-1.5 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
+                                <FolderKanban className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400"/>
+                                <div className="min-w-0 flex-1">
+                                    <p className="sr-only">{recruitmentUiText.currentDepartment}</p>
+                                    <NativeSelect
+                                        value={selectedDepartmentScope}
+                                        onChange={(event) => setSelectedDepartmentScope(event.target.value)}
+                                        disabled={organizationCatalogLoading || departmentScopeOptions.length <= 1}
+                                        title={recruitmentUiText.currentDepartment}
+                                        className="h-7 border-0 bg-transparent px-0 py-0 text-xs shadow-none focus-visible:ring-0"
+                                    >
+                                        {departmentScopeOptions.map((option) => (
+                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))}
+                                    </NativeSelect>
+                                </div>
+                            </div>
+                        ) : null}
                         <Button variant="outline" onClick={() => void refreshCoreDataWithFeedback()}
                                 disabled={coreRefreshing} className="rounded-xl">
                             {coreRefreshing ? <Loader2 className="h-4 w-4 animate-spin"/> :
@@ -5809,7 +6332,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 icon={FolderKanban}
                                 title={recruitmentUiText.workspaceTitle}
                                 description={recruitmentUiText.workspaceDescription}
-                                count={dashboard?.cards.positions_recruiting ?? 0}
+                                count={scopedDashboard.cards.positions_recruiting}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
                                     primaryNavButtonRefs.current.workspace = node;
@@ -6045,6 +6568,22 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     <ScrollArea className="min-h-0 flex-1">
                         <div className="space-y-4 px-1 py-1">
                             <div className="grid gap-4 md:grid-cols-2">
+                                {positionDialogMode === "create" && showOrganizationFields && organizationSelectOptions.length > 1 ? (
+                                    <Field label={recruitmentUiText.targetOrganization} error={positionFormErrors.orgCode} className="md:col-span-2">
+                                        <NativeSelect
+                                            value={positionForm.orgCode}
+                                            onChange={(event) => updatePositionFormField("orgCode", event.target.value)}
+                                        >
+                                            <option value="">{recruitmentUiText.chooseTargetOrganization}</option>
+                                            {organizationSelectOptions.map((option) => (
+                                                <option key={option.value} value={option.value}>{option.label}</option>
+                                            ))}
+                                        </NativeSelect>
+                                        {showOrganizationFields ? (
+                                            <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{recruitmentUiText.allVisibleCreateHint}</p>
+                                        ) : null}
+                                    </Field>
+                                ) : null}
                                 <Field label="岗位名称" error={positionFormErrors.title}>
                                     <Input
                                         ref={positionTitleInputRef}
@@ -6374,6 +6913,22 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 ))}
                             </NativeSelect>
                         </Field>
+                        {resumeUploadPositionId === "all" && showOrganizationFields && organizationSelectOptions.length > 1 ? (
+                            <Field label={recruitmentUiText.targetOrganization}>
+                                <NativeSelect
+                                    value={resumeUploadOrgCode}
+                                    onChange={(event) => setResumeUploadOrgCode(event.target.value)}
+                                >
+                                    <option value="">{recruitmentUiText.chooseTargetOrganization}</option>
+                                    {organizationSelectOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                </NativeSelect>
+                                {showOrganizationFields ? (
+                                    <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{recruitmentUiText.allVisibleUploadHint}</p>
+                                ) : null}
+                            </Field>
+                        ) : null}
                         <Field label="选择文件">
                             <Input type="file" multiple
                                    onChange={(event) => setResumeUploadFiles(Array.from(event.target.files || []))}/>

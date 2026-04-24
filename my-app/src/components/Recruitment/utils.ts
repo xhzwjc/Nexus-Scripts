@@ -283,6 +283,7 @@ export function expandTableColumnWidths<T extends string>(
 
 export function emptyPositionForm(): PositionFormState {
     return {
+        orgCode: "",
         title: "",
         department: "",
         location: "",

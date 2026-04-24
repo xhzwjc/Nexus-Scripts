@@ -1,6 +1,7 @@
 "use client";
 
 import { authenticatedFetch } from "@/lib/auth";
+import type { ScriptHubOrganizationDefinition } from "@/lib/types";
 
 export interface RecruitmentOption {
   value: string;
@@ -17,9 +18,18 @@ export interface RecruitmentMetadata {
   llm_task_types: RecruitmentOption[];
 }
 
+export interface RecruitmentOrganizationScope {
+  primary_org_code: string;
+  data_scope: string;
+  has_all_orgs: boolean;
+  visible_org_codes: string[];
+  organizations: ScriptHubOrganizationDefinition[];
+}
+
 export interface PositionSummary {
   id: number;
   position_code: string;
+  org_code?: string | null;
   title: string;
   department?: string | null;
   location?: string | null;
@@ -61,6 +71,7 @@ export interface PositionSummary {
 export interface JDVersion {
   id: number;
   position_id: number;
+  org_code?: string | null;
   version_no: number;
   title: string;
   prompt_snapshot?: string | null;
@@ -86,6 +97,7 @@ export interface JDGenerationState {
 export interface PublishTask {
   id: number;
   position_id: number;
+  org_code?: string | null;
   target_platform: string;
   mode: string;
   adapter_code?: string | null;
@@ -104,6 +116,7 @@ export interface PublishTask {
 export interface CandidateSummary {
   id: number;
   candidate_code: string;
+  org_code?: string | null;
   position_id?: number | null;
   position_title?: string | null;
   position_auto_screen_on_upload?: boolean;
@@ -233,6 +246,12 @@ export interface InterviewQuestion {
 export interface RecruitmentSkill {
   id: number;
   skill_code: string;
+  org_code?: string | null;
+  scope_level?: string | null;
+  share_policy?: string | null;
+  allow_sub_org_use?: boolean;
+  allow_copy?: boolean;
+  is_system_base?: boolean;
   name: string;
   description?: string | null;
   content: string;
@@ -251,6 +270,11 @@ export interface RecruitmentSkill {
 export interface RecruitmentLLMConfig {
   id: number;
   config_key: string;
+  org_code?: string | null;
+  scope_level?: string | null;
+  share_policy?: string | null;
+  allow_sub_org_use?: boolean;
+  allow_copy?: boolean;
   task_type: string;
   provider: string;
   model_name: string;
@@ -272,6 +296,7 @@ export interface RecruitmentLLMConfig {
 
 export interface AITaskLog {
   id: number;
+  org_code?: string | null;
   task_type: string;
   screening_run_id?: string | null;
   parent_task_id?: number | null;
@@ -431,6 +456,11 @@ export interface ResumeUploadResponse {
 
 export interface RecruitmentMailSenderConfig {
   id: number;
+  org_code?: string | null;
+  scope_level?: string | null;
+  share_policy?: string | null;
+  allow_sub_org_use?: boolean;
+  allow_copy?: boolean;
   name: string;
   from_name?: string | null;
   from_email: string;
@@ -449,6 +479,11 @@ export interface RecruitmentMailSenderConfig {
 
 export interface RecruitmentMailRecipient {
   id: number;
+  org_code?: string | null;
+  scope_level?: string | null;
+  share_policy?: string | null;
+  allow_sub_org_use?: boolean;
+  allow_copy?: boolean;
   name: string;
   email: string;
   department?: string | null;
@@ -462,6 +497,7 @@ export interface RecruitmentMailRecipient {
 
 export interface RecruitmentResumeMailDispatch {
   id: number;
+  org_code?: string | null;
   sender_config_id?: number | null;
   sender_name?: string | null;
   position_id?: number | null;

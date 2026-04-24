@@ -23,6 +23,7 @@ export type AssistantDisplayMode = "page" | "drawer" | "fullscreen" | "workspace
 export type ResumeMailDialogMode = "send" | "resend";
 
 export type PositionFormState = {
+    orgCode: string;
     title: string;
     department: string;
     location: string;
@@ -614,11 +615,12 @@ export const mailSenderPresets: MailSenderPreset[] = [
 export const panelClass =
     "rounded-[24px] border border-slate-200/80 bg-white/95 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.45)] backdrop-blur dark:border-slate-800/90 dark:bg-slate-950/85";
 
-export type CandidateListColumnKey = "candidate" | "position" | "status" | "match" | "source" | "updated";
+export type CandidateListColumnKey = "candidate" | "organization" | "position" | "status" | "match" | "source" | "updated";
 export type AuditListColumnKey = "taskType" | "object" | "status" | "model" | "duration" | "time";
 
 export const candidateListColumnDefaultWidths: Record<CandidateListColumnKey, number> = {
     candidate: 260,
+    organization: 132,
     position: 148,
     status: 96,
     match: 84,
@@ -628,6 +630,7 @@ export const candidateListColumnDefaultWidths: Record<CandidateListColumnKey, nu
 
 export const candidateListColumnMinWidths: Record<CandidateListColumnKey, number> = {
     candidate: 220,
+    organization: 112,
     position: 120,
     status: 88,
     match: 72,
@@ -637,6 +640,7 @@ export const candidateListColumnMinWidths: Record<CandidateListColumnKey, number
 
 export const candidateListColumnMaxWidths: Record<CandidateListColumnKey, number> = {
     candidate: 420,
+    organization: 220,
     position: 260,
     status: 180,
     match: 140,
@@ -646,6 +650,7 @@ export const candidateListColumnMaxWidths: Record<CandidateListColumnKey, number
 
 export const candidateListColumnFillWeights: Record<CandidateListColumnKey, number> = {
     candidate: 3.4,
+    organization: 1.2,
     position: 1.8,
     status: 1,
     match: 1,

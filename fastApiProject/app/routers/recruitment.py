@@ -140,6 +140,11 @@ async def get_metadata(_session: Dict[str, Any] = Depends(require_script_hub_per
     return {"success": True, "data": service.get_metadata(), "request_id": str(uuid.uuid4())}
 
 
+@recruitment_router.get("/organization-scope")
+async def get_organization_scope(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    return {"success": True, "data": service.get_organization_scope(), "request_id": str(uuid.uuid4())}
+
+
 @recruitment_router.get("/dashboard")
 async def get_dashboard(_session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     return {"success": True, "data": service.get_dashboard(), "request_id": str(uuid.uuid4())}
@@ -330,7 +335,7 @@ async def get_candidate_status_history(candidate_id: int, _session: Dict[str, An
 
 
 @recruitment_router.post("/candidates/upload-resumes")
-async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     staging_root = RECRUITMENT_UPLOAD_ROOT / "_staging"
     staging_root.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(tempfile.mkdtemp(prefix="resume-batch-", dir=str(staging_root)))
@@ -338,7 +343,7 @@ async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optio
     try:
         for item in files:
             uploaded_files.append(await _stage_upload_file(item, staging_dir))
-        rows = service.upload_resume_files(uploaded_files, position_id, _session.get("id") or "unknown")
+        rows = service.upload_resume_files(uploaded_files, position_id, _session.get("id") or "unknown", org_code)
         auto_screen_queued_count = 0
         auto_screen_skipped_existing_live_task_count = 0
         auto_screen_failed_count = 0

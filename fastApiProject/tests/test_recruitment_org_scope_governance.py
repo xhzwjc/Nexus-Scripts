@@ -191,6 +191,10 @@ def _orgs(rows):
     return {row["org_code"] for row in rows}
 
 
+def _scope_orgs(scope):
+    return {row["org_code"] for row in scope["organizations"]}
+
+
 def _seed_recruitment_dataset(db):
     admin = _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True)
     positions = {
@@ -281,6 +285,40 @@ def test_recruitment_positions_and_candidates_follow_group_company_department_sc
             actor_id="chunmiao-leader",
         )
         assert created_by_leader["org_code"] == "chunmiao-rd"
+    finally:
+        db.close()
+
+
+def test_recruitment_organization_scope_exposes_only_authorized_nodes_and_ancestors():
+    db = _build_test_db()
+    try:
+        _seed_org_tree(db)
+        _seed_catalog(db)
+
+        group_scope = _service(db, _session("group-admin", "group", DATA_SCOPE_ALL, super_admin=True)).get_organization_scope()
+        assert group_scope["has_all_orgs"] is True
+        assert set(group_scope["visible_org_codes"]) == {"group", "haoshi", "haoshi-ops", "chunmiao", "chunmiao-rd", "chunmiao-fin"}
+        assert _scope_orgs(group_scope) == {"group", "haoshi", "haoshi-ops", "chunmiao", "chunmiao-rd", "chunmiao-fin"}
+
+        chunmiao_scope = _service(db, _session("chunmiao-leader", "chunmiao", DATA_SCOPE_ORG_AND_CHILDREN)).get_organization_scope()
+        assert set(chunmiao_scope["visible_org_codes"]) == {"chunmiao", "chunmiao-rd", "chunmiao-fin"}
+        assert _scope_orgs(chunmiao_scope) == {"group", "chunmiao", "chunmiao-rd", "chunmiao-fin"}
+        assert "haoshi" not in _scope_orgs(chunmiao_scope)
+        assert "haoshi-ops" not in _scope_orgs(chunmiao_scope)
+
+        rd_scope = _service(db, _session("rd-user", "chunmiao-rd", DATA_SCOPE_ORG_ONLY)).get_organization_scope()
+        assert set(rd_scope["visible_org_codes"]) == {"chunmiao-rd"}
+        assert _scope_orgs(rd_scope) == {"group", "chunmiao", "chunmiao-rd"}
+        assert "chunmiao-fin" not in _scope_orgs(rd_scope)
+
+        cross_scope = _service(
+            db,
+            _session("cross-leader", "group", DATA_SCOPE_CUSTOM_ORGS, custom_orgs=["chunmiao-rd", "haoshi"]),
+        ).get_organization_scope()
+        assert set(cross_scope["visible_org_codes"]) == {"chunmiao-rd", "haoshi"}
+        assert _scope_orgs(cross_scope) == {"group", "chunmiao", "chunmiao-rd", "haoshi"}
+        assert "chunmiao-fin" not in _scope_orgs(cross_scope)
+        assert "haoshi-ops" not in _scope_orgs(cross_scope)
     finally:
         db.close()
 

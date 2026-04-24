@@ -55,6 +55,7 @@ from ..recruitment_models import (
     RecruitmentRuleConfig,
     RecruitmentSkill,
 )
+from ..rbac_models import ScriptHubOrganization
 from ..secret_crypto import decrypt_secret, encrypt_secret, mask_secret
 from .recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentAIRetryExhaustedError, RecruitmentAIScreeningTotalTimeoutError, RecruitmentAITimeoutError, SCREENING_STAGE_MIN_TIMEOUT_SECONDS, SCREENING_TOTAL_TIMEOUT_SECONDS, _parse_llm_json_response, get_provider_options
 from .recruitment_mailer import RecruitmentMailSenderRuntime, build_resume_email, load_attachment_from_path, send_email_via_smtp
@@ -5267,6 +5268,58 @@ class RecruitmentService:
         if normalize_org_code(org_code) not in set(self.permission_context.visible_org_codes or ()):
             raise ValueError("鎿嶄綔澶辫触")
 
+    def _serialize_organization_scope_row(self, row: ScriptHubOrganization) -> Dict[str, Any]:
+        return {
+            "org_code": row.org_code,
+            "name": row.name,
+            "org_type": row.org_type,
+            "parent_org_code": row.parent_org_code,
+            "path": row.path,
+            "sort_order": row.sort_order,
+            "is_active": bool(row.is_active),
+        }
+
+    def get_organization_scope(self) -> Dict[str, Any]:
+        context = self.permission_context
+        rows = (
+            self.db.query(ScriptHubOrganization)
+            .filter(ScriptHubOrganization.is_active.is_(True))
+            .order_by(ScriptHubOrganization.path.asc(), ScriptHubOrganization.sort_order.asc(), ScriptHubOrganization.org_code.asc())
+            .all()
+        )
+        row_by_code = {row.org_code: row for row in rows}
+        primary_org_code = context.primary_org_code if context else ROOT_ORG_CODE
+        if not context or context.has_all_orgs:
+            visible_org_codes = [row.org_code for row in rows] or [primary_org_code]
+            catalog_codes = set(visible_org_codes)
+            has_all_orgs = True
+            data_scope = "ALL"
+        else:
+            visible_org_codes = list(context.visible_org_codes or (primary_org_code,))
+            catalog_codes = set(visible_org_codes)
+            for org_code in visible_org_codes:
+                current = row_by_code.get(org_code)
+                visited: set[str] = set()
+                while current and current.org_code not in visited:
+                    catalog_codes.add(current.org_code)
+                    visited.add(current.org_code)
+                    current = row_by_code.get(current.parent_org_code) if current.parent_org_code else None
+            has_all_orgs = False
+            data_scope = context.data_scope
+
+        organizations = [
+            self._serialize_organization_scope_row(row)
+            for row in rows
+            if row.org_code in catalog_codes
+        ]
+        return {
+            "primary_org_code": primary_org_code,
+            "data_scope": data_scope,
+            "has_all_orgs": has_all_orgs,
+            "visible_org_codes": visible_org_codes,
+            "organizations": organizations,
+        }
+
     def _build_request_hash(self, *parts: Any) -> str:
         raw = "||".join([str(part or "") for part in parts])
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
@@ -7323,6 +7376,7 @@ class RecruitmentService:
     ) -> Dict[str, Any]:
         payload = {
             "id": row.id,
+            "org_code": normalize_org_code(getattr(row, "org_code", None)),
             "task_type": row.task_type,
             "screening_run_id": row.screening_run_id,
             "batch_id": getattr(row, "batch_id", None),
@@ -8189,8 +8243,11 @@ class RecruitmentService:
         rows = self.db.query(RecruitmentCandidateStatusHistory).filter(RecruitmentCandidateStatusHistory.candidate_id == candidate_id).order_by(RecruitmentCandidateStatusHistory.created_at.desc(), RecruitmentCandidateStatusHistory.id.desc()).all()
         return [self._serialize_status_history(row) for row in rows]
 
-    def upload_resume_files(self, uploaded_files: List[Dict[str, Any]], position_id: Optional[int], actor_id: str) -> List[Dict[str, Any]]:
+    def upload_resume_files(self, uploaded_files: List[Dict[str, Any]], position_id: Optional[int], actor_id: str, target_org_code: Optional[str] = None) -> List[Dict[str, Any]]:
         position = self._get_position(position_id) if position_id else None
+        fallback_org_code = normalize_org_code(target_org_code or self._current_org_code())
+        if not position:
+            self._assert_can_create_in_org(fallback_org_code)
         target_dir = RECRUITMENT_UPLOAD_ROOT / uuid.uuid4().hex[:8]
         target_dir.mkdir(parents=True, exist_ok=True)
         results: List[Dict[str, Any]] = []
@@ -8216,7 +8273,7 @@ class RecruitmentService:
                 content = item.get("content") or b""
                 storage_path.write_bytes(content)
                 file_size = len(content)
-            candidate_org_code = normalize_org_code(getattr(position, "org_code", None) if position else self._current_org_code())
+            candidate_org_code = normalize_org_code(getattr(position, "org_code", None) if position else fallback_org_code)
             candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=candidate_org_code, position_id=position.id if position else None, name=safe_file_stem(file_name), source="manual_upload", source_detail=file_name, status="pending_screening", tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
             self.db.add(candidate)
             self.db.flush()
@@ -13182,6 +13239,7 @@ class RecruitmentService:
         sender = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == row.sender_config_id).first() if row.sender_config_id else None
         return {
             "id": row.id,
+            "org_code": normalize_org_code(getattr(row, "org_code", None)),
             "sender_config_id": row.sender_config_id,
             "sender_name": sender.name if sender else None,
             "position_id": row.position_id,

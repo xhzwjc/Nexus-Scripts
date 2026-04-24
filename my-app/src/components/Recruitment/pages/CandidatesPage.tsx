@@ -153,6 +153,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         collapseFilters: isZh ? "收起筛选" : "Collapse Filters",
         search: isZh ? "搜索" : "Search",
         searchPlaceholder: isZh ? "搜索候选人、手机号、邮箱、公司" : "Search candidates, phone, email, or company",
+        organization: isZh ? "组织" : "Organization",
         position: isZh ? "岗位" : "Position",
         allPositions: isZh ? "全部岗位" : "All Positions",
         status: isZh ? "状态" : "Status",
@@ -1048,6 +1049,8 @@ type CandidatesPageProps = {
     setSelectedCandidateId: React.Dispatch<React.SetStateAction<number | null>>;
     toggleCandidateSelection: (candidateId: number, nextChecked?: boolean) => void;
     candidateListDisplayColumnWidths: CandidateListDisplayColumnWidths;
+    showOrganizationColumn: boolean;
+    getOrganizationLabel: (orgCode?: string | null) => string;
     getCandidateResumeMailSummary: (candidateId: number) => string | null;
     groupedCandidates: CandidateBoardGroup[];
     candidateDetailLoading: boolean;
@@ -1127,6 +1130,8 @@ export function CandidatesPage({
     setSelectedCandidateId,
     toggleCandidateSelection,
     candidateListDisplayColumnWidths,
+    showOrganizationColumn,
+    getOrganizationLabel,
     getCandidateResumeMailSummary,
     groupedCandidates,
     candidateDetailLoading,
@@ -1323,8 +1328,12 @@ export function CandidatesPage({
     }, [candidateViewMode, candidateListViewportEl]);
 
     const candidateListVisibleColumns = React.useMemo<CandidateListColumnKey[]>(
-        () => ["candidate", "position", "status", "match", "source", "updated"],
-        [],
+        () => (
+            showOrganizationColumn
+                ? ["candidate", "organization", "position", "status", "match", "source", "updated"]
+                : ["candidate", "position", "status", "match", "source", "updated"]
+        ),
+        [showOrganizationColumn],
     );
 
     const candidateListEffectiveColumnWidths = React.useMemo<CandidateListDisplayColumnWidths>(() => (
@@ -1669,15 +1678,17 @@ export function CandidatesPage({
                                                 {candidateListVisibleColumns.map((columnKey) => {
                                                     const label = columnKey === "candidate"
                                                         ? tr.candidate
-                                                        : columnKey === "position"
-                                                            ? tr.position
-                                                            : columnKey === "status"
-                                                                ? tr.status
-                                                                : columnKey === "match"
-                                                                    ? tr.matchPercent
-                                                                    : columnKey === "source"
-                                                                        ? tr.source
-                                                                        : tr.timeLabel;
+                                                        : columnKey === "organization"
+                                                            ? tr.organization
+                                                            : columnKey === "position"
+                                                                ? tr.position
+                                                                : columnKey === "status"
+                                                                    ? tr.status
+                                                                    : columnKey === "match"
+                                                                        ? tr.matchPercent
+                                                                        : columnKey === "source"
+                                                                            ? tr.source
+                                                                            : tr.timeLabel;
 
                                                     if (!candidateListCompactMode) {
                                                         return renderCandidateListHeaderCell(columnKey, label);
@@ -1756,6 +1767,21 @@ export function CandidatesPage({
                                                             ) : null}
                                                         </div>
                                                     </td>
+                                                    {showOrganizationColumn ? (
+                                                        <td
+                                                            style={{
+                                                                width: candidateListEffectiveColumnWidths.organization,
+                                                                minWidth: candidateListEffectiveColumnWidths.organization,
+                                                                maxWidth: candidateListEffectiveColumnWidths.organization,
+                                                            }}
+                                                            className="p-2 align-middle"
+                                                        >
+                                                            <HoverRevealText
+                                                                text={getOrganizationLabel(candidate.org_code)}
+                                                                className="text-xs text-slate-600 dark:text-slate-300"
+                                                            />
+                                                        </td>
+                                                    ) : null}
                                                     <td
                                                         style={{
                                                             width: candidateListEffectiveColumnWidths.position,
