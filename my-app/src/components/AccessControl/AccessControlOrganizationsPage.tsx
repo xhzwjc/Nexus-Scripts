@@ -36,7 +36,7 @@ import {
 import type { ScriptHubOrganizationDefinition, ScriptHubRbacOverview } from '@/lib/types';
 import { StatusBadge } from './AccessControlBadges';
 import { createOrganizationMap, OrganizationTreeText } from './organizationTree';
-import type { AccessControlLabels } from './utils';
+import { mapAccessControlApiError, type AccessControlLabels } from './utils';
 
 interface AccessControlOrganizationsPageProps {
     overview: ScriptHubRbacOverview | null;
@@ -345,7 +345,7 @@ export function AccessControlOrganizationsPage({
             closeDialogs();
             await onReload();
         } catch (saveError) {
-            setDialogError(saveError instanceof Error ? saveError.message : labels.organizationSaveFailed);
+            setDialogError(mapAccessControlApiError(saveError instanceof Error ? saveError.message : labels.organizationSaveFailed, labels));
         } finally {
             setSaving(false);
         }
@@ -371,7 +371,7 @@ export function AccessControlOrganizationsPage({
             closeDialogs();
             await onReload();
         } catch (deleteError) {
-            setDeleteDialogError(deleteError instanceof Error ? deleteError.message : labels.organizationDeleteFailed);
+            setDeleteDialogError(mapAccessControlApiError(deleteError instanceof Error ? deleteError.message : labels.organizationDeleteFailed, labels));
         } finally {
             setSaving(false);
         }

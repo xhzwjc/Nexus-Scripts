@@ -314,7 +314,7 @@ export function mapUserMutationError(message: string, labels: AccessControlLabel
     if (message.includes('Data scope downgrade requires explicit confirmation')) {
         return { message: `${labels.scopeDowngradeConfirm}：${labels.scopeDowngradeConfirmDesc}` };
     }
-    return { message: message || labels.validationFormSubmitFailed };
+    return { message: mapAccessControlApiError(message, labels) };
 }
 
 export function mapRoleMutationError(message: string, labels: AccessControlLabels): RoleMutationErrorResult {
@@ -330,21 +330,72 @@ export function mapRoleMutationError(message: string, labels: AccessControlLabel
     if (message.includes('still assigned to users')) {
         return { message: labels.validationRoleAssignedUsers };
     }
-    return { message: message || labels.validationFormSubmitFailed };
+    return { message: mapAccessControlApiError(message, labels) };
 }
 
 export function mapRotateKeyError(message: string, labels: AccessControlLabels): RotateKeyErrorResult {
     if (message.includes('Access key already exists')) {
         return { field: 'accessKey', message: labels.validationAccessKeyDuplicate };
     }
-    return { message: message || labels.validationFormSubmitFailed };
+    return { message: mapAccessControlApiError(message, labels) };
 }
 
 export function mapDeleteUserError(message: string, labels: AccessControlLabels): string {
     if (message.includes('At least one active administrator must remain')) {
         return labels.validationLastAdminRequired;
     }
-    return message || labels.deleteFailed;
+    return mapAccessControlApiError(message, labels);
+}
+
+export function mapAccessControlApiError(message: string | null | undefined, labels: AccessControlLabels): string {
+    const text = String(message || '').trim();
+    if (!text) {
+        return labels.validationFormSubmitFailed;
+    }
+
+    if (text.includes('Actor is not allowed to manage organizations')) return labels.errorManageOrganizationsDenied;
+    if (text.includes('Actor is not allowed to grant permissions')) return labels.errorGrantPermissionsDenied;
+    if (text.includes('Organization is outside the actor authorization boundary')) return labels.errorOrganizationOutsideBoundary;
+    if (text.includes('Organization is outside the actor data scope')) return labels.errorOrganizationOutsideScope;
+    if (text.includes('Target organization is outside the actor authorization boundary')) return labels.errorTargetOrganizationOutsideBoundary;
+    if (text.includes('Target organization is outside the actor data scope')) return labels.errorTargetOrganizationOutsideScope;
+    if (text.includes('Role assignment exceeds actor authorization boundary')) return labels.errorRoleAssignmentBoundary;
+    if (text.includes('Permission grant exceeds actor authorization boundary')) return labels.errorPermissionGrantBoundary;
+    if (text.includes('Data scope exceeds actor authorization boundary')) return labels.errorDataScopeBoundary;
+    if (text.includes('Unknown organization')) return labels.errorUnknownOrganization;
+    if (text.includes('Unknown roles')) return labels.errorUnknownRoles;
+    if (text.includes('Unknown permissions')) return labels.errorUnknownPermissions;
+    if (text.includes('Permissions cannot be both granted and revoked')) return labels.errorPermissionsOverlap;
+    if (text.includes('User permissions changed')) return labels.errorUserPermissionsChanged;
+    if (text.includes('Organization code already exists')) return labels.errorOrganizationCodeDuplicate;
+    if (text.includes('Parent organization not found')) return labels.errorParentOrganizationNotFound;
+    if (text.includes('Root organization cannot have a parent')) return labels.errorRootOrganizationParent;
+    if (text.includes('Non-root organization must have a parent')) return labels.errorOrganizationParentRequired;
+    if (text.includes('Organization cannot be its own parent')) return labels.errorOrganizationSelfParent;
+    if (text.includes('Organization cannot be moved under its descendant')) return labels.errorOrganizationDescendantParent;
+    if (text.includes('Root organization cannot be disabled')) return labels.errorRootOrganizationDisable;
+    if (text.includes('Organization has active children')) return labels.errorOrganizationActiveChildren;
+    if (text.includes('Organization is still assigned to users')) return labels.errorOrganizationAssignedUsers;
+    if (text.includes('Organization code must use')) return labels.validationOrgCodePattern;
+    if (text.includes('Invalid organization type')) return labels.validationOrgTypeInvalid;
+    if (text.includes('Organization name is required')) return labels.validationOrgNameRequired;
+    if (text.includes('User code must use')) return labels.validationUserCodePattern;
+    if (text.includes('Display name is required') || text.includes('Display name cannot be empty')) return labels.validationDisplayNameRequired;
+    if (text.includes('Role code must use')) return labels.validationRoleCodePattern;
+    if (text.includes('Role name is required')) return labels.validationRoleNameRequired;
+    if (text.includes('At least one role is required')) return labels.validationRoleRequired;
+    if (text.includes('At least one permission is required')) return labels.validationRolePermissionRequired;
+    if (text.includes('System roles are read-only')) return labels.validationRoleReadOnly;
+    if (text.includes('still assigned to users')) return labels.validationRoleAssignedUsers;
+    if (text.includes('Access key already exists')) return labels.validationAccessKeyDuplicate;
+    if (text.includes('User code already exists')) return labels.validationUserCodeDuplicate;
+    if (text.includes('Role code already exists')) return labels.validationRoleCodeDuplicate;
+    if (text.includes('At least one active administrator must remain')) return labels.validationLastAdminRequired;
+    if (text.includes('Data scope downgrade requires explicit confirmation')) {
+        return `${labels.scopeDowngradeConfirm}：${labels.scopeDowngradeConfirmDesc}`;
+    }
+
+    return text;
 }
 
 export function createRoleMap(roles: ScriptHubRoleDefinition[]) {

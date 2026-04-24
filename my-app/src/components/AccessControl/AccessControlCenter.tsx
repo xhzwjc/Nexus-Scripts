@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { AccessControlView, ScriptHubRbacOverview } from '@/lib/types';
 import { AccessControlTabs } from './AccessControlTabs';
+import { mapAccessControlApiError } from './utils';
 
 interface AccessControlCenterProps {
     onBack: () => void;
@@ -70,7 +71,7 @@ export function AccessControlCenter({ onBack }: AccessControlCenterProps) {
             }
             setOverview(payload);
         } catch (loadError) {
-            const message = loadError instanceof Error ? loadError.message : t.accessControl.loadFailed;
+            const message = mapAccessControlApiError(loadError instanceof Error ? loadError.message : t.accessControl.loadFailed, t.accessControl);
             setError(message);
         } finally {
             setLoading(false);

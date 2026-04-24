@@ -36,7 +36,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { ResourceDomain, ResourceKind, ResourceListItem, SharePolicy } from '@/lib/types';
 import { RESOURCE_DOMAINS, SHARE_POLICY_OPTIONS } from './constants';
-import { formatDateTime, getResourceDomainLabel, getResourceScopeLevelLabel, getResourceStatusLabel, getSharePolicyLabel } from './utils';
+import { formatDateTime, getResourceDomainLabel, getResourceScopeLevelLabel, getResourceStatusLabel, getSharePolicyLabel, mapAccessControlApiError } from './utils';
 
 interface RecruitmentListResponse<T> {
     success?: boolean;
@@ -228,7 +228,7 @@ export function AccessControlResourcesPage() {
             setLoadError(rejected ? labels.resourcePartialLoadFailed : null);
         } catch (error) {
             setResources([]);
-            setLoadError(error instanceof Error ? error.message : labels.loadFailed);
+            setLoadError(mapAccessControlApiError(error instanceof Error ? error.message : labels.loadFailed, labels));
         } finally {
             setLoading(false);
         }
@@ -296,7 +296,7 @@ export function AccessControlResourcesPage() {
             setGovernanceDialogOpen(false);
             void loadResources();
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : labels.resourceGovernanceUpdateFailed);
+            toast.error(mapAccessControlApiError(error instanceof Error ? error.message : labels.resourceGovernanceUpdateFailed, labels));
         } finally {
             setGovernanceSaving(false);
         }
@@ -329,7 +329,7 @@ export function AccessControlResourcesPage() {
             setCopyTargetOrgCode('');
             void loadResources();
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : labels.copyResourceFailed);
+            toast.error(mapAccessControlApiError(error instanceof Error ? error.message : labels.copyResourceFailed, labels));
         } finally {
             setCopySaving(false);
         }
