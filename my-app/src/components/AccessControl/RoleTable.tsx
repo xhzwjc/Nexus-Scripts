@@ -55,10 +55,7 @@ export function RoleTable({ roles, permissionMap, labels, onEdit, onDelete }: Ro
                                     </Badge>
                                 </TableCell>
                                 <TableCell>
-                                    <div className="space-y-1.5">
-                                        <p className="text-sm font-medium">{role.permission_keys.length}</p>
-                                        <CompactBadgeList items={permissionNames} max={4} variant="outline" />
-                                    </div>
+                                    <CompactBadgeList items={permissionNames} max={4} variant="outline" />
                                 </TableCell>
                                 <TableCell>{role.assigned_user_count}</TableCell>
                                 <TableCell>

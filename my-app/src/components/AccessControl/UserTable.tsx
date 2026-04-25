@@ -106,10 +106,7 @@ export function UserTable({
                                     <StatusBadge active={user.isActive} labels={labels} />
                                 </TableCell>
                                 <TableCell>
-                                    <div className="space-y-1.5">
-                                        <p className="text-sm font-medium">{user.effectivePermissionCount}</p>
-                                        <CompactBadgeList items={permissionNames} max={3} variant="outline" />
-                                    </div>
+                                    <CompactBadgeList items={permissionNames} max={3} variant="outline" />
                                 </TableCell>
                                 <TableCell className="text-sm text-muted-foreground">
                                     {formatDateTime(user.lastLoginAt) || labels.neverLoggedIn}
