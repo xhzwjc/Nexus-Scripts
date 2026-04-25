@@ -62,7 +62,9 @@ export function RoleTable({ roles, permissionMap, labels, onEdit, onDelete }: Ro
                                     <StatusBadge active={role.is_active} labels={labels} />
                                 </TableCell>
                                 <TableCell className="max-w-[280px] text-sm text-muted-foreground">
-                                    <span className="line-clamp-2">{role.description || '-'}</span>
+                                    <span className="line-clamp-2" title={role.description || ''}>
+                                        {role.description || '-'}
+                                    </span>
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex justify-end gap-2">
