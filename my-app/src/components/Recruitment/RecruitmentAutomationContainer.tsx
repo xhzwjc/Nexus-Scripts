@@ -5,7 +5,6 @@ import {
     ArrowLeft,
     Bot,
     BriefcaseBusiness,
-    Building2,
     ChevronDown,
     ChevronLeft,
     ChevronRight,
@@ -95,6 +94,7 @@ import {
 import {Input} from "@/components/ui/input";
 import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover";
 import {ScrollArea} from "@/components/ui/scroll-area";
+import {OrgScopeBreadcrumbPicker} from './OrgScopeBreadcrumbPicker';
 import {Separator} from "@/components/ui/separator";
 import {Textarea} from "@/components/ui/textarea";
 import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip";
@@ -6211,44 +6211,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                        {orgScopeOptions.length ? (
-                            <div className="flex min-w-[210px] items-center gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-2.5 py-1.5 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
-                                <Building2 className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400"/>
-                                <div className="min-w-0 flex-1">
-                                    <p className="sr-only">{recruitmentUiText.currentOrgScope}</p>
-                                    <NativeSelect
-                                        value={selectedOrgScope}
-                                        onChange={(event) => setSelectedOrgScope(event.target.value)}
-                                        disabled={organizationCatalogLoading || orgScopeOptions.length <= 1}
-                                        title={recruitmentUiText.currentOrganization}
-                                        className="h-7 border-0 bg-transparent px-0 py-0 text-xs shadow-none focus-visible:ring-0"
-                                    >
-                                        {orgScopeOptions.map((option) => (
-                                            <option key={option.value} value={option.value}>{option.label}</option>
-                                        ))}
-                                    </NativeSelect>
-                                </div>
-                            </div>
-                        ) : null}
-                        {departmentScopeOptions.length ? (
-                            <div className="flex min-w-[180px] items-center gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-2.5 py-1.5 text-sm shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
-                                <FolderKanban className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400"/>
-                                <div className="min-w-0 flex-1">
-                                    <p className="sr-only">{recruitmentUiText.currentDepartment}</p>
-                                    <NativeSelect
-                                        value={selectedDepartmentScope}
-                                        onChange={(event) => setSelectedDepartmentScope(event.target.value)}
-                                        disabled={organizationCatalogLoading || departmentScopeOptions.length <= 1}
-                                        title={recruitmentUiText.currentDepartment}
-                                        className="h-7 border-0 bg-transparent px-0 py-0 text-xs shadow-none focus-visible:ring-0"
-                                    >
-                                        {departmentScopeOptions.map((option) => (
-                                            <option key={option.value} value={option.value}>{option.label}</option>
-                                        ))}
-                                    </NativeSelect>
-                                </div>
-                            </div>
-                        ) : null}
+                        <OrgScopeBreadcrumbPicker
+                            organizationCatalog={organizationCatalog}
+                            visibleOrgCodes={visibleOrgCodes}
+                            hasAllOrgScope={hasAllOrgScope}
+                            selectedOrgScope={selectedOrgScope}
+                            selectedDepartmentScope={selectedDepartmentScope}
+                            onOrgScopeChange={(orgScope, deptScope) => {
+                                setSelectedOrgScope(orgScope);
+                                setSelectedDepartmentScope(deptScope);
+                            }}
+                            allDepartmentsLabel={recruitmentUiText.allVisibleDepartments}
+                            disabled={organizationCatalogLoading}
+                        />
                         <Button variant="outline" onClick={() => void refreshCoreDataWithFeedback()}
                                 disabled={coreRefreshing} className="rounded-xl">
                             {coreRefreshing ? <Loader2 className="h-4 w-4 animate-spin"/> :
