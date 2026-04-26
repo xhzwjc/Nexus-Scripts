@@ -569,16 +569,24 @@ def _select_resume_parse_candidate(records: Sequence[Dict[str, Any]]) -> Dict[st
 
 
 def _select_one_pass_candidate(records: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
-    def completeness(payload: Dict[str, Any]) -> tuple[int, int, int]:
+    BASIC_INFO_SUBFIELDS = ("name", "phone", "email", "years_of_experience", "education", "location")
+
+    def completeness(payload: Dict[str, Any]) -> tuple[int, int, int, int]:
         parsed_resume = payload.get("parsed_resume") if isinstance(payload.get("parsed_resume"), dict) else {}
         nested_score = payload.get("score") if isinstance(payload.get("score"), dict) else {}
         top_level_score_fields = sum(1 for field in STRICT_SCORE_REQUIRED_FIELDS if _has_meaningful_field(payload, field))
         nested_score_fields = sum(1 for field in STRICT_SCORE_REQUIRED_FIELDS if _has_meaningful_field(nested_score, field))
         parsed_resume_fields = sum(1 for field in STRICT_PARSE_PRIMARY_FIELDS if _has_meaningful_field(parsed_resume, field))
+        basic_info = parsed_resume.get("basic_info") if isinstance(parsed_resume, dict) else None
+        basic_info_subfield_count = (
+            sum(1 for field in BASIC_INFO_SUBFIELDS if _has_meaningful_field(basic_info, field))
+            if isinstance(basic_info, dict) else 0
+        )
         return (
             1 if isinstance(payload.get("parsed_resume"), dict) else 0,
             nested_score_fields or top_level_score_fields,
             parsed_resume_fields,
+            basic_info_subfield_count,
         )
 
     eligible = []
