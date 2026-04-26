@@ -806,6 +806,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [resumeMailSourceDispatchId, setResumeMailSourceDispatchId] = useState<number | null>(null);
     const [resumeMailSourceAssistantMessageId, setResumeMailSourceAssistantMessageId] = useState<string | null>(null);
     const [resumeMailForm, setResumeMailForm] = useState<ResumeMailFormState>(emptyResumeMailForm);
+    const [resumeMailError, setResumeMailError] = useState<string | null>(null);
     const [interviewSkillSelectionDirty, setInterviewSkillSelectionDirty] = useState(false);
     const [candidateProcessLogsExpanded, setCandidateProcessLogsExpanded] = useState(false);
 
@@ -4187,7 +4188,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             const useSsl = mailSenderForm.smtpHost.trim() ? mailSenderForm.useSsl : (inferredPreset?.useSsl ?? mailSenderForm.useSsl);
             const useStarttls = mailSenderForm.smtpHost.trim() ? mailSenderForm.useStarttls : (inferredPreset?.useStarttls ?? mailSenderForm.useStarttls);
             if (!smtpHost) {
-                toast.error("\u8bf7\u586b\u5199 SMTP Host\uff1b163 \u5e38\u7528 smtp.163.com\uff0cOutlook \u5e38\u7528 smtp-mail.outlook.com");
+                toast.error("请填写 SMTP Host；163 常用 smtp.163.com，Outlook 常用 smtp-mail.outlook.com");
                 return;
             }
             const payload = {
@@ -4208,22 +4209,22 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     method: "PATCH",
                     body: JSON.stringify(payload),
                 });
-                toast.success("\u53d1\u4ef6\u7bb1\u5df2\u66f4\u65b0");
+                toast.success("发件箱已更新");
             } else {
                 await recruitmentApi(`/mail-senders`, {
                     method: "POST",
                     body: JSON.stringify(payload),
                 });
-                toast.success("\u53d1\u4ef6\u7bb1\u5df2\u521b\u5efa");
+                toast.success("发件箱已创建");
             }
             setMailSenderDialogOpen(false);
             try {
                 await loadMailSettings();
             } catch (refreshError) {
-                toast.error(`\u53d1\u4ef6\u7bb1\u5df2\u4fdd\u5b58\uff0c\u4f46\u90ae\u4ef6\u914d\u7f6e\u5237\u65b0\u5931\u8d25\uff1a${formatActionError(refreshError)}`);
+                toast.error(`发件箱已保存，但邮件配置刷新失败：${formatActionError(refreshError)}`);
             }
         } catch (error) {
-            toast.error(`\u4fdd\u5b58\u53d1\u4ef6\u7bb1\u5931\u8d25\uff1a${formatActionError(error)}`);
+            toast.error(`保存发件箱失败：${formatActionError(error)}`);
         }
     }
 
@@ -4362,25 +4363,25 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 method: "POST",
                 body: JSON.stringify(payload),
             });
-            toast.success(options?.successMessage || "\u7b80\u5386\u90ae\u4ef6\u5df2\u53d1\u9001");
+            toast.success(options?.successMessage || "简历邮件已发送");
             if (options?.closeDialog !== false) {
                 setResumeMailDialogOpen(false);
             }
             try {
                 await loadMailSettings();
             } catch (refreshError) {
-                toast.error(`\u7b80\u5386\u90ae\u4ef6\u5df2\u53d1\u9001\uff0c\u4f46\u90ae\u4ef6\u4e2d\u5fc3\u5237\u65b0\u5931\u8d25\uff1a${formatActionError(refreshError)}`);
+                toast.error(`简历邮件已发送，但邮件中心刷新失败：${formatActionError(refreshError)}`);
             }
             return dispatch;
         } catch (error) {
-            toast.error(`\u53d1\u9001\u7b80\u5386\u90ae\u4ef6\u5931\u8d25\uff1a${formatActionError(error)}`);
-            return null;
+            const errorMessage = `发送简历邮件失败：${formatActionError(error)}`;
+            throw new Error(errorMessage); // 重新抛出以便调用方处理
         }
     }
 
     async function confirmAssistantPreparedResumeMail(messageId: string, preparedMail: RecruitmentAssistantPreparedResumeMail) {
         if (!preparedMail.can_confirm) {
-            toast.error(preparedMail.blocking_reason || "当前邮件预览还不能直接发送");
+            setResumeMailError(preparedMail.blocking_reason || "当前邮件预览还不能直接发送");
             return;
         }
         setResumeMailSourceAssistantMessageId(null);
@@ -4445,15 +4446,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     async function submitResumeMail() {
         if (!resumeMailForm.candidateIds.length) {
-            toast.error("\u8bf7\u5148\u9009\u62e9\u9700\u8981\u53d1\u9001\u7684\u5019\u9009\u4eba");
+            setResumeMailError("请先选择需要发送的候选人");
             return;
         }
         const extraEmails = parseEmailList(resumeMailForm.extraRecipientEmails);
         if (!resumeMailForm.recipientIds.length && !extraEmails.length) {
-            toast.error("请至少选择一个内部收件人或填写一个收件人邮箱");
+            setResumeMailError("请至少选择一个内部收件人或填写一个收件人邮箱");
             return;
         }
         setResumeMailSubmitting(true);
+        setResumeMailError(null); // 清除之前的错误
         try {
             const sourceAssistantMessageId = resumeMailSourceAssistantMessageId;
             if (sourceAssistantMessageId) {
@@ -4505,6 +4507,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         },
                     ]);
                 }
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            if (resumeMailDialogOpen) {
+                setResumeMailError(errorMessage);
             }
         } finally {
             setResumeMailSubmitting(false);
@@ -4812,14 +4819,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         try {
             await recruitmentApi(`/llm-configs/${configId}`, {method: "DELETE"});
             setLlmDeleteTarget(null);
-            toast.success("\u6a21\u578b\u914d\u7f6e\u5df2\u5220\u9664");
+            toast.success("模型配置已删除");
             try {
                 await loadLLMConfigs();
             } catch (refreshError) {
-                toast.error(`\u6a21\u578b\u914d\u7f6e\u5df2\u5220\u9664\uff0c\u4f46\u5217\u8868\u5237\u65b0\u5931\u8d25\uff1a${formatActionError(refreshError)}`);
+                toast.error(`模型配置已删除，但列表刷新失败：${formatActionError(refreshError)}`);
             }
         } catch (error) {
-            toast.error(`\u5220\u9664\u6a21\u578b\u914d\u7f6e\u5931\u8d25\uff1a${formatActionError(error)}`);
+            toast.error(`删除模型配置失败：${formatActionError(error)}`);
         } finally {
             setDeleteActionKey((current) => (current === actionKey ? null : current));
         }
@@ -7435,6 +7442,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         setResumeMailDialogMode("send");
                         setResumeMailSourceDispatchId(null);
                         setResumeMailSourceAssistantMessageId(null);
+                        setResumeMailError(null);
                     }
                 }}
             >
@@ -7550,6 +7558,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         </div>
                     </ScrollArea>
                     <DialogFooter>
+                        {resumeMailError && (
+                            <p className="text-sm text-red-500 flex-1 text-left">{resumeMailError}</p>
+                        )}
                         <Button variant="outline" onClick={() => setResumeMailDialogOpen(false)}>取消</Button>
                         <Button onClick={() => void submitResumeMail()} disabled={resumeMailSubmitting}>
                             <Send className="h-4 w-4"/>

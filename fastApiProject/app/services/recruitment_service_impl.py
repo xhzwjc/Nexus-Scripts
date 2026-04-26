@@ -5244,6 +5244,18 @@ class RecruitmentService:
         if self.permission_context.is_self_scope and owner != self.permission_context.actor_user_code:
             raise ValueError("操作失败")
 
+    def _is_business_row_visible(self, row: Any) -> bool:
+        """Check if a business row is visible in the current permission context. Returns bool instead of throwing."""
+        if not self.permission_context or self.permission_context.has_all_orgs:
+            return True
+        row_org_code = normalize_org_code(getattr(row, "org_code", None))
+        if row_org_code not in set(self.permission_context.visible_org_codes or ()):
+            return False
+        owner = getattr(row, "created_by", None) or getattr(row, "uploaded_by", None)
+        if self.permission_context.is_self_scope and owner != self.permission_context.actor_user_code:
+            return False
+        return True
+
     def _assert_resource_manageable(self, row: Any, actor_id: str) -> None:
         if not self.permission_context or self.permission_context.has_all_orgs:
             return
@@ -5252,11 +5264,11 @@ class RecruitmentService:
             return
         if getattr(row, "created_by", None) == actor_id:
             return
-        raise ValueError("鎿嶄綔澶辫触")
+        raise ValueError("操作失败")
 
     def _assert_resource_copyable(self, row: Any) -> None:
         if not self._can_access_org_resource(row):
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         if normalize_share_policy(getattr(row, "share_policy", None)) != SHARE_POLICY_SHARED_COPYABLE:
             raise ValueError("资源不允许复制")
         if not bool(getattr(row, "allow_copy", False)):
@@ -5266,7 +5278,7 @@ class RecruitmentService:
         if not self.permission_context or self.permission_context.has_all_orgs:
             return
         if normalize_org_code(org_code) not in set(self.permission_context.visible_org_codes or ()):
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
 
     def _serialize_organization_scope_row(self, row: ScriptHubOrganization) -> Dict[str, Any]:
         return {
@@ -6297,29 +6309,29 @@ class RecruitmentService:
     def _get_position(self, position_id: int) -> RecruitmentPosition:
         row = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == position_id, RecruitmentPosition.deleted.is_(False)).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_business_row_visible(row)
         return row
 
     def _get_candidate(self, candidate_id: int) -> RecruitmentCandidate:
         row = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == candidate_id, RecruitmentCandidate.deleted.is_(False)).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_business_row_visible(row)
         return row
 
     def _get_skill(self, skill_id: int) -> RecruitmentSkill:
         row = self.db.query(RecruitmentSkill).filter(RecruitmentSkill.id == skill_id, RecruitmentSkill.deleted.is_(False)).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         if not self._can_access_org_resource(row):
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         return row
 
     def _get_resume_file(self, resume_file_id: int) -> RecruitmentResumeFile:
         row = self.db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.id == resume_file_id).first()
         if not row:
-            raise ValueError("绠€鍘嗘枃浠朵笉瀛樺湪")
+            raise ValueError("简历文件不存在")
         self._assert_business_row_visible(row)
         return row
 
@@ -6662,8 +6674,16 @@ class RecruitmentService:
         suggested_status = _normalize_suggested_status(candidate.ai_recommended_status)
         if not suggested_status or suggested_status == candidate.status:
             return
-        position = self._get_position(candidate.position_id) if candidate.position_id else None
-        if position and not bool(position.auto_advance_on_screening):
+        position = None
+        position_auto_advance = True  # Default to True if position not accessible
+        if candidate.position_id:
+            try:
+                position = self._get_position(candidate.position_id)
+                if position:
+                    position_auto_advance = bool(position.auto_advance_on_screening)
+            except ValueError:
+                position = None
+        if position and not position_auto_advance:
             return
         self._create_status_history(
             candidate,
@@ -8067,9 +8087,9 @@ class RecruitmentService:
             display_status = ai_recommended_status
         else:
             display_status = row.status or ""
-        position_screening_skill_rows = self._get_position_task_skill_rows(position.id, "screening") if position else []
-        position_interview_skill_rows = self._get_position_task_skill_rows(position.id, "interview") if position else []
-        position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position else []
+        position_screening_skill_rows = self._get_position_task_skill_rows(position.id, "screening") if position and self._is_business_row_visible(position) else []
+        position_interview_skill_rows = self._get_position_task_skill_rows(position.id, "interview") if position and self._is_business_row_visible(position) else []
+        position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
         return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -8302,7 +8322,17 @@ class RecruitmentService:
         use_candidate_memory: bool = True,
     ) -> Tuple[List[RecruitmentSkill], str, str, Dict[str, Any]]:
         requested_skill_ids = _dedupe_ints(explicit_skill_ids or [])
-        position_screening_skill_ids = self._get_position_task_skill_ids(self._get_position(candidate.position_id), "screening") if candidate.position_id else []
+        # Check if position is accessible before trying to get its skills
+        position = None
+        position_accessible = False
+        if candidate.position_id:
+            try:
+                position = self._get_position(candidate.position_id)
+                position_accessible = self._is_business_row_visible(position)
+            except ValueError:
+                position = None
+                position_accessible = False
+        position_screening_skill_ids = self._get_position_task_skill_ids(position, "screening") if position_accessible and position else []
         workflow = self._get_workflow_memory(candidate.id)
         workflow_memory_skill_ids = _dedupe_ints(json_loads_safe(workflow.screening_skill_ids_json, [])) if workflow else []
 
@@ -8321,7 +8351,7 @@ class RecruitmentService:
                     used_candidate_memory=False,
                 ),
             )
-        position_rows = self._get_position_task_skill_rows(candidate.position_id, "screening") if use_position_skills else []
+        position_rows = self._get_position_task_skill_rows(position.id, "screening") if use_position_skills and position_accessible and position else []
         if position_rows:
             return (
                 position_rows,
@@ -9039,7 +9069,7 @@ class RecruitmentService:
         batch_id: Optional[str] = None,
     ) -> Tuple[RecruitmentResumeParseResult, RecruitmentCandidateScore]:
         if not candidate.latest_resume_file_id:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         resume_file = self._get_resume_file(candidate.latest_resume_file_id)
         resume_file.parse_status = "processing"
         self.db.add(resume_file)
@@ -9442,7 +9472,7 @@ class RecruitmentService:
         deadline_at: Optional[datetime] = None,
     ) -> RecruitmentResumeParseResult:
         if not candidate.latest_resume_file_id:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         resume_file = self._get_resume_file(candidate.latest_resume_file_id)
         shared_flow_log = task_log_row is not None
         request_hash = self._build_request_hash("resume_parse", candidate.id, resume_file.id, resume_file.storage_path)
@@ -11850,7 +11880,17 @@ class RecruitmentService:
         manual_rows = self._filter_skill_rows_for_task(self._load_skill_rows(explicit_skill_ids or [], enabled_only=True), "interview")
         if manual_rows:
             return manual_rows, "manual"
-        position_rows = self._get_position_task_skill_rows(candidate.position_id, "interview") if use_position_skills else []
+        # Check if position is accessible before trying to get its skills
+        position = None
+        position_accessible = False
+        if candidate.position_id and use_position_skills:
+            try:
+                position = self._get_position(candidate.position_id)
+                position_accessible = self._is_business_row_visible(position)
+            except ValueError:
+                position = None
+                position_accessible = False
+        position_rows = self._get_position_task_skill_rows(position.id, "interview") if position_accessible and position else []
         if position_rows:
             return position_rows, "position"
         base_rows = self._load_system_base_skill_rows("interview")
@@ -12254,7 +12294,7 @@ class RecruitmentService:
     def get_interview_question_download(self, question_id: int) -> Dict[str, Any]:
         row = self.db.query(RecruitmentInterviewQuestion).filter(RecruitmentInterviewQuestion.id == question_id).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         candidate = self._get_candidate(row.candidate_id)
         file_name = f"interview-question-{safe_file_stem(candidate.name)}-{safe_file_stem(row.round_name)}.html".replace(" ", "-")
         return {"file_name": file_name, "html_content": ensure_interview_html_document(file_name, html_content=row.html_content or "", markdown_content=row.markdown_content or "")}
@@ -12263,7 +12303,7 @@ class RecruitmentService:
         resume_file = self._get_resume_file(resume_file_id)
         path = Path(resume_file.storage_path)
         if not path.exists():
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         media_type = (resume_file.mime_type or "").strip()
         if not media_type or media_type in {"application/octet-stream", "binary/octet-stream"}:
             media_type = mimetypes.guess_type(resume_file.original_name or "")[0] or "application/octet-stream"
@@ -12435,7 +12475,7 @@ class RecruitmentService:
         position = self._get_position(position_id)
         row = self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.id == version_id, RecruitmentJDVersion.position_id == position.id).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.position_id == position.id).update({RecruitmentJDVersion.is_active: False}, synchronize_session=False)
         row.is_active = True
         position.current_jd_version_id = row.id
@@ -12466,9 +12506,9 @@ class RecruitmentService:
     def update_llm_config(self, config_id: int, payload: Dict[str, Any], actor_id: str = "unknown") -> Dict[str, Any]:
         row = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.id == config_id).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         if not self._can_access_org_resource(row):
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_resource_manageable(row, actor_id)
         for field in ["config_key", "task_type", "provider", "model_name", "base_url", "api_key_env", "is_active", "priority", "scope_level", "allow_sub_org_use", "allow_copy"]:
             if field in payload:
@@ -12493,7 +12533,7 @@ class RecruitmentService:
     def copy_llm_config(self, config_id: int, actor_id: str = "unknown", target_org_code: Optional[str] = None) -> Dict[str, Any]:
         source = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.id == config_id).first()
         if not source:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_resource_copyable(source)
         org_code = normalize_org_code(target_org_code or self._current_org_code())
         self._assert_can_create_in_org(org_code)
@@ -12524,9 +12564,9 @@ class RecruitmentService:
     def delete_llm_config(self, config_id: int, actor_id: str = "unknown") -> None:
         row = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.id == config_id).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         if not self._can_access_org_resource(row):
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_resource_manageable(row, actor_id)
         self.db.delete(row)
         self.db.commit()
@@ -12553,9 +12593,9 @@ class RecruitmentService:
     def update_mail_sender(self, sender_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         row = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == sender_id, RecruitmentMailSenderConfig.deleted.is_(False)).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         if not self._can_access_org_resource(row):
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_resource_manageable(row, actor_id)
         if payload.get("is_default"):
             self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.deleted.is_(False), RecruitmentMailSenderConfig.org_code == row.org_code, RecruitmentMailSenderConfig.id != sender_id).update({RecruitmentMailSenderConfig.is_default: False}, synchronize_session=False)
@@ -12580,7 +12620,7 @@ class RecruitmentService:
     def copy_mail_sender(self, sender_id: int, actor_id: str, target_org_code: Optional[str] = None) -> Dict[str, Any]:
         source = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == sender_id, RecruitmentMailSenderConfig.deleted.is_(False)).first()
         if not source:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_resource_copyable(source)
         org_code = normalize_org_code(target_org_code or self._current_org_code())
         self._assert_can_create_in_org(org_code)
@@ -12613,9 +12653,9 @@ class RecruitmentService:
     def delete_mail_sender(self, sender_id: int, actor_id: str) -> None:
         row = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == sender_id, RecruitmentMailSenderConfig.deleted.is_(False)).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         if not self._can_access_org_resource(row):
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_resource_manageable(row, actor_id)
         row.deleted = True
         row.updated_by = actor_id
@@ -12642,9 +12682,9 @@ class RecruitmentService:
     def update_mail_recipient(self, recipient_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         row = self.db.query(RecruitmentMailRecipient).filter(RecruitmentMailRecipient.id == recipient_id, RecruitmentMailRecipient.deleted.is_(False)).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         if not self._can_access_org_resource(row):
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_resource_manageable(row, actor_id)
         for field in ["name", "email", "department", "role_title", "notes", "is_enabled", "scope_level", "allow_sub_org_use", "allow_copy"]:
             if field in payload:
@@ -12666,7 +12706,7 @@ class RecruitmentService:
     def copy_mail_recipient(self, recipient_id: int, actor_id: str, target_org_code: Optional[str] = None) -> Dict[str, Any]:
         source = self.db.query(RecruitmentMailRecipient).filter(RecruitmentMailRecipient.id == recipient_id, RecruitmentMailRecipient.deleted.is_(False)).first()
         if not source:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_resource_copyable(source)
         org_code = normalize_org_code(target_org_code or self._current_org_code())
         self._assert_can_create_in_org(org_code)
@@ -12695,9 +12735,9 @@ class RecruitmentService:
     def delete_mail_recipient(self, recipient_id: int, actor_id: str) -> None:
         row = self.db.query(RecruitmentMailRecipient).filter(RecruitmentMailRecipient.id == recipient_id, RecruitmentMailRecipient.deleted.is_(False)).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         if not self._can_access_org_resource(row):
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_resource_manageable(row, actor_id)
         row.deleted = True
         row.updated_by = actor_id
@@ -12706,6 +12746,7 @@ class RecruitmentService:
 
     def _resolve_mail_sender_row(self, sender_config_id: Optional[Any] = None) -> Optional[RecruitmentMailSenderConfig]:
         sender_row = None
+        sender_not_accessible_reason = None
         if sender_config_id:
             try:
                 normalized_sender_id = int(sender_config_id)
@@ -12715,11 +12756,16 @@ class RecruitmentService:
                 sender_row = self.db.query(RecruitmentMailSenderConfig).filter(
                     RecruitmentMailSenderConfig.id == normalized_sender_id,
                     RecruitmentMailSenderConfig.deleted.is_(False),
-                    RecruitmentMailSenderConfig.is_enabled.is_(True),
                 ).first()
-                if sender_row and not self._can_access_org_resource(sender_row):
+                if not sender_row:
+                    sender_not_accessible_reason = f"发件人配置 ID {normalized_sender_id} 不存在或已删除"
+                elif not sender_row.is_enabled:
+                    sender_not_accessible_reason = f"发件人配置「{sender_row.name}」未启用"
+                elif not self._can_access_org_resource(sender_row):
+                    sender_not_accessible_reason = f"发件人配置「{sender_row.name}」不在您的权限范围内"
                     sender_row = None
         if not sender_row:
+            # 尝试查找默认发件人配置
             sender_rows = self.db.query(RecruitmentMailSenderConfig).filter(
                 RecruitmentMailSenderConfig.deleted.is_(False),
                 RecruitmentMailSenderConfig.is_enabled.is_(True),
@@ -12727,12 +12773,58 @@ class RecruitmentService:
             ).order_by(RecruitmentMailSenderConfig.id.asc()).all()
             sender_row = next((row for row in sender_rows if self._can_access_org_resource(row)), None)
         if not sender_row:
+            # 最后尝试查找任何可访问的启用状态发件人配置
             sender_rows = self.db.query(RecruitmentMailSenderConfig).filter(
                 RecruitmentMailSenderConfig.deleted.is_(False),
                 RecruitmentMailSenderConfig.is_enabled.is_(True),
             ).order_by(RecruitmentMailSenderConfig.id.asc()).all()
             sender_row = next((row for row in sender_rows if self._can_access_org_resource(row)), None)
+            if not sender_row and not sender_not_accessible_reason:
+                # 检查是否有任何发件人配置
+                all_senders = self.db.query(RecruitmentMailSenderConfig).filter(
+                    RecruitmentMailSenderConfig.deleted.is_(False),
+                ).count()
+                if all_senders == 0:
+                    sender_not_accessible_reason = "系统未配置发件人信息，请联系管理员设置"
+                else:
+                    sender_not_accessible_reason = "没有找到可用的发件人配置（可能全部被禁用或不在您的权限范围内）"
         return sender_row
+
+    def _get_mail_sender_error(self, sender_config_id: Optional[Any] = None) -> str:
+        """获取发件人配置的错误原因，用于给用户返回明确的错误提示"""
+        if sender_config_id:
+            try:
+                normalized_sender_id = int(sender_config_id)
+            except (TypeError, ValueError):
+                return "无效的发件人配置 ID"
+            sender = self.db.query(RecruitmentMailSenderConfig).filter(
+                RecruitmentMailSenderConfig.id == normalized_sender_id,
+            ).first()
+            if not sender:
+                return f"发件人配置 ID {normalized_sender_id} 不存在或已删除"
+            if sender.deleted:
+                return f"发件人配置「{sender.name}」已删除"
+            if not sender.is_enabled:
+                return f"发件人配置「{sender.name}」未启用，请联系管理员启用"
+            if not self._can_access_org_resource(sender):
+                return f"发件人配置「{sender.name}」不在您的权限范围内"
+        # 检查是否有任何可用的发件人配置
+        accessible_senders = self.db.query(RecruitmentMailSenderConfig).filter(
+            RecruitmentMailSenderConfig.deleted.is_(False),
+            RecruitmentMailSenderConfig.is_enabled.is_(True),
+        ).all()
+        accessible_senders = [s for s in accessible_senders if self._can_access_org_resource(s)]
+        if accessible_senders:
+            return "发件人配置不可用"
+        all_senders = self.db.query(RecruitmentMailSenderConfig).filter(
+            RecruitmentMailSenderConfig.deleted.is_(False),
+        ).count()
+        if all_senders == 0:
+            return "系统未配置发件人信息，请联系管理员设置"
+        default_senders = [s for s in accessible_senders if s.is_default]
+        if not default_senders and accessible_senders:
+            return "没有设置默认发件人配置，请联系管理员设置"
+        return "没有找到可用的发件人配置（可能全部被禁用或不在您的权限范围内）"
 
     def _normalize_mail_address_groups(
         self,
@@ -13270,7 +13362,7 @@ class RecruitmentService:
     def _build_sender_runtime(self, row: RecruitmentMailSenderConfig) -> RecruitmentMailSenderRuntime:
         password = decrypt_secret(row.password_ciphertext or "")
         if not password:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         return RecruitmentMailSenderRuntime(from_email=row.from_email, from_name=row.from_name, smtp_host=row.smtp_host, smtp_port=row.smtp_port, username=row.username, password=password, use_ssl=bool(row.use_ssl), use_starttls=bool(row.use_starttls))
 
     def list_resume_mail_dispatches(self) -> List[Dict[str, Any]]:
@@ -13281,10 +13373,11 @@ class RecruitmentService:
     def send_resume_mail_dispatch(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         sender_row = self._resolve_mail_sender_row(payload.get("sender_config_id"))
         if not sender_row:
-            raise ValueError("鎿嶄綔澶辫触")
+            error_msg = self._get_mail_sender_error(payload.get("sender_config_id"))
+            raise ValueError(error_msg)
         candidate_ids = _dedupe_ints(payload.get("candidate_ids") or [])
         if not candidate_ids:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("请选择要发送的候选人")
         candidates = [self._get_candidate(candidate_id) for candidate_id in candidate_ids]
         recipient_ids = _dedupe_ints(payload.get("recipient_ids") or [])
         recipient_emails = _dedupe_email_texts(payload.get("recipient_emails") or [])
@@ -13293,7 +13386,7 @@ class RecruitmentService:
         bcc_recipient_ids = _dedupe_ints(payload.get("bcc_recipient_ids") or [])
         bcc_recipient_emails = _dedupe_email_texts(payload.get("bcc_recipient_emails") or [])
         if not recipient_ids and not recipient_emails and not cc_recipient_ids and not cc_recipient_emails and not bcc_recipient_ids and not bcc_recipient_emails:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("请填写收件人邮箱或选择收件人")
         subject = str(payload.get("subject") or "").strip() or self._build_resume_mail_default_subject(candidates, send_mode="manual")
         body_text = str(payload.get("body_text") or "").strip() or self._build_resume_mail_default_body(candidates, send_mode="manual")
         body_html = payload.get("body_html") or None
@@ -13351,7 +13444,7 @@ class RecruitmentService:
     def get_ai_task_log(self, task_id: int) -> Dict[str, Any]:
         row = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.id == task_id).first()
         if not row:
-            raise ValueError("鎿嶄綔澶辫触")
+            raise ValueError("操作失败")
         self._assert_business_row_visible(row)
         if self._settle_orphaned_live_task(row):
             self.db.commit()
