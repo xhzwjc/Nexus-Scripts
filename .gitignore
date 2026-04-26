@@ -37,3 +37,4 @@ fastApiProject/data/recruitment_uploads/resumes/
 fastApiProject/data/bootstrap_users.local.json
 
 .claude/settings.local.json
+.claude/launch.json
