@@ -574,6 +574,10 @@ async def stream_generate_interview_questions(candidate_id: int, payload: Interv
             )
             skill_snapshots = service._tailor_skill_snapshots_for_task(service._build_skill_snapshots(skill_rows), "interview")
             related_skill_ids = service._extract_related_skill_ids(skill_snapshots)
+            if not candidate.position_id:
+                raise ValueError("候选人未绑定岗位，无法生成面试题。请先为候选人分配岗位后再生成面试题。")
+            if not skill_snapshots:
+                raise ValueError("该岗位未配置面试题Skill，无法生成面试题。请先在岗位配置中绑定面试题Skill后再生成面试题。")
             request_hash = service._build_request_hash(
                 "interview_question_generation",
                 candidate.id,

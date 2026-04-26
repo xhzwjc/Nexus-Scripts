@@ -3826,6 +3826,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 });
                 toast.success(task.reused_existing_task ? recruitmentToast.screeningTaskReused : recruitmentUiText.queueJoined);
             }
+        } catch (error) {
+            toast.error(isZh ? `发起初筛失败：${formatActionError(error)}` : `Failed to start screening: ${formatActionError(error)}`);
         } finally {
             screeningLaunchInFlightRef.current = false;
             setScreeningSubmitting(false);
@@ -6613,14 +6615,28 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     <div
                                         className="space-y-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
                                         <label
-                                            className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                                            className={cn(
+                                                "flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200",
+                                                positionForm.screeningSkillIds.length === 0 && "opacity-50 cursor-not-allowed"
+                                            )}>
                                             <input
                                                 type="checkbox"
                                                 checked={positionForm.autoScreenOnUpload}
-                                                onChange={(event) => updatePositionFormField("autoScreenOnUpload", event.target.checked)}
+                                                disabled={positionForm.screeningSkillIds.length === 0}
+                                                onChange={(event) => {
+                                                    if (positionForm.screeningSkillIds.length === 0) {
+                                                        return;
+                                                    }
+                                                    updatePositionFormField("autoScreenOnUpload", event.target.checked);
+                                                }}
                                             />
                                             上传简历后自动进入初筛
                                         </label>
+                                        {positionForm.screeningSkillIds.length === 0 && (
+                                            <p className="text-xs text-amber-600 dark:text-amber-400">
+                                                请先在下方「初筛Skills」中绑定至少一个初筛Skill，再开启此功能
+                                            </p>
+                                        )}
                                         <label
                                             className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                                             <input

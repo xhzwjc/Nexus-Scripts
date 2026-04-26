@@ -10541,6 +10541,8 @@ class RecruitmentService:
         candidate = self._get_candidate(candidate_id)
         if not candidate.latest_resume_file_id:
             raise ValueError("候选人暂无可用简历，无法发起初筛。")
+        if not candidate.position_id:
+            raise ValueError("候选人未绑定岗位，无法发起初筛。请先为候选人分配岗位后再发起初筛。")
         normalized_screening_mode = _normalize_screening_mode(screening_mode, force_fallback=force_fallback)
         if not force_one_pass and normalized_screening_mode == "default":
             normalized_screening_mode = "fallback_parse_then_score"
@@ -10577,6 +10579,9 @@ class RecruitmentService:
                 skill_rows=skill_rows,
                 custom_requirements=custom_requirements,
             )
+
+        if not skill_snapshots:
+            raise ValueError("该岗位未配置初筛Skill，无法发起初筛。请先在岗位配置中绑定初筛Skill后再发起初筛。")
 
         score_rule_snapshot = _build_score_rule_snapshot(skill_snapshots)
         parse_row: Optional[RecruitmentResumeParseResult] = self._get_current_parse_result(candidate)
@@ -11495,6 +11500,8 @@ class RecruitmentService:
             candidate = self._get_candidate(candidate_id)
             if not candidate.latest_resume_file_id:
                 raise ValueError("候选人暂无可用简历，无法发起初筛。")
+            if not candidate.position_id:
+                raise ValueError("候选人未绑定岗位，无法发起初筛。请先为候选人分配岗位后再发起初筛。")
             existing_live_task = self._find_live_screening_task(candidate.id)
             if existing_live_task:
                 return {
@@ -11516,6 +11523,8 @@ class RecruitmentService:
                 skill_rows=skill_rows,
                 custom_requirements=custom_requirements,
             )
+            if not skill_snapshots:
+                raise ValueError("该岗位未配置初筛Skill，无法发起初筛。请先在岗位配置中绑定初筛Skill后再发起初筛。")
             score_rule_snapshot = _build_score_rule_snapshot(skill_snapshots)
             parse_row = self._get_current_parse_result(candidate)
             had_existing_parse = allow_reuse_parse and self._can_reuse_existing_parse_result(candidate, parse_row)
@@ -12101,11 +12110,15 @@ class RecruitmentService:
 
     def generate_interview_questions(self, candidate_id: int, round_name: str, custom_requirements: str, skill_ids: Optional[Iterable[Any]], actor_id: str, use_candidate_memory: bool = True, use_position_skills: bool = True, *, existing_task_id: Optional[int] = None, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
+        if not candidate.position_id:
+            raise ValueError("候选人未绑定岗位，无法生成面试题。请先为候选人分配岗位后再生成面试题。")
         position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == candidate.position_id, RecruitmentPosition.deleted.is_(False)).first() if candidate.position_id else None
         workflow = self._get_workflow_memory(candidate.id)
         skill_rows, memory_source = self._resolve_interview_skills(candidate, skill_ids, use_candidate_memory=use_candidate_memory, use_position_skills=use_position_skills)
         skill_snapshots = self._tailor_skill_snapshots_for_task(self._build_skill_snapshots(skill_rows), "interview")
         related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
+        if not skill_snapshots:
+            raise ValueError("该岗位未配置面试题Skill，无法生成面试题。请先在岗位配置中绑定面试题Skill后再生成面试题。")
         parse_row = self._get_current_parse_result(candidate)
         score_row = self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == candidate.latest_score_id).first() if candidate.latest_score_id else None
         candidate_payload = self._serialize_candidate_for_interview_prompt(candidate)
@@ -12256,9 +12269,13 @@ class RecruitmentService:
 
     def start_generate_interview_questions(self, candidate_id: int, round_name: str, custom_requirements: str, skill_ids: Optional[Iterable[Any]], actor_id: str, use_candidate_memory: bool = True, use_position_skills: bool = True) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
+        if not candidate.position_id:
+            raise ValueError("候选人未绑定岗位，无法生成面试题。请先为候选人分配岗位后再生成面试题。")
         skill_rows, memory_source = self._resolve_interview_skills(candidate, skill_ids, use_candidate_memory=use_candidate_memory, use_position_skills=use_position_skills)
         skill_snapshots = self._tailor_skill_snapshots_for_task(self._build_skill_snapshots(skill_rows), "interview")
         related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
+        if not skill_snapshots:
+            raise ValueError("该岗位未配置面试题Skill，无法生成面试题。请先在岗位配置中绑定面试题Skill后再生成面试题。")
         request_hash = self._build_request_hash("interview_question_generation", candidate.id, round_name, custom_requirements, related_skill_ids, memory_source)
         log_row = self._create_ai_task_log("interview_question_generation", created_by=actor_id, related_position_id=candidate.position_id, related_candidate_id=candidate.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, memory_source=memory_source, request_hash=request_hash)
 
