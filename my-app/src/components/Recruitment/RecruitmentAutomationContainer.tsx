@@ -824,7 +824,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 .filter((organization) => (
                     organization.is_active !== false
                     && isCompanyLikeOrganization(organization)
-                    && String(organization.org_type || "").toLowerCase() !== "group"
                 ))
                 .forEach((organization) => companyCodes.add(organization.org_code));
         }
@@ -837,9 +836,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             companyCodes.add(findCompanyScopeCodeForOrg(orgCode, organizationMap));
         });
 
-        if (companyCodes.size > 1) {
-            companyCodes.delete("group");
-        }
         if (!companyCodes.size) {
             companyCodes.add(findCompanyScopeCodeForOrg(defaultOrgScope, organizationMap));
         }
