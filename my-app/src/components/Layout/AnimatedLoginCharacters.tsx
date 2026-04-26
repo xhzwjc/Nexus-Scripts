@@ -1,7 +1,6 @@
 'use client';
 
 import { type RefObject, useEffect, useRef, useState } from 'react';
-import { Sparkles } from 'lucide-react';
 
 type AnimatedLoginCharactersProps = {
     isTyping: boolean;
@@ -263,10 +262,8 @@ export function AnimatedLoginCharacters({ isTyping, keyLength, isKeyVisible }: A
     return (
         <div className="relative hidden lg:flex flex-col overflow-hidden border-r border-border/40 p-12 text-slate-900 dark:text-slate-100 bg-[radial-gradient(120%_120%_at_0%_0%,#e8f7ff_0%,#dff5f2_42%,#f4fbff_100%)] dark:bg-[radial-gradient(120%_120%_at_0%_0%,#0f172a_0%,#0b2530_42%,#102a43_100%)]">
             <div className="relative z-20 flex items-center gap-3 text-lg font-semibold tracking-wide">
-                <div className="flex size-10 items-center justify-center rounded-2xl bg-slate-900/10 dark:bg-white/15 backdrop-blur-sm">
-                    <Sparkles className="size-4" />
-                </div>
-                <div className="mt-1">ScriptHub</div>
+                <img src="/logo-circle.png" alt="Logo" className="h-10 w-auto object-contain" />
+                <span className="mt-1">TANG REN TECHNOLOGY</span>
             </div>
 
             <div className="relative z-20 flex flex-1 items-center justify-center">

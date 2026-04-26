@@ -21,7 +21,7 @@ import {
     ChevronRight,
     ChevronDown
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import CryptoJS from 'crypto-js';
 import { useI18n } from '@/lib/i18n';
 
@@ -89,9 +89,6 @@ export default function DevTools({ onBack }: DevToolsProps) {
 
     // State - JSON Tree (collapsible)
     const [jsonCollapsed, setJsonCollapsed] = useState<Set<string>>(new Set());
-
-    // Default encryption key
-    const DEFAULT_ENCRYPTION_KEY = 'ScriptHub@TeamResources#2024!Secure';
 
     // ================== Handlers ==================
 
@@ -316,8 +313,13 @@ export default function DevTools({ onBack }: DevToolsProps) {
             return;
         }
 
+        if (!decryptKey.trim()) {
+            setDecryptError(t.decrypt.emptyKey);
+            return;
+        }
+
         try {
-            const key = decryptKey.trim() || DEFAULT_ENCRYPTION_KEY;
+            const key = decryptKey.trim();
             const bytes = CryptoJS.AES.decrypt(decryptInput.trim(), key);
             const decrypted = bytes.toString(CryptoJS.enc.Utf8);
 

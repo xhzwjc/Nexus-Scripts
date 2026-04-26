@@ -28,6 +28,7 @@ import {
     Tooltip,
     ResponsiveContainer
 } from 'recharts';
+import { authenticatedFetch } from '@/lib/auth';
 import { getApiBaseUrl } from '@/lib/api';
 import { useTheme } from '@/lib/theme/ThemeContext';
 import { useI18n } from '@/lib/i18n';
@@ -346,7 +347,7 @@ const ServerMonitor: React.FC<ServerMonitorProps> = ({ onBack }) => {
         const fetchServerList = async () => {
             try {
                 // Try fetching real server list
-                const resp = await fetch(`${API_BASE}/api/monitoring/servers`).catch(() => null);
+                const resp = await authenticatedFetch(`${API_BASE}/api/monitoring/servers`).catch(() => null);
                 if (resp && resp.ok) {
                     const json = await resp.json();
                     if (json.success && Array.isArray(json.data)) {
@@ -431,7 +432,7 @@ const ServerMonitor: React.FC<ServerMonitorProps> = ({ onBack }) => {
             }
 
             // Real API Fetch
-            const resp = await fetch(`${API_BASE}/api/monitoring/servers/${selectedServerId}/metrics`).catch(() => null);
+            const resp = await authenticatedFetch(`${API_BASE}/api/monitoring/servers/${selectedServerId}/metrics`).catch(() => null);
             if (resp && resp.ok) {
                 const json = await resp.json();
                 if (json.success && json.data) {

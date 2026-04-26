@@ -9,6 +9,7 @@ export interface Credential {
     label: string;      // "管理员"、"普通用户"
     username: string;
     password?: string;  // 可为空
+    hasPassword?: boolean;
     note?: string;
 }
 
@@ -40,17 +41,6 @@ export interface ResourceGroup {
     logo?: string;  // Base64 编码的图片或图片 URL（可选）
     systems: SystemResource[];
 }
-
-// 固定访问密钥
-export const ACCESS_KEYS = [
-    "U5*mO~yW6%LxJ3dQ0nHaD8~L0bV&cXoM9uA2j",
-    "wjc",
-    "pE7#tV4^Rk!2zF1&B@8cU5*mO~yW6%LxJ3dQ0nHa",
-    "K3^%w4qPz@!5RZ#hT7*eF1nD8~L0bV&cXoM9uA2j"
-];
-
-// AES 加密密钥（前端解密用，实际生产环境应更安全处理）
-export const ENCRYPTION_KEY = "ScriptHub@TeamResources#2024!Secure";
 
 // 初始化为空数组，用户通过界面添加真实数据
 export const INITIAL_RESOURCE_DATA: ResourceGroup[] = [];

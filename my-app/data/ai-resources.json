@@ -2389,6 +2389,20 @@
       "order": 10
     },
     {
+      "id": "reddit-ai-shopping",
+      "name": "Reddit AI Shopping",
+      "description": "AI-powered shopping search that surfaces product discussions and reviews from Reddit communities.",
+      "url": "https://reddit.com",
+      "logoUrl": "https://reddit.com/favicon.ico",
+      "category": "search",
+      "tags": [
+        "Shopping",
+        "Reddit",
+        "Research"
+      ],
+      "order": 10
+    },
+    {
       "id": "bolt",
       "name": "Bolt.new",
       "description": "AI快速原型开发工具",
@@ -2773,6 +2787,21 @@
       "order": 12
     },
     {
+      "id": "cartesia-sonic",
+      "name": "Cartesia Sonic",
+      "description": "最快的人类级语音API,超低延迟,实时对话体验,2月Product Hunt推广",
+      "url": "https://cartesia.ai",
+      "logoUrl": "https://cartesia.ai/favicon.ico",
+      "category": "audio",
+      "tags": [
+        "语音API",
+        "超低延迟",
+        "实时对话",
+        "高性能"
+      ],
+      "order": 12
+    },
+    {
       "id": "deepbrain-ai",
       "name": "DeepBrain AI",
       "description": "企业级数字人视频生成平台，支持多语言口播",
@@ -2945,6 +2974,21 @@
       "order": 13
     },
     {
+      "id": "pomelli-google",
+      "name": "Pomelli (Google)",
+      "description": "Google品牌内容生成器,2月测试中,AI驱动的营销内容创作平台",
+      "url": "https://google.com/pomelli",
+      "logoUrl": "https://google.com/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "Google",
+        "品牌内容",
+        "营销",
+        "2月测试"
+      ],
+      "order": 13
+    },
+    {
       "id": "auto-gpt",
       "name": "Auto-GPT",
       "description": "经典自主AI代理框架，可链式分解并执行复杂任务",
@@ -3087,6 +3131,36 @@
         "管理面板",
         "数据驱动",
         "快速开发"
+      ],
+      "order": 14
+    },
+    {
+      "id": "wordpress-ai-assistant",
+      "name": "WordPress AI Assistant",
+      "description": "2月WordPress内置AI助手,可编辑文本、生成图像、创建页面、修改布局,集成Google Nano Banana模型",
+      "url": "https://wordpress.com",
+      "logoUrl": "https://wordpress.com/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "WordPress",
+        "内容生成",
+        "图像生成",
+        "内置AI"
+      ],
+      "order": 14
+    },
+    {
+      "id": "alpie-core",
+      "name": "Alpie Core",
+      "description": "4-bit量化长上下文推理与编码模型,OpenAI兼容端点,成本高效的本地或托管部署",
+      "url": "https://alpie.ai",
+      "logoUrl": "https://alpie.ai/favicon.ico",
+      "category": "other",
+      "tags": [
+        "量化模型",
+        "成本优化",
+        "长上下文",
+        "本地部署"
       ],
       "order": 14
     },
@@ -3236,6 +3310,34 @@
       "order": 15
     },
     {
+      "id": "trupeer-doc-writer",
+      "name": "AI Doc Writer",
+      "description": "Create branded product documentation from simple recordings. Auto-generates text and images.",
+      "url": "https://trupeer.ai",
+      "logoUrl": "https://trupeer.ai/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "Documentation",
+        "Automation",
+        "Product Hunt"
+      ],
+      "order": 15
+    },
+    {
+      "id": "healthbridge",
+      "name": "HealthBridge",
+      "description": "AI-optimized chronic condition care plans based on patient data and latest medical research.",
+      "url": "https://healthbridge.ai",
+      "logoUrl": "https://healthbridge.ai/favicon.ico",
+      "category": "other",
+      "tags": [
+        "HealthTech",
+        "Personalized Medicine",
+        "AI"
+      ],
+      "order": 15
+    },
+    {
       "id": "coze",
       "name": "Coze (扣子)",
       "description": "字节跳动推出的一站式AI Bot开发平台",
@@ -3380,6 +3482,20 @@
       "order": 16
     },
     {
+      "id": "coverposts",
+      "name": "Coverposts",
+      "description": "Automated social media content distribution for blogs. Generates posts and images.",
+      "url": "https://coverposts.com",
+      "logoUrl": "https://coverposts.com/favicon.ico",
+      "category": "writing",
+      "tags": [
+        "Social Media",
+        "Distribution",
+        "Automation"
+      ],
+      "order": 16
+    },
+    {
       "id": "langchain",
       "name": "LangChain",
       "description": "构建大模型应用的核心框架，支持工具调用与链管理",
@@ -3505,6 +3621,21 @@
         "数据库",
         "自托管",
         "Airtable替代"
+      ],
+      "order": 17
+    },
+    {
+      "id": "vouch-github",
+      "name": "Vouch",
+      "description": "GitHub反垃圾PR工具,2月热门,通过信誉系统阻止AI生成的垃圾贡献,维护开源项目质量",
+      "url": "https://github.com/vouch-dev/vouch",
+      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
+      "category": "devtools",
+      "tags": [
+        "反垃圾",
+        "开源治理",
+        "信誉系统",
+        "GitHub热门"
       ],
       "order": 17
     },
@@ -3638,6 +3769,21 @@
       "order": 18
     },
     {
+      "id": "gondolin-sandbox",
+      "name": "Gondolin",
+      "description": "MicroVM沙箱运行AI代码,JS网络隔离,安全执行AI生成代码,防止恶意操作,2月GitHub趋势",
+      "url": "https://github.com/gondolin/gondolin",
+      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
+      "category": "devtools",
+      "tags": [
+        "沙箱",
+        "安全",
+        "代码执行",
+        "microVM"
+      ],
+      "order": 18
+    },
+    {
       "id": "babyagi",
       "name": "BabyAGI",
       "description": "经典轻量级自主AI代理框架",
@@ -3749,6 +3895,21 @@
         "多合一",
         "实用工具",
         "离线"
+      ],
+      "order": 19
+    },
+    {
+      "id": "unblocked-code-review",
+      "name": "Unblocked",
+      "description": "AI代码审查工具,高信号评论,只提供真正需要实现的建议,过滤噪音,Product Hunt推广中",
+      "url": "https://unblocked.io",
+      "logoUrl": "https://unblocked.io/favicon.ico",
+      "category": "devtools",
+      "tags": [
+        "代码审查",
+        "高质量评论",
+        "噪音过滤",
+        "团队协作"
       ],
       "order": 19
     },
@@ -3871,6 +4032,21 @@
       "order": 20
     },
     {
+      "id": "raydian-webapp",
+      "name": "Raydian",
+      "description": "对话式全栈Web应用构建,聊天生成+可视化编辑+集成托管,快速原型工具",
+      "url": "https://raydian.io",
+      "logoUrl": "https://raydian.io/favicon.ico",
+      "category": "devtools",
+      "tags": [
+        "对话式",
+        "全栈",
+        "可视化",
+        "快速原型"
+      ],
+      "order": 20
+    },
+    {
       "id": "dspy",
       "name": "DSPy",
       "description": "优化AI代理提示与管道的编程框架（2025-2026大幅流行）",
@@ -3989,6 +4165,20 @@
       "order": 21
     },
     {
+      "id": "gitnexus",
+      "name": "GitNexus",
+      "description": "Client-side code intelligence that builds knowledge graphs entirely in the browser.",
+      "url": "https://github.com/gitnexus/gitnexus",
+      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
+      "category": "devtools",
+      "tags": [
+        "Browser-based",
+        "Knowledge Graph",
+        "Code Intel"
+      ],
+      "order": 21
+    },
+    {
       "id": "semantic-kernel",
       "name": "Semantic Kernel",
       "description": "Microsoft企业级AI代理编排框架，支持插件与记忆",
@@ -4092,6 +4282,21 @@
       "order": 22
     },
     {
+      "id": "moondream",
+      "name": "Moondream",
+      "description": "开源视觉语言模型,1GB超小体积,无需GPU运行,图像识别、目标检测、文档阅读,600万+下载",
+      "url": "https://moondream.ai",
+      "logoUrl": "https://moondream.ai/favicon.ico",
+      "category": "image",
+      "tags": [
+        "开源",
+        "视觉语言",
+        "边缘设备",
+        "1GB体积"
+      ],
+      "order": 22
+    },
+    {
       "id": "agentflow",
       "name": "AgentFlow",
       "description": "2026新兴可视化代理工作流框架，简化多代理协作",
@@ -4161,6 +4366,50 @@
         "视觉AI",
         "E2E",
         "自动维护"
+      ],
+      "order": 23
+    },
+    {
+      "id": "glm-5",
+      "name": "GLM-5",
+      "description": "中国智谱AI 2月发布,开源推理模型立即登顶开源榜单第一,挑战闭源模型壁垒",
+      "url": "https://www.zhipuai.cn",
+      "logoUrl": "https://www.zhipuai.cn/favicon.ico",
+      "category": "chat",
+      "tags": [
+        "开源",
+        "推理模型",
+        "中国",
+        "榜单第一"
+      ],
+      "order": 23
+    },
+    {
+      "id": "claude-code-windows",
+      "name": "Claude Code for Windows",
+      "description": "2月11日正式发布Windows版本,实现macOS/Windows功能对等,多平台Agent编码时代到来",
+      "url": "https://claude.ai/code",
+      "logoUrl": "https://claude.ai/favicon.ico",
+      "category": "code",
+      "tags": [
+        "Windows",
+        "跨平台",
+        "Agent编码",
+        "2月发布"
+      ],
+      "order": 23
+    },
+    {
+      "id": "imagine-art-2026",
+      "name": "Imagine Art",
+      "description": "Unified platform access to 12+ leading AI models like FLUX.2, Ideogram v3, and Sora.",
+      "url": "https://www.imagine.art",
+      "logoUrl": "https://www.imagine.art/favicon.ico",
+      "category": "image",
+      "tags": [
+        "Multi-model",
+        "Creative Suite",
+        "Image Generation"
       ],
       "order": 23
     },
@@ -4235,6 +4484,21 @@
         "视觉回归",
         "零编写",
         "Chromium"
+      ],
+      "order": 24
+    },
+    {
+      "id": "localgpt-memory",
+      "name": "LocalGPT",
+      "description": "本地持久记忆AI应用,memory.md + daemon任务,无需云端,完全隐私,2月GitHub趋势",
+      "url": "https://github.com/localgpt/localgpt",
+      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
+      "category": "chat",
+      "tags": [
+        "本地AI",
+        "持久记忆",
+        "隐私",
+        "开源"
       ],
       "order": 24
     },
@@ -4371,6 +4635,21 @@
       "order": 26
     },
     {
+      "id": "mcp-excalidraw",
+      "name": "Excalidraw MCP",
+      "description": "MCP服务器让AI生成和迭代Excalidraw架构图、流程图,交互式图表编辑,2月GitHub趋势",
+      "url": "https://github.com/ivarvdm/mcp_excalidraw",
+      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
+      "category": "productivity",
+      "tags": [
+        "MCP",
+        "架构图",
+        "交互式",
+        "图表生成"
+      ],
+      "order": 26
+    },
+    {
       "id": "huawei-monitoring",
       "name": "华为云监控 (CES)",
       "description": "云平台集成 / 国产化最强，适合政企信创项目",
@@ -4416,6 +4695,21 @@
       "order": 27
     },
     {
+      "id": "claude-pulse",
+      "name": "Claude Pulse",
+      "description": "终端状态栏显示Claude Code使用限额,5小时会话+每周滚动使用量监控,开发者实用工具",
+      "url": "https://github.com/NoobyGains/claude-pulse",
+      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
+      "category": "productivity",
+      "tags": [
+        "监控",
+        "使用限额",
+        "终端工具",
+        "Claude Code"
+      ],
+      "order": 27
+    },
+    {
       "id": "blueking",
       "name": "嘉为蓝鲸",
       "description": "开源+商业 / 全栈智能观测，集成CMDB强，信创适配",
@@ -4441,6 +4735,21 @@
         "自主代理",
         "全栈",
         "任务执行"
+      ],
+      "order": 28
+    },
+    {
+      "id": "obsync",
+      "name": "Obsync",
+      "description": "macOS菜单栏应用,双向同步Obsidian Tasks ↔ Apple Reminders,知识管理与提醒无缝集成",
+      "url": "https://github.com/Santofer/Obsync",
+      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
+      "category": "productivity",
+      "tags": [
+        "Obsidian",
+        "任务管理",
+        "双向同步",
+        "macOS"
       ],
       "order": 28
     },
@@ -4473,6 +4782,21 @@
       "order": 29
     },
     {
+      "id": "stik-notes",
+      "name": "Stik",
+      "description": "极简笔记捕获应用,Markdown保存,通过Homebrew安装,快速记录想法",
+      "url": "https://github.com/0xMassi/stik_app",
+      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
+      "category": "productivity",
+      "tags": [
+        "极简",
+        "Markdown",
+        "快速记录",
+        "macOS"
+      ],
+      "order": 29
+    },
+    {
       "id": "transight",
       "name": "云智慧",
       "description": "国产商业 / 全链路监控，业务视角强",
@@ -4501,6 +4825,21 @@
       "order": 30
     },
     {
+      "id": "albato-automation",
+      "name": "Albato",
+      "description": "无代码自动化平台,120+应用集成,AI驱动的流程编排,2月Product Hunt热门",
+      "url": "https://albato.com",
+      "logoUrl": "https://albato.com/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "无代码",
+        "自动化",
+        "120+集成",
+        "流程编排"
+      ],
+      "order": 30
+    },
+    {
       "id": "ag2-ai",
       "name": "AG2",
       "description": "AutoGen社区驱动版，专注于进阶的多智能体协作",
@@ -4511,6 +4850,21 @@
         "开源",
         "AutoGen",
         "社区版"
+      ],
+      "order": 31
+    },
+    {
+      "id": "waylight",
+      "name": "Waylight",
+      "description": "设备端隐私AI,持续桌面记忆用于上下文感知起草与回忆,本地处理无云端",
+      "url": "https://waylight.ai",
+      "logoUrl": "https://waylight.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "设备端AI",
+        "隐私",
+        "持续记忆",
+        "本地处理"
       ],
       "order": 31
     },
@@ -4530,6 +4884,20 @@
       "order": 32
     },
     {
+      "id": "granola-ai",
+      "name": "Granola",
+      "description": "AI meeting notepad that transcribes, organizes, and simplifies your meetings. Integrates with Slack and more.",
+      "url": "https://granola.ai",
+      "logoUrl": "https://granola.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "Meeting",
+        "Transcription",
+        "Productivity"
+      ],
+      "order": 32
+    },
+    {
       "id": "ragflow",
       "name": "RAGFlow",
       "description": "开源RAG引擎,融合检索增强与代理能力,为LLM创建优质上下文层",
@@ -4541,6 +4909,20 @@
         "开源",
         "上下文增强",
         "LLM"
+      ],
+      "order": 33
+    },
+    {
+      "id": "twinmind",
+      "name": "TwinMind",
+      "description": "Personal AI assistant on device. Captures and understands context across your day.",
+      "url": "https://twinmind.ai",
+      "logoUrl": "https://twinmind.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "Personal Assistant",
+        "On-device",
+        "Audio"
       ],
       "order": 33
     },
@@ -4560,6 +4942,20 @@
       "order": 34
     },
     {
+      "id": "snoops-reddit",
+      "name": "Snoops.co",
+      "description": "Monitor Reddit for sales opportunities. Uses AI to find and respond to potential customers.",
+      "url": "https://snoops.co",
+      "logoUrl": "https://snoops.co/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "Reddit",
+        "Sales",
+        "Inbound"
+      ],
+      "order": 34
+    },
+    {
       "id": "langflow",
       "name": "Langflow",
       "description": "可视化LLM应用编排工具,GitHub热门AI代理仓库,简化代理构建流程",
@@ -4575,6 +4971,20 @@
       "order": 35
     },
     {
+      "id": "okara-ai",
+      "name": "Okara",
+      "description": "Privacy-first AI workspace with encrypted chat and secure document processing.",
+      "url": "https://okara.ai",
+      "logoUrl": "https://okara.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "Privacy",
+        "Workspace",
+        "LLMs"
+      ],
+      "order": 35
+    },
+    {
       "id": "beads",
       "name": "Beads",
       "description": "结构化长期记忆系统,任务跟踪与推理,解决AI上下文感知挑战,GitHub新兴",
@@ -4586,6 +4996,20 @@
         "任务跟踪",
         "上下文管理",
         "AI系统"
+      ],
+      "order": 36
+    },
+    {
+      "id": "name-drop-ai",
+      "name": "Name-Drop.ai",
+      "description": "Social monitoring tool to find the best moments for organic brand mentions.",
+      "url": "https://namedrop.ai",
+      "logoUrl": "https://namedrop.ai/favicon.ico",
+      "category": "productivity",
+      "tags": [
+        "Social Monitoring",
+        "Marketing",
+        "Brand Awareness"
       ],
       "order": 36
     },
@@ -4650,21 +5074,6 @@
       "order": 40
     },
     {
-      "id": "glm-5",
-      "name": "GLM-5",
-      "description": "中国智谱AI 2月发布,开源推理模型立即登顶开源榜单第一,挑战闭源模型壁垒",
-      "url": "https://www.zhipuai.cn",
-      "logoUrl": "https://www.zhipuai.cn/favicon.ico",
-      "category": "chat",
-      "tags": [
-        "开源",
-        "推理模型",
-        "中国",
-        "榜单第一"
-      ],
-      "order": 23
-    },
-    {
       "id": "cowork-anthropic",
       "name": "Cowork (Anthropic)",
       "description": "Anthropic 2月新品,桌面任务自动化工具,直接执行任务而非仅回答问题,支持文件管理+数据处理",
@@ -4678,21 +5087,6 @@
         "文件管理"
       ],
       "order": 41
-    },
-    {
-      "id": "claude-code-windows",
-      "name": "Claude Code for Windows",
-      "description": "2月11日正式发布Windows版本,实现macOS/Windows功能对等,多平台Agent编码时代到来",
-      "url": "https://claude.ai/code",
-      "logoUrl": "https://claude.ai/favicon.ico",
-      "category": "code",
-      "tags": [
-        "Windows",
-        "跨平台",
-        "Agent编码",
-        "2月发布"
-      ],
-      "order": 23
     },
     {
       "id": "github-agent-hq",
@@ -4710,51 +5104,6 @@
       "order": 42
     },
     {
-      "id": "pomelli-google",
-      "name": "Pomelli (Google)",
-      "description": "Google品牌内容生成器,2月测试中,AI驱动的营销内容创作平台",
-      "url": "https://google.com/pomelli",
-      "logoUrl": "https://google.com/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "Google",
-        "品牌内容",
-        "营销",
-        "2月测试"
-      ],
-      "order": 13
-    },
-    {
-      "id": "wordpress-ai-assistant",
-      "name": "WordPress AI Assistant",
-      "description": "2月WordPress内置AI助手,可编辑文本、生成图像、创建页面、修改布局,集成Google Nano Banana模型",
-      "url": "https://wordpress.com",
-      "logoUrl": "https://wordpress.com/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "WordPress",
-        "内容生成",
-        "图像生成",
-        "内置AI"
-      ],
-      "order": 14
-    },
-    {
-      "id": "vouch-github",
-      "name": "Vouch",
-      "description": "GitHub反垃圾PR工具,2月热门,通过信誉系统阻止AI生成的垃圾贡献,维护开源项目质量",
-      "url": "https://github.com/vouch-dev/vouch",
-      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
-      "category": "devtools",
-      "tags": [
-        "反垃圾",
-        "开源治理",
-        "信誉系统",
-        "GitHub热门"
-      ],
-      "order": 17
-    },
-    {
       "id": "visionclaw",
       "name": "VisionClaw",
       "description": "连接Meta Ray-Ban眼镜到Gemini,实时AI视觉+语音操作,通过相机进行智能家居控制、网页搜索等",
@@ -4770,36 +5119,6 @@
       "order": 43
     },
     {
-      "id": "mcp-excalidraw",
-      "name": "Excalidraw MCP",
-      "description": "MCP服务器让AI生成和迭代Excalidraw架构图、流程图,交互式图表编辑,2月GitHub趋势",
-      "url": "https://github.com/ivarvdm/mcp_excalidraw",
-      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
-      "category": "productivity",
-      "tags": [
-        "MCP",
-        "架构图",
-        "交互式",
-        "图表生成"
-      ],
-      "order": 26
-    },
-    {
-      "id": "localgpt-memory",
-      "name": "LocalGPT",
-      "description": "本地持久记忆AI应用,memory.md + daemon任务,无需云端,完全隐私,2月GitHub趋势",
-      "url": "https://github.com/localgpt/localgpt",
-      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
-      "category": "chat",
-      "tags": [
-        "本地AI",
-        "持久记忆",
-        "隐私",
-        "开源"
-      ],
-      "order": 24
-    },
-    {
       "id": "napkin-memory",
       "name": "Napkin",
       "description": "Claude Code记忆持久化工具,可编程工作流控制器,团队级上下文管理,2月GitHub热门",
@@ -4813,126 +5132,6 @@
         "Claude Code"
       ],
       "order": 44
-    },
-    {
-      "id": "gondolin-sandbox",
-      "name": "Gondolin",
-      "description": "MicroVM沙箱运行AI代码,JS网络隔离,安全执行AI生成代码,防止恶意操作,2月GitHub趋势",
-      "url": "https://github.com/gondolin/gondolin",
-      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
-      "category": "devtools",
-      "tags": [
-        "沙箱",
-        "安全",
-        "代码执行",
-        "microVM"
-      ],
-      "order": 18
-    },
-    {
-      "id": "claude-pulse",
-      "name": "Claude Pulse",
-      "description": "终端状态栏显示Claude Code使用限额,5小时会话+每周滚动使用量监控,开发者实用工具",
-      "url": "https://github.com/NoobyGains/claude-pulse",
-      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
-      "category": "productivity",
-      "tags": [
-        "监控",
-        "使用限额",
-        "终端工具",
-        "Claude Code"
-      ],
-      "order": 27
-    },
-    {
-      "id": "obsync",
-      "name": "Obsync",
-      "description": "macOS菜单栏应用,双向同步Obsidian Tasks ↔ Apple Reminders,知识管理与提醒无缝集成",
-      "url": "https://github.com/Santofer/Obsync",
-      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
-      "category": "productivity",
-      "tags": [
-        "Obsidian",
-        "任务管理",
-        "双向同步",
-        "macOS"
-      ],
-      "order": 28
-    },
-    {
-      "id": "stik-notes",
-      "name": "Stik",
-      "description": "极简笔记捕获应用,Markdown保存,通过Homebrew安装,快速记录想法",
-      "url": "https://github.com/0xMassi/stik_app",
-      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
-      "category": "productivity",
-      "tags": [
-        "极简",
-        "Markdown",
-        "快速记录",
-        "macOS"
-      ],
-      "order": 29
-    },
-    {
-      "id": "moondream",
-      "name": "Moondream",
-      "description": "开源视觉语言模型,1GB超小体积,无需GPU运行,图像识别、目标检测、文档阅读,600万+下载",
-      "url": "https://moondream.ai",
-      "logoUrl": "https://moondream.ai/favicon.ico",
-      "category": "image",
-      "tags": [
-        "开源",
-        "视觉语言",
-        "边缘设备",
-        "1GB体积"
-      ],
-      "order": 22
-    },
-    {
-      "id": "unblocked-code-review",
-      "name": "Unblocked",
-      "description": "AI代码审查工具,高信号评论,只提供真正需要实现的建议,过滤噪音,Product Hunt推广中",
-      "url": "https://unblocked.io",
-      "logoUrl": "https://unblocked.io/favicon.ico",
-      "category": "devtools",
-      "tags": [
-        "代码审查",
-        "高质量评论",
-        "噪音过滤",
-        "团队协作"
-      ],
-      "order": 19
-    },
-    {
-      "id": "albato-automation",
-      "name": "Albato",
-      "description": "无代码自动化平台,120+应用集成,AI驱动的流程编排,2月Product Hunt热门",
-      "url": "https://albato.com",
-      "logoUrl": "https://albato.com/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "无代码",
-        "自动化",
-        "120+集成",
-        "流程编排"
-      ],
-      "order": 30
-    },
-    {
-      "id": "cartesia-sonic",
-      "name": "Cartesia Sonic",
-      "description": "最快的人类级语音API,超低延迟,实时对话体验,2月Product Hunt推广",
-      "url": "https://cartesia.ai",
-      "logoUrl": "https://cartesia.ai/favicon.ico",
-      "category": "audio",
-      "tags": [
-        "语音API",
-        "超低延迟",
-        "实时对话",
-        "高性能"
-      ],
-      "order": 12
     },
     {
       "id": "dvina-enterprise",
@@ -4965,36 +5164,6 @@
       "order": 46
     },
     {
-      "id": "alpie-core",
-      "name": "Alpie Core",
-      "description": "4-bit量化长上下文推理与编码模型,OpenAI兼容端点,成本高效的本地或托管部署",
-      "url": "https://alpie.ai",
-      "logoUrl": "https://alpie.ai/favicon.ico",
-      "category": "other",
-      "tags": [
-        "量化模型",
-        "成本优化",
-        "长上下文",
-        "本地部署"
-      ],
-      "order": 14
-    },
-    {
-      "id": "raydian-webapp",
-      "name": "Raydian",
-      "description": "对话式全栈Web应用构建,聊天生成+可视化编辑+集成托管,快速原型工具",
-      "url": "https://raydian.io",
-      "logoUrl": "https://raydian.io/favicon.ico",
-      "category": "devtools",
-      "tags": [
-        "对话式",
-        "全栈",
-        "可视化",
-        "快速原型"
-      ],
-      "order": 20
-    },
-    {
       "id": "ai-browser",
       "name": "AI Browser",
       "description": "Agentic浏览器自动化,云端会话+CAPTCHA处理+定时任务,适合增长运营与爬虫",
@@ -5025,161 +5194,6 @@
       "order": 48
     },
     {
-      "id": "waylight",
-      "name": "Waylight",
-      "description": "设备端隐私AI,持续桌面记忆用于上下文感知起草与回忆,本地处理无云端",
-      "url": "https://waylight.ai",
-      "logoUrl": "https://waylight.ai/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "设备端AI",
-        "隐私",
-        "持续记忆",
-        "本地处理"
-      ],
-      "order": 31
-    },
-    {
-      "id": "granola-ai",
-      "name": "Granola",
-      "description": "AI meeting notepad that transcribes, organizes, and simplifies your meetings. Integrates with Slack and more.",
-      "url": "https://granola.ai",
-      "logoUrl": "https://granola.ai/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "Meeting",
-        "Transcription",
-        "Productivity"
-      ],
-      "order": 32
-    },
-    {
-      "id": "trupeer-doc-writer",
-      "name": "AI Doc Writer",
-      "description": "Create branded product documentation from simple recordings. Auto-generates text and images.",
-      "url": "https://trupeer.ai",
-      "logoUrl": "https://trupeer.ai/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "Documentation",
-        "Automation",
-        "Product Hunt"
-      ],
-      "order": 15
-    },
-    {
-      "id": "twinmind",
-      "name": "TwinMind",
-      "description": "Personal AI assistant on device. Captures and understands context across your day.",
-      "url": "https://twinmind.ai",
-      "logoUrl": "https://twinmind.ai/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "Personal Assistant",
-        "On-device",
-        "Audio"
-      ],
-      "order": 33
-    },
-    {
-      "id": "snoops-reddit",
-      "name": "Snoops.co",
-      "description": "Monitor Reddit for sales opportunities. Uses AI to find and respond to potential customers.",
-      "url": "https://snoops.co",
-      "logoUrl": "https://snoops.co/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "Reddit",
-        "Sales",
-        "Inbound"
-      ],
-      "order": 34
-    },
-    {
-      "id": "okara-ai",
-      "name": "Okara",
-      "description": "Privacy-first AI workspace with encrypted chat and secure document processing.",
-      "url": "https://okara.ai",
-      "logoUrl": "https://okara.ai/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "Privacy",
-        "Workspace",
-        "LLMs"
-      ],
-      "order": 35
-    },
-    {
-      "id": "coverposts",
-      "name": "Coverposts",
-      "description": "Automated social media content distribution for blogs. Generates posts and images.",
-      "url": "https://coverposts.com",
-      "logoUrl": "https://coverposts.com/favicon.ico",
-      "category": "writing",
-      "tags": [
-        "Social Media",
-        "Distribution",
-        "Automation"
-      ],
-      "order": 16
-    },
-    {
-      "id": "name-drop-ai",
-      "name": "Name-Drop.ai",
-      "description": "Social monitoring tool to find the best moments for organic brand mentions.",
-      "url": "https://namedrop.ai",
-      "logoUrl": "https://namedrop.ai/favicon.ico",
-      "category": "productivity",
-      "tags": [
-        "Social Monitoring",
-        "Marketing",
-        "Brand Awareness"
-      ],
-      "order": 36
-    },
-    {
-      "id": "imagine-art-2026",
-      "name": "Imagine Art",
-      "description": "Unified platform access to 12+ leading AI models like FLUX.2, Ideogram v3, and Sora.",
-      "url": "https://www.imagine.art",
-      "logoUrl": "https://www.imagine.art/favicon.ico",
-      "category": "image",
-      "tags": [
-        "Multi-model",
-        "Creative Suite",
-        "Image Generation"
-      ],
-      "order": 23
-    },
-    {
-      "id": "reddit-ai-shopping",
-      "name": "Reddit AI Shopping",
-      "description": "AI-powered shopping search that surfaces product discussions and reviews from Reddit communities.",
-      "url": "https://reddit.com",
-      "logoUrl": "https://reddit.com/favicon.ico",
-      "category": "search",
-      "tags": [
-        "Shopping",
-        "Reddit",
-        "Research"
-      ],
-      "order": 10
-    },
-    {
-      "id": "healthbridge",
-      "name": "HealthBridge",
-      "description": "AI-optimized chronic condition care plans based on patient data and latest medical research.",
-      "url": "https://healthbridge.ai",
-      "logoUrl": "https://healthbridge.ai/favicon.ico",
-      "category": "other",
-      "tags": [
-        "HealthTech",
-        "Personalized Medicine",
-        "AI"
-      ],
-      "order": 15
-    },
-    {
       "id": "craftai",
       "name": "CraftAI",
       "description": "Modular AI solutions for small businesses to integrate AI into their operations easily.",
@@ -5192,20 +5206,6 @@
         "Integration"
       ],
       "order": 49
-    },
-    {
-      "id": "gitnexus",
-      "name": "GitNexus",
-      "description": "Client-side code intelligence that builds knowledge graphs entirely in the browser.",
-      "url": "https://github.com/gitnexus/gitnexus",
-      "logoUrl": "https://github.githubassets.com/favicons/favicon.svg",
-      "category": "devtools",
-      "tags": [
-        "Browser-based",
-        "Knowledge Graph",
-        "Code Intel"
-      ],
-      "order": 21
     }
   ]
 }

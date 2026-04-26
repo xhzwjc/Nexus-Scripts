@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import {
     ArrowLeft,
     Loader2,
@@ -11,12 +11,16 @@ import {
     Trash2,
     Copy,
     X,
-    Download
+    Download,
+    ChevronDown,
+    ChevronRight,
+    Cloud
 } from 'lucide-react';
 
 // UI Components
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -24,7 +28,9 @@ import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Checkbox } from './ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 import { getApiBaseUrl } from '../lib/api';
+import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 
 // Types
@@ -38,6 +44,9 @@ interface BaseTaxParams {
     income_type: number; // 1:labor; 2:salary
     year: number;
     accumulated_special_deduction: number;
+    city_tax_rate: number;
+    education_surcharge_rate: number;
+    local_education_surcharge_rate: number;
 }
 
 interface MockTaxParams extends BaseTaxParams {
@@ -58,6 +67,8 @@ type TaxCalculationParams = MockTaxParams | RealTaxParams;
 interface TaxCalculationItem {
     year_month: string;
     bill_amount: number;
+    batch_no: string;
+    credential_num: string;
     realname: string;
     worker_id: number;
     tax: number;
@@ -72,6 +83,11 @@ interface TaxCalculationItem {
     tax_rate: number;
     accumulated_total_tax: number;
     effective_tax_rate: number;
+    vat_tax?: number;
+    surcharges?: number;
+    total_tax_and_fees?: number;
+    warning_msg?: string;
+    warning_level?: '450' | '500' | null;
 }
 
 interface TaxCalculationResponse {
@@ -96,7 +112,13 @@ const generateDefaultMockRecords = (year: number): MockRecord[] => {
 };
 
 // Export CSV
-const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: boolean, tr: { results: { table: Record<string, string>; fileName: string } }) => {
+const exportToCSV = (
+    data: TaxCalculationItem[],
+    totals: { tax: number, vat: number, sur: number, all: number },
+    isMockMode: boolean,
+    showVatColumns: boolean,
+    tr: { results: { table: Record<string, string>; fileName: string } }
+) => {
     // Generate headers dynamically
     const baseHeaders = [
         tr.results.table.yearMonth,
@@ -109,7 +131,10 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: b
         tr.results.table.preTax,
         tr.results.table.afterTax,
         tr.results.table.monthlyTax,
-        tr.results.table.actualBurden
+        ...(showVatColumns
+            ? [tr.results.table.vat, tr.results.table.surcharges, tr.results.table.totalTaxAndFees]
+            : []),
+        tr.results.table.actualBurden,
     ];
 
     const headers = isMockMode
@@ -117,6 +142,7 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: b
         : [baseHeaders[0], tr.results.table.name, ...baseHeaders.slice(1)];
 
     const rows = data.map(item => {
+        const totalTaxAndFees = item.total_tax_and_fees ?? item.tax;
         const baseRow = [
             item.year_month,
             item.accumulated_deduction.toFixed(2),
@@ -126,8 +152,15 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: b
             item.accumulated_total_tax.toFixed(2),
             `${(item.tax_rate * 100)}%`,
             item.bill_amount,
-            (item.bill_amount - item.tax).toFixed(2),
+            (item.bill_amount - totalTaxAndFees).toFixed(2),
             item.tax.toFixed(2),
+            ...(showVatColumns
+                ? [
+                    (item.vat_tax || 0).toFixed(2),
+                    (item.surcharges || 0).toFixed(2),
+                    totalTaxAndFees.toFixed(2),
+                ]
+                : []),
             `${item.effective_tax_rate.toFixed(2)}%`
         ];
 
@@ -137,10 +170,18 @@ const exportToCSV = (data: TaxCalculationItem[], totalTax: number, isMockMode: b
     });
 
     // Total row
-    const totalColumns = isMockMode ? 11 : 12;
+    const totalColumns = headers.length;
     const totalRow = Array(totalColumns).fill('');
-    totalRow[totalColumns - 2] = tr.results.table.totalTax;
-    totalRow[totalColumns - 1] = totalTax.toFixed(2);
+    if (showVatColumns) {
+        totalRow[totalColumns - 6] = tr.results.table.statisticsTotal;
+        totalRow[totalColumns - 5] = totals.tax.toFixed(2);
+        totalRow[totalColumns - 4] = totals.vat.toFixed(2);
+        totalRow[totalColumns - 3] = totals.sur.toFixed(2);
+        totalRow[totalColumns - 2] = totals.all.toFixed(2);
+    } else {
+        totalRow[totalColumns - 3] = tr.results.table.statisticsTotal;
+        totalRow[totalColumns - 2] = totals.tax.toFixed(2);
+    }
     rows.push(totalRow);
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -171,7 +212,7 @@ const isValidYearMonthFormat = (value: string): boolean => {
 type TaxCalculationItemWithId = TaxCalculationItem & { _rowId: string };
 
 export default function TaxCalculationScript({ onBack }: { onBack: () => void }) {
-    const { t } = useI18n();
+    const { t, language } = useI18n();
     const tr = t.scripts.taxCalculator;
 
     // Params state
@@ -180,6 +221,9 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
         income_type: 1,
         year: new Date().getFullYear(),
         accumulated_special_deduction: 0,
+        city_tax_rate: 7.0,
+        education_surcharge_rate: 3.0,
+        local_education_surcharge_rate: 2.0,
         mock_data: generateDefaultMockRecords(new Date().getFullYear())
     });
 
@@ -188,6 +232,9 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
         income_type: 1,
         year: new Date().getFullYear(),
         accumulated_special_deduction: 0,
+        city_tax_rate: 7.0,
+        education_surcharge_rate: 3.0,
+        local_education_surcharge_rate: 2.0,
         credential_num: '',
         realname: '',
         environment: 'test',
@@ -208,10 +255,8 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
     const [totalTax, setTotalTax] = useState(0);
     const [hasCalculated, setHasCalculated] = useState(false);
     const [batchAmount, setBatchAmount] = useState<number>(0);
-    const [currentDetail, setCurrentDetail] = useState<{ visible: boolean; steps: string[]; month: string }>({
+    const [currentDetail, setCurrentDetail] = useState<{ visible: boolean; item?: TaxCalculationItemWithId }>({
         visible: false,
-        steps: [],
-        month: ''
     });
     const [tempMonthValues, setTempMonthValues] = useState<Record<string, string>>({});
     const [validationErrors, setValidationErrors] = useState<Record<string, boolean>>({});
@@ -219,18 +264,99 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(12);
     const [jumpPageInput, setJumpPageInput] = useState('');
+    const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
     // 请求控制：避免竞态与内存泄漏
     const abortRef = useRef<AbortController | null>(null);
+
+    const showVatConfig = activeMode === 'mock' ? params.income_type === 1 : true;
+    const showVatResults = results.length > 0 ? results[0].income_type === 1 : params.income_type === 1;
+
+    // 按 credential_num 分组，便于展开/收起
+    const groupedResults = useMemo(() => {
+        const groups: Record<string, TaxCalculationItemWithId[]> = {};
+        results.forEach((item) => {
+            const key = item.credential_num;
+            if (!groups[key]) {
+                groups[key] = [];
+            }
+            groups[key].push(item);
+        });
+        // 每组内按时间倒序排序（最新的在最上面）
+        Object.keys(groups).forEach((key) => {
+            groups[key].sort((a, b) => {
+                // 先按 batch_no 倒序
+                if (a.batch_no !== b.batch_no) return b.batch_no.localeCompare(a.batch_no);
+                // 再按 year_month 倒序
+                return b.year_month.localeCompare(a.year_month);
+            });
+        });
+        return groups;
+    }, [results]);
+
+    // 用户输入的批次号
+    const targetBatchNo = activeMode !== 'mock' ? (realParams.batch_no || '') : '';
+
+    // 扁平化的展开结果（主行是用户输入的批次号，其他批次默认收起）
+    const flattenedResults = useMemo(() => {
+        const flat: TaxCalculationItemWithId[] = [];
+
+        // 模拟数据模式：显示所有数据，不分组
+        if (activeMode === 'mock') {
+            results.forEach((item) => {
+                flat.push(item);
+            });
+            return flat;
+        }
+
+        // 真实数据模式：按批次号分组展开
+        Object.keys(groupedResults).forEach((key) => {
+            const group = groupedResults[key];
+            if (group.length > 0) {
+                // 找出用户输入的批次号对应的数据
+                const targetItem = group.find(item => item.batch_no === targetBatchNo);
+                const otherItems = group.filter(item => item.batch_no !== targetBatchNo);
+
+                if (targetItem) {
+                    // 主行是用户输入的批次
+                    flat.push(targetItem);
+                    // 如果该组有多条数据且已展开，显示其他批次
+                    if (expandedGroups.has(key) && otherItems.length > 0) {
+                        flat.push(...otherItems);
+                    }
+                } else {
+                    // 没有用户输入的批次，显示第一条
+                    flat.push(group[0]);
+                    if (expandedGroups.has(key) && group.length > 1) {
+                        flat.push(...group.slice(1));
+                    }
+                }
+            }
+        });
+        return flat.reverse();
+    }, [groupedResults, expandedGroups, targetBatchNo, activeMode]);
+
+    // 计算合计金额（基于扁平化后的结果，只统计当前显示的数据）
+    const calculatedTotals = useMemo(() => {
+        return flattenedResults.reduce(
+            (acc, curr) => ({
+                tax: acc.tax + (curr.tax || 0),
+                vat: acc.vat + (curr.vat_tax || 0),
+                sur: acc.sur + (curr.surcharges || 0),
+                all: acc.all + (curr.total_tax_and_fees ?? curr.tax ?? 0)
+            }),
+            { tax: 0, vat: 0, sur: 0, all: 0 }
+        );
+    }, [flattenedResults]);
 
     // 计算分页数据
     const paginatedResults = useMemo(() => {
         const start = (currentPage - 1) * pageSize;
         const end = start + pageSize;
-        return results.slice(start, end);
-    }, [results, currentPage, pageSize]);
+        return flattenedResults.slice(start, end);
+    }, [flattenedResults, currentPage, pageSize]);
 
-    const totalPages = Math.ceil(results.length / pageSize);
+    const totalPages = Math.ceil(flattenedResults.length / pageSize);
 
     // 当切换到模拟模式时初始化临时年月值
     useEffect(() => {
@@ -410,6 +536,9 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 income_type: 1,
                 year: currentYear,
                 accumulated_special_deduction: 0,
+                city_tax_rate: 7.0,
+                education_surcharge_rate: 3.0,
+                local_education_surcharge_rate: 2.0,
                 mock_data: newMockRecords
             });
             setTempMonthValues(initialValues);
@@ -419,6 +548,9 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 income_type: 1,
                 year: currentYear,
                 accumulated_special_deduction: 0,
+                city_tax_rate: 7.0,
+                education_surcharge_rate: 3.0,
+                local_education_surcharge_rate: 2.0,
                 credential_num: '',
                 realname: '',
                 environment: 'test',
@@ -517,8 +649,8 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
         try {
             const response = await axios.post<TaxCalculationResponse>(
                 `${baseUrl}/tax/calculate`,
-                params,
-                { signal: controller.signal }
+                { ...params, lang: language },
+                { signal: controller.signal, headers: getScriptHubAuthHeaderRecord() }
             );
 
             if (response.data.success) {
@@ -564,15 +696,28 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 abortRef.current = null;
             }
         }
-    }, [params, activeMode, mockParams, realValid, credentialFormatError, tr]);
+    }, [params, activeMode, mockParams, realValid, credentialFormatError, tr, language]);
 
-    const openDetailDialog = useCallback((steps: string[], month: string) => {
-        setCurrentDetail({ visible: true, steps, month });
+    const openDetailDialog = useCallback((item: TaxCalculationItemWithId) => {
+        setCurrentDetail({ visible: true, item });
     }, []);
 
     const closeDetailDialog = useCallback(() => {
         setCurrentDetail(prev => ({ ...prev, visible: false }));
     }, []);
+
+    // 语言切换时，如果已有计算结果则自动重新请求，以刷新步骤文案
+    const hasCalculatedRef = useRef(false);
+    useEffect(() => {
+        hasCalculatedRef.current = hasCalculated;
+    }, [hasCalculated]);
+    useEffect(() => {
+        if (hasCalculatedRef.current) {
+            calculateTax();
+        }
+        // 注意：此 effect 只在 language 变化时触发，不应加其他依赖
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [language]);
 
     // 年月输入边界
     const monthMin = useMemo(() => `${params.year - 1}-01`, [params.year]);
@@ -630,112 +775,156 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 <Card>
                     <CardHeader>
                         <CardTitle>{tr.config.title}</CardTitle>
-                        <CardDescription>{tr.config.description}</CardDescription>
+                        {activeMode === 'real' && <CardDescription>{tr.config.description}</CardDescription>}
                     </CardHeader>
                     <CardContent>
+                        {/* Mode Tabs */}
+                        <Tabs
+                            value={activeMode}
+                            onValueChange={(v) => setActiveMode(v as 'mock' | 'real')}
+                            className="mb-6"
+                        >
+                            <TabsList>
+                                <TabsTrigger value="mock" disabled={isCalculating}>{tr.config.mockTab}</TabsTrigger>
+                                <TabsTrigger value="real" disabled={isCalculating}>{tr.config.realTab}</TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="real" className="mt-4">
+                                {/* First row: Year + Environment */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                                    {/* Year */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="year">{tr.config.year}</Label>
+                                        <Input
+                                            id="year"
+                                            type="number"
+                                            value={params.year > 0 ? String(params.year) : ''}
+                                            onChange={e => {
+                                                const year = parseInt(e.target.value, 10);
+                                                setSharedParam('year', isNaN(year) ? 0 : year);
+                                            }}
+                                            onBlur={() => {
+                                                setSharedParam('year', clampYear(params.year));
+                                            }}
+                                            disabled={isCalculating}
+                                            placeholder={tr.config.yearPlaceholder}
+                                        />
+                                        <p className="text-xs text-muted-foreground">{tr.config.yearHint}</p>
+                                    </div>
+
+                                    {/* Environment */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="environment">{tr.config.env}</Label>
+                                        <Select
+                                            value={realParams.environment}
+                                            onValueChange={(value: 'test' | 'prod' | 'local') => setRealParam('environment', value)}
+                                            disabled={isCalculating}
+                                        >
+                                            <SelectTrigger id="environment">
+                                                <SelectValue placeholder={tr.config.envPlaceholder} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="test">{tr.config.envs.test}</SelectItem>
+                                                <SelectItem value="prod">{tr.config.envs.prod}</SelectItem>
+                                                <SelectItem value="local">{tr.config.envs.local}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+
+                                {/* Second row: Batch No + Credential Num + Real Name */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    {/* Batch No */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="batch_no">
+                                            {tr.config.batchNo} {requiresBatchNo ? <span className="text-red-500">*</span> : ''}
+                                        </Label>
+                                        <Input
+                                            id="batch_no"
+                                            value={realParams.batch_no || ''}
+                                            onChange={e => setRealParam('batch_no', e.target.value.trim())}
+                                            placeholder={tr.config.batchNoPlaceholder}
+                                            disabled={isCalculating}
+                                        />
+                                    </div>
+
+                                    {/* Credential Num */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="credential_num">
+                                            {tr.config.taxId} {requiresCredentialNum ? <span className="text-red-500">*</span> : ''}
+                                        </Label>
+                                        <Input
+                                            id="credential_num"
+                                            value={realParams.credential_num}
+                                            onChange={e => setRealParam('credential_num', e.target.value.trim())}
+                                            placeholder={tr.config.taxIdPlaceholder}
+                                            disabled={isCalculating}
+                                        />
+                                        {credentialFormatError ? (
+                                            <p className="text-xs text-red-500 mt-1">{credentialFormatError}</p>
+                                        ) : null}
+                                    </div>
+
+                                    {/* Real Name */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="realname">{tr.config.realName}</Label>
+                                        <Input
+                                            id="realname"
+                                            value={realParams.realname}
+                                            onChange={e => setRealParam('realname', e.target.value)}
+                                            placeholder={tr.config.realNamePlaceholder}
+                                            disabled={isCalculating}
+                                        />
+                                    </div>
+                                </div>
+                            </TabsContent>
+
+                            <TabsContent value="mock" className="mt-4">
+                                {/* First row: Income Type + Year */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {/* Income Type */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="income_type_mock">{tr.config.incomeType}</Label>
+                                        <Select
+                                            value={String(params.income_type)}
+                                            onValueChange={value => setSharedParam('income_type', Number(value))}
+                                            disabled={isCalculating}
+                                        >
+                                            <SelectTrigger id="income_type_mock">
+                                                <SelectValue placeholder={tr.config.incomeTypePlaceholder} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="1">{tr.config.incomeTypes.labor}</SelectItem>
+                                                <SelectItem value="2">{tr.config.incomeTypes.salary}</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    {/* Year */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="year_mock">{tr.config.year}</Label>
+                                        <Input
+                                            id="year_mock"
+                                            type="number"
+                                            value={params.year > 0 ? String(params.year) : ''}
+                                            onChange={e => {
+                                                const year = parseInt(e.target.value, 10);
+                                                setSharedParam('year', isNaN(year) ? 0 : year);
+                                            }}
+                                            onBlur={() => {
+                                                setSharedParam('year', clampYear(params.year));
+                                            }}
+                                            disabled={isCalculating}
+                                            placeholder={tr.config.yearPlaceholder}
+                                        />
+                                        <p className="text-xs text-muted-foreground">{tr.config.yearHint}</p>
+                                    </div>
+                                </div>
+                            </TabsContent>
+                        </Tabs>
+
+                        {/* Shared Config */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Mode */}
-                            <div className="space-y-2 md:col-span-2">
-                                <div className="flex items-center space-x-2">
-                                    <Checkbox
-                                        id="use_mock"
-                                        checked={activeMode === 'mock'}
-                                        onCheckedChange={checked => handleModeChange(checked === true)}
-                                        disabled={isCalculating}
-                                    />
-                                    <Label htmlFor="use_mock">{tr.config.useMock}</Label>
-                                </div>
-                            </div>
-
-                            {activeMode === 'real' && (
-                                <div className="space-y-2">
-                                    <Label htmlFor="batch_no">
-                                        {tr.config.batchNo} {requiresBatchNo ? <span className="text-red-500">*</span> : ''}
-                                    </Label>
-                                    <Input
-                                        id="batch_no"
-                                        value={realParams.batch_no || ''}
-                                        onChange={e => setRealParam('batch_no', e.target.value.trim())}
-                                        placeholder={tr.config.batchNoPlaceholder}
-                                        disabled={isCalculating}
-                                    />
-                                </div>
-                            )}
-
-                            {/* Credential Num */}
-                            {activeMode === 'real' && (
-                                <div className="space-y-2">
-                                    <Label htmlFor="credential_num">
-                                        {tr.config.taxId} {requiresCredentialNum ? <span className="text-red-500">*</span> : ''}
-                                    </Label>
-                                    <Input
-                                        id="credential_num"
-                                        value={realParams.credential_num}
-                                        onChange={e => setRealParam('credential_num', e.target.value.trim())}
-                                        placeholder={tr.config.taxIdPlaceholder}
-                                        disabled={isCalculating}
-                                    />
-                                    {credentialFormatError ? (
-                                        <p className="text-xs text-red-500 mt-1">{credentialFormatError}</p>
-                                    ) : null}
-                                </div>
-                            )}
-
-                            {/* Real Name */}
-                            {activeMode === 'real' && (
-                                <div className="space-y-2">
-                                    <Label htmlFor="realname">{tr.config.realName}</Label>
-                                    <Input
-                                        id="realname"
-                                        value={realParams.realname}
-                                        onChange={e => setRealParam('realname', e.target.value)}
-                                        placeholder={tr.config.realNamePlaceholder}
-                                        disabled={isCalculating}
-                                    />
-                                </div>
-                            )}
-
-                            {/* Income Type */}
-                            <div className="space-y-2">
-                                <Label htmlFor="income_type">{tr.config.incomeType}</Label>
-                                <Select
-                                    value={String(params.income_type)}
-                                    onValueChange={value => setSharedParam('income_type', Number(value))}
-                                    disabled={isCalculating}
-                                >
-                                    <SelectTrigger id="income_type">
-                                        <SelectValue placeholder={tr.config.incomeTypePlaceholder} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="1">{tr.config.incomeTypes.labor}</SelectItem>
-                                        <SelectItem value="2">{tr.config.incomeTypes.salary}</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            {/* Year */}
-                            <div className="space-y-2">
-                                <Label htmlFor="year">{tr.config.year}</Label>
-                                <Input
-                                    id="year"
-                                    type="number"
-                                    // Display an empty string if the year is 0 to allow the field to be cleared
-                                    value={params.year > 0 ? String(params.year) : ''}
-                                    onChange={e => {
-                                        // Parse the input, defaulting to 0 if empty or invalid
-                                        const year = parseInt(e.target.value, 10);
-                                        setSharedParam('year', isNaN(year) ? 0 : year);
-                                    }}
-                                    onBlur={() => {
-                                        // On losing focus, clamp the value to the valid range [2000, 2100]
-                                        setSharedParam('year', clampYear(params.year));
-                                    }}
-                                    disabled={isCalculating}
-                                    placeholder={tr.config.yearPlaceholder}
-                                />
-                                <p className="text-xs text-muted-foreground">{tr.config.yearHint}</p>
-                            </div>
-
                             {/* Special deduction */}
                             <div className="space-y-2">
                                 <Label htmlFor="accumulated_special_deduction">{tr.config.deduction}</Label>
@@ -756,26 +945,62 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                 />
                             </div>
 
-                            {/* Environment */}
-                            {activeMode === 'real' && (
-                                <div className="space-y-2">
-                                    <Label htmlFor="environment">{tr.config.env}</Label>
-                                    <Select
-                                        value={realParams.environment}
-                                        onValueChange={(value: 'test' | 'prod' | 'local') => setRealParam('environment', value)}
-                                        disabled={isCalculating}
-                                    >
-                                        <SelectTrigger id="environment">
-                                            <SelectValue placeholder={tr.config.envPlaceholder} />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="test">{tr.config.envs.test}</SelectItem>
-                                            <SelectItem value="prod">{tr.config.envs.prod}</SelectItem>
-                                            <SelectItem value="local">{tr.config.envs.local}</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            )}
+                            {/* City Tax Rate */}
+                            <div className={`space-y-2 ${showVatConfig ? '' : 'invisible h-0 pointer-events-none'}`}>
+                                <Label htmlFor="city_tax_rate">{tr.config.cityTaxRate}</Label>
+                                <Input
+                                    id="city_tax_rate"
+                                    type="number"
+                                    step="0.01"
+                                    value={String(params.city_tax_rate)}
+                                    onChange={e =>
+                                        setSharedParam(
+                                            'city_tax_rate',
+                                            Math.max(0, Number(e.target.value) || 0)
+                                        )
+                                    }
+                                    disabled={isCalculating}
+                                    inputMode="decimal"
+                                />
+                            </div>
+
+                            {/* Edu Surcharge Rate */}
+                            <div className={`space-y-2 ${showVatConfig ? '' : 'invisible h-0 pointer-events-none'}`}>
+                                <Label htmlFor="education_surcharge_rate">{tr.config.eduSurchargeRate}</Label>
+                                <Input
+                                    id="education_surcharge_rate"
+                                    type="number"
+                                    step="0.01"
+                                    value={String(params.education_surcharge_rate)}
+                                    onChange={e =>
+                                        setSharedParam(
+                                            'education_surcharge_rate',
+                                            Math.max(0, Number(e.target.value) || 0)
+                                        )
+                                    }
+                                    disabled={isCalculating}
+                                    inputMode="decimal"
+                                />
+                            </div>
+
+                            {/* Local Edu Surcharge Rate */}
+                            <div className={`space-y-2 ${showVatConfig ? '' : 'invisible h-0 pointer-events-none'}`}>
+                                <Label htmlFor="local_education_surcharge_rate">{tr.config.localEduSurchargeRate}</Label>
+                                <Input
+                                    id="local_education_surcharge_rate"
+                                    type="number"
+                                    step="0.01"
+                                    value={String(params.local_education_surcharge_rate)}
+                                    onChange={e =>
+                                        setSharedParam(
+                                            'local_education_surcharge_rate',
+                                            Math.max(0, Number(e.target.value) || 0)
+                                        )
+                                    }
+                                    disabled={isCalculating}
+                                    inputMode="decimal"
+                                />
+                            </div>
                         </div>
 
                         {/* Mock Records */}
@@ -900,18 +1125,21 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
 
                 {/* Results */}
                 <Card>
-                    <CardHeader>
-                        <CardTitle>{tr.results.title}</CardTitle>
-                        <CardDescription>
-                            {hasCalculated ? `${tr.results.total}: ${totalTax.toFixed(2)}` : tr.actions.noResult}
-                        </CardDescription>
-                    </CardHeader>
+                        <CardHeader>
+                            <CardTitle>{tr.results.title}</CardTitle>
+                            <CardDescription>
+                            {hasCalculated
+                                ? `${showVatResults ? tr.results.headerTotal : tr.results.total}: ${(showVatResults ? calculatedTotals.all : calculatedTotals.tax).toFixed(2)}`
+                                : tr.actions.noResult}
+                            </CardDescription>
+                        </CardHeader>
                     <CardContent>
                         {hasCalculated ? (
                             <div className="overflow-x-auto">
                                 <Table className="w-full">
                                     <TableHeader className="sticky top-0 bg-background z-10">
                                         <TableRow>
+                                            <TableHead className="w-8"></TableHead>
                                             <TableHead>{tr.results.table.yearMonth}</TableHead>
                                             {activeMode !== 'mock' && <TableHead>{tr.results.table.name}</TableHead>}
                                             <TableHead>{tr.results.table.deduction}</TableHead>
@@ -922,17 +1150,83 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                             <TableHead>{tr.results.table.taxRate}</TableHead>
                                             <TableHead>{tr.results.table.preTax}</TableHead>
                                             <TableHead>{tr.results.table.afterTax}</TableHead>
-                                            <TableHead>{tr.results.table.monthlyTax}</TableHead>
+                                            <TableHead className="bg-amber-50 dark:bg-amber-900/20">{tr.results.table.monthlyTax}</TableHead>
+                                            {showVatResults && <TableHead className="bg-blue-50 dark:bg-blue-900/20">{tr.results.table.vat}</TableHead>}
+                                            {showVatResults && <TableHead className="bg-blue-50 dark:bg-blue-900/20">{tr.results.table.surcharges}</TableHead>}
+                                            {showVatResults && <TableHead>{tr.results.table.totalTaxAndFees}</TableHead>}
+                                            {showVatResults && <TableHead className="bg-amber-50 dark:bg-amber-900/20">{tr.results.table.otherTax}</TableHead>}
                                             <TableHead>{tr.results.table.actualBurden}</TableHead>
                                             <TableHead>{tr.actions.view}</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {paginatedResults.map((item, idx) => (
-                                            <TableRow key={item._rowId} className="odd:bg-muted/30">
-                                                <TableCell>{item.year_month}</TableCell>
+                                        {flattenedResults.map((item) => {
+                                            const totalTaxAndFees = item.total_tax_and_fees ?? item.tax;
+                                            const group = groupedResults[item.credential_num] || [];
+                                            const isExpanded = expandedGroups.has(item.credential_num);
+                                            const hasMultipleBatches = group.length > 1;
+                                            // 主行是用户输入的批次号对应的数据，其他是子行
+                                            const isMainRow = item.batch_no === targetBatchNo;
+                                            const isSubRow = !isMainRow;
+
+                                            return (
+                                            <TableRow
+                                                key={item._rowId}
+                                                className={
+                                                    isSubRow ? "bg-slate-50 dark:bg-slate-800/30" :
+                                                    item.warning_level === '500'
+                                                        ? "bg-red-100/70 hover:bg-red-200/70 dark:bg-red-900/40 dark:hover:bg-red-900/60"
+                                                        : item.warning_level === '450'
+                                                            ? "bg-yellow-100/50 hover:bg-yellow-200/50 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50"
+                                                            : "odd:bg-muted/30"
+                                                }
+                                            >
+                                                <TableCell>
+                                                    {hasMultipleBatches && isMainRow && (
+                                                        <button
+                                                            onClick={() => {
+                                                                setExpandedGroups((prev) => {
+                                                                    const next = new Set(prev);
+                                                                    if (isExpanded) {
+                                                                        next.delete(item.credential_num);
+                                                                    } else {
+                                                                        next.add(item.credential_num);
+                                                                    }
+                                                                    return next;
+                                                                });
+                                                            }}
+                                                            className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+                                                        >
+                                                            {isExpanded ? (
+                                                                <ChevronDown className="h-4 w-4" />
+                                                            ) : (
+                                                                <ChevronRight className="h-4 w-4" />
+                                                            )}
+                                                        </button>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {item.year_month}
+                                                    {isSubRow && activeMode !== 'mock' && <span className="ml-2 text-xs text-muted-foreground">({item.batch_no})</span>}
+                                                    {item.warning_msg && (
+                                                        <Badge variant="destructive" className="ml-2" title={item.warning_msg}>预警</Badge>
+                                                    )}
+                                                    {activeMode !== 'mock' && (
+                                                        <Badge variant="outline" className={`ml-2 text-xs ${item.income_type === 1 ? 'text-blue-600 border-blue-300' : 'text-green-600 border-green-300'}`}>
+                                                            <Cloud className="inline-block mr-1 h-3 w-3" />
+                                                            {item.income_type === 1 ? '劳务' : '工资'}
+                                                        </Badge>
+                                                    )}
+                                                </TableCell>
                                                 {activeMode !== 'mock' && (
-                                                    <TableCell>{`${item.realname}（${item.worker_id}）`}</TableCell>
+                                                    <TableCell>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <span className="cursor-help underline decoration-dotted">{item.realname}</span>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>ID: {item.worker_id}</TooltipContent>
+                                                        </Tooltip>
+                                                    </TableCell>
                                                 )}
                                                 <TableCell>{item.accumulated_deduction}</TableCell>
                                                 {/*<TableCell>{item.accumulated_special.toFixed(2)}</TableCell>*/}
@@ -941,20 +1235,25 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                                                 <TableCell>{item.accumulated_total_tax.toFixed(2)}</TableCell>
                                                 <TableCell>{(item.tax_rate * 100)}%</TableCell>
                                                 <TableCell>{item.bill_amount}</TableCell>
-                                                <TableCell>{(item.income_amount - item.tax).toFixed(2)}</TableCell>
-                                                <TableCell>{item.tax.toFixed(2)}</TableCell>
+                                                <TableCell>{(item.income_amount - totalTaxAndFees).toFixed(2)}</TableCell>
+                                                <TableCell className="font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20">{item.tax.toFixed(2)}</TableCell>
+                                                {showVatResults && <TableCell className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/20">{(item.vat_tax || 0).toFixed(2)}</TableCell>}
+                                                {showVatResults && <TableCell className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/20">{(item.surcharges || 0).toFixed(2)}</TableCell>}
+                                                {showVatResults && <TableCell>{totalTaxAndFees.toFixed(2)}</TableCell>}
+                                                {showVatResults && <TableCell className="font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20">{((item.vat_tax || 0) + (item.surcharges || 0)).toFixed(2)}</TableCell>}
                                                 <TableCell>{item.effective_tax_rate.toFixed(2)}%</TableCell>
                                                 <TableCell>
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
-                                                        onClick={() => openDetailDialog(item.calculation_steps, item.year_month)}
+                                                        onClick={() => openDetailDialog(item)}
                                                     >
                                                         {tr.actions.view}
                                                     </Button>
                                                 </TableCell>
                                             </TableRow>
-                                        ))}
+                                            );
+                                        })}
                                     </TableBody>
                                 </Table>
                                 {/* 分页控件 */}
@@ -1025,16 +1324,21 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 {/* Footer */}
                 <div className="mt-6">
                     <Card>
-                        <CardContent>
-                            <div className="flex items-center justify-between">
-                                <p className="text-sm text-muted-foreground">
-                                    {tr.results.total}：<span className="text-primary font-medium">{totalTax.toFixed(2)}</span>
-                                </p>
+                        <CardContent className="py-4">
+                            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                                <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground w-full md:w-auto">
+                                    <p>{tr.results.footer.taxOnlyTotal}：<span className="text-foreground font-medium">{calculatedTotals.tax.toFixed(2)}</span></p>
+                                    {showVatResults && <p>{tr.results.footer.vatTotal}：<span className="text-foreground font-medium">{calculatedTotals.vat.toFixed(2)}</span></p>}
+                                    {showVatResults && <p>{tr.results.footer.surchargesTotal}：<span className="text-foreground font-medium">{calculatedTotals.sur.toFixed(2)}</span></p>}
+                                    {showVatResults && <p>{tr.results.footer.otherTaxTotal}：<span className="text-foreground font-medium">{(calculatedTotals.vat + calculatedTotals.sur).toFixed(2)}</span></p>}
+                                    {showVatResults && <p>{tr.results.footer.grandTotal}：<span className="text-primary font-medium text-base">{calculatedTotals.all.toFixed(2)}</span></p>}
+                                </div>
                                 <Button
-                                    variant="ghost"
+                                    variant="outline"
                                     size="sm"
-                                    onClick={() => exportToCSV(results, totalTax, activeMode === 'mock', tr)}
+                                    onClick={() => exportToCSV(results, calculatedTotals, activeMode === 'mock', showVatResults, tr)}
                                     disabled={!hasCalculated}
+                                    className="shrink-0"
                                 >
                                     <Download className="w-4 h-4 mr-1" />
                                     {tr.results.export}
@@ -1050,19 +1354,57 @@ export default function TaxCalculationScript({ onBack }: { onBack: () => void })
                 open={currentDetail.visible}
                 onOpenChange={open => setCurrentDetail(prev => ({ ...prev, visible: open }))}
             >
-                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
                     <DialogHeader>
-                        <DialogTitle>{currentDetail.month} {tr.results.title}</DialogTitle>
+                        <DialogTitle>{currentDetail.item?.year_month} {tr.results.title}</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-2 mt-4">
-                        {currentDetail.steps.map((step, index) => (
-                            <div key={index} className="flex items-start gap-2 py-1 border-b border-gray-100">
-                                <span className="text-muted-foreground">{index + 1}.</span>
-                                <span>{step}</span>
+                    <div className="space-y-4 mt-4 overflow-y-auto pr-2">
+                        {currentDetail.item?.warning_msg && (
+                            <div className={`p-3 rounded-md border ${
+                                currentDetail.item.warning_level === '500'
+                                    ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:border-red-900'
+                                    : 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-900'
+                            }`}>
+                                <h4 className="font-semibold mb-1">⚠️ {tr.results.footer.warningMsg}</h4>
+                                <p className="text-sm">{currentDetail.item.warning_msg}</p>
                             </div>
-                        ))}
+                        )}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 bg-muted/30 p-4 rounded-md">
+                            <div>
+                                <p className="text-xs text-muted-foreground">{tr.results.table.monthlyTax}</p>
+                                <p className="font-medium">{currentDetail.item?.tax.toFixed(2)}</p>
+                            </div>
+                            {showVatResults && (
+                                <div>
+                                    <p className="text-xs text-muted-foreground">{tr.results.table.vat}</p>
+                                    <p className="font-medium">{(currentDetail.item?.vat_tax || 0).toFixed(2)}</p>
+                                </div>
+                            )}
+                            {showVatResults && (
+                                <div>
+                                    <p className="text-xs text-muted-foreground">{tr.results.table.surcharges}</p>
+                                    <p className="font-medium">{(currentDetail.item?.surcharges || 0).toFixed(2)}</p>
+                                </div>
+                            )}
+                            {showVatResults && (
+                                <div>
+                                    <p className="text-xs text-muted-foreground">{tr.results.table.totalTaxAndFees}</p>
+                                    <p className="font-medium text-primary">{(currentDetail.item?.total_tax_and_fees ?? currentDetail.item?.tax ?? 0).toFixed(2)}</p>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="space-y-2">
+                            <h4 className="font-medium text-sm">{tr.results.footer.calcSteps}</h4>
+                            {currentDetail.item?.calculation_steps.map((step, index) => (
+                                <div key={index} className="flex items-start gap-2 py-1 border-b border-gray-100">
+                                    <span className="text-muted-foreground">{index + 1}.</span>
+                                    <span>{step}</span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                    <DialogFooter className="mt-4">
+                    <DialogFooter className="mt-4 pt-4 border-t">
                         <Button onClick={closeDetailDialog}>
                             <X className="w-4 h-4 mr-2" />
                             {tr.actions.close}

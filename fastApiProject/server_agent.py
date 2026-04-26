@@ -5,6 +5,7 @@
 依赖：psutil, flask, waitress(Windows) / gunicorn(Linux)
 内存占用 < 20MB，非阻塞设计
 """
+import logging
 import psutil
 import platform
 import socket
@@ -15,13 +16,23 @@ from datetime import datetime
 from flask import Flask, jsonify, request, abort
 # from flask_cors import CORS
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 # CORS(app)
 
 # ========== 配置 ==========
-API_KEY = os.getenv("AGENT_API_KEY", "your-secret-api-key-here")  # 生产环境请设置环境变量
+API_KEY = os.getenv("AGENT_API_KEY", "").strip()
 METRICS_CACHE_INTERVAL = 5  # 缓存刷新间隔（秒）
 PORT = int(os.getenv("AGENT_PORT", 9200))
+
+if not API_KEY:
+    raise RuntimeError("Missing AGENT_API_KEY environment variable")
 
 # ========== 认证中间件 ==========
 @app.before_request
@@ -64,7 +75,7 @@ def get_disk_info():
             except (PermissionError, OSError):
                 continue
     except Exception as e:
-        print(f"Error getting disk info: {e}")
+        logger.error(f"Error getting disk info: {e}")
     return disks
 
 
@@ -165,8 +176,8 @@ def update_metrics_cache():
                     }
                 }
         except Exception as e:
-            print(f"Metrics update error: {e}")
-        
+            logger.error(f"Metrics update error: {e}")
+
         time.sleep(METRICS_CACHE_INTERVAL)
 
 
@@ -208,21 +219,21 @@ def index():
 
 
 if __name__ == '__main__':
-    print(f"Starting Server Monitoring Agent on port {PORT}...")
-    print(f"API Key: {API_KEY[:8]}...{'*' * 16}")
-    print(f"Metrics cache interval: {METRICS_CACHE_INTERVAL}s")
-    
+    logger.info(f"Starting Server Monitoring Agent on port {PORT}...")
+    logger.info(f"API Key: {API_KEY[:8]}...{'*' * 16}")
+    logger.info(f"Metrics cache interval: {METRICS_CACHE_INTERVAL}s")
+
     # 判断操作系统选择服务器
     if platform.system() == "Windows":
         try:
             from waitress import serve
-            print("Using Waitress server (Windows)")
+            logger.info("Using Waitress server (Windows)")
             serve(app, host='0.0.0.0', port=PORT)
         except ImportError:
-            print("Waitress not installed, using Flask dev server (not recommended for production)")
-            print("Install with: pip install waitress")
+            logger.warning("Waitress not installed, using Flask dev server (not recommended for production)")
+            logger.info("Install with: pip install waitress")
             app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
     else:
         # Linux/macOS - 提示使用 gunicorn
-        print("For production, use: gunicorn server_agent:app -b 0.0.0.0:9200 --workers 1")
+        logger.info("For production, use: gunicorn server_agent:app -b 0.0.0.0:9200 --workers 1")
         app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)

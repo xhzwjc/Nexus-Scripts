@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -12,6 +12,7 @@ import { Separator } from './ui/separator';
 import { ArrowLeft, Plus, Trash2, Play, Square, RefreshCw, Clock, Info, Loader2, Copy, Trash } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 import { getApiBaseUrl } from '../lib/api';
+import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 
 interface Enterprise {
@@ -214,6 +215,7 @@ export default function SettlementScript({ onBack }: { onBack: () => void }) {
 
         try {
             const resp = await axios.post(`${base}/settlement/process`, requestBody, {
+                headers: getScriptHubAuthHeaderRecord(),
                 signal: abortRef.current.signal,
                 // 如需超时：timeout: 1000 * 60 * 10,
             });

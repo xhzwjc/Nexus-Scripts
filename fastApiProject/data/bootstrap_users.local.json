@@ -1,0 +1,143 @@
+{
+  "users": {
+    "sh_yek1xkkQoqedU0618j4N1bVZBA85": {
+      "id": "admin",
+      "name": "System Administrator",
+      "role": "admin",
+      "role_codes": [
+        "admin"
+      ],
+      "granted_permissions": [],
+      "revoked_permissions": [],
+      "team_resources_login_key_enabled": true,
+      "is_active": true,
+      "is_super_admin": true,
+      "notes": null,
+      "permissions": {
+        "agent-chat": true,
+        "ai-recruitment": true,
+        "ai-recruitment-manage": true,
+        "ai-resources": true,
+        "ai-resources-manage": true,
+        "balance": true,
+        "cert-health": true,
+        "commission": true,
+        "delivery-tool": true,
+        "dev-tools": true,
+        "ocr-tool": true,
+        "payment-stats": true,
+        "rbac-manage": true,
+        "server-monitoring": true,
+        "settlement": true,
+        "sms-admin-login": true,
+        "sms_operations_center": true,
+        "task-automation": true,
+        "tax-calculation": true,
+        "tax-reporting": true,
+        "team-resources": true,
+        "team-resources-manage": true
+      }
+    },
+    "sh_uNV1c7HRMLEm1CtrEeEmCt1J805w": {
+      "id": "opt",
+      "name": "运营人员",
+      "role": "operator",
+      "role_codes": [
+        "operator"
+      ],
+      "granted_permissions": [],
+      "revoked_permissions": [],
+      "team_resources_login_key_enabled": true,
+      "is_active": true,
+      "is_super_admin": false,
+      "notes": null,
+      "permissions": {
+        "agent-chat": true,
+        "ai-recruitment": true,
+        "ai-resources": true,
+        "delivery-tool": true,
+        "ocr-tool": true,
+        "payment-stats": true,
+        "tax-calculation": true,
+        "tax-reporting": true,
+        "team-resources": true
+      }
+    },
+    "sh_EDZQwkTOZYUBVfjXA5AYK4p4Xo0a": {
+      "id": "admin_jc",
+      "name": "jc",
+      "role": "admin",
+      "role_codes": [
+        "admin"
+      ],
+      "granted_permissions": [],
+      "revoked_permissions": [],
+      "team_resources_login_key_enabled": true,
+      "is_active": true,
+      "is_super_admin": false,
+      "notes": null,
+      "permissions": {
+        "agent-chat": true,
+        "ai-recruitment": true,
+        "ai-recruitment-manage": true,
+        "ai-resources": true,
+        "ai-resources-manage": true,
+        "balance": true,
+        "cert-health": true,
+        "commission": true,
+        "delivery-tool": true,
+        "dev-tools": true,
+        "ocr-tool": true,
+        "payment-stats": true,
+        "rbac-manage": true,
+        "server-monitoring": true,
+        "settlement": true,
+        "sms-admin-login": true,
+        "sms_operations_center": true,
+        "task-automation": true,
+        "tax-calculation": true,
+        "tax-reporting": true,
+        "team-resources": true,
+        "team-resources-manage": true
+      }
+    },
+    "sh_bz82ybimZKSxtZEKl8NwUNv0LGB1": {
+      "id": "user_leader",
+      "name": "leader",
+      "role": "admin",
+      "role_codes": [
+        "admin"
+      ],
+      "granted_permissions": [],
+      "revoked_permissions": [],
+      "team_resources_login_key_enabled": true,
+      "is_active": true,
+      "is_super_admin": false,
+      "notes": null,
+      "permissions": {
+        "agent-chat": true,
+        "ai-recruitment": true,
+        "ai-recruitment-manage": true,
+        "ai-resources": true,
+        "ai-resources-manage": true,
+        "balance": true,
+        "cert-health": true,
+        "commission": true,
+        "delivery-tool": true,
+        "dev-tools": true,
+        "ocr-tool": true,
+        "payment-stats": true,
+        "rbac-manage": true,
+        "server-monitoring": true,
+        "settlement": true,
+        "sms-admin-login": true,
+        "sms_operations_center": true,
+        "task-automation": true,
+        "tax-calculation": true,
+        "tax-reporting": true,
+        "team-resources": true,
+        "team-resources-manage": true
+      }
+    }
+  }
+}

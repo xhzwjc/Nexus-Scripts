@@ -6,8 +6,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { domToPng } from 'modern-screenshot';
 import { allScripts } from '@/lib/config';
+import { getScriptHubAuthHeaderRecord } from '@/lib/auth';
 import { getApiBaseUrl } from '@/lib/api';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 
 interface Message {
     id: string;
@@ -160,7 +161,7 @@ export const AiAssistant: React.FC = () => {
 
             const response = await fetch(`${baseUrl}/ai/chat`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getScriptHubAuthHeaderRecord({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(requestBody)
             });
 

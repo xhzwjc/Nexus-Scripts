@@ -486,6 +486,10 @@ class TaxCalculationRequest(BaseModel):
     environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
     use_mock: bool = Field(False, description="是否使用模拟数据")
     mock_data: Optional[List[Dict]] = Field(None, description="模拟数据（仅当use_mock=True时有效）")
+    city_tax_rate: Optional[float] = Field(7.0, description="城建税税率(%)")
+    education_surcharge_rate: Optional[float] = Field(3.0, description="教育费附加税率(%)")
+    local_education_surcharge_rate: Optional[float] = Field(2.0, description="地方教育附加税率(%)")
+    lang: str = Field('zh-CN', description="语言偏好 (zh-CN 或 en-US)")
 
 
 class TaxCalculationResultItem(BaseModel):
@@ -518,6 +522,11 @@ class TaxCalculationResultItem(BaseModel):
     accumulated_tax: float = Field(..., description="累计已缴税额")
     calculation_steps: List[str] = Field(..., description="计算步骤")
     effective_tax_rate: float = Field(..., description="实际税负")
+    vat_tax: float = Field(0.0, description="增值税")
+    surcharges: float = Field(0.0, description="附加税费")
+    total_tax_and_fees: float = Field(0.0, description="税费合计(含个税+增值税+附加税)")
+    warning_msg: Optional[str] = Field(None, description="预警信息")
+    warning_level: Optional[str] = Field(None, description="预警等级: '450' | '500' | None")
 
 
 class TaxCalculationResponse(BaseModel):
@@ -526,7 +535,10 @@ class TaxCalculationResponse(BaseModel):
     message: str = Field(..., description="处理信息")
     data: Optional[List[TaxCalculationResultItem]] = Field(None, description="计算结果")
     request_id: str = Field(..., description="请求ID")
-    total_tax: float = Field(..., description="总税额")
+    total_tax: float = Field(..., description="税费总额(含个税+增值税+附加税)")
+    tax_only_total: float = Field(..., description="个税总额")
+    vat_total: float = Field(..., description="增值税总额")
+    surcharges_total: float = Field(..., description="附加税费总额")
 
 
 # OCR相关模型
@@ -647,3 +659,131 @@ class AIResourcesSaveRequest(BaseModel):
     categories: List[AICategoryBase]
     resources: List[AIResourceBase]
 
+
+# 平台内经营者和从业人员报送表相关模型
+class PlatformReportRequest(BaseModel):
+    """平台报送表请求模型"""
+    start_date: str = Field(..., description="开始日期，格式YYYY-MM-DD")
+    end_date: str = Field(..., description="结束日期，格式YYYY-MM-DD")
+    enterprise_ids: Optional[Union[int, List[int], str]] = Field(None, description="企业ID，可为单个ID、ID列表或逗号分隔字符串")
+    amount_type: int = Field(1, ge=1, le=3, description="金额类型：1=含服务费, 2=不含服务费, 3=账单金额")
+    tax_id: Optional[int] = Field(None, description="运营主体ID，不传或传0表示查全部")
+    platform_company: Optional[str] = Field(None, description="平台企业名称")
+    platform_name: Optional[str] = Field(None, description="平台名称")
+    credit_code: Optional[str] = Field(None, description="统一社会信用代码")
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+    timeout: int = Field(60, ge=30, le=300, description="超时时间(秒)")
+
+
+class PlatformIncomeDataItem(BaseModel):
+    """平台收入信息数据项"""
+    name: str = Field(..., description="姓名")
+    credential_num: str = Field(..., description="证件号码")
+    payment_account: Optional[str] = Field(None, description="收款账号")
+    enterprise_name: str = Field(..., description="企业名称")
+    uscc: Optional[str] = Field(None, description="企业信用代码")
+    labor_income: float = Field(..., description="劳务报酬")
+    service_fee: Optional[float] = Field(None, description="服务费合计")
+    trade_count: int = Field(..., description="交易笔数")
+    miniapp_id: Optional[str] = Field(None, description="小程序ID")
+    mobile: Optional[str] = Field(None, description="联系电话")
+    sign_time: Optional[str] = Field(None, description="经营开始时间")
+
+
+class PlatformIdentityDataItem(BaseModel):
+    """平台身份信息数据项"""
+    name: str = Field(..., description="姓名")
+    credential_num: str = Field(..., description="证件号码")
+    credential_type: str = Field(..., description="证件类型")
+    country_region: str = Field(..., description="国家或地区")
+    enterprise_name: Optional[str] = Field(None, description="企业名称")
+    uscc: Optional[str] = Field(None, description="企业信用代码")
+    payment_account: Optional[str] = Field(None, description="收款账号")
+    miniapp_id: Optional[str] = Field(None, description="小程序ID")
+    mobile: Optional[str] = Field(None, description="联系电话")
+    sign_time: Optional[str] = Field(None, description="经营开始时间")
+
+
+class PlatformReportResponse(BaseModel):
+    """平台报送表响应模型"""
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(..., description="处理信息")
+    data: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = Field(None, description="响应数据，包含收入数据和身份数据")
+    request_id: str = Field(..., description="请求ID")
+    total: int = Field(..., description="数据总数")
+
+
+# 业务场景与任务初始化模型
+class SceneTemplateItem(BaseModel):
+    """业务场景模板项"""
+    scene_name: str
+    scene_no: str
+    business_type: int  # 1=灵活用工, 2=连续劳务
+    task_type: int  # 0=指派, 1=抢单
+    is_exempt: bool  # 是否存在免报（仅连续劳务有效）
+    scene_desc: str
+    # 固定默认值
+    first_industry_id: int = 1000
+    second_industry_id: int = 1001
+    business_occupation_id: int = 1
+    tax_rule: str = "[0]"
+    effect_type: int = 1
+
+
+class BizSceneInitRequest(BaseModel):
+    """业务场景初始化请求模型"""
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+    scenes: Optional[List[SceneTemplateItem]] = Field(None, description="业务场景模板列表")
+
+
+class EnterpriseListRequest(BaseModel):
+    """企业列表请求模型"""
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+
+
+class DepartmentListRequest(BaseModel):
+    """部门列表请求模型"""
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+    tenant_id: int = Field(..., description="租户ID")
+
+
+class BizTaskInitRequest(BaseModel):
+    """任务初始化请求模型"""
+    environment: Optional[Literal["test", "prod", "local"]] = Field(None, description="环境")
+    enterprise_id: int = Field(..., description="企业ID")
+    tenant_id: int = Field(..., description="租户ID")
+    tax_id: int = Field(..., description="税地ID")
+    dept_id: int = Field(..., description="部门ID")
+    creator: str = Field("system", description="创建人")
+    enable_assign: bool = Field(True, description="是否创建指派任务")
+    enable_grab: bool = Field(True, description="是否创建抢单任务")
+    enable_delivery_type_1: bool = Field(True, description="是否创建合作者交付类型任务")
+    enable_enterprise_delivery: bool = Field(True, description="是否创建企业交付类型任务")
+
+
+class BizSceneTaskInitResponse(BaseModel):
+    """业务场景与任务初始化响应模型"""
+    success: bool = Field(..., description="是否成功")
+    message: str = Field(..., description="处理信息")
+    data: Optional[Dict[str, Any]] = Field(None, description="初始化结果")
+    request_id: str = Field(..., description="请求ID")
+
+
+class SettlementSimRequest(BaseModel):
+    """结算状态模拟请求模型"""
+    env: Literal["test", "prod", "local"] = Field(..., description="环境")
+    mode: Literal["batch_no", "balance_no", "batch_no_tax", "balance_no_tax"] = Field(..., description="操作模式")
+    batch_no: Optional[str] = Field(None, description="批次号，mode含batch_no时必填")
+    balance_no: Optional[str] = Field(None, description="结算单号，mode含balance_no时必填")
+    pay_status_batch: int = Field(4, description="批次表pay_status，默认4")
+    pay_status_worker: int = Field(3, description="结算单表pay_status，默认3")
+    year: Optional[int] = Field(None, description="年份，不填则用当前年")
+    month: Optional[int] = Field(None, description="月份，不填则用当前月")
+
+
+class SettlementSimResponse(BaseModel):
+    """结算状态模拟响应模型"""
+    success: bool = Field(..., description="是否成功")
+    affected_rows: int = Field(..., description="影响行数")
+    pay_over_time: str = Field(..., description="执行时间")
+    message: str = Field(..., description="处理信息")

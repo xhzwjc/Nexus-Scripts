@@ -1,0 +1,102 @@
+from dataclasses import dataclass
+from typing import Dict, Tuple
+
+
+@dataclass(frozen=True)
+class PermissionDefinition:
+    key: str
+    name: str
+    category: str
+    description: str
+    sort_order: int
+
+
+@dataclass(frozen=True)
+class RoleDefinition:
+    code: str
+    name: str
+    description: str
+    sort_order: int
+    permissions: Tuple[str, ...]
+
+
+PERMISSION_DEFINITIONS: Tuple[PermissionDefinition, ...] = (
+    PermissionDefinition("settlement", "结算处理", "business", "可执行企业结算处理脚本", 10),
+    PermissionDefinition("commission", "佣金计算", "business", "可执行渠道佣金计算与校验", 20),
+    PermissionDefinition("balance", "余额核对", "business", "可执行企业账户余额核对", 30),
+    PermissionDefinition("task-automation", "任务自动化", "business", "可执行任务自动化工具", 40),
+    PermissionDefinition("sms_operations_center", "短信运营中心", "business", "可使用短信运营中心", 50),
+    PermissionDefinition("sms-admin-login", "短信管理后台登录", "business", "可执行短信管理后台免密登录能力", 60),
+    PermissionDefinition("tax-reporting", "税务报表", "business", "可生成税务报表", 70),
+    PermissionDefinition("tax-calculation", "税额计算", "business", "可执行税额计算工具", 80),
+    PermissionDefinition("settlement-sim", "结算状态模拟", "business", "可执行结算状态模拟工具", 85),
+    PermissionDefinition("payment-stats", "结算与开票统计", "business", "可查看结算与开票统计", 90),
+    PermissionDefinition("delivery-tool", "交付物提交", "business", "可执行交付物提交工具", 100),
+    PermissionDefinition("ocr-tool", "OCR 工具", "business", "可使用 OCR 工具", 110),
+    PermissionDefinition("team-resources", "团队资源查看", "resources", "可查看团队资源", 120),
+    PermissionDefinition("team-resources-manage", "团队资源管理", "resources", "可编辑团队资源", 130),
+    PermissionDefinition("ai-resources", "AI 资源查看", "resources", "可查看 AI 资源库", 140),
+    PermissionDefinition("ai-resources-manage", "AI 资源管理", "resources", "可编辑 AI 资源库", 150),
+    PermissionDefinition("cert-health", "系统健康检测", "platform", "可查看系统健康与证书状态", 160),
+    PermissionDefinition("server-monitoring", "运维中心", "platform", "可访问服务器监控与指标", 170),
+    PermissionDefinition("dev-tools", "开发工具", "platform", "可访问开发工具页面", 180),
+    PermissionDefinition("rbac-manage", "权限管理中心", "platform", "可管理用户、角色与权限", 190),
+    PermissionDefinition("resource-sharing-manage", "资源共享治理", "platform", "可管理跨组织资源共享策略", 195),
+    PermissionDefinition("audit-log-view", "审计日志查看", "platform", "可按数据范围查看审计日志", 196),
+    PermissionDefinition("audit-log-sensitive-view", "敏感审计查看", "platform", "可查看敏感配置变更审计详情", 197),
+    PermissionDefinition("agent-chat", "Agent 助手", "collaboration", "可使用 Agent Chat", 200),
+    PermissionDefinition("recruitment-dashboard-view", "招聘看板查看", "recruitment", "可查看招聘看板和统计", 210),
+    PermissionDefinition("recruitment-position-manage", "岗位管理", "recruitment", "可创建、编辑、删除招聘岗位", 211),
+    PermissionDefinition("recruitment-candidate-manage", "候选人管理", "recruitment", "可上传、编辑、推进候选人", 212),
+    PermissionDefinition("recruitment-process-execute", "招聘流程执行", "recruitment", "可执行 JD 生成、初筛、面试题和发布任务", 213),
+    PermissionDefinition("recruitment-log-view", "招聘日志查看", "recruitment", "可查看招聘 AI 任务和流程日志", 214),
+    PermissionDefinition("recruitment-skill-view", "Skill 查看", "recruitment-config", "可查看招聘 Skill 配置", 220),
+    PermissionDefinition("recruitment-skill-bind", "Skill 绑定", "recruitment-config", "可将 Skill 绑定到岗位或任务", 221),
+    PermissionDefinition("recruitment-skill-manage", "Skill 管理", "recruitment-config", "可创建、编辑、删除招聘 Skill", 222),
+    PermissionDefinition("recruitment-mail-view", "邮件中心查看", "recruitment-config", "可查看邮件中心配置和发送记录", 230),
+    PermissionDefinition("recruitment-mail-send", "邮件发送", "recruitment-config", "可发送候选人邮件", 231),
+    PermissionDefinition("recruitment-mail-config-manage", "邮件配置管理", "recruitment-config", "可管理收件人、模板和自动推送规则", 232),
+    PermissionDefinition("recruitment-mail-sender-manage", "发件箱管理", "recruitment-config", "可管理 SMTP 发件箱配置", 233),
+    PermissionDefinition("recruitment-llm-config-view", "模型配置查看", "recruitment-config", "可查看招聘模型配置", 240),
+    PermissionDefinition("recruitment-llm-config-manage", "模型配置管理", "recruitment-config", "可创建、编辑、删除招聘模型配置", 241),
+    PermissionDefinition("ai-recruitment", "AI 招聘自动化（兼容）", "compatibility", "兼容权限包：招聘使用与查看能力，后续废弃", 250),
+    PermissionDefinition("ai-recruitment-manage", "AI 招聘配置管理（兼容）", "compatibility", "兼容权限包：招聘配置管理能力，后续废弃", 251),
+    PermissionDefinition("biz-scene", "业务场景管理", "business", "可初始化业务场景数据", 260),
+    PermissionDefinition("biz-task", "任务管理", "business", "可初始化任务数据", 270),
+)
+
+
+ALL_PERMISSION_KEYS: Tuple[str, ...] = tuple(permission.key for permission in PERMISSION_DEFINITIONS)
+PERMISSION_INDEX: Dict[str, PermissionDefinition] = {permission.key: permission for permission in PERMISSION_DEFINITIONS}
+
+
+ROLE_DEFINITIONS: Tuple[RoleDefinition, ...] = (
+    RoleDefinition("admin", "系统超管", "拥有所有权限的系统管理员，可管理平台、资源和全部业务工具", 10, ALL_PERMISSION_KEYS),
+    RoleDefinition("operations-manager", "业务管理员", "负责核心业务流程执行与协同，不包含平台级危险操作", 20, ("settlement", "commission", "balance", "task-automation", "sms_operations_center", "tax-reporting", "tax-calculation", "settlement-sim", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "recruitment-dashboard-view", "recruitment-position-manage", "recruitment-candidate-manage", "recruitment-process-execute", "recruitment-log-view", "recruitment-skill-view", "recruitment-skill-bind", "recruitment-mail-view", "recruitment-mail-send", "ai-recruitment", "biz-scene", "biz-task")),
+    RoleDefinition("operator", "运营专员", "负责日常运营、交付和查询类工作，不修改资源配置与平台设置", 30, ("tax-reporting", "tax-calculation", "payment-stats", "delivery-tool", "ocr-tool", "team-resources", "ai-resources", "agent-chat", "recruitment-dashboard-view", "recruitment-candidate-manage", "recruitment-process-execute", "recruitment-skill-view", "recruitment-skill-bind", "recruitment-mail-view", "recruitment-mail-send", "ai-recruitment")),
+    RoleDefinition("finance-analyst", "财务分析", "负责财务核验、分析与报表工具，不直接执行高风险业务操作", 40, ("commission", "balance", "tax-reporting", "tax-calculation", "payment-stats", "team-resources", "ai-resources")),
+    RoleDefinition("resource-manager", "资源管理员", "负责维护团队资源、AI 资源及相关健康检测配置", 50, ("team-resources", "team-resources-manage", "ai-resources", "ai-resources-manage", "cert-health", "agent-chat", "ocr-tool", "resource-sharing-manage")),
+    RoleDefinition("platform-engineer", "平台运维", "负责运维中心、系统健康、排障和平台工具", 60, ("server-monitoring", "cert-health", "dev-tools", "team-resources", "ai-resources", "agent-chat", "ocr-tool")),
+    RoleDefinition("product-manager", "产品经理", "负责跨模块跟进与业务观察，可查看平台状态但不直接管理资源", 70, ("settlement", "commission", "balance", "task-automation", "tax-reporting", "tax-calculation", "settlement-sim", "payment-stats", "delivery-tool", "ocr-tool", "cert-health", "server-monitoring", "team-resources", "ai-resources", "agent-chat", "recruitment-dashboard-view", "recruitment-log-view", "recruitment-skill-view", "recruitment-mail-view", "ai-recruitment")),
+    RoleDefinition("qa-engineer", "测试与质保", "负责回归验证、平台排障与资源维护，接近管理员但不直接拥有超管身份", 80, ("settlement", "commission", "balance", "task-automation", "sms_operations_center", "sms-admin-login", "tax-reporting", "tax-calculation", "settlement-sim", "payment-stats", "delivery-tool", "ocr-tool", "dev-tools", "cert-health", "server-monitoring", "team-resources", "team-resources-manage", "ai-resources", "ai-resources-manage", "agent-chat", "recruitment-dashboard-view", "recruitment-position-manage", "recruitment-candidate-manage", "recruitment-process-execute", "recruitment-log-view", "recruitment-skill-view", "recruitment-skill-bind", "recruitment-skill-manage", "recruitment-mail-view", "recruitment-mail-send", "recruitment-mail-config-manage", "recruitment-mail-sender-manage", "recruitment-llm-config-view", "recruitment-llm-config-manage", "resource-sharing-manage", "audit-log-view", "ai-recruitment", "ai-recruitment-manage")),
+    RoleDefinition("auditor", "审计/只读", "用于只读检查与巡视，避免执行写操作", 90, ("payment-stats", "team-resources", "ai-resources", "cert-health", "server-monitoring", "audit-log-view", "recruitment-dashboard-view", "recruitment-log-view")),
+)
+
+
+ROLE_INDEX: Dict[str, RoleDefinition] = {role.code: role for role in ROLE_DEFINITIONS}
+
+LEGACY_ROLE_MAPPING: Dict[str, str] = {
+    "admin": "admin",
+    "operator": "operator",
+    "QA": "qa-engineer",
+    "PM": "product-manager",
+    "custom": "operator",
+}
+
+
+
+def normalize_role_code(role_code: str) -> str:
+    normalized = (role_code or "").strip()
+    if normalized in ROLE_INDEX:
+        return normalized
+    return LEGACY_ROLE_MAPPING.get(normalized, "operator")

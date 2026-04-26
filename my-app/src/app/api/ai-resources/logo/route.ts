@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
+import { validateExternalHttpUrl } from '@/lib/server/networkGuards';
+import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+
 const LOGOS_DIR = path.join(process.cwd(), 'public', 'ai-logos');
+
+function isValidResourceId(id: string): boolean {
+    return /^[a-zA-Z0-9_-]+$/.test(id);
+}
 
 // 确保目录存在
 function ensureLogosDir() {
@@ -13,12 +20,21 @@ function ensureLogosDir() {
 
 // GET: 检查本地logo是否存在，返回路径或空
 export async function GET(request: NextRequest) {
+    const auth = requireScriptHubPermission(request, 'ai-resources');
+    if ('response' in auth) {
+        return auth.response;
+    }
+
     try {
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
 
         if (!id) {
             return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+        }
+
+        if (!isValidResourceId(id)) {
+            return NextResponse.json({ error: 'Invalid id format' }, { status: 400 });
         }
 
         ensureLogosDir();
@@ -44,7 +60,8 @@ export async function GET(request: NextRequest) {
 // 尝试下载单个 URL 并验证
 async function tryDownload(id: string, url: string): Promise<{ success: boolean; path?: string; size?: number; error?: string }> {
     try {
-        const response = await fetch(url, {
+        const safeUrl = await validateExternalHttpUrl(url);
+        const response = await fetch(safeUrl.toString(), {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'image/*,*/*;q=0.8',
@@ -102,12 +119,24 @@ async function tryDownload(id: string, url: string): Promise<{ success: boolean;
 
 // POST: 下载并保存logo（支持多来源备用）
 export async function POST(request: NextRequest) {
+    const auth = requireScriptHubPermission(request, 'ai-resources-manage');
+    if ('response' in auth) {
+        return auth.response;
+    }
+
     try {
         const { id, logoUrl, siteUrl } = await request.json();
 
         if (!id) {
             return NextResponse.json({ error: 'Missing id' }, { status: 400 });
         }
+
+        if (!isValidResourceId(id)) {
+            return NextResponse.json({ error: 'Invalid id format' }, { status: 400 });
+        }
+
+        const validatedLogoUrl = logoUrl ? (await validateExternalHttpUrl(logoUrl)).toString() : '';
+        const validatedSiteUrl = siteUrl ? (await validateExternalHttpUrl(siteUrl)).toString() : '';
 
         ensureLogosDir();
 
@@ -131,9 +160,9 @@ export async function POST(request: NextRequest) {
 
         // 提取域名
         let domain = '';
-        if (siteUrl) {
+        if (validatedSiteUrl) {
             try {
-                domain = new URL(siteUrl).hostname;
+                domain = new URL(validatedSiteUrl).hostname;
             } catch { /* ignore */ }
         }
 
@@ -141,13 +170,13 @@ export async function POST(request: NextRequest) {
         const urlsToTry: string[] = [];
 
         // 1. 使用 logoUrl（如果不是 github.com/favicon）
-        if (logoUrl && !logoUrl.includes('github.com/favicon')) {
-            urlsToTry.push(logoUrl);
+        if (validatedLogoUrl && !validatedLogoUrl.includes('github.com/favicon')) {
+            urlsToTry.push(validatedLogoUrl);
         }
 
         // 2. GitHub 项目使用用户/组织头像或 OpenGraph 图片
-        if (siteUrl && siteUrl.includes('github.com/')) {
-            const match = siteUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+        if (validatedSiteUrl && validatedSiteUrl.includes('github.com/')) {
+            const match = validatedSiteUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
             if (match) {
                 // 优先使用用户/组织头像 ( sz=128 )
                 urlsToTry.push(`https://github.com/${match[1]}.png?size=128`);
@@ -186,6 +215,12 @@ export async function POST(request: NextRequest) {
             error: 'All sources failed'
         });
     } catch (error) {
+        if (error instanceof Error && ['Unsupported URL', 'Blocked host', 'Unable to resolve host'].includes(error.message)) {
+            return NextResponse.json({
+                success: false,
+                error: error.message
+            }, { status: 400 });
+        }
         return NextResponse.json({
             success: false,
             error: String(error)
@@ -229,11 +264,20 @@ function detectImageFormat(buffer: Buffer): string | null {
 
 // DELETE: 删除本地logo
 export async function DELETE(request: NextRequest) {
+    const auth = requireScriptHubPermission(request, 'ai-resources-manage');
+    if ('response' in auth) {
+        return auth.response;
+    }
+
     try {
         const { id } = await request.json();
 
         if (!id) {
             return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+        }
+
+        if (!isValidResourceId(id)) {
+            return NextResponse.json({ error: 'Invalid id format' }, { status: 400 });
         }
 
         ensureLogosDir();

@@ -1,0 +1,3807 @@
+from __future__ import annotations
+
+import html
+import json
+import os
+import re
+import xml.etree.ElementTree as ET
+import zipfile
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+
+try:
+    from pypdf import PdfReader
+except Exception:  # pragma: no cover - optional dependency fallback
+    PdfReader = None
+
+try:
+    import pypdfium2 as pdfium
+except Exception:  # pragma: no cover - optional dependency fallback
+    pdfium = None
+
+FASTAPI_ROOT = Path(__file__).resolve().parents[2]
+RECRUITMENT_UPLOAD_ROOT = FASTAPI_ROOT / "data" / "recruitment_uploads" / "resumes"
+CHAT_CONTEXT_STORE: Dict[str, Dict[str, Any]] = {}
+
+CANDIDATE_STATUS_OPTIONS = [
+    {"value": "new_imported", "label": "新导入"},
+    {"value": "pending_screening", "label": "待初筛"},
+    {"value": "screening_failed", "label": "初筛失败"},
+    {"value": "screening_passed", "label": "初筛通过"},
+    {"value": "screening_rejected", "label": "初筛淘汰"},
+    {"value": "pending_interview", "label": "待面试"},
+    {"value": "interview_passed", "label": "面试通过"},
+    {"value": "interview_rejected", "label": "面试淘汰"},
+    {"value": "pending_offer", "label": "待 Offer"},
+    {"value": "offer_sent", "label": "已发 Offer"},
+    {"value": "hired", "label": "已入职"},
+    {"value": "talent_pool", "label": "人才库"},
+]
+
+POSITION_STATUS_OPTIONS = [
+    {"value": "draft", "label": "草稿"},
+    {"value": "recruiting", "label": "招聘中"},
+    {"value": "paused", "label": "暂停中"},
+    {"value": "closed", "label": "已关闭"},
+]
+
+DEFAULT_RULE_CONFIGS = {
+    "resume_score_weights": {
+        "experience": 0.25,
+        "skills": 0.35,
+        "education": 0.15,
+        "stability": 0.10,
+        "communication": 0.15,
+    },
+    "resume_disqualifiers": {"keywords": ["频繁跳槽", "履历造假", "无法到岗"]},
+    "default_jd_template": {"sections": ["岗位概述", "岗位职责", "任职要求", "加分项"]},
+    "default_interview_template": {"sections": ["技术题", "场景题", "行为题"]},
+    "default_status_rules": {"pass_threshold": 75, "pool_threshold": 55},
+    "mail_auto_push_defaults": {
+        "global_default_recipient_ids": [],
+        "global_auto_push_enabled": False,
+    },
+}
+
+ROLE_FAMILY_DOMAINS = {
+    # qa 放在最前面，因为其关键词（测试/qa/iot）更具体，不应被 software 的"工程师"抢匹配
+    "qa": {
+        "keywords": ["测试", "qa", "质量", "iot", "自动化测试", "接口测试",
+                     "test", "qe"],
+        "domains": [
+            "测试策略与用例设计",
+            "核心项目与业务理解",
+            "问题定位与缺陷闭环",
+            "自动化与效率工具",
+            "硬件/协议/系统联调",
+            "跨团队协作与沟通",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "software": {
+        "keywords": ["前端", "后端", "全栈", "ios", "android", "移动端",
+                     "软件", "开发", "developer", "engineer", "java",
+                     "python", "go", "php", "node", "vue", "react"],
+        "domains": [
+            "核心项目与技术深度",
+            "系统设计与架构思维",
+            "代码质量与工程规范",
+            "问题定位与调试能力",
+            "技术选型与方案判断",
+            "协作与推进能力",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "algorithm": {
+        "keywords": ["算法", "机器学习", "深度学习", "ml", "ai", "大模型",
+                     "nlp", "cv", "推荐", "搜索", "数据科学", "data science",
+                     "强化学习", "llm"],
+        "domains": [
+            "算法基础与数学能力",
+            "模型设计与训练经验",
+            "工程落地与系统集成",
+            "数据处理与特征工程",
+            "实验设计与指标体系",
+            "业务理解与效果评估",
+            "综合匹配度与研究潜力",
+        ]
+    },
+    "hardware": {
+        "keywords": ["硬件", "嵌入式", "电子", "结构", "pcb", "电路",
+                     "单片机", "fpga", "固件", "驱动", "射频", "电源"],
+        "domains": [
+            "硬件设计与原理图能力",
+            "嵌入式开发与调试经验",
+            "测试验证与问题定位",
+            "可靠性与量产经验",
+            "跨专业协同能力",
+            "工具与仪器使用",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "product_design": {
+        "keywords": ["产品", "ui", "ux", "交互", "视觉", "设计师",
+                     "product manager", "pm", "用户研究"],
+        "domains": [
+            "需求理解与产品思维",
+            "核心项目与业务成果",
+            "设计方法与工具能力",
+            "用户洞察与数据意识",
+            "跨职能协作与推动力",
+            "表达与文档能力",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "marketing": {
+        "keywords": ["运营", "市场", "营销", "品牌", "增长", "seo",
+                     "内容", "推广", "bd", "商务拓展"],
+        "domains": [
+            "核心项目与业务成果",
+            "策略制定与执行能力",
+            "数据分析与效果评估",
+            "用户理解与内容能力",
+            "资源整合与跨团队协作",
+            "创新思维与应变能力",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "hr_admin": {
+        "keywords": ["人事", "hr", "招聘", "hrbp", "人力资源", "行政",
+                     "培训", "薪酬", "绩效", "组织发展"],
+        "domains": [
+            "核心职能与专业能力",
+            "业务理解与HR策略",
+            "沟通协调与影响力",
+            "流程设计与执行能力",
+            "数据分析与决策支持",
+            "合规意识与风险把控",
+            "综合匹配度与成长意愿",
+        ]
+    },
+    "finance_legal": {
+        "keywords": ["财务", "会计", "审计", "法务", "合规", "税务",
+                     "法律", "风控", "内控"],
+        "domains": [
+            "专业知识与证书背景",
+            "核心业务经历与深度",
+            "合规意识与风险把控",
+            "数据处理与分析能力",
+            "跨部门沟通与协作",
+            "工具与系统使用能力",
+            "综合匹配度与职业稳定性",
+        ]
+    },
+    "sales": {
+        "keywords": ["销售", "商务", "客服", "客户成功", "客户经理",
+                     "account", "sales", "bd"],
+        "domains": [
+            "销售业绩与目标达成",
+            "客户开发与关系维护",
+            "产品理解与方案能力",
+            "谈判与成单能力",
+            "抗压与自驱动力",
+            "团队协作与资源整合",
+            "综合匹配度与稳定性",
+        ]
+    },
+}
+
+GENERIC_DOMAINS = [
+    "核心项目经历与角色边界",
+    "专业技能与业务深度",
+    "问题解决与思维方式",
+    "跨团队协作与沟通",
+    "学习能力与成长潜力",
+    "综合匹配度与稳定意愿",
+]
+
+INTERVIEW_RULE_LEAK_MARKERS = (
+    "全程铁律",
+    "强制出题",
+    "软件测试不为零",
+    "ai工具必出",
+    "规则变更原则",
+    "模块二：面试题生成",
+    "触发方式",
+    "html 输出规范",
+    "输出规范",
+    "系统强制指令",
+    "本轮 skill 关注点",
+)
+
+INTERVIEW_DOMAIN_KEYWORDS = {
+    "智能家居生态与联动测试": ["智能家居", "米家", "homekit", "鸿蒙", "涂鸦", "联动", "互联互通", "门锁", "灯具", "网关", "app", "小程序"],
+    "IoT 通信协议测试": ["iot", "wi-fi", "wifi", "ble", "蓝牙", "zigbee", "thread", "mqtt", "星闪", "配网", "组网", "协议"],
+    "软件测试基础": ["测试用例", "功能测试", "回归测试", "接口测试", "app测试", "app 测试", "缺陷", "bug", "jira", "postman", "apifox", "charles", "测试方案", "测试指导书", "自动化测试"],
+    "硬件测试与系统联调": ["硬件", "联调", "系统联调", "设备", "整机", "稳定性", "可靠性", "电源", "串口", "问题复现", "cadence", "pads", "pcb", "buck", "boost", "ldo", "信号"],
+    "嵌入式/固件/OTA": ["嵌入式", "固件", "ota", "烧录", "升级", "bootloader", "版本回退", "日志抓取"],
+    "AI 工具使用": ["ai", "gpt", "claude", "copilot", "cursor", "prompt", "大模型", "自动生成用例"],
+    "综合匹配度与转型意愿": ["转型", "匹配度", "职业规划", "岗位理解", "稳定", "沟通", "协作", "成长"],
+}
+
+INTERVIEW_DOMAIN_GUIDANCE = {
+    "智能家居生态与联动测试": {
+        "nature": "死穴验证区",
+        "minutes": 12,
+        "focus": "真实联动链路、设备生态、观察指标、问题闭环",
+        "followups": [
+            "如果同一设备在两个生态里表现不一致，你会先比对哪几类日志或观测点？",
+            "联动偶现失败时，你如何区分是设备端、云端、协议层还是 App 编排问题？",
+        ],
+        "explain": "用于验证候选人是否真正做过智能家居生态联动测试，而不是只停留在单点功能验证。",
+    },
+    "IoT 通信协议测试": {
+        "nature": "重点验证区",
+        "minutes": 10,
+        "focus": "协议场景、抓包/日志、异常注入、消息可靠性",
+        "followups": [
+            "如果配网成功率波动，你会如何拆分协议、环境和设备状态三个排查面？",
+            "遇到消息丢失或重复上报时，你会如何设计复现步骤和验收标准？",
+        ],
+        "explain": "用于验证候选人对 IoT 协议测试的真实理解深度，而不是只会罗列协议名称。",
+    },
+    "软件测试基础": {
+        "nature": "基本功验证",
+        "minutes": 8,
+        "focus": "测试设计、边界覆盖、缺陷定位、回归闭环",
+        "followups": [
+            "如果这次回归时间被压缩一半，你会如何保留最关键的回归集合？",
+            "当研发认为问题无法复现时，你会如何组织证据推动问题闭环？",
+        ],
+        "explain": "用于验证候选人是否具备稳定的软件测试基本功，这一项不能被硬件或协议经历替代。",
+    },
+    "硬件测试与系统联调": {
+        "nature": "核心强项",
+        "minutes": 5,
+        "focus": "设备上手、系统联调、问题复现、跨团队协作",
+        "followups": [
+            "如果问题只在特定批次设备出现，你会如何缩小硬件差异与软件版本差异的范围？",
+            "联调阶段研发、硬件、测试结论不一致时，你会如何推进统一结论？",
+        ],
+        "explain": "用于验证候选人是否能在真实设备环境里推进系统联调，而不是只会看软件表象。",
+    },
+    "嵌入式/固件/OTA": {
+        "nature": "边界核实",
+        "minutes": 3,
+        "focus": "版本升级链路、异常回退、日志抓取、风险控制",
+        "followups": [
+            "如果 OTA 升级失败率突然上升，你会先排查升级包、设备状态还是网络条件？为什么？",
+            "你会如何验证一次固件升级既成功又没有引入隐性回归？",
+        ],
+        "explain": "用于验证候选人对固件和 OTA 风险的基本认知，重点看是否理解升级链路与验证闭环。",
+    },
+    "AI 工具使用": {
+        "nature": "加分项",
+        "minutes": 2,
+        "focus": "AI 工具落地场景、质量校验、提示词设计、效率收益",
+        "followups": [
+            "如果 AI 生成的用例明显不贴合设备场景，你会如何修正提示词和验收规则？",
+            "你如何确保 AI 提升效率的同时，不把错误带进测试结论？",
+        ],
+        "explain": "用于验证候选人是否真正把 AI 工具融入测试工作流，而不是停留在概念层面。",
+    },
+    "综合匹配度与转型意愿": {
+        "nature": "匹配校准",
+        "minutes": 5,
+        "focus": "岗位理解、优势短板、转型动机、稳定性预期",
+        "followups": [
+            "如果入职后前两个月发现工作重心和预期不同，你会如何调适并保证交付？",
+            "这份岗位最吸引你和最让你担心的部分分别是什么？",
+        ],
+        "explain": "用于验证候选人与岗位方向的真实匹配度，以及后续稳定投入的可能性。",
+    },
+}
+
+
+def _load_recruitment_skill_template(file_name: str) -> str:
+    template_path = FASTAPI_ROOT / "app" / "recruitment_skill_templates" / file_name
+    return template_path.read_text(encoding="utf-8")
+
+
+DEFAULT_JD_BASE_SKILL_CONTENT = """---
+name: base-jd-generation-skill
+description: 通用岗位 JD 生成基座 Skill
+skill_group: base_recruitment_pack
+version: v1
+applies_to: jd
+---
+
+在生成岗位 JD 时，优先使用岗位标题、岗位摘要、当前激活 JD、补充要求和岗位元数据作为事实来源。
+输出应覆盖岗位概述、核心职责、任职要求、协作对象和加分项，避免写死具体岗位族或行业背景。
+"""
+
+
+DEFAULT_SCREENING_BASE_SKILL_CONTENT = """---
+name: base-screening-score-skill
+description: 通用简历初筛评分基座 Skill
+skill_group: base_recruitment_pack
+version: v1
+applies_to: screening
+---
+
+优先关注岗位匹配度、真实项目经历、问题定位能力、协作交付记录与成长潜力；所有评分结论都必须能回溯到简历原文、岗位摘要或当前激活 JD。
+当证据不足时，应明确标记待核实项，而不是自行补全候选人经历。
+"""
+
+
+DEFAULT_INTERVIEW_BASE_SKILL_CONTENT = """---
+name: base-interview-structure-skill
+description: 通用结构化面试基座 Skill
+skill_group: base_recruitment_pack
+version: v1
+applies_to: interview
+---
+
+出题时默认覆盖真实项目经历、能力边界、问题拆解、风险判断、协作沟通与复盘意识。
+所有问题都必须先绑定简历或岗位证据；若缺少直接证据，只能按待核实风险设计追问。
+"""
+
+
+DEFAULT_SKILLS = [
+    {
+        "skill_code": "skill-jd-base",
+        "name": "岗位 JD 通用基座 Skill",
+        "description": "适用于 JD 生成的通用基座 Skill。",
+        "content": DEFAULT_JD_BASE_SKILL_CONTENT,
+        "tags": ["JD", "基座", "task:jd", "group:base_recruitment_pack", "version:v1"],
+        "sort_order": 5,
+        "skill_group": "base_recruitment_pack",
+        "version": "v1",
+    },
+    {
+        "skill_code": "skill-testing-rule",
+        "name": "岗位初筛通用基座 Skill",
+        "description": "适用于简历初筛与评分的通用基座 Skill。",
+        "content": DEFAULT_SCREENING_BASE_SKILL_CONTENT,
+        "tags": ["初筛", "评分规则", "task:screening", "group:base_recruitment_pack", "version:v1"],
+        "sort_order": 10,
+        "skill_group": "base_recruitment_pack",
+        "version": "v1",
+    },
+    {
+        "skill_code": "skill-interview-structure",
+        "name": "结构化面试通用基座 Skill",
+        "description": "用于生成结构化面试题与追问框架的通用基座 Skill。",
+        "content": DEFAULT_INTERVIEW_BASE_SKILL_CONTENT,
+        "tags": ["面试", "模板", "task:interview", "group:base_recruitment_pack", "version:v1"],
+        "sort_order": 20,
+        "skill_group": "base_recruitment_pack",
+        "version": "v1",
+    },
+]
+
+# These seeded defaults are starter records only. Runtime screening must still
+# resolve active skills from the bound position/task context instead of treating
+# any seeded record as a universal fallback for every job.
+KNOWN_SKILLS = [
+    "python", "java", "go", "javascript", "typescript", "sql", "linux", "docker", "k8s",
+    "selenium", "playwright", "pytest", "jmeter", "postman", "api", "iot", "测试", "自动化",
+    "性能", "嵌入式", "网络", "web", "app", "git", "质量", "需求分析", "沟通",
+    "硬件", "硬件测试", "软硬件", "电子", "固件", "驱动", "设备", "可靠性", "稳定性",
+]
+
+IOT_SCREENING_DIMENSION_KEYWORDS = {
+    "智能家居生态": ["智能家居", "米家", "homekit", "鸿蒙", "涂鸦", "联动", "互联互通", "门锁", "灯具", "网关", "app", "小程序"],
+    "IoT通信协议": ["iot", "wi-fi", "wifi", "ble", "蓝牙", "zigbee", "thread", "mqtt", "星闪", "配网", "组网", "协议"],
+    "软件测试基础": ["测试用例", "功能测试", "回归测试", "接口测试", "app测试", "缺陷", "bug", "jira", "测试计划", "测试方案", "测试报告", "缺陷报告"],
+    "嵌入式/固件经验": ["嵌入式", "固件", "烧录", "固件更新", "程序固件", "ota", "bootloader", "升级", "串口", "log"],
+    "硬件测试经验": ["硬件", "硬件测试", "软硬件", "pcb", "原理图", "元器件", "电源", "时钟", "复位", "信号", "示波器", "万用表", "功耗", "温升", "可靠性", "整机"],
+    "自动化测试": ["自动化", "脚本", "python", "appium", "selenium", "uiautomator", "espresso", "自动化测试", "自动化高低温"],
+    "学历/专业匹配": ["本科", "硕士", "博士", "计算机", "软件工程", "自动化", "电子信息", "通信工程", "电子工程"],
+    "文档输出能力": ["测试报告", "缺陷报告", "用例", "测试用例", "编写完整报告", "填写报告", "提交缺陷", "跟踪缺陷", "总结"],
+    "加分项": ["linux", "shell", "ai", "小米", "华为", "美的", "海尔", "功耗", "射频", "ci/cd", "ci", "cd", "认证"],
+}
+
+IOT_SCREENING_CONTEXT_MARKERS = (
+    "iot",
+    "智能家居",
+    "米家",
+    "homekit",
+    "鸿蒙",
+    "zigbee",
+    "mqtt",
+    "ble",
+    "thread",
+    "ota",
+    "固件",
+    "嵌入式",
+)
+
+SCREENING_RULE_IGNORE_MARKERS = (
+    "name:",
+    "description:",
+    "skill_group",
+    "applies_to",
+    "触发方式",
+    "收到简历自动进入初筛模式",
+    "用户上传pdf简历",
+    "模块一：简历初筛",
+    "岗位 jd",
+    "岗位职责",
+    "任职要求",
+    "加分项",
+    "初筛结论三档",
+    "输出要求",
+    "初筛报告输出格式",
+    "return strict json",
+    "schema",
+    "json",
+    "system:",
+    "user:",
+)
+
+SCREENING_DIMENSION_SECTION_MARKERS = (
+    "评分维度",
+    "打分维度",
+    "维度与满分",
+    "评分项",
+)
+
+SCREENING_DIMENSION_SECTION_STOP_MARKERS = (
+    "判定规则",
+    "初筛结论",
+    "输出要求",
+    "输出约束",
+    "优势与风险",
+    "advantages",
+    "concerns",
+    "suggested_status",
+    "recommendation",
+    "批量简历",
+)
+
+
+def json_loads_safe(value: Optional[str], default: Any) -> Any:
+    if not value:
+        return default
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return default
+
+
+def json_dumps_safe(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def isoformat_or_none(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _parse_score_number(value: Any) -> Optional[float]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if numeric != numeric:
+            return None
+        return numeric
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = re.search(r"-?\d+(?:\.\d+)?", text)
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+
+def truncate_text(value: Any, limit: int = 500) -> str:
+    text = value if isinstance(value, str) else json_dumps_safe(value)
+    return text if len(text) <= limit else f"{text[:limit]}..."
+
+
+def markdown_to_html(markdown: str) -> str:
+    parts: List[str] = []
+    list_mode: Optional[str] = None
+    for raw_line in (markdown or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            if list_mode == "ul":
+                parts.append("</ul>")
+                list_mode = None
+            elif list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
+            continue
+        if line.startswith("### "):
+            if list_mode == "ul":
+                parts.append("</ul>")
+                list_mode = None
+            elif list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
+            parts.append(f"<h3>{html.escape(line[4:])}</h3>")
+        elif line.startswith("## "):
+            if list_mode == "ul":
+                parts.append("</ul>")
+                list_mode = None
+            elif list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
+            parts.append(f"<h2>{html.escape(line[3:])}</h2>")
+        elif line.startswith("# "):
+            if list_mode == "ul":
+                parts.append("</ul>")
+                list_mode = None
+            elif list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
+            parts.append(f"<h1>{html.escape(line[2:])}</h1>")
+        elif line.startswith("- "):
+            if list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
+            if list_mode != "ul":
+                parts.append("<ul>")
+                list_mode = "ul"
+            parts.append(f"<li>{html.escape(line[2:])}</li>")
+        elif re.match(r"^\d+[.)]\s+", line):
+            if list_mode == "ul":
+                parts.append("</ul>")
+                list_mode = None
+            if list_mode != "ol":
+                parts.append("<ol>")
+                list_mode = "ol"
+            cleaned_line = re.sub(r'^\d+[.)]\s+', '', line)
+            parts.append(f"<li>{html.escape(cleaned_line)}</li>")
+        else:
+            if list_mode == "ul":
+                parts.append("</ul>")
+                list_mode = None
+            elif list_mode == "ol":
+                parts.append("</ol>")
+                list_mode = None
+            parts.append(f"<p>{html.escape(line)}</p>")
+    if list_mode == "ul":
+        parts.append("</ul>")
+    elif list_mode == "ol":
+        parts.append("</ol>")
+    return "".join(parts)
+
+
+def looks_like_full_html_document(value: str) -> bool:
+    text = str(value or "").lstrip().lower()
+    return text.startswith("<!doctype html") or text.startswith("<html")
+
+
+def build_single_file_html_document(title: str, body_html: str) -> str:
+    safe_title = html.escape(title or "Interview Questions")
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{safe_title}</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #dbe4f0;
+      --accent: #0f172a;
+      --soft: #eef4ff;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+      color: var(--text);
+    }}
+    main {{
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 20px 48px;
+    }}
+    article {{
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 28px 28px 12px;
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+    }}
+    h1, h2, h3 {{
+      color: var(--accent);
+      margin: 0 0 14px;
+      line-height: 1.35;
+    }}
+    h1 {{
+      font-size: 28px;
+      margin-bottom: 20px;
+    }}
+    h2 {{
+      font-size: 20px;
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+    }}
+    h3 {{
+      font-size: 16px;
+      margin-top: 20px;
+    }}
+    p, li {{
+      font-size: 14px;
+      line-height: 1.9;
+      color: var(--text);
+    }}
+    p {{
+      margin: 0 0 12px;
+    }}
+    ul, ol {{
+      margin: 0 0 14px 20px;
+      padding: 0;
+    }}
+    li + li {{
+      margin-top: 6px;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 18px;
+      font-size: 13px;
+    }}
+    th, td {{
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }}
+    th {{
+      background: var(--soft);
+      color: var(--accent);
+    }}
+    blockquote {{
+      margin: 14px 0;
+      padding: 12px 14px;
+      border-left: 4px solid #94a3b8;
+      background: #f8fafc;
+      color: var(--muted);
+    }}
+    .hint {{
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    @media (max-width: 768px) {{
+      main {{ padding: 16px 12px 32px; }}
+      article {{ padding: 18px 16px 8px; border-radius: 18px; }}
+      h1 {{ font-size: 22px; }}
+      h2 {{ font-size: 18px; }}
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      {body_html}
+    </article>
+  </main>
+</body>
+</html>"""
+
+
+def ensure_interview_html_document(title: str, html_content: str = "", markdown_content: str = "") -> str:
+    if looks_like_full_html_document(html_content):
+        return html_content
+    body_html = str(html_content or "").strip() or markdown_to_html(markdown_content or "")
+    return build_single_file_html_document(title, body_html)
+
+
+def normalize_extracted_text_symbols(value: Any) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    bullet_map = {
+        "\uf0b7": "- ",
+        "\uf0d8": "- ",
+        "": "- ",
+        "": "- ",
+        "": "- ",
+        "◦": "- ",
+    }
+    for source, target in bullet_map.items():
+        text = text.replace(source, target)
+    text = re.sub(r"[\u200b-\u200f\u2060\ufeff]", "", text)
+    text = re.sub(r"[ \t]*-[ \t]*", "- ", text)
+    text = re.sub(r"\n[ \t]*-[ \t]*", "\n- ", text)
+    text = re.sub(r"�+", "", text)
+    return text
+
+
+def strip_markdown(markdown: str) -> str:
+    text = normalize_extracted_text_symbols(markdown).replace("\r\n", "\n")
+    text = re.sub(r"^\s*---+\s*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*#{1,6}\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^\s*[-*+]\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+    text = re.sub(r"__(.*?)__", r"\1", text)
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def normalize_jd_text_block(value: Any) -> str:
+    text = strip_markdown(str(value or "")).strip()
+    lines = [line.strip() for line in text.splitlines()]
+    cleaned: List[str] = []
+    lead_patterns = (
+        r"^(\u597d\u7684[\uff0c,]?\s*)",
+        r"^(\u5f53\u7136[\uff0c,]?\s*)",
+        r"^(\u4ee5\u4e0b\u662f[\uff1a: ]*)",
+        r"^(\u4e0b\u9762\u662f[\uff1a: ]*)",
+        r"^(\u8fd9\u662f[\u4e00\u4efd\u4e2a\u6761]?[\uff1a: ]*)",
+        r"^(\u8fd9\u662f\u4e00\u4efd[\uff1a: ]*)",
+        r"^(\u6839\u636e\u60a8\u63d0\u4f9b\u7684\u4fe1\u606f[\uff0c,]?\s*)",
+        r"^(\u57fa\u4e8e\u60a8\u63d0\u4f9b\u7684\u4fe1\u606f[\uff0c,]?\s*)",
+        r"^(\u6211\u4e3a\u60a8\u6574\u7406\u4e86[\uff1a: ]*)",
+    )
+    for index, line in enumerate(lines):
+        current = line
+        if index == 0:
+            for pattern in lead_patterns:
+                current = re.sub(pattern, "", current, flags=re.IGNORECASE)
+        current = current.strip("\uff1a: ")
+        if current:
+            cleaned.append(current)
+    return "\n".join(cleaned).strip()
+
+
+def normalize_jd_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        items = value
+    else:
+        raw = normalize_jd_text_block(value)
+        items = re.split(r"(?:\n+|[\uff1b;])", raw)
+
+    normalized: List[str] = []
+    excluded_markers = [
+        "简历筛选",
+        "初筛结果",
+        "筛选结果",
+        "招聘流程",
+        "最终结论",
+        "发送简历",
+        "招聘助手",
+    ]
+    for item in items:
+        text = normalize_jd_text_block(item).strip()
+        text = re.sub(r"^[0-9]+[.)\u3001]\s*", "", text)
+        if text and not any(marker in text for marker in excluded_markers):
+            normalized.append(text)
+    return normalized
+
+
+def build_jd_structured_fallback(position: Any) -> Dict[str, Any]:
+    title = position.title
+    work_location = position.location or "\u9762\u8bae"
+    salary_range = position.salary_range or "\u9762\u8bae"
+    department = position.department or "\u76f8\u5173\u4e1a\u52a1\u56e2\u961f"
+    office_location = position.location or "\u6307\u5b9a\u529e\u516c\u5730\u70b9"
+    return {
+        "job_title": title,
+        "department": department,
+        "work_location": work_location,
+        "salary_range": salary_range,
+        "headcount": f"{getattr(position, 'headcount', 1) or 1}\u4eba",
+        "job_overview": (
+            f"\u6211\u4eec\u6b63\u5728\u5bfb\u627e\u4e00\u4f4d\u80fd\u591f\u652f\u6491\u6838\u5fc3\u4e1a\u52a1\u4ea4\u4ed8\u7684 {title}\uff0c"
+            f"\u52a0\u5165 {department}\uff0c"
+            f"\u5728 {office_location} \u63a8\u52a8\u5c97\u4f4d\u76ee\u6807\u843d\u5730\u3002"
+        ),
+        "responsibilities": [
+            f"\u8d1f\u8d23 {title} \u76f8\u5173\u5de5\u4f5c\u7684\u89c4\u5212\u3001\u6267\u884c\u4e0e\u7ed3\u679c\u4ea4\u4ed8\u3002",
+            "\u4e0e\u4ea7\u54c1\u3001\u7814\u53d1\u3001\u6d4b\u8bd5\u6216\u4e1a\u52a1\u56e2\u961f\u534f\u540c\u63a8\u8fdb\u91cd\u70b9\u4e8b\u9879\u843d\u5730\u3002",
+            "\u6301\u7eed\u6c89\u6dc0\u65b9\u6cd5\u8bba\u4e0e\u590d\u7528\u7ecf\u9a8c\uff0c\u63d0\u5347\u56e2\u961f\u6574\u4f53\u6548\u7387\u4e0e\u8d28\u91cf\u3002",
+        ],
+        "requirements": [
+            normalize_jd_text_block(position.key_requirements or "\u5177\u5907\u4e0e\u5c97\u4f4d\u76f8\u5339\u914d\u7684\u4e13\u4e1a\u7ecf\u9a8c\u4e0e\u6267\u884c\u80fd\u529b\u3002"),
+            "\u5177\u5907\u826f\u597d\u7684\u6c9f\u901a\u534f\u4f5c\u80fd\u529b\uff0c\u80fd\u591f\u72ec\u7acb\u63a8\u8fdb\u590d\u6742\u4e8b\u9879\u3002",
+            "\u7ed3\u679c\u5bfc\u5411\uff0c\u80fd\u591f\u517c\u987e\u9879\u76ee\u8fdb\u5ea6\u3001\u98ce\u9669\u8bc6\u522b\u4e0e\u4ea4\u4ed8\u8d28\u91cf\u3002",
+        ],
+        "bonus_points": normalize_jd_list(position.bonus_points or "\u5177\u5907\u884c\u4e1a\u9879\u76ee\u7ecf\u9a8c\u3001\u81ea\u52a8\u5316\u5efa\u8bbe\u7ecf\u9a8c\u6216\u8de8\u56e2\u961f\u534f\u4f5c\u7ecf\u9a8c\u8005\u4f18\u5148\u3002"),
+    }
+
+
+def normalize_structured_jd(payload: Dict[str, Any], position: Any) -> Dict[str, Any]:
+    fallback = build_jd_structured_fallback(position)
+    return {
+        "job_title": normalize_jd_text_block(payload.get("job_title") or payload.get("title") or fallback["job_title"]),
+        "department": normalize_jd_text_block(payload.get("department") or fallback["department"]),
+        "work_location": normalize_jd_text_block(payload.get("work_location") or payload.get("location") or fallback["work_location"]),
+        "salary_range": normalize_jd_text_block(payload.get("salary_range") or fallback["salary_range"]),
+        "headcount": normalize_jd_text_block(payload.get("headcount") or fallback["headcount"]),
+        "job_overview": normalize_jd_text_block(payload.get("job_overview") or payload.get("job_description") or payload.get("summary") or fallback["job_overview"]),
+        "responsibilities": normalize_jd_list(payload.get("responsibilities") or fallback["responsibilities"]),
+        "requirements": normalize_jd_list(payload.get("requirements") or fallback["requirements"]),
+        "bonus_points": normalize_jd_list(payload.get("bonus_points") or fallback["bonus_points"]),
+    }
+
+
+def render_publish_ready_jd(jd_payload: Dict[str, Any]) -> str:
+    title = normalize_jd_text_block(jd_payload.get("job_title") or jd_payload.get("title") or "")
+    department = normalize_jd_text_block(jd_payload.get("department") or "")
+    location = normalize_jd_text_block(jd_payload.get("work_location") or jd_payload.get("location") or "")
+    salary = normalize_jd_text_block(jd_payload.get("salary_range") or "")
+    headcount = normalize_jd_text_block(jd_payload.get("headcount") or "")
+    responsibilities = normalize_jd_list(jd_payload.get("responsibilities") or [])
+    requirements = normalize_jd_list(jd_payload.get("requirements") or [])
+    bonus_points = normalize_jd_list(jd_payload.get("bonus_points") or [])
+
+    blocks: List[str] = []
+    if title:
+        blocks.append(f"\u5c97\u4f4d\u540d\u79f0\uff1a{title}")
+    if department:
+        blocks.append(f"\u90e8\u95e8\uff1a{department}")
+    if location:
+        blocks.append(f"\u5de5\u4f5c\u5730\u70b9\uff1a{location}")
+    if salary:
+        blocks.append(f"\u85aa\u8d44\u8303\u56f4\uff1a{salary}")
+    if headcount:
+        blocks.append(f"\u62db\u8058\u4eba\u6570\uff1a{headcount}")
+    if responsibilities:
+        blocks.append("\u4e00\uff0e\u5c97\u4f4d\u804c\u8d23\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(responsibilities)))
+    if requirements:
+        blocks.append("\u4e8c\uff0e\u4efb\u804c\u8981\u6c42\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(requirements)))
+    if bonus_points:
+        blocks.append("\u4e09\uff0e\u52a0\u5206\u9879\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(bonus_points)))
+    return "\n\n".join(blocks).strip()
+
+
+def render_jd_markdown_source(jd_payload: Dict[str, Any]) -> str:
+    title = normalize_jd_text_block(jd_payload.get("job_title") or jd_payload.get("title") or "")
+    department = normalize_jd_text_block(jd_payload.get("department") or "")
+    location = normalize_jd_text_block(jd_payload.get("work_location") or jd_payload.get("location") or "")
+    salary = normalize_jd_text_block(jd_payload.get("salary_range") or "")
+    headcount = normalize_jd_text_block(jd_payload.get("headcount") or "")
+    responsibilities = normalize_jd_list(jd_payload.get("responsibilities") or [])
+    requirements = normalize_jd_list(jd_payload.get("requirements") or [])
+    bonus_points = normalize_jd_list(jd_payload.get("bonus_points") or [])
+
+    sections: List[str] = []
+    if title:
+        sections.append(f"# {title}")
+    meta_lines: List[str] = []
+    if department:
+        meta_lines.append(f"**部门**：{department}")
+    if location:
+        meta_lines.append(f"**工作地点**：{location}")
+    if salary:
+        meta_lines.append(f"**薪资范围**：{salary}")
+    if headcount:
+        meta_lines.append(f"**招聘人数**：{headcount}")
+    if meta_lines:
+        sections.append("\n".join(meta_lines))
+    if responsibilities:
+        sections.append("## 一．岗位职责\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(responsibilities)))
+    if requirements:
+        sections.append("## 二．任职要求\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(requirements)))
+    if bonus_points:
+        sections.append("## 三．加分项\n" + "\n".join(f"{index + 1}. {item}" for index, item in enumerate(bonus_points)))
+    return "\n\n".join(section for section in sections if section).strip()
+
+
+def safe_file_stem(file_name: str) -> str:
+    stem = Path(file_name).stem
+    stem = re.sub(r"[_\-]+", " ", stem)
+    stem = re.sub(r"\s+", " ", stem).strip()
+    return stem or "未命名候选人"
+
+
+def extract_text_from_docx(file_path: Path) -> str:
+    with zipfile.ZipFile(file_path) as archive:
+        xml_bytes = archive.read("word/document.xml")
+    root = ET.fromstring(xml_bytes)
+    chunks = [node.text.strip() for node in root.iter() if node.tag.endswith("}t") and node.text and node.text.strip()]
+    return "\n".join(chunks)
+
+
+def _extract_text_from_pdf_with_pypdf(file_path: Path) -> str:
+    if PdfReader is None:
+        raise RuntimeError("pypdf is unavailable")
+    reader = PdfReader(str(file_path))
+    chunks: List[str] = []
+    for page in reader.pages:
+        text = page.extract_text() or ""
+        if text:
+            chunks.append(text)
+    return "\n".join(chunks).strip()
+
+
+def _extract_text_from_pdf_with_pdfium(file_path: Path) -> str:
+    if pdfium is None:
+        raise RuntimeError("pypdfium2 is unavailable")
+    document = pdfium.PdfDocument(str(file_path))
+    chunks: List[str] = []
+    for index in range(len(document)):
+        page = document[index]
+        text_page = page.get_textpage()
+        try:
+            chunks.append(text_page.get_text_range())
+        finally:
+            try:
+                text_page.close()
+            except Exception:
+                pass
+            try:
+                page.close()
+            except Exception:
+                pass
+    try:
+        document.close()
+    except Exception:
+        pass
+    return "\n".join(chunk for chunk in chunks if chunk).strip()
+
+
+def extract_text_from_pdf(file_path: Path) -> str:
+    if PdfReader is not None:
+        return _extract_text_from_pdf_with_pypdf(file_path)
+    if os.getenv("RECRUITMENT_ENABLE_PDFIUM_FALLBACK", "").strip() == "1" and pdfium is not None:
+        return _extract_text_from_pdf_with_pdfium(file_path)
+    raise RuntimeError(
+        "PDF text extraction dependency unavailable: install pypdf, or set RECRUITMENT_ENABLE_PDFIUM_FALLBACK=1 to use pypdfium2."
+    )
+
+
+def extract_resume_text(file_path: Path, file_ext: str) -> str:
+    ext = (file_ext or file_path.suffix or "").lower()
+    if ext == ".pdf":
+        return clean_resume_text(extract_text_from_pdf(file_path))
+    if ext == ".docx":
+        return clean_resume_text(extract_text_from_docx(file_path))
+    return clean_resume_text(file_path.read_text(encoding="utf-8", errors="ignore"))
+
+
+def extract_keywords(text: str) -> List[str]:
+    tokens = re.split(r"[\s,，。；;、|/]+", (text or "").lower())
+    result: List[str] = []
+    for token in tokens:
+        normalized = token.strip()
+        if len(normalized) >= 2 and normalized not in result:
+            result.append(normalized)
+    return result[:20]
+
+
+def normalize_resume_fallback_name(fallback_name: str) -> str:
+    text = Path(str(fallback_name or "").strip()).stem.strip()
+    if not text:
+        return ""
+    if "】" in text:
+        text = text.split("】")[-1].strip() or text
+    text = re.sub(r"\b\d+\s*(?:k|K)\b", " ", text)
+    text = re.sub(r"\d+\s*[-~到]\s*\d+\s*(?:k|K)", " ", text)
+    text = re.sub(r"\d+\s*(?:年|年以上)$", "", text).strip()
+    text = re.sub(r"\s+", " ", text).strip(" -_·|")
+    chinese_names = re.findall(r"[\u4e00-\u9fff]{2,4}", text)
+    if chinese_names:
+        return chinese_names[-1]
+    return text[:32]
+
+
+RESUME_NOISE_LINE_PATTERN = re.compile(r"^[A-Za-z0-9]{18,}(?:\s+[A-Za-z0-9]{18,})*$")
+RESUME_DATE_RANGE_LINE_PATTERN = re.compile(
+    r"^(?P<duration>(?:19|20)\d{2}\s*[-./年]\s*\d{1,2}(?:\s*[~～\-至]\s*(?:至今|现在|今|present|(?:19|20)\d{2}\s*[-./年]\s*\d{1,2}))?)\s*(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+RESUME_SCHOOL_KEYWORDS = ("大学", "学院", "学校", "本科", "硕士", "博士", "大专", "专科", "中专", "专业")
+RESUME_CERTIFICATE_KEYWORDS = ("英语四级", "英语六级", "普通话", "证书", "荣誉", "奖项", "资格证", "等级证")
+RESUME_COMPANY_KEYWORDS = ("有限公司", "公司", "集团", "科技", "信息", "软件", "研究院", "实验室", "中心", "银行", "医院")
+RESUME_LOCATION_LABELS = ("期望城市", "意向城市", "现居住地", "现居地", "所在地", "居住地", "工作地点", "居住城市")
+RESUME_PROJECT_SECTION_NOISE = {
+    "项目经历",
+    "项目经验",
+    "项目名称",
+    "项目描述",
+    "职责描述",
+    "基本信息",
+    "教育背景",
+    "荣誉证书",
+    "技能特长",
+    "工作经验",
+}
+RESUME_PRESENT_TOKENS = {"至今", "现在", "今", "present", "current"}
+RESUME_SECTION_HEADERS = {
+    "工作经历",
+    "工作经验",
+    "项目经历",
+    "项目经验",
+    "教育经历",
+    "教育背景",
+    "资格证书",
+    "荣誉证书",
+    "技能特长",
+    "基本信息",
+    "个人优势",
+}
+RESUME_WORK_SECTION_HEADERS = {"工作经历", "工作经验"}
+RESUME_SECTION_BREAK_HEADERS = {
+    "项目经历",
+    "项目经验",
+    "教育经历",
+    "教育背景",
+    "资格证书",
+    "荣誉证书",
+    "技能特长",
+    "基本信息",
+}
+
+
+def _clean_resume_line(value: Any) -> str:
+    text = str(value or "").replace("\ufeff", " ").replace("\xa0", " ")
+    text = re.sub(r"[▪◦◆◇■□●○•]", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _looks_like_resume_noise_line(text: str) -> bool:
+    normalized = _clean_resume_line(text)
+    if not normalized:
+        return False
+    if RESUME_NOISE_LINE_PATTERN.match(normalized) and not re.search(r"[\u4e00-\u9fff]", normalized):
+        return True
+    compact = normalized.replace(" ", "")
+    if (
+        len(compact) >= 18
+        and re.fullmatch(r"[A-Za-z0-9\-]+", compact)
+        and re.search(r"[A-Za-z]", compact)
+        and re.search(r"\d", compact)
+        and not re.search(r"[\u4e00-\u9fff]", compact)
+    ):
+        return True
+    return False
+
+
+def _looks_like_resume_section_header(text: str) -> bool:
+    normalized = _clean_resume_line(text).strip("：: ")
+    return normalized in RESUME_SECTION_HEADERS
+
+
+def _looks_like_valid_company_name(text: str) -> bool:
+    normalized = _clean_resume_line(text).strip("·|-— ")
+    if not normalized or normalized in RESUME_PRESENT_TOKENS:
+        return False
+    if normalized.isdigit() or len(normalized) < 3:
+        return False
+    if re.fullmatch(r"[\d.\-~至今现在 ]+", normalized):
+        return False
+    if _looks_like_resume_noise_line(normalized):
+        return False
+    if re.search(r"(Cadence|PADS|Protel|OrCAD|PCB)", normalized, re.IGNORECASE):
+        return False
+    if "查看原理图" in normalized or "测试方案" in normalized:
+        return False
+    if any(keyword in normalized for keyword in ["有限公司", "公司", "集团", "股份", "研究院", "实验室", "中心", "通信", "电子", "银行", "医院"]):
+        return True
+    return (
+        any(keyword in normalized for keyword in ["科技", "软件", "信息"])
+        and not re.search(r"[、,/]", normalized)
+        and len(normalized) >= 6
+    )
+
+
+def _looks_like_company_position_line(text: str) -> bool:
+    normalized = _clean_resume_line(text)
+    if not normalized or _looks_like_resume_section_header(normalized):
+        return False
+    if re.match(r"^\d+[、.．]", normalized):
+        return False
+    company, _ = _split_company_and_position(normalized)
+    return _looks_like_valid_company_name(company)
+
+
+def _should_merge_resume_line(previous: str, current: str) -> bool:
+    if not previous or not current:
+        return False
+    if _looks_like_resume_noise_line(current):
+        return False
+    if _looks_like_resume_section_header(previous) or _looks_like_resume_section_header(current):
+        return False
+    if _looks_like_duration_only_line(previous) or _looks_like_duration_only_line(current):
+        return False
+    if _looks_like_company_position_line(previous):
+        return False
+    if _looks_like_company_position_line(current):
+        return False
+    if re.match(r"^\d+[、.．]", current):
+        return False
+    if current.endswith("：") or current.endswith(":"):
+        return False
+    if re.search(r"[。！？；;:：]$", previous):
+        return False
+    if len(previous) >= 120:
+        return False
+    return True
+
+
+def clean_resume_text(raw_text: str) -> str:
+    text = normalize_extracted_text_symbols(str(raw_text or ""))
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned_lines: List[str] = []
+    previous = ""
+    for raw_line in text.splitlines():
+        line = _clean_resume_line(raw_line)
+        if not line:
+            continue
+        if _looks_like_resume_noise_line(line):
+            continue
+        if line == previous:
+            continue
+        cleaned_lines.append(line)
+        previous = line
+    merged_lines: List[str] = []
+    for line in cleaned_lines:
+        if merged_lines and _should_merge_resume_line(merged_lines[-1], line):
+            separator = "" if re.search(r"[\u4e00-\u9fff]$", merged_lines[-1]) else " "
+            merged_lines[-1] = f"{merged_lines[-1]}{separator}{line}".strip()
+        else:
+            merged_lines.append(line)
+    return "\n".join(merged_lines).strip()
+
+
+def _extract_resume_lines(raw_text: str) -> List[str]:
+    result: List[str] = []
+    previous = ""
+    for raw_line in clean_resume_text(raw_text).splitlines():
+        line = _clean_resume_line(raw_line)
+        if not line:
+            continue
+        if _looks_like_resume_noise_line(line):
+            continue
+        if line == previous:
+            continue
+        result.append(line)
+        previous = line
+    return result
+
+
+def _normalize_inline_resume_field(value: Any) -> str:
+    text = _clean_resume_line(value)
+    if not text:
+        return ""
+    text = re.split(r"(?:工作经验|工作年限|求职岗位|入职时间|联系电话|电话|邮箱|婚姻状况|出生年月|教育背景|荣誉证书|技能特长)\s*[:：]?", text)[0]
+    text = re.split(r"[，,；;|/]", text)[0]
+    return text.strip("：: -")
+
+
+def _extract_resume_location(raw_text: str, lines: Optional[Sequence[str]] = None) -> str:
+    text = str(raw_text or "")
+    for label in RESUME_LOCATION_LABELS:
+        match = re.search(rf"{label}\s*[:：]?\s*([^\n\r]{{1,24}})", text)
+        if not match:
+            continue
+        normalized = _normalize_inline_resume_field(match.group(1))
+        if normalized:
+            return normalized[:24]
+    for line in lines or []:
+        if not any(label in line for label in RESUME_LOCATION_LABELS):
+            continue
+        for label in RESUME_LOCATION_LABELS:
+            if label not in line:
+                continue
+            normalized = _normalize_inline_resume_field(line.split(label, 1)[-1])
+            if normalized:
+                return normalized[:24]
+    return ""
+
+
+def _split_company_and_position(text: str) -> Tuple[str, str]:
+    normalized = _clean_resume_line(text).strip("·|-—")
+    if not normalized:
+        return "", ""
+    company_end = -1
+    for keyword in RESUME_COMPANY_KEYWORDS:
+        index = normalized.rfind(keyword)
+        if index != -1:
+            company_end = max(company_end, index + len(keyword))
+    if company_end != -1:
+        company = normalized[:company_end].strip("·|-— ")
+        position = normalized[company_end:].strip("·|-— ")
+        if position:
+            position = re.split(r"(主要负责|职责描述|工作内容|内容[:：])", position, maxsplit=1)[0].strip("·|-— ")
+        return company, position
+    tokens = [token for token in re.split(r"\s+", normalized) if token]
+    if len(tokens) >= 2:
+        return " ".join(tokens[:-1]).strip(), tokens[-1].strip()
+    return normalized, ""
+
+
+def _looks_like_duration_only_line(text: str) -> bool:
+    normalized = _clean_resume_line(text).strip("·|-—")
+    if not normalized:
+        return False
+    if RESUME_DATE_RANGE_LINE_PATTERN.match(normalized):
+        remainder = _clean_resume_line(RESUME_DATE_RANGE_LINE_PATTERN.match(normalized).group("rest"))
+        return (
+            not remainder
+            or remainder in RESUME_PRESENT_TOKENS
+            or bool(re.fullmatch(r"(?:19|20)\d{2}\s*[-./年]?\s*\d{0,2}", remainder))
+        )
+    return False
+
+
+def _extract_duration_and_remainder(line: str) -> Tuple[str, str]:
+    normalized = _clean_resume_line(line)
+    head_match = RESUME_DATE_RANGE_LINE_PATTERN.match(normalized)
+    if head_match:
+        return _clean_resume_line(head_match.group("duration")).strip("，,"), _clean_resume_line(head_match.group("rest"))
+    tail_match = re.search(
+        r"(?P<prefix>.+?)\s+(?P<duration>(?:19|20)\d{2}\s*[-./年]?\s*\d{1,2}(?:\s*[~～\-至]\s*(?:至今|现在|今|present|(?:19|20)\d{2}\s*[-./年]?\s*\d{1,2}))?)$",
+        normalized,
+        re.IGNORECASE,
+    )
+    if tail_match:
+        return _clean_resume_line(tail_match.group("duration")).strip("，,"), _clean_resume_line(tail_match.group("prefix"))
+    return "", normalized
+
+
+def _parse_work_experience_item(line: str) -> Optional[Dict[str, Any]]:
+    duration, remainder = _extract_duration_and_remainder(line)
+    if not duration:
+        return None
+    if not remainder or any(keyword in remainder for keyword in RESUME_SCHOOL_KEYWORDS):
+        return None
+    if remainder in RESUME_PRESENT_TOKENS or _looks_like_duration_only_line(line):
+        return None
+    if remainder in RESUME_PROJECT_SECTION_NOISE or any(keyword in remainder for keyword in RESUME_CERTIFICATE_KEYWORDS):
+        return None
+    company, position = _split_company_and_position(remainder)
+    if not _looks_like_valid_company_name(company):
+        return None
+    item: Dict[str, Any] = {"duration": duration}
+    if company:
+        item["company"] = company
+        item["company_name"] = company
+    if position:
+        item["position"] = position
+    return item if len(item) > 1 else None
+
+
+def _parse_education_experience_item(line: str) -> Optional[Dict[str, Any]]:
+    normalized = _clean_resume_line(line)
+    if not normalized or any(keyword in normalized for keyword in RESUME_CERTIFICATE_KEYWORDS):
+        return None
+    if "@" in normalized or re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", normalized):
+        return None
+    duration, remainder = _extract_duration_and_remainder(normalized)
+    if not duration:
+        year_range_match = re.search(r"((?:19|20)\d{2}\s*[-~～至]\s*(?:19|20)\d{2})", normalized)
+        if year_range_match:
+            duration = _clean_resume_line(year_range_match.group(1)).strip("，,")
+            remainder = _clean_resume_line(normalized[:year_range_match.start()])
+    if not any(keyword in remainder for keyword in RESUME_SCHOOL_KEYWORDS):
+        return None
+    degree_match = re.search(r"(博士研究生|博士|硕士研究生|硕士|本科|大专|专科|高中|中专)", remainder)
+    degree = (degree_match.group(1).replace("研究生", "") if degree_match else "").strip()
+    school = remainder
+    if degree_match:
+        school = remainder[:degree_match.start()].strip("·|-—()（）[]【】 ")
+    school = re.sub(r"\s+", " ", school).strip()
+    school = re.sub(r"(教育背景|荣誉证书|技能特长|基本信息)$", "", school).strip()
+    if (
+        not school
+        or "@" in school
+        or any(marker in school for marker in ["联系电话", "邮箱", "Email", "email", "个人简历", "PERSONAL RESUME"])
+        or (len(re.findall(r"(大学|学院)", school)) >= 2 and len(school) > 24)
+    ):
+        return None
+    major_match = re.search(r"(?:专业|方向)\s*[:：]?\s*([^\s，,；;|/]+)", remainder)
+    major = _clean_resume_line(major_match.group(1)) if major_match else ""
+    if not major and degree_match:
+        major_tail = _clean_resume_line(remainder[degree_match.end():]).strip("·|-—()（）[]【】 ")
+        major_tail = re.sub(r"((?:19|20)\d{2}\s*[-~～至]\s*(?:19|20)\d{2})$", "", major_tail).strip()
+        if major_tail and not any(keyword in major_tail for keyword in RESUME_CERTIFICATE_KEYWORDS):
+            major = major_tail
+    item: Dict[str, Any] = {}
+    if duration:
+        item["duration"] = duration
+    if school:
+        item["school"] = school
+    if degree:
+        item["degree"] = degree
+    if major:
+        item["major"] = major
+    return item or None
+
+
+def _education_rank(item: Dict[str, Any]) -> int:
+    degree = str(item.get("degree") or "").strip()
+    order = {
+        "博士": 5,
+        "硕士": 4,
+        "本科": 3,
+        "大专": 2,
+        "专科": 2,
+        "中专": 1,
+        "高中": 0,
+    }
+    return order.get(degree, -1)
+
+
+def _build_basic_education_text(education_items: Sequence[Dict[str, Any]]) -> str:
+    candidates = [item for item in education_items if isinstance(item, dict)]
+    if not candidates:
+        return "未知"
+    best = max(candidates, key=lambda item: (_education_rank(item), 1 if item.get("school") else 0))
+    parts: List[str] = []
+    for key in ["school", "degree", "major"]:
+        text = _clean_resume_line(best.get(key))
+        if text and text not in parts:
+            parts.append(text)
+    return " ".join(parts[:3]) or "未知"
+
+
+def _looks_like_project_noise_line(line: str) -> bool:
+    normalized = _clean_resume_line(line)
+    if not normalized:
+        return True
+    if normalized in RESUME_PROJECT_SECTION_NOISE or normalized in {"内容", "内容:", "内容：", "业绩", "业绩:", "业绩：", "项目业绩", "项目业绩:", "项目业绩："}:
+        return True
+    if re.match(r"^\d+[、.．]\s*(项目交付|编写测试指导书|测试指导书|交付物|交付件)\b", normalized):
+        return True
+    return False
+
+
+def _normalize_fallback_project_name(value: Any) -> str:
+    normalized = _clean_resume_line(value)
+    if not normalized:
+        return ""
+    normalized = re.sub(r"^(项目名称\s*[:：]?\s*)", "", normalized).strip()
+    normalized = re.split(r"(项目描述|职责描述|项目环境|产品介绍|项目简介)\s*[:：]?", normalized, maxsplit=1)[0].strip("：: -")
+    return normalized[:120]
+
+
+def _extract_project_items(lines: Sequence[str], *, limit: int = 6) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    seen_names: List[str] = []
+    current: Optional[Dict[str, Any]] = None
+    descriptions: List[str] = []
+    responsibilities: List[str] = []
+    in_project_section = False
+
+    def looks_like_project_title(text: str) -> bool:
+        normalized = _clean_resume_line(text)
+        if not normalized or _looks_like_project_noise_line(normalized):
+            return False
+        if normalized.endswith("：") or normalized.endswith(":"):
+            return False
+        if re.match(r"^\d+[、.．]", normalized):
+            return False
+        if RESUME_DATE_RANGE_LINE_PATTERN.match(normalized):
+            return False
+        if len(normalized) > 80:
+            return False
+        if re.search(r"[，；。]", normalized):
+            return False
+        return bool(re.search(r"(项目|测试|分析|平台|系统|电源|UWB|售后技术支持)", normalized))
+
+    def flush_current() -> None:
+        nonlocal current, descriptions, responsibilities
+        if current and current.get("project_name"):
+            if descriptions and not current.get("description"):
+                current["description"] = " ".join(descriptions[:2])[:240]
+            if responsibilities:
+                current["summary"] = "；".join(responsibilities[:3])[:320]
+            name = str(current.get("project_name") or "").strip()
+            if name and name not in seen_names:
+                seen_names.append(name)
+                result.append(current)
+        current = None
+        descriptions = []
+        responsibilities = []
+
+    for line in lines:
+        normalized = _clean_resume_line(line)
+        if not normalized or (RESUME_NOISE_LINE_PATTERN.match(normalized) and not re.search(r"[\u4e00-\u9fff]", normalized)):
+            continue
+        if _looks_like_resume_section_header(normalized):
+            if normalized in {"项目经历", "项目经验"}:
+                flush_current()
+                in_project_section = True
+                continue
+            if in_project_section and normalized in RESUME_SECTION_BREAK_HEADERS:
+                flush_current()
+                break
+        if in_project_section and re.search(r"(大学|学院|本科|硕士|博士).{0,24}(19|20)\d{2}", normalized):
+            flush_current()
+            break
+        name_match = re.search(r"项目名称\s*[:：]?\s*(.+)$", normalized)
+        if name_match:
+            flush_current()
+            project_name = _normalize_fallback_project_name(name_match.group(1))
+            if project_name and not _looks_like_project_noise_line(project_name):
+                current = {"project_name": project_name[:120]}
+            continue
+        if in_project_section and looks_like_project_title(normalized):
+            if current is not None and (descriptions or responsibilities):
+                flush_current()
+            if current is None:
+                project_name = _normalize_fallback_project_name(normalized)
+                if project_name:
+                    current = {"project_name": project_name[:120]}
+                    continue
+        if current is None:
+            continue
+        if RESUME_DATE_RANGE_LINE_PATTERN.match(normalized):
+            if descriptions or responsibilities:
+                flush_current()
+            continue
+        if normalized in {"工作经验", "教育背景", "基本信息", "荣誉证书", "技能特长"}:
+            flush_current()
+            continue
+        if _looks_like_project_noise_line(normalized):
+            continue
+        if any(marker in normalized for marker in ["项目描述", "产品介绍", "项目环境", "应用场景"]):
+            detail = normalized.split("：", 1)[1] if "：" in normalized else normalized.split(":", 1)[1] if ":" in normalized else normalized
+            detail = _clean_resume_line(detail)
+            if detail:
+                descriptions.append(detail)
+            continue
+        if "职责描述" in normalized:
+            detail = normalized.split("：", 1)[1] if "：" in normalized else normalized.split(":", 1)[1] if ":" in normalized else ""
+            detail = _clean_resume_line(detail)
+            if detail:
+                responsibilities.append(detail)
+            continue
+        if re.match(r"^\d+[、.．]", normalized):
+            detail = re.sub(r"^\d+[、.．]\s*", "", normalized).strip()
+            if detail and not _looks_like_project_noise_line(detail):
+                responsibilities.append(detail)
+            continue
+        if len(descriptions) < 2 and len(normalized) <= 80:
+            descriptions.append(normalized)
+        elif len(responsibilities) < 3:
+            responsibilities.append(normalized)
+        if len(result) >= limit:
+            break
+    flush_current()
+    return result[:limit]
+
+
+def _extract_work_experience_items(lines: Sequence[str], *, limit: int = 8) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    pending_durations: List[str] = []
+    in_work_section = False
+    seen_signatures: List[str] = []
+    for line in lines:
+        normalized = _clean_resume_line(line)
+        if not normalized:
+            continue
+        if _looks_like_resume_section_header(normalized):
+            if normalized in RESUME_WORK_SECTION_HEADERS:
+                in_work_section = True
+                continue
+            if normalized in RESUME_SECTION_BREAK_HEADERS and in_work_section:
+                break
+            continue
+        if _looks_like_duration_only_line(normalized):
+            duration, _ = _extract_duration_and_remainder(normalized)
+            if duration:
+                if in_work_section and result and not str(result[-1].get("duration") or "").strip():
+                    result[-1]["duration"] = duration
+                else:
+                    pending_durations.append(duration)
+            continue
+        item = _parse_work_experience_item(normalized)
+        if item:
+            signature = json.dumps(item, ensure_ascii=False, sort_keys=True)
+            if signature not in seen_signatures:
+                seen_signatures.append(signature)
+                result.append(item)
+            if len(result) >= limit:
+                break
+            continue
+        if (in_work_section or pending_durations) and _looks_like_company_position_line(normalized):
+            company, position = _split_company_and_position(normalized)
+            if _looks_like_valid_company_name(company):
+                item = {"company": company, "company_name": company}
+                if pending_durations:
+                    item["duration"] = pending_durations.pop(0)
+                if position:
+                    item["position"] = position
+                signature = json.dumps(item, ensure_ascii=False, sort_keys=True)
+                if signature not in seen_signatures:
+                    seen_signatures.append(signature)
+                    result.append(item)
+                if len(result) >= limit:
+                    break
+    return result[:limit]
+
+
+def _extract_education_items(lines: Sequence[str], *, limit: int = 6) -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    for line in lines:
+        item = _parse_education_experience_item(line)
+        if item and item not in result:
+            result.append(item)
+        if len(result) >= limit:
+            break
+    return result[:limit]
+
+
+def extract_basic_info(
+    raw_text: str,
+    fallback_name: str,
+    *,
+    lines: Optional[Sequence[str]] = None,
+    education_items: Optional[Sequence[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    phone_match = re.search(r"(?<!\d)1[3-9]\d{9}(?!\d)", raw_text)
+    email_match = re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", raw_text)
+    name_match = re.search(r"(?:姓名|Name)[:：\s]+([^\n]{2,20})", raw_text, re.IGNORECASE)
+    years_match = re.search(r"(\d{1,2})\s*年", raw_text)
+    normalized_lines = list(lines or _extract_resume_lines(raw_text))
+    normalized_education_items = list(education_items or [])
+    education = _build_basic_education_text(normalized_education_items)
+    if education == "未知":
+        for keyword in ["博士", "硕士", "本科", "大专", "专科", "高中", "中专"]:
+            if keyword in raw_text:
+                education = keyword
+                break
+    normalized_fallback_name = normalize_resume_fallback_name(fallback_name)
+    return {
+        "name": (name_match.group(1).strip() if name_match else "") or normalized_fallback_name,
+        "phone": phone_match.group(0) if phone_match else "",
+        "email": email_match.group(0) if email_match else "",
+        "years_of_experience": years_match.group(1) + "年" if years_match else "",
+        "education": education,
+        "location": _extract_resume_location(raw_text, normalized_lines),
+    }
+
+
+def extract_resume_structured_data(raw_text: str, fallback_name: str) -> Dict[str, Any]:
+    cleaned_text = clean_resume_text(raw_text)
+    normalized_fallback_name = normalize_resume_fallback_name(fallback_name)
+    lines = _extract_resume_lines(cleaned_text)
+    work_experiences = _extract_work_experience_items(lines, limit=8)
+    education_items = _extract_education_items(lines, limit=6)
+    project_items = _extract_project_items(lines, limit=6)
+    discovered_skills = [skill for skill in KNOWN_SKILLS if skill.lower() in cleaned_text.lower()]
+    return {
+        "basic_info": extract_basic_info(
+            cleaned_text,
+            normalized_fallback_name,
+            lines=lines,
+            education_items=education_items,
+        ),
+        "work_experiences": work_experiences,
+        "education_experiences": education_items,
+        "skills": discovered_skills[:20],
+        "projects": project_items,
+        "summary": "",
+    }
+
+
+def build_jd_fallback(position: Any) -> Dict[str, str]:
+    structured = build_jd_structured_fallback(position)
+    markdown = render_jd_markdown_source(structured)
+    return {
+        "markdown": markdown,
+        "html": markdown_to_html(markdown),
+        "publish_text": render_publish_ready_jd(structured),
+    }
+
+
+def _extract_skill_focus_points(skills: Iterable[Any], limit: int = 6) -> Dict[str, List[str]]:
+    names: List[str] = []
+    focus_points: List[str] = []
+    skip_keywords = ["触发方式", "初筛报告输出格式", "skill", "name:", "description:", "模块一", "模块二", "输出格式"]
+    for skill in skills or []:
+        if isinstance(skill, dict):
+            name = str(skill.get("name") or "").strip()
+            description = str(skill.get("description") or "").strip()
+            content = str(skill.get("content") or "").strip()
+        else:
+            name = str(skill or "").strip()
+            description = ""
+            content = ""
+        if name and name not in names:
+            names.append(name)
+        for source in [content, description]:
+            if not source:
+                continue
+            plain = strip_markdown(source)
+            segments = re.split(r"[\n\r。；;]+", plain)
+
+            for segment in segments:
+                cleaned = re.sub(r"^[\-\*\d\.\s•]+", "", segment).strip()
+                if cleaned.startswith("|") or cleaned.endswith("|"):
+                    continue
+                if cleaned.startswith("#"):
+                    continue
+                if any(keyword.lower() in cleaned.lower() for keyword in skip_keywords):
+                    continue
+                if len(cleaned) < 8:
+                    continue
+                point = cleaned[:60]
+                if point not in focus_points:
+                    focus_points.append(point)
+                if len(focus_points) >= limit:
+                    break
+            if len(focus_points) >= limit:
+                break
+        if len(focus_points) >= limit:
+            break
+    return {"names": names, "points": focus_points}
+
+
+def extract_screening_hard_requirements(skills: Optional[Iterable[Any]], limit: int = 8) -> Dict[str, List[str]]:
+    hard_markers = ("核心第一优先", "硬性要求", "必须", "不得", "一票否决")
+    points: List[str] = []
+
+    def push(text: str) -> None:
+        cleaned = strip_markdown(str(text or "")).strip()
+        cleaned = re.sub(r"^[\-\*\d\.\s•]+", "", cleaned).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = cleaned.replace("*", "")
+        if (
+            not cleaned
+            or cleaned in points
+            or len(cleaned) < 4
+            or any(marker.lower() in cleaned.lower() for marker in SCREENING_RULE_IGNORE_MARKERS)
+        ):
+            return
+        points.append(cleaned[:80])
+
+    for skill in skills or []:
+        content = str(skill.get("content") or skill.get("description") or "") if isinstance(skill, dict) else str(skill or "")
+        body = _strip_skill_frontmatter_text(content)
+        for raw_line in re.split(r"[\n\r]+", body):
+            plain = strip_markdown(raw_line).strip()
+            if not plain:
+                continue
+            if any(marker.lower() in plain.lower() for marker in SCREENING_RULE_IGNORE_MARKERS):
+                continue
+            if "|" in raw_line and any(marker in plain for marker in hard_markers):
+                cells = [strip_markdown(cell).strip() for cell in raw_line.split("|") if strip_markdown(cell).strip()]
+                if cells:
+                    if len(cells) >= 4:
+                        push(f"{cells[0]}：{cells[-1]}")
+                    else:
+                        push(cells[-1])
+                continue
+            if any(marker in plain for marker in hard_markers):
+                push(plain)
+            if len(points) >= limit:
+                break
+        if len(points) >= limit:
+            break
+        for raw_line in re.split(r"[\n\r]+", body):
+            plain = strip_markdown(raw_line).strip()
+            if (
+                not plain
+                or any(marker.lower() in plain.lower() for marker in SCREENING_RULE_IGNORE_MARKERS)
+                or "打分维度与权重" in plain
+            ):
+                continue
+            if any(marker in plain for marker in hard_markers):
+                push(plain)
+            if len(points) >= limit:
+                break
+    tokens: List[str] = []
+    for point in points:
+        for token in _extract_focus_point_tokens(point, limit=8):
+            normalized = str(token or "").strip().lower()
+            if normalized and normalized not in tokens:
+                tokens.append(normalized)
+    return {"points": points[:limit], "tokens": tokens[:16]}
+
+
+def _extract_focus_point_tokens(point: Any, *, limit: int = 12) -> List[str]:
+    text = strip_markdown(str(point or "")).strip()
+    if not text:
+        return []
+    label = ""
+    detail = text
+    if "：" in text:
+        label, detail = text.split("：", 1)
+    elif ":" in text:
+        label, detail = text.split(":", 1)
+    noise_keywords = {
+        "招聘助手", "skill", "核心第一优先", "第一优先", "非一票否决项", "一票否决项", "不作否决项",
+        "不要求", "即可", "具备", "能力", "经验", "相关", "原文依据", "引用简历具体内容", "简历未提及",
+        "打分", "权重", "优先", "要求", "说明", "维度", "场景", "支撑能力", "弱不作否决项",
+    }
+    result: List[str] = []
+
+    def push(token: str) -> None:
+        normalized = str(token or "").strip().lower()
+        normalized = normalized.strip("：:()（）[]【】,.，。；;!！?？")
+        normalized = re.sub(r"(等真实联动测试经历|真实联动测试经历|测试经验|相关专业|系统测试核心支撑能力|基础认知即可|非一票否决项)$", "", normalized).strip()
+        if (
+            len(normalized) < 2
+            or len(normalized) > 24
+            or normalized in result
+            or any(noise in normalized for noise in noise_keywords)
+        ):
+            return
+        result.append(normalized)
+
+    for candidate in [label, *re.findall(r"[A-Za-z][A-Za-z0-9+_.-]{1,24}", detail)]:
+        push(candidate)
+    for piece in re.split(r"[\s,，。；;、|/（）()]+", detail):
+        push(piece)
+        for keyword in extract_keywords(piece):
+            push(keyword)
+        if len(result) >= limit:
+            break
+    return result[:limit]
+
+
+def _strip_skill_frontmatter_text(content: Any) -> str:
+    text = str(content or "")
+    match = re.match(r"^\s*---\s*\r?\n(.*?)\r?\n---\s*(.*)$", text, re.DOTALL)
+    return (match.group(2) if match else text).strip()
+
+
+def _normalize_screening_dimension_label(value: Any) -> str:
+    label = strip_markdown(str(value or "")).strip()
+    label = re.sub(r"\s+", "", label)
+    aliases = {
+        "IoT通信协议": "IoT通信协议",
+        "IOT通信协议": "IoT通信协议",
+        "智能家居生态": "智能家居生态",
+        "软件测试基础": "软件测试基础",
+        "嵌入式/固件经验": "嵌入式/固件经验",
+        "硬件测试经验": "硬件测试经验",
+        "自动化测试": "自动化测试",
+        "学历/专业匹配": "学历/专业匹配",
+        "文档输出能力": "文档输出能力",
+        "加分项": "加分项",
+    }
+    return aliases.get(label, label)
+
+
+def _build_screening_evidence_lines(parsed: Optional[Dict[str, Any]], *, limit: int = 240) -> List[str]:
+    payload = parsed or {}
+    lines: List[str] = []
+    seen: set[str] = set()
+    max_line_length = 1200
+
+    def normalize_pool_text(text: Any) -> str:
+        cleaned = strip_markdown(str(text or "")).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        if len(cleaned) > max_line_length:
+            punctuation_indexes = [index for index, char in enumerate(cleaned[:max_line_length]) if char in "。！？；;：:"]
+            if punctuation_indexes:
+                cleaned = cleaned[: punctuation_indexes[-1] + 1]
+            else:
+                cleaned = cleaned[:max_line_length].rstrip()
+        return cleaned
+
+    def looks_like_new_resume_block(text: str) -> bool:
+        return bool(
+            re.match(
+                r"^(项目名称|项目描述|职责描述|工作经历|教育背景|技能特长|基本信息|荣誉证书|自我评价|项目经验|专业技能|求职意向|测试工具与技术技能|人员管理&项目管理|[0-9]{4}\s*[-~]|[•\-]\s*|\d+[、.)）])",
+                text,
+            )
+        )
+
+    def merge_wrapped_resume_lines(raw_text: str) -> List[str]:
+        merged: List[str] = []
+        buffer = ""
+        for raw_line in re.split(r"[\r\n]+", raw_text or ""):
+            line = normalize_pool_text(raw_line)
+            if not line:
+                if buffer:
+                    merged.append(buffer)
+                    buffer = ""
+                continue
+            if not buffer:
+                buffer = line
+                continue
+            if len(buffer) < max_line_length and not re.search(r"[。！？；;：:]$", buffer) and not looks_like_new_resume_block(line):
+                buffer = f"{buffer}{line}"
+                continue
+            merged.append(buffer)
+            buffer = line
+        if buffer:
+            merged.append(buffer)
+        return merged
+
+    def push(text: Any) -> None:
+        cleaned = normalize_pool_text(text)
+        if (
+            len(cleaned) < 4
+            or cleaned in seen
+            or re.fullmatch(r"[A-Za-z0-9]{18,}", cleaned)
+        ):
+            return
+        seen.add(cleaned)
+        lines.append(cleaned)
+
+    raw_text = str(payload.get("raw_text") or "")
+    for raw_line in merge_wrapped_resume_lines(raw_text):
+        push(raw_line)
+        if len(lines) >= limit:
+            return lines[:limit]
+    for key in ["work_experiences", "projects", "education_experiences", "skills"]:
+        for item in payload.get(key) or []:
+            push(_resume_item_to_text(item))
+            if len(lines) >= limit:
+                return lines[:limit]
+    for item in _split_summary_sentences(payload.get("summary"), limit=6):
+        push(item)
+        if len(lines) >= limit:
+            return lines[:limit]
+    return lines[:limit]
+
+
+def _is_dimension_table_header(cells: List[str]) -> bool:
+    if len(cells) < 4:
+        return False
+    normalized = [strip_markdown(cell).strip().lower() for cell in cells[:4]]
+    first, second, third, fourth = normalized[:4]
+    first_ok = any(token in first for token in ["维度", "能力", "模块", "dimension", "category"])
+    second_ok = any(token in second for token in ["权重", "占比", "weight", "比例"])
+    third_ok = any(token in third for token in ["满分", "分值", "score", "max"])
+    fourth_ok = any(token in fourth for token in ["说明", "要求", "定义", "依据", "rule", "note"])
+    return first_ok and second_ok and third_ok and fourth_ok
+
+
+def _looks_like_iot_screening_rule_context(*texts: Any) -> bool:
+    combined = " ".join(str(text or "") for text in texts).lower()
+    return any(marker in combined for marker in IOT_SCREENING_CONTEXT_MARKERS)
+
+
+def _parse_prompt_style_screening_dimension_line(
+    line: str,
+    *,
+    iot_context: bool,
+) -> Optional[Dict[str, Any]]:
+    plain = strip_markdown(str(line or "")).strip()
+    plain = re.sub(r"^[\-\*\d\.\)）\s•]+", "", plain).strip()
+    ignored_markers = [
+        marker
+        for marker in SCREENING_RULE_IGNORE_MARKERS
+        if str(marker or "").strip().lower() != "加分项"
+    ]
+    if (
+        not plain
+        or any(marker.lower() in plain.lower() for marker in ignored_markers)
+        or any(token in plain for token in ("总分", "合计", "满分10分", "10分制"))
+    ):
+        return None
+
+    score_match = re.search(r"(?:满分\s*)?([0-9]+(?:\.[0-9])?)\s*分", plain, flags=re.IGNORECASE)
+    if not score_match:
+        return None
+
+    label_text = plain[:score_match.start()].strip("：:，,。；;|-— ")
+    if "：" in label_text:
+        label_text = label_text.split("：", 1)[0].strip()
+    elif ":" in label_text:
+        label_text = label_text.split(":", 1)[0].strip()
+    label_text = re.sub(r"(满分|最高|建议|权重|优先级)$", "", label_text).strip()
+    label = _normalize_screening_dimension_label(label_text)
+    if not label:
+        return None
+
+    max_score = _parse_score_number(score_match.group(1))
+    if max_score is None:
+        return None
+
+    weight_match = re.search(r"(\d{1,3}\s*%)", plain)
+    note = plain[score_match.end():].strip("。；;，, ：:-")
+    is_core = any(marker in plain for marker in ("核心", "第一优先", "硬性要求", "必须命中"))
+    keywords = IOT_SCREENING_DIMENSION_KEYWORDS.get(label, []) if iot_context else []
+
+    return {
+        "label": label,
+        "weight_text": weight_match.group(1) if weight_match else "",
+        "max_score": round(float(max_score), 1),
+        "note": re.sub(r"\s+", " ", note).strip(),
+        "is_core": is_core,
+        "keywords": keywords,
+    }
+
+
+def _extract_prompt_style_screening_dimension_rules(
+    body: str,
+    *,
+    iot_context: bool,
+    limit: int,
+) -> List[Dict[str, Any]]:
+    rules: List[Dict[str, Any]] = []
+    seen_labels: set[str] = set()
+    in_dimension_section = False
+
+    for raw_line in body.splitlines():
+        plain = strip_markdown(raw_line).strip()
+        lowered = plain.lower()
+        if not plain:
+            continue
+
+        if any(marker in lowered for marker in (item.lower() for item in SCREENING_DIMENSION_SECTION_MARKERS)):
+            in_dimension_section = True
+            continue
+
+        if not in_dimension_section:
+            continue
+
+        if any(marker in lowered for marker in (item.lower() for item in SCREENING_DIMENSION_SECTION_STOP_MARKERS)):
+            if rules:
+                break
+            continue
+
+        rule = _parse_prompt_style_screening_dimension_line(plain, iot_context=iot_context)
+        if not rule:
+            continue
+        label = str(rule.get("label") or "").strip()
+        if not label or label in seen_labels:
+            continue
+        seen_labels.add(label)
+        rules.append(rule)
+        if len(rules) >= limit:
+            break
+
+    return rules[:limit]
+
+
+def extract_screening_dimension_rules(skills: Optional[Iterable[Any]], limit: int = 12) -> List[Dict[str, Any]]:
+    rules: List[Dict[str, Any]] = []
+    seen_labels: set[str] = set()
+    for skill in skills or []:
+        content = ""
+        if isinstance(skill, dict):
+            content = str(skill.get("content") or skill.get("description") or "")
+        else:
+            content = str(skill or "")
+        body = _strip_skill_frontmatter_text(content)
+        iot_context = _looks_like_iot_screening_rule_context(
+            content,
+            skill.get("name") if isinstance(skill, dict) else "",
+            skill.get("description") if isinstance(skill, dict) else "",
+        )
+        in_table = False
+        header_matched = False
+        for raw_line in body.splitlines():
+            line = raw_line.strip()
+            if not line:
+                if rules:
+                    break
+                continue
+            if not line.startswith("|"):
+                if rules:
+                    break
+                in_table = False
+                header_matched = False
+                continue
+            cells = [strip_markdown(cell).strip() for cell in line.split("|")[1:-1]]
+            if len(cells) < 4:
+                continue
+            if _is_dimension_table_header(cells):
+                in_table = True
+                header_matched = True
+                continue
+            if not header_matched or not in_table:
+                continue
+            label = _normalize_screening_dimension_label(cells[0])
+            if label in {"维度", "------", "---"} or set(label) == {"-"}:
+                continue
+            max_score = _parse_score_number(cells[2])
+            if max_score is None:
+                continue
+            note = re.sub(r"\s+", " ", cells[3]).strip()
+            if label in seen_labels:
+                continue
+            seen_labels.add(label)
+            rules.append(
+                {
+                    "label": label,
+                    "weight_text": cells[1],
+                    "max_score": round(float(max_score), 1),
+                    "note": note,
+                    "is_core": "核心第一优先" in note,
+                    "keywords": IOT_SCREENING_DIMENSION_KEYWORDS.get(label, []) if iot_context else [],
+                }
+            )
+            if len(rules) >= limit:
+                return rules[:limit]
+        if rules:
+            break
+        for item in _extract_prompt_style_screening_dimension_rules(body, iot_context=iot_context, limit=limit):
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or "").strip()
+            if not label or label in seen_labels:
+                continue
+            seen_labels.add(label)
+            rules.append(item)
+            if len(rules) >= limit:
+                return rules[:limit]
+        if rules:
+            break
+    return rules[:limit]
+
+
+def _join_resume_search_text(parsed: Dict[str, Any]) -> str:
+    chunks: List[str] = []
+    for item in parsed.get("skills") or []:
+        chunks.append(str(item or ""))
+    for section in ["summary", "raw_text"]:
+        chunks.append(str(parsed.get(section) or ""))
+    for collection_key in ["work_experiences", "projects", "education_experiences"]:
+        for item in parsed.get(collection_key) or []:
+            chunks.append(str(item or ""))
+    basic_info = parsed.get("basic_info") or {}
+    for value in basic_info.values():
+        chunks.append(str(value or ""))
+    return " ".join(chunk for chunk in chunks if chunk).lower()
+
+
+def _resume_item_to_text(item: Any) -> str:
+    if isinstance(item, dict):
+        preferred_keys = [
+            "company", "position", "school", "degree", "major", "name", "title",
+            "start_date", "end_date", "description",
+        ]
+        parts: List[str] = []
+        for key in preferred_keys:
+            value = str(item.get(key) or "").strip()
+            if value and value not in parts:
+                parts.append(value)
+        for key, value in item.items():
+            text = str(value or "").strip()
+            if text and text not in parts:
+                parts.append(text)
+        return strip_markdown(" · ".join(parts)).strip()
+    return strip_markdown(str(item or "")).strip()
+
+
+def _collect_resume_lines(parsed_resume: Optional[Dict[str, Any]], *, limit: int = 24) -> List[str]:
+    parsed = parsed_resume or {}
+    lines: List[str] = []
+    basic_info = parsed.get("basic_info") or {}
+    basic_summary = " / ".join(
+        value
+        for value in [
+            str(basic_info.get("name") or "").strip(),
+            str(basic_info.get("years_of_experience") or "").strip(),
+            str(basic_info.get("education") or "").strip(),
+            str(basic_info.get("location") or "").strip(),
+        ]
+        if value
+    )
+    if basic_summary:
+        lines.append(basic_summary)
+    summary = strip_markdown(str(parsed.get("summary") or "")).strip()
+    if summary:
+        lines.append(summary)
+    for key in ["skills", "projects", "work_experiences", "education_experiences"]:
+        for item in parsed.get(key) or []:
+            text = _resume_item_to_text(item)
+            if text and text not in lines:
+                lines.append(text)
+            if len(lines) >= limit:
+                return lines[:limit]
+    return lines[:limit]
+
+
+def _filter_interview_focus_points(points: Iterable[str], *, limit: int = 6) -> List[str]:
+    ignored_keywords = {
+        "触发", "用户说", "收到此类请求", "输出格式", "系统强制指令", "全程铁律", "规则变更原则",
+        "不得拒绝", "不得覆盖", "html 输出规范", "视觉风格", "判定色块", "点击定位", "卡片折叠",
+        "边框关键原则", "布局", "sticky", "scroll", "css", "js", "header", "总计约40分钟",
+    }
+    result: List[str] = []
+    for point in points:
+        cleaned = strip_markdown(str(point or "")).strip()
+        normalized = cleaned.lower()
+        if (
+            not cleaned
+            or len(cleaned) < 4
+            or any(keyword in normalized for keyword in ignored_keywords)
+        ):
+            continue
+        label = cleaned.split("：", 1)[0].split(":", 1)[0].strip()
+        if len(label) >= 4 and label not in result:
+            result.append(label)
+        elif cleaned not in result:
+            result.append(cleaned)
+        if len(result) >= limit:
+            break
+    return result[:limit]
+
+
+def _find_resume_evidence(lines: Iterable[str], topic: str, *, limit: int = 2) -> List[str]:
+    tokens = _extract_focus_point_tokens(topic, limit=8) or [strip_markdown(topic).strip().lower()]
+    results: List[str] = []
+    for line in lines:
+        lowered = str(line or "").lower()
+        if not lowered:
+            continue
+        if any(token and token in lowered for token in tokens):
+            candidate = strip_markdown(str(line or "")).strip()
+            if candidate and candidate not in results:
+                results.append(candidate)
+        if len(results) >= limit:
+            break
+    return results[:limit]
+
+
+# Marker lines that indicate a module entry (module name + duration in parentheses).
+_MODULE_DURATION_MARKERS = ("约", "分钟", "mins", "min)")
+
+INTERVIEW_MODULE_IGNORE_MARKERS = (
+    "模块时长分配",
+    "时长分配",
+    "模块二",
+    "触发方式",
+    "强制规则",
+    "系统强制",
+    "每道题必须包含",
+    "输出规范",
+    "html 输出规范",
+    "专业词释义规范",
+)
+
+INTERVIEW_MODULE_TITLE_ALIASES = {
+    "智能家居生态": "智能家居生态与联动测试",
+    "智能家居生态与联动测试": "智能家居生态与联动测试",
+    "iot通信协议": "IoT 通信协议测试",
+    "通信协议": "IoT 通信协议测试",
+    "iot通信协议测试": "IoT 通信协议测试",
+    "软件测试基础": "软件测试基础",
+    "硬件能力": "硬件测试与系统联调",
+    "硬件测试与系统联调": "硬件测试与系统联调",
+    "嵌入式固件测试": "嵌入式/固件/OTA",
+    "嵌入式/固件测试": "嵌入式/固件/OTA",
+    "嵌入式固件ota": "嵌入式/固件/OTA",
+    "嵌入式/固件/ota": "嵌入式/固件/OTA",
+    "ai工具使用": "AI 工具使用",
+    "综合转型意愿": "综合匹配度与转型意愿",
+    "综合/转型意愿": "综合匹配度与转型意愿",
+    "综合匹配度与转型意愿": "综合匹配度与转型意愿",
+}
+
+
+def _normalize_interview_module_title(raw_title: str) -> str:
+    cleaned = strip_markdown(str(raw_title or "")).strip()
+    cleaned = re.sub(r"^[\-\*\d\.\s•|]+", "", cleaned)
+    cleaned = cleaned.strip(" |：:，,。；;")
+    if not cleaned:
+        return ""
+    if any(marker in cleaned for marker in INTERVIEW_MODULE_IGNORE_MARKERS):
+        return ""
+    cleaned = re.sub(r"[（(]重点[）)]", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = re.sub(r"模块$", "", cleaned).strip(" |：:，,。；;")
+    if not cleaned:
+        return ""
+    alias_key = re.sub(r"[\s\-_/·•]+", "", cleaned.lower())
+    if alias_key in INTERVIEW_MODULE_TITLE_ALIASES:
+        return INTERVIEW_MODULE_TITLE_ALIASES[alias_key]
+
+    fuzzy_matches = [
+        (len(key), canonical)
+        for key, canonical in INTERVIEW_MODULE_TITLE_ALIASES.items()
+        if key and (alias_key.endswith(key) or key in alias_key)
+    ]
+    if fuzzy_matches:
+        return max(fuzzy_matches, key=lambda item: item[0])[1]
+
+    return cleaned
+
+
+def extract_skill_interview_modules(
+    skills: Iterable[Any],
+) -> List[Dict[str, Any]]:
+    """
+    Extract interview module structure and time allocation from skill content.
+    Each skill's content is parsed for lines matching "模块名（时长）" patterns
+    (e.g. "智能家居生态模块（重点）约 12 分钟").
+    Returns a list of dicts with keys: module_title, recommended_minutes, is重点, raw_line.
+    """
+    results: List[Dict[str, Any]] = []
+    seen_titles: set[str] = set()
+
+    for skill in (skills or []):
+        content = str(skill.get("content") or "") if isinstance(skill, dict) else str(skill)
+        plain_content = strip_markdown(content)
+
+        for match in re.finditer(r"模块(?:[（(]重点[）)])?", plain_content):
+            tail = plain_content[match.end():match.end() + 80]
+            minute_match = re.search(r"约?\s*(\d+)\s*(?:分钟|mins?)", tail)
+            if not minute_match:
+                continue
+
+            left = match.start()
+            while left > 0 and plain_content[left - 1] not in "\n\r|，,。；;：:()（）[]【】":
+                left -= 1
+            raw_title = plain_content[left:match.end()]
+            title = _normalize_interview_module_title(raw_title)
+            if not title or title in seen_titles:
+                continue
+            seen_titles.add(title)
+            results.append({
+                "module_title": title,
+                "recommended_minutes": int(minute_match.group(1)),
+                "is重点": "（重点）" in raw_title or "(重点)" in raw_title,
+                "raw_line": plain_content[left:match.end() + minute_match.end()],
+            })
+
+    return results
+
+
+def infer_interview_capability_domains(
+    position_title: str,
+    skills: Iterable[Any],
+    parsed_resume: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    # 1. 优先从 Skill 文本里提取显式模块，兼容 markdown 和 prompt 风格。
+    extracted_modules = extract_skill_interview_modules(skills)
+    if extracted_modules:
+        return [str(item.get("module_title") or "") for item in extracted_modules if str(item.get("module_title") or "").strip()][:7]
+
+    # 2. 按 position_title 匹配岗位族
+    title_lower = (position_title or "").lower()
+    for family, config in ROLE_FAMILY_DOMAINS.items():
+        if any(kw in title_lower for kw in config["keywords"]):
+            return config["domains"]
+
+    # 3. 都匹配不上，返回通用兜底
+    return GENERIC_DOMAINS
+
+
+def extract_interview_generation_constraints(
+    skills: Iterable[Any],
+    custom_requirements: str = "",
+) -> List[str]:
+    picked: List[str] = []
+    seen_keys: set[str] = set()
+    meaningful_markers = (
+        "严禁虚构",
+        "强制出题",
+        "软件测试不为零",
+        "ai工具必出",
+        "规则变更",
+    )
+    ignored_markers = (
+        "触发方式",
+        "模块二",
+        "输出规范",
+        "时长分配",
+        "建议时长",
+        "用户无需重复发送",
+        "岗位 jd",
+        "html 输出规范",
+        "专业词释义规范",
+        "每道题必须包含的五个部分",
+        "判定区",
+        ".block-",
+        "css规范",
+        "视觉风格",
+        "布局",
+        "sticky",
+        "scrollintoview",
+        "js实现",
+        "skill_group",
+        "applies_to",
+        "description:",
+        "name:",
+        "岗位 jd",
+        "岗位职责",
+        "任职要求",
+        "加分项",
+        "岗位名称",
+        "专业词释义规范",
+    )
+
+    def canonical_rule_key(text: str) -> str:
+        cleaned = strip_markdown(str(text or "")).strip()
+        label = cleaned.split("：", 1)[0].split(":", 1)[0].strip().lower()
+        if 2 <= len(label) <= 20:
+            return label
+        return re.sub(r"\s+", "", cleaned.lower())[:48]
+
+    def push(line: str) -> None:
+        cleaned = strip_markdown(str(line or "")).strip()
+        cleaned = re.sub(r"^[\-\*\d\.\s•]+", "", cleaned)
+        cleaned = cleaned.strip("：: ")
+        rule_key = canonical_rule_key(cleaned)
+        if (
+            not cleaned
+            or len(cleaned) < 6
+            or rule_key in seen_keys
+            or any(marker.lower() in cleaned.lower() for marker in ignored_markers)
+        ):
+            return
+        seen_keys.add(rule_key)
+        picked.append(cleaned)
+
+    combined_plain_parts: List[str] = []
+    for skill in skills or []:
+        content = str(skill.get("content") or skill.get("description") or "") if isinstance(skill, dict) else str(skill or "")
+        combined_plain_parts.append(strip_markdown(content))
+        for line in re.split(r"[\n\r]+", content):
+            plain = strip_markdown(line).strip()
+            if not plain:
+                continue
+            lowered = plain.lower()
+            if any(marker.lower() in lowered for marker in meaningful_markers):
+                push(plain)
+            elif re.match(r"^(所有|每份|必须|不得|如果简历没有直接证据)", plain):
+                push(plain)
+            elif re.search(r"(必须|不得|严禁|至少\s*\d+\s*题|不可为\s*0|必出\s*\d+\s*题)", plain):
+                push(plain)
+            if len(picked) >= 10:
+                break
+        if len(picked) >= 10:
+            break
+
+    combined_plain = "\n".join(part for part in combined_plain_parts if part)
+    compact_plain = re.sub(r"\s+", "", combined_plain.lower())
+    if (
+        ("强制规则" in compact_plain or "强制出题" in compact_plain)
+        and ("必须直接出题" in compact_plain or "不得拒绝" in compact_plain)
+    ):
+        push("强制出题：无论初筛结论如何，只要用户要求出面试题，必须出题，不得拒绝")
+    if "软件测试" in compact_plain and ("至少1题" in compact_plain or "不可为0" in compact_plain):
+        push("软件测试不为零：面试题中软件测试模块至少 1 题，不得为 0")
+    if ("ai工具" in compact_plain or "ai工具使用" in compact_plain) and "必出1题" in compact_plain:
+        push("AI工具必出：每份面试题必须包含 1 道 AI 工具使用考察题")
+    if any(marker in compact_plain for marker in ("严禁虚构", "不得虚构", "技术点必须真实")):
+        push("严禁虚构：所有题目内容必须有候选人简历原文或 JD 原文作为依据，不得推测、编造候选人经历")
+    if "规则变更" in compact_plain and ("只改动指定点" in compact_plain or "保持不变" in compact_plain):
+        push("规则变更原则：用户告知规则变动时，只改动指定点，其他所有规则保持不变")
+    if custom_requirements.strip():
+        push(f"用户附加要求：{custom_requirements.strip()}")
+    if not picked:
+        picked.extend([
+            "所有题目必须先绑定简历、岗位 JD 和初筛结论中的真实证据。",
+            "技能规则只作为生成约束，不能出现在模块标题、题干或参考答案里。",
+            "如果简历没有直接证据，只能以待核实风险点设计追问。",
+        ])
+    return picked[:10]
+
+
+def _find_resume_evidence_for_domain(lines: Iterable[str], domain: str, *, limit: int = 2) -> List[str]:
+    keywords = INTERVIEW_DOMAIN_KEYWORDS.get(domain) or _extract_focus_point_tokens(domain, limit=8)
+    results: List[str] = []
+    for line in lines:
+        lowered = str(line or "").lower()
+        if not lowered:
+            continue
+        if any(keyword.lower() in lowered for keyword in keywords):
+            candidate = strip_markdown(str(line or "")).strip()
+            if candidate and candidate not in results:
+                results.append(candidate)
+        if len(results) >= limit:
+            break
+    return results[:limit]
+
+
+def _find_domain_risk_points(domain: str, concerns: Iterable[str], *, limit: int = 2) -> List[str]:
+    keywords = INTERVIEW_DOMAIN_KEYWORDS.get(domain) or [domain]
+    results: List[str] = []
+    for concern in concerns:
+        cleaned = strip_markdown(str(concern or "")).strip()
+        lowered = cleaned.lower()
+        if cleaned and any(keyword.lower() in lowered for keyword in keywords):
+            results.append(cleaned)
+        if len(results) >= limit:
+            break
+    return results[:limit]
+
+
+def detect_interview_rule_leakage(markdown: str, html_content: str = "") -> Optional[str]:
+    searchable = "\n".join(filter(None, [str(markdown or ""), strip_markdown(str(html_content or ""))])).lower()
+    if not searchable.strip():
+        return "模型没有返回有效面试题正文。"
+    for marker in INTERVIEW_RULE_LEAK_MARKERS:
+        if marker.lower() in searchable:
+            return f"模型输出混入了 Skill 规则主题：{marker}"
+    return None
+
+
+def _normalize_string_list(value: Any, *, limit: int, min_length: int = 2) -> List[str]:
+    if isinstance(value, list):
+        source = value
+    elif isinstance(value, str):
+        source = re.split(r"[\n\r]+", value)
+    else:
+        source = []
+    result: List[str] = []
+    for item in source:
+        text = strip_markdown(str(item or "")).strip()
+        text = re.sub(r"\s+", " ", text)
+        text = text.strip("•- ")
+        if len(text) < min_length or text in result:
+            continue
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _split_summary_sentences(value: Any, *, limit: int = 4) -> List[str]:
+    parts = re.split(r"[。；;\n\r]+", strip_markdown(str(value or "")))
+    return _normalize_string_list(parts, limit=limit, min_length=6)
+
+
+def _build_interview_evidence_pool(parsed_resume: Optional[Dict[str, Any]], screening_result: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    pool: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def push(text: Any, source: str, base_score: int) -> None:
+        cleaned = strip_markdown(str(text or "")).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        if len(cleaned) < 4 or cleaned in seen:
+            return
+        seen.add(cleaned)
+        pool.append({"text": cleaned[:320], "source": source, "base_score": base_score})
+
+    parsed = parsed_resume or {}
+    score = screening_result or {}
+    for item in score.get("advantages") or []:
+        push(item, "screening_advantage", 9)
+    for item in parsed.get("projects") or []:
+        push(_resume_item_to_text(item), "project", 7)
+    for item in parsed.get("work_experiences") or []:
+        push(_resume_item_to_text(item), "work_experience", 5)
+    for item in parsed.get("skills") or []:
+        push(item, "resume_skill", 4)
+    for item in _split_summary_sentences(parsed.get("summary"), limit=6):
+        push(item, "summary", 4)
+    return pool
+
+
+def _score_interview_evidence_entry(entry: Dict[str, Any], domain: str) -> float:
+    text = str(entry.get("text") or "").strip()
+    lowered = text.lower()
+    keywords = INTERVIEW_DOMAIN_KEYWORDS.get(domain) or _extract_focus_point_tokens(domain, limit=8)
+    concrete_tokens = [
+        "cadence", "pads", "pcb", "buck", "boost", "ldo", "测试用例", "测试方案", "测试指导书",
+        "自动化测试", "自动化", "性能测试", "功能测试", "电源", "信号", "问题定位", "项目交付", "联调",
+    ]
+    score = float(entry.get("base_score") or 0)
+    score += sum(1 for keyword in keywords if keyword and keyword.lower() in lowered) * 4.5
+    score += sum(1 for token in concrete_tokens if token.lower() in lowered) * 1.3
+    if entry.get("source") == "screening_advantage":
+        score += 2.2
+    if entry.get("source") == "project":
+        score += 1.0
+    if re.fullmatch(r"20\d{2}.*", text):
+        score -= 4
+    if any(marker in lowered for marker in ["本科", "候选人", "期望城市", "女 |", "男 |"]):
+        score -= 3
+    if re.fullmatch(r".*(有限公司|公司|科技|集团)(\s+[^\s]+工程师)?", text) and "测试" not in lowered:
+        score -= 3
+    return score
+
+
+def _domain_keyword_hit_count(text: str, domain: str) -> int:
+    lowered = str(text or "").lower()
+    keywords = INTERVIEW_DOMAIN_KEYWORDS.get(domain) or _extract_focus_point_tokens(domain, limit=8)
+    return sum(1 for keyword in keywords if keyword and keyword.lower() in lowered)
+
+
+def _select_domain_evidence(
+    domain: str,
+    parsed_resume: Optional[Dict[str, Any]],
+    screening_result: Optional[Dict[str, Any]],
+    *,
+    limit: int = 2,
+) -> List[str]:
+    pool = _build_interview_evidence_pool(parsed_resume, screening_result)
+    ranked = sorted(
+        pool,
+        key=lambda entry: (_score_interview_evidence_entry(entry, domain), len(str(entry.get("text") or ""))),
+        reverse=True,
+    )
+    results: List[str] = []
+    for entry in ranked:
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            continue
+        keyword_hits = _domain_keyword_hit_count(text, domain)
+        if _score_interview_evidence_entry(entry, domain) < 6:
+            continue
+        if domain != "综合匹配度与转型意愿" and keyword_hits == 0:
+            continue
+        if text not in results:
+            results.append(text)
+        if len(results) >= limit:
+            break
+    return results[:limit]
+
+
+def _default_domain_risk(domain: str, concerns: Sequence[str]) -> str:
+    risk_lines = _find_domain_risk_points(domain, concerns, limit=2)
+    if risk_lines:
+        return "；".join(risk_lines)
+    return f"待核实候选人在“{domain}”上是否有可复述的真实项目、测试路径和问题闭环证据。"
+
+
+def _build_interview_overview(
+    candidate_name: str,
+    position_title: str,
+    round_name: str,
+    custom_requirements: str,
+    parsed_resume: Optional[Dict[str, Any]],
+    screening_result: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    parsed = parsed_resume or {}
+    basic_info = parsed.get("basic_info") or {}
+    score = screening_result or {}
+    highlights = _normalize_string_list(score.get("advantages"), limit=4, min_length=4)
+    risks = _normalize_string_list(score.get("concerns"), limit=4, min_length=4)
+    summary_parts = [
+        str(candidate_name or basic_info.get("name") or "未命名候选人").strip(),
+        str(position_title or "当前岗位").strip(),
+        str(basic_info.get("years_of_experience") or "工作年限待核实").strip(),
+        str(basic_info.get("education") or "学历待核实").strip(),
+        str(round_name or "初试").strip(),
+    ]
+    return {
+        "candidate_summary": "｜".join([part for part in summary_parts if part]),
+        "screening_status": _screening_status_label(score),
+        "highlights": highlights or ["暂无明确亮点，建议结合简历原文继续核实。"],
+        "risks_to_verify": risks or ["暂无明确风险点，建议继续核实岗位匹配度与真实项目深度。"],
+        "custom_focus": (custom_requirements or "本轮重点关注候选人与岗位的真实匹配度、执行力与成长空间。").strip(),
+    }
+
+
+def _build_interview_domain_blueprint(
+    domain: str,
+    parsed_resume: Optional[Dict[str, Any]],
+    screening_result: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    guidance = INTERVIEW_DOMAIN_GUIDANCE.get(domain, {
+        "nature": "重点核实区",
+        "minutes": 5,
+        "focus": f"{domain} 相关真实经历、方法和风险判断",
+        "followups": [
+            f"如果让你复盘一次“{domain}”相关项目，你最想补哪一个风险场景？",
+            "这类问题你会如何区分是需求、实现、环境还是测试设计导致的？",
+        ],
+        "explain": f"用于验证候选人在“{domain}”上的真实经历深度与方法论完整性。",
+    })
+    concerns = _normalize_string_list((screening_result or {}).get("concerns"), limit=6, min_length=4)
+    evidence_basis = _select_domain_evidence(domain, parsed_resume, screening_result, limit=2)
+    evidence_type = "direct_evidence" if evidence_basis else "risk_to_verify"
+    evidence_display = evidence_basis or [_default_domain_risk(domain, concerns)]
+    if evidence_type == "direct_evidence":
+        primary_question = (
+            f"请结合你简历里提到的“{evidence_basis[0]}”，讲清你在“{domain}”场景里实际负责的测试对象、"
+            "测试设计、关键观测指标、问题定位路径以及最终闭环。"
+        )
+    else:
+        primary_question = (
+            f"简历目前没有直接体现“{domain}”的实战证据。请不要默认自己做过这类场景，而是结合你最接近的一段真实项目，"
+            f"说明哪些能力可以迁移到“{domain}”，哪些部分仍然需要在面试里继续核实。"
+        )
+    answer_points = [
+        f"先交代真实项目背景、测试对象、角色边界，以及你本人实际负责到哪一步。",
+        f"围绕“{guidance['focus']}”讲清测试路径、关键指标、缺陷定位和复盘闭环。",
+        (
+            f"把“{evidence_basis[0]}”这类已知证据落到可核实的动作、方法和结果上。"
+            if evidence_basis
+            else "明确哪些内容来自真实经历，哪些只是迁移判断或待核实风险，不能把未做过的内容说成做过。"
+        ),
+    ]
+    return {
+        "domain_title": domain,
+        "domain_nature": guidance.get("nature") or "重点核实区",
+        "recommended_minutes": int(guidance.get("minutes") or 5),
+        "evidence_basis": evidence_display,
+        "evidence_type": evidence_type,
+        "primary_question": primary_question,
+        "answer_points": answer_points,
+        "verdict_pass": "能给出真实项目证据、测试路径、关键指标、问题闭环和复盘结论，且前后细节自洽。",
+        "verdict_caution": "回答停留在原则层面，缺少测试对象、输入输出、日志/指标或缺陷闭环证据，需要继续深挖。",
+        "verdict_fail": "把未做过的内容说成做过，或核心细节明显前后矛盾，无法自证真实经历。",
+        "followups": list(guidance.get("followups") or [])[:2],
+        "interviewer_explanation": str(guidance.get("explain") or "").strip(),
+    }
+
+
+def build_interview_structured_fallback(
+    candidate_name: str,
+    position_title: str,
+    round_name: str,
+    skills: Iterable[Any],
+    custom_requirements: str,
+    parsed_resume: Optional[Dict[str, Any]] = None,
+    screening_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    domains = infer_interview_capability_domains(position_title, skills, parsed_resume)
+    structured_domains = [
+        _build_interview_domain_blueprint(domain, parsed_resume, screening_result)
+        for domain in domains
+    ]
+    return {
+        "title": f"{candidate_name} - {round_name} 面试题",
+        "candidate_name": candidate_name,
+        "position_title": position_title,
+        "round_name": round_name,
+        "overview": _build_interview_overview(
+            candidate_name,
+            position_title,
+            round_name,
+            custom_requirements,
+            parsed_resume,
+            screening_result,
+        ),
+        "domains": structured_domains,
+    }
+
+
+def _build_generic_interview_domain_defaults(
+    domain_title: str,
+    *,
+    evidence_basis: Sequence[str],
+    evidence_type: str,
+) -> Dict[str, Any]:
+    safe_title = str(domain_title or "未命名模块").strip() or "未命名模块"
+    basis = list(evidence_basis or [])
+    if evidence_type == "direct_evidence":
+        primary_question = (
+            f"请结合你简历或 JD 中提到的“{basis[0] if basis else safe_title}”，详细说明你在“{safe_title}”相关场景里的真实负责范围、"
+            "关键动作、判断依据、问题定位方式以及最终闭环。"
+        )
+    else:
+        primary_question = (
+            f"简历目前没有直接体现“{safe_title}”的实战证据。请不要默认自己做过这类场景，而是结合最接近的一段真实经历，"
+            f"说明哪些能力可以迁移到“{safe_title}”，哪些部分仍需继续核实。"
+        )
+    return {
+        "domain_nature": "重点核实区",
+        "recommended_minutes": 5,
+        "primary_question": primary_question,
+        "answer_points": [
+            "先交代真实项目背景、测试对象或业务场景，以及你本人实际负责的范围。",
+            f"围绕“{safe_title}”说明你的分析思路、验证方法、关键指标或问题闭环。",
+            "明确哪些内容来自真实经历，哪些只是待核实风险，避免把未做过的内容说成做过。",
+        ],
+        "verdict_pass": "回答能落到真实项目、关键动作、判断依据和结果闭环，且前后细节自洽。",
+        "verdict_caution": "回答停留在概念层面，缺少具体证据、关键指标或复盘细节，需要继续追问。",
+        "verdict_fail": "将未做过的内容说成做过，或核心细节明显前后矛盾，无法自证真实经历。",
+        "followups": [
+            f"如果让你复盘一次“{safe_title}”相关项目，你最想补哪一个风险场景？",
+            "这类问题你会如何区分是需求、实现、环境还是测试设计导致的？",
+        ],
+        "interviewer_explanation": f"用于验证候选人在“{safe_title}”上的真实经历深度、方法论和风险判断能力。",
+    }
+
+
+def validate_structured_interview_payload(payload: Any, *, max_errors: int = 12) -> List[str]:
+    errors: List[str] = []
+    if not isinstance(payload, dict):
+        return ["面试题结果不是 JSON object。"]
+
+    overview = payload.get("overview")
+    if not isinstance(overview, dict):
+        errors.append("overview 必须是 object。")
+    else:
+        if not str(overview.get("candidate_summary") or "").strip():
+            errors.append("overview.candidate_summary 不能为空。")
+        if not str(overview.get("screening_status") or "").strip():
+            errors.append("overview.screening_status 不能为空。")
+        if len(_normalize_string_list(overview.get("highlights"), limit=8, min_length=2)) == 0:
+            errors.append("overview.highlights 至少需要 1 项。")
+        if len(_normalize_string_list(overview.get("risks_to_verify"), limit=8, min_length=2)) == 0:
+            errors.append("overview.risks_to_verify 至少需要 1 项。")
+        if not str(overview.get("custom_focus") or "").strip():
+            errors.append("overview.custom_focus 不能为空。")
+
+    domains = payload.get("domains")
+    if not isinstance(domains, list) or not domains:
+        errors.append("domains 必须是非空数组。")
+        return errors[:max_errors]
+
+    for index, raw_domain in enumerate(domains, 1):
+        if not isinstance(raw_domain, dict):
+            errors.append(f"domains[{index}] 必须是 object。")
+            if len(errors) >= max_errors:
+                break
+            continue
+        title = str(raw_domain.get("domain_title") or raw_domain.get("title") or "").strip()
+        if not title:
+            errors.append(f"domains[{index}].domain_title 不能为空。")
+        evidence_type = str(raw_domain.get("evidence_type") or "").strip()
+        if evidence_type not in {"direct_evidence", "risk_to_verify"}:
+            errors.append(f"domains[{index}].evidence_type 必须是 direct_evidence 或 risk_to_verify。")
+        if len(_normalize_string_list(raw_domain.get("evidence_basis"), limit=6, min_length=2)) == 0:
+            errors.append(f"domains[{index}].evidence_basis 至少需要 1 项。")
+        if not str(raw_domain.get("primary_question") or "").strip():
+            errors.append(f"domains[{index}].primary_question 不能为空。")
+        if len(_normalize_string_list(raw_domain.get("answer_points"), limit=8, min_length=2)) < 3:
+            errors.append(f"domains[{index}].answer_points 至少需要 3 项。")
+        if not str(raw_domain.get("verdict_pass") or "").strip():
+            errors.append(f"domains[{index}].verdict_pass 不能为空。")
+        if not str(raw_domain.get("verdict_caution") or "").strip():
+            errors.append(f"domains[{index}].verdict_caution 不能为空。")
+        if not str(raw_domain.get("verdict_fail") or "").strip():
+            errors.append(f"domains[{index}].verdict_fail 不能为空。")
+        if len(_normalize_string_list(raw_domain.get("followups"), limit=6, min_length=2)) < 2:
+            errors.append(f"domains[{index}].followups 至少需要 2 项。")
+        if not str(raw_domain.get("interviewer_explanation") or "").strip():
+            errors.append(f"domains[{index}].interviewer_explanation 不能为空。")
+        if len(errors) >= max_errors:
+            break
+
+    return errors[:max_errors]
+
+def normalize_structured_interview(
+    payload: Optional[Dict[str, Any]],
+    *,
+    candidate_name: str,
+    position_title: str,
+    round_name: str,
+    skills: Iterable[Any],
+    custom_requirements: str,
+    parsed_resume: Optional[Dict[str, Any]] = None,
+    screening_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    fallback: Optional[Dict[str, Any]] = None
+
+    def _get_fallback() -> Dict[str, Any]:
+        nonlocal fallback
+        if fallback is None:
+            fallback = build_interview_structured_fallback(
+                candidate_name,
+                position_title,
+                round_name,
+                skills,
+                custom_requirements,
+                parsed_resume=parsed_resume,
+                screening_result=screening_result,
+            )
+        return fallback
+
+    raw_payload = payload if isinstance(payload, dict) else {}
+    if not raw_payload:
+        return _get_fallback()
+    raw_overview = raw_payload.get("overview") if isinstance(raw_payload.get("overview"), dict) else {}
+    raw_domains = raw_payload.get("domains") if isinstance(raw_payload.get("domains"), list) else []
+    if not raw_domains:
+        return _get_fallback()
+
+    overview = {
+        "candidate_summary": str(raw_overview.get("candidate_summary") or _get_fallback()["overview"]["candidate_summary"]).strip(),
+        "screening_status": str(raw_overview.get("screening_status") or _get_fallback()["overview"]["screening_status"]).strip(),
+        "highlights": _normalize_string_list(raw_overview.get("highlights"), limit=8, min_length=2) or list(_get_fallback()["overview"]["highlights"]),
+        "risks_to_verify": _normalize_string_list(raw_overview.get("risks_to_verify"), limit=8, min_length=2) or list(_get_fallback()["overview"]["risks_to_verify"]),
+        "custom_focus": str(raw_overview.get("custom_focus") or _get_fallback()["overview"]["custom_focus"]).strip(),
+    }
+
+    normalized_domains: List[Dict[str, Any]] = []
+    for index, raw_domain in enumerate(raw_domains, 1):
+        if not isinstance(raw_domain, dict):
+            continue
+        domain_title = str(raw_domain.get("domain_title") or raw_domain.get("title") or "").strip()
+        if not domain_title:
+            domain_title = f"模块 {index}"
+        evidence_basis = _normalize_string_list(raw_domain.get("evidence_basis"), limit=6, min_length=2)
+        evidence_type = str(raw_domain.get("evidence_type") or "").strip()
+        if evidence_type not in {"direct_evidence", "risk_to_verify"}:
+            evidence_type = "direct_evidence" if evidence_basis else "risk_to_verify"
+        if not evidence_basis:
+            evidence_basis = [f"简历或 JD 中暂未发现“{domain_title}”的直接证据，建议继续核实。"]
+        generic_defaults = _build_generic_interview_domain_defaults(
+            domain_title,
+            evidence_basis=evidence_basis,
+            evidence_type=evidence_type,
+        )
+        try:
+            recommended_minutes = int(raw_domain.get("recommended_minutes") or generic_defaults["recommended_minutes"] or 5)
+        except (TypeError, ValueError):
+            recommended_minutes = int(generic_defaults["recommended_minutes"] or 5)
+        normalized_domains.append({
+            "domain_title": domain_title,
+            "domain_nature": str(raw_domain.get("domain_nature") or generic_defaults["domain_nature"]).strip() or generic_defaults["domain_nature"],
+            "recommended_minutes": max(1, recommended_minutes),
+            "evidence_basis": evidence_basis,
+            "evidence_type": evidence_type,
+            "primary_question": str(raw_domain.get("primary_question") or generic_defaults["primary_question"]).strip(),
+            "answer_points": _normalize_string_list(raw_domain.get("answer_points"), limit=8, min_length=2) or list(generic_defaults["answer_points"]),
+            "verdict_pass": str(raw_domain.get("verdict_pass") or generic_defaults["verdict_pass"]).strip(),
+            "verdict_caution": str(raw_domain.get("verdict_caution") or generic_defaults["verdict_caution"]).strip(),
+            "verdict_fail": str(raw_domain.get("verdict_fail") or generic_defaults["verdict_fail"]).strip(),
+            "followups": _normalize_string_list(raw_domain.get("followups"), limit=6, min_length=2) or list(generic_defaults["followups"]),
+            "interviewer_explanation": str(raw_domain.get("interviewer_explanation") or generic_defaults["interviewer_explanation"]).strip(),
+        })
+
+    if not normalized_domains:
+        return _get_fallback()
+
+    return {
+        "title": str(raw_payload.get("title") or _get_fallback()["title"]).strip() or _get_fallback()["title"],
+        "candidate_name": candidate_name,
+        "position_title": position_title,
+        "round_name": round_name,
+        "overview": overview,
+        "domains": normalized_domains,
+    }
+
+
+def _screening_status_label(score_payload: Optional[Dict[str, Any]]) -> str:
+    status = str((score_payload or {}).get("suggested_status") or "").strip()
+    mapping = {
+        "screening_passed": "初筛通过",
+        "pending_interview": "待面试",
+        "talent_pool": "进入人才库",
+        "screening_rejected": "初筛未达标",
+    }
+    return mapping.get(status, "待进一步核实")
+
+
+def build_interview_fallback(
+    candidate_name: str,
+    position_title: str,
+    round_name: str,
+    skills: Iterable[Any],
+    custom_requirements: str,
+    parsed_resume: Optional[Dict[str, Any]] = None,
+    screening_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, str]:
+    structured = build_interview_structured_fallback(
+        candidate_name,
+        position_title,
+        round_name,
+        skills,
+        custom_requirements,
+        parsed_resume=parsed_resume,
+        screening_result=screening_result,
+    )
+    return {
+        "markdown": render_interview_markdown(structured),
+        "html": render_interview_html(structured),
+    }
+
+
+def render_interview_markdown(structured: Dict[str, Any]) -> str:
+    overview = structured.get("overview") if isinstance(structured.get("overview"), dict) else {}
+    domains = structured.get("domains") if isinstance(structured.get("domains"), list) else []
+    lines: List[str] = [
+        f"# {structured.get('title') or '结构化面试题'}",
+        "",
+        "## 候选人背景",
+        f"- 候选人摘要：{overview.get('candidate_summary') or '-'}",
+        f"- 初筛状态：{overview.get('screening_status') or '-'}",
+        f"- 本轮关注点：{overview.get('custom_focus') or '-'}",
+        f"- 已识别亮点：{'；'.join(_normalize_string_list(overview.get('highlights'), limit=4, min_length=2)) or '暂无'}",
+        f"- 待核实风险：{'；'.join(_normalize_string_list(overview.get('risks_to_verify'), limit=4, min_length=2)) or '暂无'}",
+    ]
+    for index, raw_domain in enumerate(domains, 1):
+        if not isinstance(raw_domain, dict):
+            continue
+        evidence_items = _normalize_string_list(raw_domain.get("evidence_basis"), limit=3, min_length=2)
+        answer_points = _normalize_string_list(raw_domain.get("answer_points"), limit=5, min_length=2)
+        followups = _normalize_string_list(raw_domain.get("followups"), limit=4, min_length=2)
+        lines.extend([
+            "",
+            f"## 模块 {index} · {raw_domain.get('domain_title') or '未命名模块'}",
+            f"- 模块性质：{raw_domain.get('domain_nature') or '重点核实区'}",
+            f"- 建议时长：{raw_domain.get('recommended_minutes') or 5} 分钟",
+            f"- 证据类型：{'直接证据' if raw_domain.get('evidence_type') == 'direct_evidence' else '待核实风险'}",
+            f"- 证据锚点：{'；'.join(evidence_items) or '暂无'}",
+            f"- 面试题正题：{raw_domain.get('primary_question') or '-'}",
+            "- 参考答案要点：",
+            *[f"  {idx}. {item}" for idx, item in enumerate(answer_points, 1)],
+            "- 通过 / 注意 / 一票否决判定：",
+            f"  - 通过：{raw_domain.get('verdict_pass') or '-'}",
+            f"  - 注意：{raw_domain.get('verdict_caution') or '-'}",
+            f"  - 一票否决：{raw_domain.get('verdict_fail') or '-'}",
+            "- 追问环节：",
+            *[f"  {idx}. {item}" for idx, item in enumerate(followups, 1)],
+            f"- 答不出时·面试官解释：{raw_domain.get('interviewer_explanation') or '-'}",
+        ])
+    return "\n".join(lines).strip()
+
+
+def render_interview_html(structured: Dict[str, Any]) -> str:
+    overview = structured.get("overview") if isinstance(structured.get("overview"), dict) else {}
+    domains = [item for item in (structured.get("domains") or []) if isinstance(item, dict)]
+
+    def esc(value: Any) -> str:
+        return html.escape(str(value or ""))
+
+    highlight_items = "".join(
+        f"<li>{esc(item)}</li>"
+        for item in _normalize_string_list(overview.get("highlights"), limit=6, min_length=2)
+    ) or "<li>暂无明确亮点，建议继续核实。</li>"
+    risk_items = "".join(
+        f"<li>{esc(item)}</li>"
+        for item in _normalize_string_list(overview.get("risks_to_verify"), limit=6, min_length=2)
+    ) or "<li>暂无明确风险点，建议继续核实。</li>"
+
+    nav_items: List[str] = []
+    question_cards: List[str] = []
+    for index, domain in enumerate(domains, 1):
+        anchor = f"domain-{index}"
+        title = str(domain.get("domain_title") or "未命名模块").strip()
+        evidence_type = "直接证据" if domain.get("evidence_type") == "direct_evidence" else "待核实风险"
+        evidence_badge_class = "pill-direct" if domain.get("evidence_type") == "direct_evidence" else "pill-risk"
+        evidence_items = "".join(
+            f"<li>{esc(item)}</li>"
+            for item in _normalize_string_list(domain.get("evidence_basis"), limit=4, min_length=2)
+        )
+        answer_items = "".join(
+            f"<li>{esc(item)}</li>"
+            for item in _normalize_string_list(domain.get("answer_points"), limit=5, min_length=2)
+        )
+        followup_items = "".join(
+            f"<li>{esc(item)}</li>"
+            for item in _normalize_string_list(domain.get("followups"), limit=4, min_length=2)
+        )
+        nav_items.append(
+            f"<a class=\"side-link\" href=\"#{anchor}\"><span>模块 {index}</span><strong>{esc(title)}</strong></a>"
+        )
+        question_cards.append(
+            f"""
+            <section id="{anchor}" class="qcard">
+              <button type="button" class="qcard-top">
+                <div class="qcard-heading">
+                  <span class="qindex">模块 {index}</span>
+                  <h2>{esc(title)}</h2>
+                  <p>{esc(domain.get("domain_nature") or "重点核实区")} · 建议 {esc(domain.get("recommended_minutes") or 5)} 分钟</p>
+                </div>
+                <div class="qcard-meta">
+                  <span class="pill {evidence_badge_class}">{evidence_type}</span>
+                  <span class="toggle-arrow">▾</span>
+                </div>
+              </button>
+              <div class="qcard-body">
+                <div class="content-block block-evidence">
+                  <h3>证据锚点</h3>
+                  <ul>{evidence_items}</ul>
+                </div>
+                <div class="content-block block-question">
+                  <h3>面试题正题</h3>
+                  <p>{esc(domain.get("primary_question"))}</p>
+                </div>
+                <div class="content-block block-answer">
+                  <h3>参考答案要点</h3>
+                  <ol>{answer_items}</ol>
+                </div>
+                <div class="content-block">
+                  <h3>判定规则</h3>
+                  <div class="block-verdict">
+                    <div class="verdict-card verdict-pass"><strong>通过</strong><p>{esc(domain.get("verdict_pass"))}</p></div>
+                    <div class="verdict-card verdict-caution"><strong>注意</strong><p>{esc(domain.get("verdict_caution"))}</p></div>
+                    <div class="verdict-card verdict-fail"><strong>一票否决</strong><p>{esc(domain.get("verdict_fail"))}</p></div>
+                  </div>
+                </div>
+                <div class="content-block block-followup">
+                  <h3>追问环节</h3>
+                  <ol>{followup_items}</ol>
+                </div>
+                <div class="content-block block-explain">
+                  <h3>答不出时·面试官解释</h3>
+                  <p>{esc(domain.get("interviewer_explanation"))}</p>
+                </div>
+              </div>
+            </section>
+            """
+        )
+
+    title = esc(structured.get("title") or "结构化面试题")
+    candidate_summary = esc(overview.get("candidate_summary") or "-")
+    screening_status = esc(overview.get("screening_status") or "-")
+    custom_focus = esc(overview.get("custom_focus") or "-")
+    domains_html = "".join(question_cards)
+    nav_html = "".join(nav_items)
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+      --bg: #07111f;
+      --panel: rgba(12, 24, 42, 0.78);
+      --panel-strong: rgba(11, 20, 35, 0.94);
+      --border: rgba(148, 163, 184, 0.18);
+      --text: #e5eef9;
+      --muted: #9fb2c8;
+      --accent: #76b8ff;
+      --accent-soft: rgba(118, 184, 255, 0.16);
+      --success-bg: #064e3b;
+      --success-border: #10b981;
+      --warning-bg: #451a03;
+      --warning-border: #f59e0b;
+      --danger-bg: #7f1d1d;
+      --danger-border: #ef4444;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(59, 130, 246, 0.22), transparent 28%),
+        radial-gradient(circle at top right, rgba(59, 130, 246, 0.10), transparent 24%),
+        linear-gradient(180deg, #081223 0%, #07111f 55%, #050b16 100%);
+    }}
+    .page {{
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 32px 36px 48px;
+    }}
+    .hero {{
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(0, 1fr);
+      padding: 28px;
+      border-radius: 28px;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(10, 24, 42, 0.96), rgba(8, 18, 34, 0.88));
+      box-shadow: 0 20px 60px rgba(2, 8, 23, 0.45);
+      backdrop-filter: blur(16px);
+    }}
+    .hero h1 {{
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.25;
+    }}
+    .hero-meta {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }}
+    .pill {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      background: rgba(15, 23, 42, 0.48);
+      font-size: 12px;
+      color: var(--muted);
+    }}
+    .pill-direct {{
+      background: rgba(16, 185, 129, 0.14);
+      border-color: rgba(16, 185, 129, 0.34);
+      color: #d1fae5;
+    }}
+    .pill-risk {{
+      background: rgba(245, 158, 11, 0.12);
+      border-color: rgba(245, 158, 11, 0.30);
+      color: #fde68a;
+    }}
+    .layout {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 20px;
+      margin-top: 22px;
+      align-items: start;
+    }}
+    .main {{
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }}
+    .sidebar {{
+      position: sticky;
+      top: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }}
+    .side-card, .qcard {{
+      border: 1px solid var(--border);
+      background: var(--panel);
+      border-radius: 24px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 16px 44px rgba(2, 8, 23, 0.36);
+    }}
+    .side-card {{
+      padding: 18px;
+    }}
+    .side-card h2, .side-card h3 {{
+      margin: 0 0 12px;
+      font-size: 14px;
+      color: #f8fbff;
+    }}
+    .side-card ul {{
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.8;
+      font-size: 13px;
+    }}
+    .side-card p {{
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.8;
+      font-size: 13px;
+    }}
+    .side-link {{
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      text-decoration: none;
+      color: var(--text);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      border-radius: 18px;
+      padding: 12px 14px;
+      background: rgba(8, 15, 28, 0.52);
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }}
+    .side-link:hover {{
+      border-color: rgba(118, 184, 255, 0.42);
+      transform: translateY(-1px);
+    }}
+    .side-link span {{
+      font-size: 11px;
+      color: var(--muted);
+    }}
+    .side-link strong {{
+      font-size: 13px;
+      line-height: 1.5;
+    }}
+    .qcard {{
+      overflow: hidden;
+    }}
+    .qcard-top {{
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 22px 24px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+    }}
+    .qcard-heading h2 {{
+      margin: 6px 0 6px;
+      font-size: 22px;
+      line-height: 1.35;
+    }}
+    .qcard-heading p {{
+      margin: 0;
+      font-size: 13px;
+      color: var(--muted);
+    }}
+    .qindex {{
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: #cfe6ff;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }}
+    .qcard-meta {{
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }}
+    .toggle-arrow {{
+      transition: transform 0.25s ease;
+      color: var(--muted);
+      font-size: 16px;
+    }}
+    .qcard.collapsed .toggle-arrow {{
+      transform: rotate(-90deg);
+    }}
+    .qcard-body {{
+      display: grid;
+      gap: 14px;
+      padding: 0 24px 24px;
+      max-height: 2400px;
+      opacity: 1;
+      transition: max-height 0.35s ease, opacity 0.25s ease;
+    }}
+    .qcard.collapsed .qcard-body {{
+      max-height: 0;
+      opacity: 0;
+      overflow: hidden;
+      padding-bottom: 0;
+    }}
+    .content-block {{
+      border-radius: 20px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(8, 15, 28, 0.62);
+      padding: 16px 18px;
+    }}
+    .content-block h3 {{
+      margin: 0 0 10px;
+      font-size: 14px;
+      color: #f8fbff;
+    }}
+    .content-block p, .content-block li {{
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.9;
+      color: var(--muted);
+    }}
+    .content-block ul, .content-block ol {{
+      margin: 0;
+      padding-left: 20px;
+    }}
+    .block-evidence {{
+      border-left: 3px solid #60a5fa;
+    }}
+    .block-question {{
+      border-left: 3px solid #38bdf8;
+    }}
+    .block-answer {{
+      border-left: 3px solid #34d399;
+    }}
+    .block-followup {{
+      border-left: 3px solid #a78bfa;
+    }}
+    .block-explain {{
+      border-left: 3px solid #f59e0b;
+    }}
+    .block-verdict {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .verdict-card {{
+      border-radius: 16px !important;
+      padding: 12px 14px;
+      min-height: 112px;
+    }}
+    .verdict-card strong {{
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }}
+    .verdict-card p {{
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.75;
+    }}
+    .verdict-pass {{
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
+      color: #d1fae5;
+    }}
+    .verdict-caution {{
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      color: #fef3c7;
+    }}
+    .verdict-fail {{
+      background: var(--danger-bg);
+      border: 1px solid var(--danger-border);
+      color: #fee2e2;
+    }}
+    @media (max-width: 1080px) {{
+      .layout {{
+        grid-template-columns: 1fr;
+      }}
+      .sidebar {{
+        position: static;
+      }}
+    }}
+    @media (max-width: 720px) {{
+      .page {{
+        padding: 18px 12px 28px;
+      }}
+      .hero {{
+        padding: 18px;
+        border-radius: 20px;
+      }}
+      .qcard-top, .qcard-body {{
+        padding-left: 16px;
+        padding-right: 16px;
+      }}
+      .block-verdict {{
+        grid-template-columns: 1fr;
+      }}
+    }}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <h1>{title}</h1>
+      <div class="hero-meta">
+        <span class="pill">{candidate_summary}</span>
+        <span class="pill">初筛状态：{screening_status}</span>
+      </div>
+      <p class="hero-focus">{custom_focus}</p>
+    </section>
+    <div class="layout">
+      <main class="main">
+        {domains_html}
+      </main>
+      <aside class="sidebar">
+        <section class="side-card">
+          <h2>候选人概览</h2>
+          <p>{candidate_summary}</p>
+          <p style="margin-top:8px;">当前结论：{screening_status}</p>
+        </section>
+        <section class="side-card">
+          <h3>已识别亮点</h3>
+          <ul>{highlight_items}</ul>
+        </section>
+        <section class="side-card">
+          <h3>待核实风险</h3>
+          <ul>{risk_items}</ul>
+        </section>
+        <section class="side-card">
+          <h3>能力域导航</h3>
+          <div style="display:flex;flex-direction:column;gap:10px;">{nav_html}</div>
+        </section>
+      </aside>
+    </div>
+  </div>
+  <script>
+    document.querySelectorAll('.qcard-top').forEach(function(button) {{
+      button.addEventListener('click', function() {{
+        var card = button.closest('.qcard');
+        if (card) {{
+          card.classList.toggle('collapsed');
+        }}
+      }});
+    }});
+  </script>
+</body>
+</html>"""
+
+
+def score_candidate_fallback(position: Any, parsed: Dict[str, Any], weights: Dict[str, float], status_rules: Dict[str, Any], skills: Optional[Iterable[Any]] = None) -> Dict[str, Any]:
+    _ = weights
+    generic_tokens = {
+        "负责", "相关", "工作", "能力", "经验", "熟悉", "具备", "要求", "岗位", "工程师", "测试", "研发",
+        "团队", "项目", "流程", "质量", "问题", "平台", "模块", "业务", "支持", "沟通", "输出", "独立",
+        "招聘助手", "技能", "skills", "skill", "优先", "说明", "维度", "重点", "原文", "依据", "内容",
+    }
+
+    def filter_keywords(tokens: Iterable[str], limit: int = 18) -> List[str]:
+        result: List[str] = []
+        for token in tokens:
+            normalized = str(token or "").strip().lower()
+            if (
+                len(normalized) < 2
+                or normalized in generic_tokens
+                or normalized in result
+                or normalized.isdigit()
+            ):
+                continue
+            result.append(normalized)
+            if len(result) >= limit:
+                break
+        return result
+
+    def focus_point_keywords(points: Iterable[str], limit: int = 16) -> List[str]:
+        result: List[str] = []
+        for point in points:
+            for token in _extract_focus_point_tokens(point, limit=limit):
+                if token not in result and token not in generic_tokens:
+                    result.append(token)
+                if len(result) >= limit:
+                    return result
+        return result[:limit]
+
+    def is_focus_point_hit(point: str) -> bool:
+        cleaned = strip_markdown(str(point or "")).strip().lower()
+        if not cleaned:
+            return False
+        if cleaned in searchable_resume_text:
+            return True
+        tokens = filter_keywords(extract_keywords(cleaned), limit=6)
+        if not tokens:
+            return False
+        matched = [token for token in tokens if token in searchable_resume_text]
+        return len(matched) >= max(1, min(len(tokens), 2))
+
+    def summarize_points(points: Iterable[str]) -> str:
+        items = [strip_markdown(str(point or "")).strip() for point in points if str(point or "").strip()]
+        return "；".join(item[:18] for item in items[:2]) or "暂无"
+
+    basic_info = parsed.get("basic_info") or {}
+    education_text = " ".join(
+        filter(
+            None,
+            [
+                str(basic_info.get("education") or ""),
+                " ".join(str(item or "") for item in parsed.get("education_experiences") or []),
+            ],
+        )
+    ).lower()
+    raw_skills = parsed.get("skills") or []
+    work_experiences = parsed.get("work_experiences") or []
+    searchable_resume_text = _join_resume_search_text(parsed)
+    evidence_lines = _build_screening_evidence_lines(parsed, limit=240)
+    requirement_text = " ".join(filter(None, [position.title, getattr(position, "key_requirements", "") or "", getattr(position, "bonus_points", "") or ""]))
+    requirement_keywords = filter_keywords(extract_keywords(requirement_text), limit=12)
+    matched_keywords = [keyword for keyword in requirement_keywords if keyword and keyword in searchable_resume_text]
+    skill_meta = _extract_skill_focus_points(skills or [], limit=8)
+    hard_requirement_meta = extract_screening_hard_requirements(skills or [], limit=8)
+    skill_dimension_rules = extract_screening_dimension_rules(skills or [], limit=12)
+    skill_text = " ".join(
+        str(part or "")
+        for skill in skills or []
+        for part in (
+            skill.get("name") if isinstance(skill, dict) else skill,
+            skill.get("description") if isinstance(skill, dict) else "",
+            skill.get("content") if isinstance(skill, dict) else "",
+        )
+    ).lower()
+    known_skill_hits = [item.lower() for item in KNOWN_SKILLS if item.lower() in skill_text and item.lower() not in generic_tokens]
+    required_skill_keywords = filter_keywords(
+        [*focus_point_keywords(skill_meta["points"]), *known_skill_hits],
+        limit=16,
+    )
+    matched_skill_keywords = [keyword for keyword in required_skill_keywords if keyword in searchable_resume_text]
+    missing_skill_keywords = [keyword for keyword in required_skill_keywords if keyword not in searchable_resume_text]
+    focus_point_hits = [point for point in skill_meta["points"] if is_focus_point_hit(point)]
+    focus_point_misses = [point for point in skill_meta["points"] if point not in focus_point_hits]
+    hard_requirement_hits = [point for point in hard_requirement_meta["points"] if is_focus_point_hit(point)]
+    hard_requirement_misses = [point for point in hard_requirement_meta["points"] if point not in hard_requirement_hits]
+
+    if skill_dimension_rules:
+        def format_evidence_item(item: Any) -> str:
+            if isinstance(item, dict):
+                ordered_keys = ("company", "position", "duration", "school", "degree", "major", "name", "content")
+                parts = [re.sub(r"\s+", " ", strip_markdown(str(item.get(key) or ""))).strip() for key in ordered_keys]
+                return " ".join([part for part in parts if part][:4]).strip()
+            return re.sub(r"\s+", " ", strip_markdown(str(item or ""))).strip()
+
+        def find_dimension_evidence(label: str, keywords: Iterable[str], *, limit: int = 2) -> List[str]:
+            lowered_keywords = [str(keyword or "").strip().lower() for keyword in keywords if str(keyword or "").strip()]
+            results: List[str] = []
+            for line in evidence_lines:
+                lowered = str(line or "").lower()
+                if not lowered:
+                    continue
+                if any(keyword in lowered for keyword in lowered_keywords):
+                    candidate = re.sub(r"\s+", " ", strip_markdown(str(line or ""))).strip()
+                    if candidate and candidate not in results:
+                        results.append(candidate)
+                if len(results) >= limit:
+                    break
+            return results[:limit]
+
+        def preview_evidence(evidence: Iterable[str]) -> str:
+            items = [format_evidence_item(item) for item in evidence if format_evidence_item(item)]
+            return "；".join(items[:2]) or "简历未提及"
+
+        def clean_dimension_reason(text: Any) -> str:
+            normalized = re.sub(r"\s+", " ", strip_markdown(str(text or ""))).strip()
+            normalized = re.sub(r"(学历信息|文档与缺陷闭环|加分项命中|自动化/脚本相关|测试设计与缺陷闭环|固件/烧录相关|硬件测试证据|相关证据|命中证据)\s*[：:]\s*", "", normalized)
+            if re.search(r"\{[^{}]*[:：][^{}]*\}", normalized):
+                return ""
+            normalized = normalized.strip("；;，,：: ")
+            if len(normalized) > 88:
+                return ""
+            return normalized
+
+        def build_dimension_advantage(item: Dict[str, Any]) -> str:
+            label = str(item.get("label") or "该维度").replace("/", "与")
+            templates = {
+                "智能家居生态": "具备一定智能设备或联动测试背景，简历中有相关场景描述。",
+                "IoT通信协议": "具备一定通信或连接场景测试经历，简历中有相关技术或项目表述。",
+                "软件测试基础": "具备较扎实的软件测试基础，简历体现了测试设计、问题定位和缺陷闭环能力。",
+                "嵌入式/固件经验": "具备一定固件或升级链路相关经验，简历中有对应测试场景描述。",
+                "硬件测试经验": "具备较长期的硬件测试背景，覆盖电源、信号、可靠性或整机测试场景。",
+                "自动化测试": "具备一定自动化测试或测试效率改进经验，简历中有相关表述。",
+                "学历/专业匹配": "学历和专业背景与岗位要求基本匹配。",
+                "文档输出能力": "具备测试文档输出能力，简历体现了测试报告、用例或指导书产出经验。",
+                "加分项": "具备部分岗位加分项经历，如头部厂商背景、英语能力或专项测试经验。",
+            }
+            return templates.get(label, f"{label}方面有一定匹配度，简历中有对应经历或证据支撑。")
+
+        def build_dimension_concern(item: Dict[str, Any]) -> str:
+            label = str(item.get("label") or "该维度").replace("/", "与")
+            score = float(item.get("score") or 0.0)
+            max_score = float(item.get("max_score") or 0.0)
+            zero_score_templates = {
+                "智能家居生态": "缺少智能家居生态联动测试的直接证据。",
+                "IoT通信协议": "缺少 Wi-Fi、BLE、ZigBee、Thread、MQTT、星闪等 IoT 协议测试证据。",
+                "软件测试基础": "软件测试基础证据不足，测试设计与缺陷闭环能力仍需重点核实。",
+                "嵌入式/固件经验": "嵌入式或固件相关经验未明确体现。",
+                "硬件测试经验": "硬件测试场景证据不足，相关深度仍需进一步核实。",
+                "自动化测试": "自动化测试工具或脚本经验未明确体现。",
+                "学历/专业匹配": "学历或专业与岗位要求的匹配证据有限。",
+                "文档输出能力": "测试报告、用例文档或缺陷闭环的直接证据有限。",
+                "加分项": "岗位加分项命中有限，缺少明显补强信息。",
+            }
+            low_score_templates = {
+                "软件测试基础": "软件测试基础有一定证据，但深度和覆盖范围仍需继续核实。",
+                "嵌入式/固件经验": "嵌入式或固件相关经历较弱，建议面试重点核实实际参与深度。",
+                "自动化测试": "自动化测试相关表述较少，建议继续核实工具使用深度。",
+                "加分项": "岗位加分项有一定命中，但补强作用相对有限。",
+            }
+            if score <= 0:
+                return zero_score_templates.get(label, f"{label}方面缺少直接证据。")
+            if max_score > 0 and score / max_score < 0.6:
+                return low_score_templates.get(label, f"{label}方面匹配度偏弱，建议面试继续核实。")
+            return ""
+
+        def score_from_hits(max_score: float, hit_count: int, evidence_count: int, *, scale: Sequence[Tuple[int, float]]) -> float:
+            if hit_count <= 0 and evidence_count <= 0:
+                return 0.0
+            best_ratio = 0.0
+            for threshold, ratio in scale:
+                if hit_count >= threshold:
+                    best_ratio = max(best_ratio, ratio)
+            if best_ratio <= 0 and evidence_count > 0:
+                best_ratio = 0.35
+            if evidence_count >= 2:
+                best_ratio = max(best_ratio, 0.75)
+            return round(min(max_score, max_score * best_ratio), 1)
+
+        def build_dimension_result(rule: Dict[str, Any]) -> Dict[str, Any]:
+            label = str(rule.get("label") or "").strip()
+            note = str(rule.get("note") or "").strip()
+            max_score = float(rule.get("max_score") or 0.0)
+            is_core = bool(rule.get("is_core"))
+            keywords = list(rule.get("keywords") or [])
+            if not keywords:
+                keywords = _extract_focus_point_tokens(f"{label} {note}", limit=12)
+            matched_tokens = [keyword for keyword in keywords if keyword and keyword.lower() in searchable_resume_text]
+            evidence = find_dimension_evidence(label, keywords, limit=2)
+            hit_count = len(matched_tokens)
+            reason = "简历未提及"
+            score = 0.0
+
+            if label == "学历/专业匹配":
+                degree_hit = any(item in education_text for item in ["本科", "硕士", "博士"])
+                major_hit = any(item in education_text for item in ["电子信息", "自动化", "软件工程", "计算机", "通信", "电子工程"])
+                education_evidence = [
+                    format_evidence_item(item)
+                    for item in (parsed.get("education_experiences") or [basic_info.get("education")])
+                    if format_evidence_item(item)
+                ]
+                if education_evidence:
+                    evidence = education_evidence[:2]
+                if degree_hit and major_hit:
+                    score = round(max_score, 1)
+                elif degree_hit:
+                    score = round(min(max_score, max_score * 0.8), 1)
+                if score > 0:
+                    reason = "学历和专业背景与岗位要求基本匹配"
+            elif label == "文档输出能力":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(3, 1.0), (2, 0.8), (1, 0.6)])
+                if score > 0:
+                    reason = "简历体现了测试报告、用例或缺陷闭环相关输出能力"
+            elif label == "加分项":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(3, 1.0), (2, 0.8), (1, 0.5)])
+                if score > 0:
+                    reason = "简历命中了部分岗位加分项"
+            elif label == "自动化测试":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(3, 1.0), (2, 0.75), (1, 0.45)])
+                if score > 0:
+                    reason = "简历体现了自动化测试或测试效率改进相关经验"
+            elif label == "软件测试基础":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(5, 1.0), (4, 0.9), (3, 0.8), (2, 0.65), (1, 0.5)])
+                if score > 0:
+                    reason = "简历体现了测试用例设计、问题定位与缺陷闭环能力"
+            elif label == "嵌入式/固件经验":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(4, 1.0), (3, 0.8), (2, 0.65), (1, 0.45)])
+                if score > 0:
+                    reason = "简历包含一定固件、升级或相关测试场景表述"
+            elif label == "硬件测试经验":
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(6, 1.0), (4, 0.9), (3, 0.8), (2, 0.65), (1, 0.5)])
+                if score > 0:
+                    reason = "简历体现了较长期的硬件测试经历和多类测试场景"
+            elif label in {"智能家居生态", "IoT通信协议"}:
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(5, 1.0), (4, 0.85), (3, 0.7), (2, 0.5), (1, 0.35)])
+                if score > 0:
+                    reason = "简历中有该核心维度的相关项目或测试场景证据"
+            else:
+                score = score_from_hits(max_score, hit_count, len(evidence), scale=[(3, 1.0), (2, 0.75), (1, 0.45)])
+                if score > 0:
+                    reason = "简历中有该维度的相关证据"
+
+            if score <= 0:
+                if label == "智能家居生态":
+                    reason = "简历未提及米家/鸿蒙/HomeKit/涂鸦等生态联动测试经历"
+                elif label == "IoT通信协议":
+                    reason = "简历未提及 Wi-Fi/BLE/ZigBee/Thread/MQTT/星闪等协议测试经验"
+                elif label == "自动化测试":
+                    reason = "简历未明确提及 Appium/Python/Selenium 等自动化工具"
+                else:
+                    reason = "简历未提及"
+
+            return {
+                "label": label,
+                "weight_text": rule.get("weight_text"),
+                "max_score": round(max_score, 1),
+                "score": round(score, 1),
+                "is_core": is_core,
+                "matched_keywords": matched_tokens[:6],
+                "evidence": evidence,
+                "reason": reason,
+            }
+
+        dimensions = [build_dimension_result(rule) for rule in skill_dimension_rules]
+        total_score = round(sum(float(item.get("score") or 0.0) for item in dimensions), 1)
+        missing_core_labels = [
+            str(item.get("label") or "")
+            for item in dimensions
+            if item.get("is_core") and float(item.get("score") or 0.0) <= 0
+        ]
+        both_primary_cores_missing = all(
+            core in missing_core_labels for core in ["智能家居生态", "IoT通信协议"]
+        )
+        score_cap_reason: Optional[str] = None
+        match_percent = round(max(0.0, min(10.0, total_score)) * 10, 1)
+
+        pass_threshold = int(status_rules.get("pass_threshold", 75))
+        pool_threshold = int(status_rules.get("pool_threshold", 55))
+        if both_primary_cores_missing:
+            recommendation = "建议本次不安排面试"
+            suggested_status = "screening_rejected"
+        elif match_percent >= pass_threshold and not missing_core_labels:
+            recommendation = "建议安排首面"
+            suggested_status = "screening_passed"
+        elif match_percent >= pool_threshold:
+            recommendation = "建议安排面试进一步评估" if missing_core_labels else "建议保留观察"
+            suggested_status = "talent_pool"
+        else:
+            recommendation = "建议本次不安排面试"
+            suggested_status = "screening_rejected"
+
+        scored_dimensions = [item for item in dimensions if float(item.get("score") or 0.0) > 0]
+        scored_dimensions.sort(key=lambda item: (float(item.get("score") or 0.0), float(item.get("max_score") or 0.0)), reverse=True)
+        advantages: List[str] = []
+        for item in scored_dimensions:
+            summary = build_dimension_advantage(item)
+            if summary and summary not in advantages:
+                advantages.append(summary)
+            if len(advantages) >= 4:
+                break
+        concerns: List[str] = []
+        for item in dimensions:
+            score = float(item.get("score") or 0.0)
+            max_score = float(item.get("max_score") or 0.0)
+            if score <= 0:
+                summary = build_dimension_concern(item)
+                if summary and summary not in concerns:
+                    concerns.append(summary)
+            elif max_score > 0 and score / max_score < 0.5:
+                summary = build_dimension_concern(item)
+                if summary and summary not in concerns:
+                    concerns.append(summary)
+            if len(concerns) >= 4:
+                break
+        if score_cap_reason and score_cap_reason not in concerns:
+            concerns.insert(0, score_cap_reason)
+            concerns = concerns[:4]
+        if not advantages:
+            advantages.append("具备一定测试从业背景和基础经历，可结合简历原文继续人工复核。")
+        if not concerns:
+            concerns.append("当前未发现明显缺失维度，但仍建议面试核实项目深度与场景细节。")
+        return {
+            "dimensions": dimensions,
+            "dimensions_mode": "skill_rubric",
+            "matched_keywords": matched_keywords,
+            "matched_skill_keywords": matched_skill_keywords,
+            "missing_skill_keywords": missing_skill_keywords,
+            "focus_point_hits": focus_point_hits,
+            "focus_point_misses": focus_point_misses,
+            "hard_requirement_hits": hard_requirement_hits,
+            "hard_requirement_misses": hard_requirement_misses,
+            "hard_requirement_points": hard_requirement_meta["points"],
+            "skill_focus_points": skill_meta["points"],
+            "missing_core_labels": missing_core_labels,
+            "core_dimensions_missing": both_primary_cores_missing,
+            "score_cap_reason": score_cap_reason,
+            "advantages": advantages,
+            "concerns": concerns,
+            "recommendation": recommendation,
+            "suggested_status": suggested_status,
+            "match_percent": match_percent,
+            "total_score": round(total_score, 1),
+        }
+
+    years = 0
+    years_match = re.search(r"(\d{1,2})", str(basic_info.get("years_of_experience") or ""))
+    if years_match:
+        years = int(years_match.group(1))
+
+    experience_score = min(100.0, 35.0 + years * 11.0) if years else 42.0
+    focus_ratio = len(focus_point_hits) / max(len(skill_meta["points"]), 1) if skill_meta["points"] else 0.0
+    coverage_ratio = len(matched_skill_keywords) / max(len(required_skill_keywords), 1) if required_skill_keywords else 0.0
+    skills_score = 26.0 + len(matched_keywords) * 7.0 + len(raw_skills) * 1.5 + coverage_ratio * 30.0 + focus_ratio * 28.0
+    if required_skill_keywords and not matched_skill_keywords:
+        skills_score -= 18.0
+    if focus_point_misses:
+        skills_score -= min(24.0, len(focus_point_misses) * 5.0)
+    skills_score = max(8.0, min(100.0, skills_score))
+    education_score = {"博士": 98.0, "硕士": 88.0, "本科": 78.0, "大专": 65.0, "高中": 45.0}.get(str(basic_info.get("education") or ""), 60.0)
+    stability_score = 80.0 if len(work_experiences) >= 3 else 68.0 if len(work_experiences) >= 1 else 55.0
+    communication_score = 78.0 if parsed.get("summary") else 60.0
+    dimensions = [
+        {"key": "experience", "label": "经验匹配", "score": round(experience_score, 1)},
+        {"key": "skills", "label": "技能匹配", "score": round(skills_score, 1)},
+        {"key": "education", "label": "教育背景", "score": round(education_score, 1)},
+        {"key": "stability", "label": "履历稳定性", "score": round(stability_score, 1)},
+        {"key": "communication", "label": "沟通表达", "score": round(communication_score, 1)},
+    ]
+    normalized_dimension_scores = [float(item.get("score") or 0.0) / 10.0 for item in dimensions]
+    total_score = sum(normalized_dimension_scores) / max(len(normalized_dimension_scores), 1)
+    hard_penalty = 0.0
+    if required_skill_keywords:
+        hard_penalty += max(0.0, (1 - coverage_ratio) * 18.0)
+    if focus_point_misses:
+        hard_penalty += min(20.0, len(focus_point_misses) * 4.0)
+    if hard_requirement_misses:
+        hard_penalty += min(28.0, len(hard_requirement_misses) * 8.0)
+    total_score = max(0.0, min(10.0, total_score - hard_penalty / 10.0))
+    match_percent = round(total_score * 10, 1)
+    hard_block_pass = bool(hard_requirement_misses)
+    ten_point_score = round(total_score, 1)
+    advantages = []
+    if matched_keywords:
+        advantages.append(f"命中岗位关键词：{', '.join(matched_keywords[:6])}")
+    if matched_skill_keywords:
+        advantages.append(f"命中 Skills 硬性要求：{', '.join(matched_skill_keywords[:6])}")
+    if hard_requirement_hits:
+        advantages.append(f"命中核心要求：{summarize_points(hard_requirement_hits[:2])}")
+    if focus_point_hits:
+        advantages.append(f"命中 Skills 重点：{summarize_points(focus_point_hits[:2])}")
+    if years >= 3:
+        advantages.append(f"具备 {years} 年相关经验")
+    if basic_info.get("education") in {"本科", "硕士", "博士"}:
+        advantages.append(f"教育背景为 {basic_info.get('education')}")
+    if not advantages:
+        advantages.append("具备一定基础经历与岗位相关信息，可结合原文继续人工复核")
+    concerns = []
+    if not matched_keywords:
+        concerns.append("与岗位要求的显式关键词匹配较少")
+    if required_skill_keywords and not matched_skill_keywords:
+        concerns.append("未体现当前 Skills 中强调的硬性要求")
+    elif missing_skill_keywords:
+        concerns.append(f"部分 Skills 关注点证据不足：{', '.join(missing_skill_keywords[:4])}")
+    if focus_point_misses:
+        concerns.append(f"未充分覆盖关键 Skills 场景：{summarize_points(focus_point_misses[:2])}")
+    if hard_requirement_misses:
+        concerns.append(f"核心要求证据不足：{summarize_points(hard_requirement_misses[:2])}")
+    if years < 2:
+        concerns.append("相关经验年限偏少")
+    if not basic_info.get("phone"):
+        concerns.append("缺少手机号信息")
+    if not concerns:
+        concerns.append("当前未发现明显缺失项，但仍建议结合面试继续核实项目深度")
+    pass_threshold = int(status_rules.get("pass_threshold", 75))
+    pool_threshold = int(status_rules.get("pool_threshold", 55))
+    if hard_block_pass:
+        recommendation = "建议本次不安排面试"
+        suggested_status = "screening_rejected"
+    elif match_percent >= pass_threshold:
+        recommendation = "进入下一轮"
+        suggested_status = "screening_passed"
+    elif match_percent >= pool_threshold:
+        recommendation = "保留观察"
+        suggested_status = "talent_pool"
+    else:
+        recommendation = "淘汰"
+        suggested_status = "screening_rejected"
+    return {
+        "dimensions": dimensions,
+        "dimensions_mode": "generic",
+        "matched_keywords": matched_keywords,
+        "matched_skill_keywords": matched_skill_keywords,
+        "missing_skill_keywords": missing_skill_keywords,
+        "focus_point_hits": focus_point_hits,
+        "focus_point_misses": focus_point_misses,
+        "hard_requirement_hits": hard_requirement_hits,
+        "hard_requirement_misses": hard_requirement_misses,
+        "hard_requirement_points": hard_requirement_meta["points"],
+        "skill_focus_points": skill_meta["points"],
+        "advantages": advantages,
+        "concerns": concerns,
+        "recommendation": recommendation,
+        "suggested_status": suggested_status,
+        "match_percent": match_percent,
+        "total_score": ten_point_score,
+    }

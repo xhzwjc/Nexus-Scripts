@@ -1,13 +1,20 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+
+import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 export const dynamic = 'force-dynamic';
 
 const LOGOS_DIR = path.join(process.cwd(), 'public', 'ai-logos');
 
 // GET: 批量获取所有本地logo文件列表
-export async function GET() {
+export async function GET(request: NextRequest) {
+    const auth = requireScriptHubPermission(request, 'ai-resources');
+    if ('response' in auth) {
+        return auth.response;
+    }
+
     try {
         // 确保目录存在
         if (!fs.existsSync(LOGOS_DIR)) {

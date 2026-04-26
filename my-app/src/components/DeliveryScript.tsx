@@ -17,10 +17,11 @@
  * - 渲染性能：减少 90% 不必要的重渲染
  * - 内存稳定：解决长时间使用的内存泄漏问题
  */
+/* eslint-disable @next/next/no-img-element */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { Card, CardHeader, CardTitle, CardDescription } from './ui/card';
 
 import { Button } from './ui/button';
@@ -34,6 +35,7 @@ import {
     Image as ImageIcon, User, ChevronRight, ChevronDown, LogOut, RefreshCw, Sparkles
 } from 'lucide-react';
 import { getApiBaseUrl } from '../lib/api';
+import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Separator } from './ui/separator';
@@ -48,6 +50,8 @@ const IMAGE_FILE_EXTENSIONS = new Set([
     '.heic',
     '.heif'
 ]);
+
+const DELIVERY_TIME_ZONE = 'Asia/Shanghai';
 
 interface DeliveryScriptProps {
     onBack: () => void;
@@ -95,11 +99,17 @@ const normalizeFileType = (fileType: string | undefined, fileName = '') => {
 const isImageFileType = (fileType: string | undefined) => IMAGE_FILE_EXTENSIONS.has((fileType || '').toLowerCase());
 
 const formatUploadDateSegment = (uploadTime: number) => {
-    const date = new Date(uploadTime);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: DELIVERY_TIME_ZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+    const parts = formatter.formatToParts(new Date(uploadTime));
+    const year = parts.find(part => part.type === 'year')?.value;
+    const month = parts.find(part => part.type === 'month')?.value;
+    const day = parts.find(part => part.type === 'day')?.value;
+    return year && month && day ? `${year}-${month}-${day}` : formatter.format(new Date(uploadTime));
 };
 
 const getFilenameFromPath = (path: string) => {
@@ -296,7 +306,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                             environment,
                             code: CONSTANTS.VERIFICATION_CODE
                         }, {
-                            timeout: CONSTANTS.REQUEST_TIMEOUT
+                            timeout: CONSTANTS.REQUEST_TIMEOUT,
+                            headers: getScriptHubAuthHeaderRecord(),
                         });
 
                         if (!loginRes.data.success) {
@@ -313,12 +324,14 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                             axios.post(`${apiBaseUrl}/delivery/worker-info`, {
                                 environment, token
                             }, {
-                                timeout: CONSTANTS.REQUEST_TIMEOUT
+                                timeout: CONSTANTS.REQUEST_TIMEOUT,
+                                headers: getScriptHubAuthHeaderRecord(),
                             }),
                             axios.post(`${apiBaseUrl}/delivery/tasks`, {
                                 environment, token, status: 0
                             }, {
-                                timeout: CONSTANTS.REQUEST_TIMEOUT
+                                timeout: CONSTANTS.REQUEST_TIMEOUT,
+                                headers: getScriptHubAuthHeaderRecord(),
                             })
                         ]);
 
@@ -422,7 +435,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                         const taskRes = await axios.post(`${apiBaseUrl}/delivery/tasks`, {
                             environment, token: user.token, status: 0
                         }, {
-                            timeout: CONSTANTS.REQUEST_TIMEOUT
+                            timeout: CONSTANTS.REQUEST_TIMEOUT,
+                            headers: getScriptHubAuthHeaderRecord(),
                         });
                         if (taskRes.data && taskRes.data.code === 0 && taskRes.data.data?.list) {
                             // Filter myStatus=4
@@ -563,7 +577,10 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
 
         try {
             const res = await axios.post(`${apiBaseUrl}/delivery/upload`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
+                headers: {
+                    ...getScriptHubAuthHeaderRecord(),
+                    'Content-Type': 'multipart/form-data',
+                },
                 timeout: CONSTANTS.UPLOAD_TIMEOUT,
                 onUploadProgress: (progressEvent) => {
                     if (progressEvent.total) {
@@ -701,16 +718,22 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
             reportName: currentDraft.reportName,
             reportAddress: currentDraft.reportAddress,
             supplement: currentDraft.supplement || '',
-            attachments: currentDraft.attachments.map(a => ({
-                fileName: a.fileName,
-                tempPath: a.tempPath || toWxTempPath(a.filePath, a.fileName),
-                fileType: normalizeFileType(a.fileType, a.fileName),
-                uploadTime: a.uploadTime,
-                fileLength: a.fileLength,
-                isPic: isImageFileType(normalizeFileType(a.fileType, a.fileName)) || a.isPic === 1 ? 1 : 0,
-                isWx: isImageFileType(normalizeFileType(a.fileType, a.fileName)) || a.isPic === 1 ? 0 : 1,
-                filePath: normalizeRelativeFilePath(a.filePath, a.uploadTime, a.fileName)
-            }))
+            attachments: currentDraft.attachments.map(a => {
+                const normalizedFileType = normalizeFileType(a.fileType, a.fileName);
+                const normalizedIsPic = isImageFileType(normalizedFileType) || a.isPic === 1 ? 1 : 0;
+                const normalizedFilePath = normalizeRelativeFilePath(a.filePath, a.uploadTime, a.fileName);
+
+                return {
+                    fileName: a.fileName,
+                    tempPath: a.tempPath || toWxTempPath(normalizedFilePath, a.fileName),
+                    fileType: normalizedFileType,
+                    uploadTime: a.uploadTime,
+                    fileLength: a.fileLength,
+                    isPic: normalizedIsPic,
+                    isWx: normalizedIsPic === 1 ? 0 : 1,
+                    filePath: normalizedFilePath
+                };
+            })
         };
 
         try {
@@ -719,7 +742,8 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                 token: activeUser.token,
                 payload
             }, {
-                timeout: CONSTANTS.REQUEST_TIMEOUT
+                timeout: CONSTANTS.REQUEST_TIMEOUT,
+                headers: getScriptHubAuthHeaderRecord(),
             });
 
             if (res.data && res.data.code == 0) {
@@ -1192,7 +1216,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         <span className="text-xs text-muted-foreground">{dt.process.form.imageHint.replace('{count}', String(currentDraft.attachments.filter(a => a.isPic === 1).length))}</span>
                                     </div>
                                     <div className="flex flex-wrap gap-4">
-                                        {currentDraft.attachments.filter(a => a.isPic === 1).map((item, idx) => (
+                                        {currentDraft.attachments.filter(a => a.isPic === 1).map((item) => (
                                             <div key={item.id}
                                                 className="relative w-24 h-24 border border-border rounded-lg flex items-center justify-center bg-muted/50 group overflow-hidden shadow-sm">
                                                 {item.uploading ? (
@@ -1246,7 +1270,7 @@ export default function DeliveryScript({ onBack }: DeliveryScriptProps) {
                                         <span className="text-xs text-muted-foreground">{dt.process.form.fileHint.replace('{count}', String(currentDraft.attachments.filter(a => a.isPic === 0).length))}</span>
                                     </div>
                                     <div className="space-y-2">
-                                        {currentDraft.attachments.filter(a => a.isPic === 0).map((item, idx) => (
+                                        {currentDraft.attachments.filter(a => a.isPic === 0).map((item) => (
                                             <div key={item.id}
                                                 className="flex items-center justify-between p-3 border border-border rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors group">
                                                 <div className="flex items-center space-x-3 overflow-hidden">

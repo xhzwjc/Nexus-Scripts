@@ -7,81 +7,9 @@ import {
     Send,
     FileText,
     Percent,
-    BarChart3,
-    Activity
+    BarChart3
 } from 'lucide-react';
-import type { User, Script, SystemConfig } from './types';
-
-// ============== 认证配置 ==============
-export const keyUserMap: Record<string, User> = {
-    // 超管密钥 - 拥有所有权限
-    'K3^%w4qPz@!5RZ#hT7*eF1nD8~L0bV&cXoM9uA2j': {
-        role: 'admin',
-        permissions: {
-            'settlement': true,
-            'commission': true,
-            'balance': true,
-            'task-automation': true,
-            'sms_operations_center': true,
-            'tax-reporting': true,
-            'tax-calculation': true,
-            'payment-stats': true,
-            'delivery-tool': true,
-            'dev-tools': true,
-            'cert-health': true,
-            'server-monitoring': true
-        },
-        name: '系统管理员'
-    },
-    // 运营人员密钥 - 仅税务报表权限
-    'pE7#tV4^Rk!2zF1&B@8cU5*mO~yW6%LxJ3dQ0nHa': {
-        role: 'operator',
-        permissions: {
-            'tax-reporting': true,
-            'tax-calculation': true,
-            'payment-stats': true,
-            'delivery-tool': true
-        },
-        name: '运营人员'
-    },
-    // 自定义角色
-    'wjc': {
-        role: 'QA',
-        permissions: {
-            'settlement': true,
-            'commission': true,
-            'balance': true,
-            'task-automation': true,
-            'sms_operations_center': true,
-            'tax-reporting': true,
-            'tax-calculation': true,
-            'payment-stats': true,
-            'delivery-tool': true,
-            'dev-tools': true,
-            'cert-health': true,
-            'server-monitoring': true
-        },
-        name: 'JC'
-    },
-    // 经理
-    'U5*mO~yW6%LxJ3dQ0nHaD8~L0bV&cXoM9uA2j': {
-        role: 'PM',
-        permissions: {
-            'settlement': true,
-            'commission': true,
-            'balance': true,
-            'task-automation': true,
-            'sms_operations_center': true,
-            'tax-reporting': true,
-            'tax-calculation': true,
-            'payment-stats': true,
-            'delivery-tool': true,
-            'cert-health': true,
-            'server-monitoring': true
-        },
-        name: '**'
-    },
-};
+import type { SystemConfig } from './types';
 
 // ============== 脚本配置 ==============
 export const allScripts: Record<string, SystemConfig> = {
@@ -139,6 +67,13 @@ export const allScripts: Record<string, SystemConfig> = {
                 status: 'stable' as const
             },
             {
+                id: 'settlement-sim',
+                name: '结算状态模拟',
+                description: '批量更新结算批次/结算单状态，或写入个税累计数据',
+                icon: React.createElement(Settings, { className: "w-5 h-5" }),
+                status: 'beta' as const
+            },
+            {
                 id: 'payment-stats',
                 name: '结算与开票统计',
                 description: '统计已开票/未开票金额及平台总结算',
@@ -152,6 +87,13 @@ export const allScripts: Record<string, SystemConfig> = {
                 icon: React.createElement(FileText, { className: "w-5 h-5" }),
                 status: 'beta' as const
             },
+            {
+                id: 'biz-scene',
+                name: '业务场景与任务初始化',
+                description: '初始化业务场景和任务数据，支持按需配置12/24条任务',
+                icon: React.createElement(Database, { className: "w-5 h-5" }),
+                status: 'stable' as const
+            },
         ]
     },
     haoshi: {
@@ -163,7 +105,7 @@ export const allScripts: Record<string, SystemConfig> = {
 
 // ============== 天气缓存配置 ==============
 export const WEATHER_CACHE_KEY = 'heweather_bj_cache';
-export const WEATHER_TTL = 3 * 60 * 60 * 1000; // 3 小时
+export const WEATHER_TTL = 5 * 60 * 60 * 1000; // 5 小时
 
 // ============== 工具函数 ==============
 export const getEndOfDayTimestamp = (): number => {

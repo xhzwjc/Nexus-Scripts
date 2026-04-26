@@ -1,6 +1,8 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 import { NextRequest, NextResponse } from 'next/server';
 
+import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+
 export const runtime = 'nodejs';
 
 type UploadedFileRef = {
@@ -55,6 +57,7 @@ function getApiKey(): string | null {
     return process.env.GEMINI_API_KEY
         || process.env.GOOGLE_API_KEY
         || process.env.GOOGLE_AI_STUDIO_API_KEY
+        || process.env.AI_API_KEY
         || null;
 }
 
@@ -741,11 +744,16 @@ function createGeminiTextResponse(stream: NodeJS.ReadableStream, effectiveModel:
 }
 
 export async function POST(request: NextRequest) {
+    const auth = requireScriptHubPermission(request, 'agent-chat');
+    if ('response' in auth) {
+        return auth.response;
+    }
+
     try {
         const apiKey = getApiKey();
         if (!apiKey) {
             return NextResponse.json(
-                { error: 'Missing GEMINI_API_KEY / GOOGLE_API_KEY server env.' },
+                { error: 'Missing GEMINI_API_KEY / GOOGLE_API_KEY / GOOGLE_AI_STUDIO_API_KEY / AI_API_KEY server env.' },
                 { status: 500 }
             );
         }
@@ -848,7 +856,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 }
-
 
 
 

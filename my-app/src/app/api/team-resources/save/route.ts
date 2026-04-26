@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getBackendBaseUrl } from '@/lib/server/backendBaseUrl';
+import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
+
 // POST: 保存团队资源数据
 export async function POST(request: NextRequest) {
+    const auth = requireScriptHubPermission(request, 'team-resources-manage');
+    if ('response' in auth) {
+        return auth.response;
+    }
+
     try {
         const data = await request.json();
 
@@ -14,16 +22,14 @@ export async function POST(request: NextRequest) {
         }
 
         // 转发到 FastAPI 后端
-        let backendUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8091';
-
-        // 如果是 Docker 内部通信或外部 Tailscale 地址，直接连容器
-        if (backendUrl.includes('.ts.net')) {
-            backendUrl = 'http://fastapi:8091';
-        }
+        const backendUrl = getBackendBaseUrl();
 
         const res = await fetch(`${backendUrl}/team-resources/save`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: request.headers.get('authorization') || '',
+            },
             body: JSON.stringify(data),
             signal: AbortSignal.timeout(30000) // 保存操作给更长的超时时间
         });

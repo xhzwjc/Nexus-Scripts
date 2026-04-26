@@ -1,22 +1,25 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+
+import { getBackendBaseUrl } from '@/lib/server/backendBaseUrl';
+import { requireScriptHubPermission } from '@/lib/server/scriptHubSession';
 
 export const dynamic = 'force-dynamic';
 
 // GET: 获取团队资源数据
-export async function GET() {
-    try {
-        // 自动判断后端地址
-        let backendUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8091';
+export async function GET(request: NextRequest) {
+    const auth = requireScriptHubPermission(request, 'team-resources');
+    if ('response' in auth) {
+        return auth.response;
+    }
 
-        // 如果是 Docker 内部通信或外部 Tailscale 地址，直接连容器
-        if (backendUrl.includes('.ts.net')) {
-            backendUrl = 'http://fastapi:8091';
-        }
+    try {
+        const backendUrl = getBackendBaseUrl();
 
         const res = await fetch(`${backendUrl}/team-resources/data`, {
             cache: 'no-store',
             headers: {
                 'Content-Type': 'application/json',
+                Authorization: request.headers.get('authorization') || '',
             },
             signal: AbortSignal.timeout(15000)
         });
@@ -26,9 +29,15 @@ export async function GET() {
             return NextResponse.json(data);
         }
 
-        console.error('FastAPI backend error during GET team resources');
+        const errorText = await res.text();
+        console.error('FastAPI backend error during GET team resources', {
+            status: res.status,
+            backendUrl,
+            errorText,
+        });
+
         return NextResponse.json(
-            { error: 'Failed to fetch team resources from backend' },
+            { error: errorText || 'Failed to fetch team resources from backend' },
             { status: res.status }
         );
     } catch (error) {

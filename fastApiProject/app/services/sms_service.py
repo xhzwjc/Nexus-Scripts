@@ -353,7 +353,7 @@ class SMSService:
         try:
             with DatabaseManager(db_config) as conn:
                 with conn.cursor(DictCursor) as cursor:
-                    print(sql)
+                    logger.debug(f"SQL query: {sql}")
                     a = cursor.execute(sql, params)
                     workers = cursor.fetchall()
 

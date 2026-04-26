@@ -6,7 +6,7 @@ import React, {
     useRef,
 } from 'react';
 import axios from 'axios';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
 import { getApiBaseUrl } from '../lib/api';
+import { getScriptHubAuthHeaderRecord } from '../lib/auth';
 import { useI18n } from '../lib/i18n';
 
 // ---------- 类型 ----------
@@ -272,7 +273,8 @@ export default function CommissionScript({ onBack }: { onBack: () => void }) {
                     channel_id: Number(channelId),
                     environment,
                     timeout: 30,
-                }
+                },
+                { headers: getScriptHubAuthHeaderRecord() }
             );
 
             if (response.data.success) {

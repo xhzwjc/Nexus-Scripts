@@ -8,6 +8,47 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _running_in_docker() -> bool:
+    return os.path.exists("/.dockerenv")
+
+
+def _normalize_local_host(host: Optional[str]) -> Optional[str]:
+    if not host:
+        return host
+
+    normalized = host.strip()
+    docker_host = (os.getenv("DB_LOCAL_HOST_DOCKER") or "host.docker.internal").strip()
+    local_aliases = {"localhost", "127.0.0.1", "::1"}
+
+    if normalized == docker_host and not _running_in_docker():
+        return "127.0.0.1"
+
+    if normalized in local_aliases and _running_in_docker():
+        return docker_host
+
+    return normalized
+
+
+def _parse_env_list(value: Optional[str]) -> list[str]:
+    if not value:
+        return []
+
+    raw = value.strip()
+    if not raw:
+        return []
+
+    if raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = []
+        if isinstance(parsed, list):
+            return [str(item).strip() for item in parsed if str(item).strip()]
+        return []
+
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 class Settings:
     # API基础配置
     API_TITLE = "春苗系统结算API"
@@ -42,6 +83,7 @@ class Settings:
 
     # 本地环境数据库（可选，复用测试环境配置或单独配置）
     DB_LOCAL_HOST = os.getenv("DB_LOCAL_HOST", DB_TEST_HOST)
+    DB_LOCAL_HOST_DOCKER = os.getenv("DB_LOCAL_HOST_DOCKER", "host.docker.internal")
     DB_LOCAL_PORT = int(os.getenv("DB_LOCAL_PORT", DB_TEST_PORT))
     DB_LOCAL_USER = os.getenv("DB_LOCAL_USER", DB_TEST_USER)
     DB_LOCAL_PASSWORD = os.getenv("DB_LOCAL_PASSWORD", DB_TEST_PASSWORD)
@@ -95,8 +137,9 @@ class Settings:
                 "database": self.DB_PROD_DATABASE
             }
         if env == "local":
+            local_host = _normalize_local_host(self.DB_LOCAL_HOST) or "127.0.0.1"
             return {
-                "host": self.DB_LOCAL_HOST,
+                "host": local_host,
                 "port": self.DB_LOCAL_PORT,
                 "user": self.DB_LOCAL_USER,
                 "password": self.DB_LOCAL_PASSWORD,
@@ -110,6 +153,21 @@ class Settings:
             "password": self.DB_TEST_PASSWORD,
             "database": self.DB_TEST_DATABASE
         }
+
+    def get_cors_allow_origins(self) -> list[str]:
+        configured = _parse_env_list(os.getenv("CORS_ALLOW_ORIGINS"))
+        if configured:
+            return configured
+        return ["*"] if self.resolve_environment() == "local" else []
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        return self.get_cors_allow_origins()
+
+    @property
+    def cors_allow_origin_regex(self) -> Optional[str]:
+        value = (os.getenv("CORS_ALLOW_ORIGIN_REGEX") or "").strip()
+        return value or None
 
     # 短信服务配置
     SMS_API_BASE_TEST = os.getenv("SMS_API_BASE_TEST")
