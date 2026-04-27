@@ -7524,7 +7524,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 placeholder={recruitmentUiText.tagsPlaceholder}
                             />
                         </Field>
-                        <Field label={recruitmentUiText.contentLabel} required error={skillFormErrors.content} className="flex min-h-0 flex-1 flex-col">
+                        <Field label={recruitmentUiText.contentLabel} required className="flex min-h-0 flex-1 flex-col">
                             <Textarea
                                 ref={skillContentInputRef}
                                 className="h-full min-h-[260px] flex-1 resize-none overflow-y-auto [field-sizing:fixed]"
@@ -7533,8 +7533,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 onChange={(event) => updateSkillFormField("content", event.target.value)}
                                 rows={16}
                             />
+                            {skillFormErrors.content ? (
+                                <p className="mt-1 text-right text-xs text-rose-600 dark:text-rose-400">{skillFormErrors.content}</p>
+                            ) : null}
                         </Field>
-                        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <label className="mt-5 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                             <input type="checkbox" checked={skillForm.isEnabled}
                                    onChange={(event) => updateSkillFormField("isEnabled", event.target.checked)}/>
                             {recruitmentUiText.saveAndEnableLabel}
