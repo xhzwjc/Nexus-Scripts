@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 
 import httpx
 from sqlalchemy import and_, func, or_
-from sqlalchemy.exc import DataError, SQLAlchemyError
+from sqlalchemy.exc import DataError, IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
@@ -12511,12 +12511,30 @@ class RecruitmentService:
         rows = self.db.query(RecruitmentLLMConfig).order_by(RecruitmentLLMConfig.task_type.asc(), RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).all()
         return [self._serialize_llm_config(row) for row in rows if self._can_access_org_resource(row)]
 
+    def _ensure_llm_config_key_available(self, config_key: str, exclude_id: Optional[int] = None) -> str:
+        normalized = str(config_key or "").strip()
+        if not normalized:
+            raise ValueError("LLM config key is required")
+        query = self.db.query(RecruitmentLLMConfig.id).filter(func.lower(RecruitmentLLMConfig.config_key) == normalized.lower())
+        if exclude_id is not None:
+            query = query.filter(RecruitmentLLMConfig.id != exclude_id)
+        if query.first():
+            raise ValueError("LLM config key already exists")
+        return normalized
+
     def create_llm_config(self, payload: Dict[str, Any], actor_id: str = "unknown") -> Dict[str, Any]:
         org_code = normalize_org_code(payload.get("org_code") or self._current_org_code())
         self._assert_can_create_in_org(org_code)
-        row = RecruitmentLLMConfig(config_key=str(payload.get("config_key") or "").strip(), org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), task_type=payload.get("task_type") or "default", provider=str(payload.get("provider") or "openai-compatible").strip(), model_name=str(payload.get("model_name") or "").strip(), base_url=payload.get("base_url"), api_key_env=payload.get("api_key_env"), api_key_ciphertext=self._safe_encrypt_secret(str(payload.get("api_key_value") or "")) if payload.get("api_key_value") else None, extra_config_json=json_dumps_safe(payload.get("extra_config") or {}), is_active=payload.get("is_active") is not False, priority=int(payload.get("priority") or 99), created_by=actor_id, updated_by=actor_id)
+        config_key = self._ensure_llm_config_key_available(payload.get("config_key"))
+        row = RecruitmentLLMConfig(config_key=config_key, org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), task_type=payload.get("task_type") or "default", provider=str(payload.get("provider") or "openai-compatible").strip(), model_name=str(payload.get("model_name") or "").strip(), base_url=payload.get("base_url"), api_key_env=payload.get("api_key_env"), api_key_ciphertext=self._safe_encrypt_secret(str(payload.get("api_key_value") or "")) if payload.get("api_key_value") else None, extra_config_json=json_dumps_safe(payload.get("extra_config") or {}), is_active=payload.get("is_active") is not False, priority=int(payload.get("priority") or 99), created_by=actor_id, updated_by=actor_id)
         self.db.add(row)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            if "config_key" in str(exc).lower():
+                raise ValueError("LLM config key already exists") from exc
+            raise
         self.db.refresh(row)
         return self._serialize_llm_config(row)
 
@@ -12527,6 +12545,8 @@ class RecruitmentService:
         if not self._can_access_org_resource(row):
             raise ValueError("操作失败")
         self._assert_resource_manageable(row, actor_id)
+        if "config_key" in payload:
+            payload["config_key"] = self._ensure_llm_config_key_available(payload.get("config_key"), exclude_id=config_id)
         for field in ["config_key", "task_type", "provider", "model_name", "base_url", "api_key_env", "is_active", "priority", "scope_level", "allow_sub_org_use", "allow_copy"]:
             if field in payload:
                 setattr(row, field, payload.get(field))
@@ -12543,7 +12563,13 @@ class RecruitmentService:
             row.api_key_ciphertext = self._safe_encrypt_secret(api_key_value)
         row.updated_by = actor_id
         self.db.add(row)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            if "config_key" in str(exc).lower():
+                raise ValueError("LLM config key already exists") from exc
+            raise
         self.db.refresh(row)
         return self._serialize_llm_config(row)
 

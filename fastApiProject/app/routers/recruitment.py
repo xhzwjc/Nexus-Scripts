@@ -958,7 +958,8 @@ async def update_llm_config(http_request: Request, config_id: int, payload: Recr
         write_audit_log(db, actor=_session, request=http_request, action="recruitment.llm-config.update", target_type="recruitment-llm-config", target_code=str(data.get("config_key") or config_id), target_org_code=data.get("org_code"), sensitivity="sensitive", details={"config_id": config_id, "share_policy": data.get("share_policy"), "api_key_value": payload.api_key_value})
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        detail = str(exc)
+        raise HTTPException(status_code=404 if detail == "操作失败" else 400, detail=detail)
 
 
 @recruitment_router.delete("/llm-configs/{config_id}")

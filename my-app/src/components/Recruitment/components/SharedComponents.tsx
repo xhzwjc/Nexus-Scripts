@@ -77,15 +77,20 @@ export function Field({
                           children,
                           className,
                           error,
+                          required = false,
                       }: {
-    label: string;
+    label: React.ReactNode;
     children: React.ReactNode;
     className?: string;
     error?: string | null;
+    required?: boolean;
 }) {
     return (
         <div className={cn("min-w-0 space-y-2", className)}>
-            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{label}</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                {label}
+                {required ? <span className="ml-1 text-rose-500" aria-hidden="true">*</span> : null}
+            </p>
             {children}
             {error ? (
                 <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>

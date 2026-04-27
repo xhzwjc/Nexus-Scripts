@@ -209,6 +209,8 @@ type OrganizationSelectOption = {
 };
 
 type PositionFormErrors = Partial<Record<"orgCode" | "title" | "headcount", string>>;
+type SkillFormErrors = Partial<Record<"name" | "content" | "sortOrder", string>>;
+type LLMFormErrors = Partial<Record<"configKey" | "taskType" | "provider" | "modelName" | "priority" | "extraConfigText", string>>;
 
 function normalizeRecruitmentOrgCode(value?: string | null) {
     const text = String(value || "").trim();
@@ -473,6 +475,73 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         settingsModelsDescription: isZh ? "按任务类型管理 provider、model、base URL 和 key。" : "Manage provider, model, base URL, and API key by task type.",
         settingsMailTitle: isZh ? "邮件中心" : "Mail Center",
         settingsMailDescription: isZh ? "维护发件箱、收件人和简历邮件发送记录。" : "Manage sender accounts, recipients, and resume delivery records.",
+        requiredFieldHint: isZh ? "必填项" : "Required",
+        nameLabel: isZh ? "名称" : "Name",
+        sortLabel: isZh ? "排序" : "Sort Order",
+        descriptionLabel: isZh ? "描述" : "Description",
+        tagsLabel: isZh ? "标签" : "Tags",
+        contentLabel: isZh ? "内容" : "Content",
+        tagsPlaceholder: isZh ? "标签，使用英文逗号分隔" : "Tags, separated by commas",
+        saveAndEnableLabel: isZh ? "保存后立即启用" : "Enable immediately after saving",
+        saving: isZh ? "保存中..." : "Saving...",
+        deleteAction: isZh ? "删除" : "Delete",
+        deleting: isZh ? "删除中..." : "Deleting...",
+        confirmDelete: isZh ? "确认删除" : "Confirm Delete",
+        skillCreateTitle: isZh ? "新增 Skill" : "New Skill",
+        skillEditTitle: isZh ? "编辑 Skill" : "Edit Skill",
+        skillDialogDescription: isZh
+            ? "Skills 是管理员配置项，因此入口收在管理设置里，不占用主工作台主路径。"
+            : "Skills are managed from admin settings so the main workspace stays focused.",
+        saveSkill: isZh ? "保存 Skill" : "Save Skill",
+        skillNameRequired: isZh ? "请输入 Skill 名称" : "Please enter a skill name",
+        skillNameTooLong: isZh ? "Skill 名称不能超过 120 个字符" : "Skill name cannot exceed 120 characters",
+        skillContentRequired: isZh ? "请输入 Skill 内容" : "Please enter the skill content",
+        skillSortOrderInvalid: isZh ? "排序需为 0 到 9999 之间的整数" : "Sort order must be an integer between 0 and 9999",
+        skillDeleteTitle: isZh ? "确认删除 Skill" : "Delete Skill",
+        skillDeleteDescription: isZh
+            ? "删除后该规则将不再参与新的招聘流程，但历史对话和任务日志仍会保留这次使用痕迹。"
+            : "After deletion, this skill will no longer be used in new recruiting flows, while past conversations and task logs will still keep its history.",
+        modelConfigCreateTitle: isZh ? "新增模型配置" : "New Model Configuration",
+        modelConfigEditTitle: isZh ? "编辑模型配置" : "Edit Model Configuration",
+        modelDialogDescription: isZh
+            ? "按任务类型维护 provider、model、API key 和运行时环境变量，支持随时切换供应商。"
+            : "Maintain provider, model, API key, and runtime environment variables by task type, and switch providers at any time.",
+        configKeyLabel: isZh ? "配置键" : "Config Key",
+        taskTypeLabel: isZh ? "任务类型" : "Task Type",
+        providerLabel: "Provider",
+        modelNameLabel: isZh ? "模型名称" : "Model Name",
+        baseUrlLabel: "Base URL",
+        apiKeyEnvLabel: isZh ? "API Key 环境变量" : "API Key Environment Variable",
+        apiKeyValueLabel: isZh ? "API Key 值" : "API Key Value",
+        priorityLabel: isZh ? "优先级" : "Priority",
+        extraConfigLabel: "Extra Config",
+        apiKeyEnvPlaceholder: isZh ? "例如 GEMINI_API_KEY" : "For example: GEMINI_API_KEY",
+        apiKeyValuePlaceholder: isZh ? "可选，留空则使用环境变量" : "Optional. Leave empty to use the environment variable.",
+        modelNameHint: isZh
+            ? "这里就是实际调用的大模型标识。如果你要换模型版本，直接编辑这里即可。"
+            : "This is the actual model identifier used at runtime. Edit it directly when you want to switch model versions.",
+        saveModelConfig: isZh ? "保存配置" : "Save Configuration",
+        llmConfigKeyRequired: isZh ? "请输入配置键" : "Please enter a config key",
+        llmConfigKeyTooLong: isZh ? "配置键不能超过 120 个字符" : "Config key cannot exceed 120 characters",
+        llmConfigKeyDuplicate: (value: string) => (
+            isZh ? `配置键“${value}”已存在，请换一个` : `The config key "${value}" already exists. Please use another one.`
+        ),
+        llmTaskTypeRequired: isZh ? "请输入任务类型" : "Please enter a task type",
+        llmTaskTypeTooLong: isZh ? "任务类型不能超过 80 个字符" : "Task type cannot exceed 80 characters",
+        llmProviderRequired: isZh ? "请选择 Provider" : "Please choose a provider",
+        llmProviderTooLong: isZh ? "Provider 不能超过 80 个字符" : "Provider cannot exceed 80 characters",
+        llmModelNameRequired: isZh ? "请输入模型名称" : "Please enter a model name",
+        llmModelNameTooLong: isZh ? "模型名称不能超过 120 个字符" : "Model name cannot exceed 120 characters",
+        llmPriorityInvalid: isZh ? "优先级需为 0 到 999 之间的整数" : "Priority must be an integer between 0 and 999",
+        llmExtraConfigInvalidJson: isZh ? "Extra Config 必须是合法 JSON" : "Extra Config must be valid JSON",
+        llmExtraConfigObjectOnly: isZh ? "Extra Config 必须是 JSON 对象" : "Extra Config must be a JSON object",
+        llmDeleteTitle: isZh ? "确认删除模型配置" : "Delete Model Configuration",
+        llmDeleteDescription: isZh
+            ? "删除后将不再参与任务路由。如果它是当前生效模型，系统会自动回落到其他可用配置。"
+            : "After deletion, this config will no longer participate in task routing. If it is currently active, the system will fall back to another available configuration.",
+        currentModelSwitched: (taskType: string, modelName: string) => (
+            isZh ? `已切换 ${taskType} 的当前模型为 ${modelName}` : `Switched the current model for ${taskType} to ${modelName}`
+        ),
         workSections: isZh ? "工作分区" : "Work Areas",
         workspaceTitle: isZh ? "工作台" : "Workspace",
         workspaceDescription: isZh ? "首页指标、待办、快捷操作与近期活动" : "Overview metrics, to-dos, quick actions, and recent activity",
@@ -787,14 +856,24 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const chatContextRef = useRef(chatContext);
     const positionTitleInputRef = useRef<HTMLInputElement | null>(null);
     const positionHeadcountInputRef = useRef<HTMLInputElement | null>(null);
+    const skillNameInputRef = useRef<HTMLInputElement | null>(null);
+    const skillContentInputRef = useRef<HTMLTextAreaElement | null>(null);
+    const llmConfigKeyInputRef = useRef<HTMLInputElement | null>(null);
+    const llmTaskTypeInputRef = useRef<HTMLInputElement | null>(null);
+    const llmModelNameInputRef = useRef<HTMLInputElement | null>(null);
+    const llmExtraConfigInputRef = useRef<HTMLTextAreaElement | null>(null);
 
     const [skillDialogOpen, setSkillDialogOpen] = useState(false);
     const [skillEditingId, setSkillEditingId] = useState<number | null>(null);
     const [skillForm, setSkillForm] = useState<SkillFormState>(emptySkillForm);
+    const [skillFormErrors, setSkillFormErrors] = useState<SkillFormErrors>({});
+    const [skillFormSubmitError, setSkillFormSubmitError] = useState<string | null>(null);
 
     const [llmDialogOpen, setLlmDialogOpen] = useState(false);
     const [llmEditingId, setLlmEditingId] = useState<number | null>(null);
     const [llmForm, setLlmForm] = useState<LLMFormState>(emptyLLMForm);
+    const [llmFormErrors, setLlmFormErrors] = useState<LLMFormErrors>({});
+    const [llmFormSubmitError, setLlmFormSubmitError] = useState<string | null>(null);
     const [mailSenderDialogOpen, setMailSenderDialogOpen] = useState(false);
     const [mailSenderEditingId, setMailSenderEditingId] = useState<number | null>(null);
     const [mailSenderForm, setMailSenderForm] = useState<MailSenderFormState>(emptyMailSenderForm);
@@ -3322,6 +3401,187 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
+    function updateSkillFormField<K extends keyof SkillFormState>(field: K, value: SkillFormState[K]) {
+        setSkillForm((current) => ({
+            ...current,
+            [field]: value,
+        }));
+        setSkillFormSubmitError(null);
+        setSkillFormErrors((current) => {
+            if (!current[field as keyof SkillFormErrors]) {
+                return current;
+            }
+            const next = {...current};
+            delete next[field as keyof SkillFormErrors];
+            return next;
+        });
+    }
+
+    function findExistingLLMConfigKey(configKey: string) {
+        const normalized = configKey.trim().toLowerCase();
+        if (!normalized) {
+            return null;
+        }
+        return allLlmConfigs.find((item) => (
+            item.id !== llmEditingId
+            && item.config_key.trim().toLowerCase() === normalized
+        )) || null;
+    }
+
+    function updateLLMFormField<K extends keyof LLMFormState>(field: K, value: LLMFormState[K]) {
+        setLlmForm((current) => ({
+            ...current,
+            [field]: value,
+        }));
+        setLlmFormSubmitError(null);
+        setLlmFormErrors((current) => {
+            const next = {...current};
+            let changed = false;
+            if (field === "configKey" && next.configKey) {
+                delete next.configKey;
+                changed = true;
+            }
+            if (field === "taskType" && next.taskType) {
+                delete next.taskType;
+                changed = true;
+            }
+            if (field === "provider" && next.provider) {
+                delete next.provider;
+                changed = true;
+            }
+            if (field === "modelName" && next.modelName) {
+                delete next.modelName;
+                changed = true;
+            }
+            if (field === "priority" && next.priority) {
+                delete next.priority;
+                changed = true;
+            }
+            if (field === "extraConfigText" && next.extraConfigText) {
+                delete next.extraConfigText;
+                changed = true;
+            }
+            return changed ? next : current;
+        });
+    }
+
+    function validateSkillForm(form: SkillFormState): SkillFormErrors {
+        const errors: SkillFormErrors = {};
+        const name = form.name.trim();
+        const content = form.content.trim();
+        const sortOrder = form.sortOrder.trim();
+        const sortOrderValue = Number(sortOrder);
+
+        if (!name) {
+            errors.name = recruitmentUiText.skillNameRequired;
+        } else if (name.length > 120) {
+            errors.name = recruitmentUiText.skillNameTooLong;
+        }
+
+        if (!content) {
+            errors.content = recruitmentUiText.skillContentRequired;
+        }
+
+        if (sortOrder && (!/^\d+$/.test(sortOrder) || !Number.isInteger(sortOrderValue) || sortOrderValue < 0 || sortOrderValue > 9999)) {
+            errors.sortOrder = recruitmentUiText.skillSortOrderInvalid;
+        }
+
+        return errors;
+    }
+
+    function validateLLMForm(form: LLMFormState): LLMFormErrors {
+        const errors: LLMFormErrors = {};
+        const configKey = form.configKey.trim();
+        const taskType = form.taskType.trim();
+        const provider = form.provider.trim();
+        const modelName = form.modelName.trim();
+        const priority = form.priority.trim();
+
+        if (!configKey) {
+            errors.configKey = recruitmentUiText.llmConfigKeyRequired;
+        } else if (configKey.length > 120) {
+            errors.configKey = recruitmentUiText.llmConfigKeyTooLong;
+        } else if (findExistingLLMConfigKey(configKey)) {
+            errors.configKey = recruitmentUiText.llmConfigKeyDuplicate(configKey);
+        }
+
+        if (!taskType) {
+            errors.taskType = recruitmentUiText.llmTaskTypeRequired;
+        } else if (taskType.length > 80) {
+            errors.taskType = recruitmentUiText.llmTaskTypeTooLong;
+        }
+
+        if (!provider) {
+            errors.provider = recruitmentUiText.llmProviderRequired;
+        } else if (provider.length > 80) {
+            errors.provider = recruitmentUiText.llmProviderTooLong;
+        }
+
+        if (!modelName) {
+            errors.modelName = recruitmentUiText.llmModelNameRequired;
+        } else if (modelName.length > 120) {
+            errors.modelName = recruitmentUiText.llmModelNameTooLong;
+        }
+
+        if (priority && (!/^\d+$/.test(priority) || Number(priority) < 0 || Number(priority) > 999)) {
+            errors.priority = recruitmentUiText.llmPriorityInvalid;
+        }
+
+        const extraConfigText = form.extraConfigText.trim();
+        if (extraConfigText) {
+            try {
+                const parsed = JSON.parse(extraConfigText);
+                if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+                    errors.extraConfigText = recruitmentUiText.llmExtraConfigObjectOnly;
+                }
+            } catch {
+                errors.extraConfigText = recruitmentUiText.llmExtraConfigInvalidJson;
+            }
+        }
+
+        return errors;
+    }
+
+    function resolveSkillSubmitError(error: unknown) {
+        const message = formatActionError(error).trim();
+        if (/body\.name\b/i.test(message)) {
+            return {fieldErrors: {name: recruitmentUiText.skillNameRequired} as SkillFormErrors, submitError: null};
+        }
+        if (/body\.content\b/i.test(message)) {
+            return {fieldErrors: {content: recruitmentUiText.skillContentRequired} as SkillFormErrors, submitError: null};
+        }
+        return {fieldErrors: null, submitError: message};
+    }
+
+    function resolveLLMSubmitError(error: unknown) {
+        const message = formatActionError(error).trim();
+        const duplicateConfigKey = findExistingLLMConfigKey(llmForm.configKey.trim())?.config_key || llmForm.configKey.trim();
+        if (
+            /llm config key already exists/i.test(message)
+            || /config key already exists/i.test(message)
+            || /duplicate entry/i.test(message)
+            || /unique constraint/i.test(message)
+        ) {
+            return {
+                fieldErrors: {configKey: recruitmentUiText.llmConfigKeyDuplicate(duplicateConfigKey || llmForm.configKey.trim())} as LLMFormErrors,
+                submitError: null,
+            };
+        }
+        if (/body\.config_key\b/i.test(message)) {
+            return {fieldErrors: {configKey: recruitmentUiText.llmConfigKeyRequired} as LLMFormErrors, submitError: null};
+        }
+        if (/body\.task_type\b/i.test(message)) {
+            return {fieldErrors: {taskType: recruitmentUiText.llmTaskTypeRequired} as LLMFormErrors, submitError: null};
+        }
+        if (/body\.provider\b/i.test(message)) {
+            return {fieldErrors: {provider: recruitmentUiText.llmProviderRequired} as LLMFormErrors, submitError: null};
+        }
+        if (/body\.model_name\b/i.test(message)) {
+            return {fieldErrors: {modelName: recruitmentUiText.llmModelNameRequired} as LLMFormErrors, submitError: null};
+        }
+        return {fieldErrors: null, submitError: message};
+    }
+
     function validatePositionForm(form: PositionFormState): PositionFormErrors {
         const errors: PositionFormErrors = {};
         const title = form.title.trim();
@@ -4691,6 +4951,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setSkillEditingId(null);
             setSkillForm(emptySkillForm());
         }
+        setSkillFormErrors({});
+        setSkillFormSubmitError(null);
         setSkillDialogOpen(true);
     }
 
@@ -4698,12 +4960,29 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         if (skillSubmitting) {
             return;
         }
+        const nextErrors = validateSkillForm(skillForm);
+        if (Object.keys(nextErrors).length) {
+            setSkillFormErrors(nextErrors);
+            setSkillFormSubmitError(null);
+            requestAnimationFrame(() => {
+                if (nextErrors.name) {
+                    skillNameInputRef.current?.focus();
+                    return;
+                }
+                if (nextErrors.content) {
+                    skillContentInputRef.current?.focus();
+                }
+            });
+            return;
+        }
+        setSkillFormErrors({});
+        setSkillFormSubmitError(null);
         setSkillSubmitting(true);
         try {
             const payload = {
                 name: skillForm.name.trim(),
                 description: skillForm.description.trim() || null,
-                content: skillForm.content,
+                content: skillForm.content.trim(),
                 tags: splitTags(skillForm.tagsText),
                 sort_order: Number(skillForm.sortOrder || "99"),
                 is_enabled: skillForm.isEnabled,
@@ -4713,18 +4992,31 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     method: "PATCH",
                     body: JSON.stringify(payload),
                 });
-                toast.success("Skill 已更新");
+                toast.success(recruitmentToast.updated(recruitmentToastEntities.skill));
             } else {
                 await recruitmentApi(`/skills`, {
                     method: "POST",
                     body: JSON.stringify(payload),
                 });
-                toast.success("Skill 已创建");
+                toast.success(recruitmentToast.created(recruitmentToastEntities.skill));
             }
             setSkillDialogOpen(false);
             await loadSkills();
         } catch (error) {
-            toast.error(`保存 Skill 失败：${error instanceof Error ? error.message : "未知错误"}`);
+            const resolved = resolveSkillSubmitError(error);
+            if (resolved.fieldErrors) {
+                setSkillFormErrors(resolved.fieldErrors);
+                requestAnimationFrame(() => {
+                    if (resolved.fieldErrors?.name) {
+                        skillNameInputRef.current?.focus();
+                        return;
+                    }
+                    if (resolved.fieldErrors?.content) {
+                        skillContentInputRef.current?.focus();
+                    }
+                });
+            }
+            setSkillFormSubmitError(resolved.submitError);
         }
         setSkillSubmitting(false);
     }
@@ -4735,10 +5027,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         try {
             await recruitmentApi(`/skills/${skillId}`, {method: "DELETE"});
             setSkillDeleteTarget(null);
-            toast.success("Skill 已删除");
+            toast.success(recruitmentToast.deleted(recruitmentToastEntities.skill));
             await loadSkills();
         } catch (error) {
-            toast.error(`删除 Skill 失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.deleteFailed(recruitmentToastEntities.skill, formatActionError(error)));
         } finally {
             setDeleteActionKey((current) => (current === actionKey ? null : current));
         }
@@ -4747,10 +5039,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     async function toggleSkill(skillId: number, enabled: boolean) {
         try {
             await recruitmentApi(`/skills/${skillId}/toggle${buildQuery({enabled})}`, {method: "POST"});
-            toast.success(enabled ? "Skill 已启用" : "Skill 已停用");
+            toast.success(enabled ? (isZh ? "Skill 已启用" : "Skill enabled") : (isZh ? "Skill 已停用" : "Skill disabled"));
             await loadSkills();
         } catch (error) {
-            toast.error(`切换 Skill 状态失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.skill, formatActionError(error)));
         }
     }
 
@@ -4773,6 +5065,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setLlmEditingId(null);
             setLlmForm(emptyLLMForm());
         }
+        setLlmFormErrors({});
+        setLlmFormSubmitError(null);
         setLlmDialogOpen(true);
     }
 
@@ -4780,6 +5074,31 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         if (llmSubmitting) {
             return;
         }
+        const nextErrors = validateLLMForm(llmForm);
+        if (Object.keys(nextErrors).length) {
+            setLlmFormErrors(nextErrors);
+            setLlmFormSubmitError(null);
+            requestAnimationFrame(() => {
+                if (nextErrors.configKey) {
+                    llmConfigKeyInputRef.current?.focus();
+                    return;
+                }
+                if (nextErrors.taskType) {
+                    llmTaskTypeInputRef.current?.focus();
+                    return;
+                }
+                if (nextErrors.modelName) {
+                    llmModelNameInputRef.current?.focus();
+                    return;
+                }
+                if (nextErrors.extraConfigText) {
+                    llmExtraConfigInputRef.current?.focus();
+                }
+            });
+            return;
+        }
+        setLlmFormErrors({});
+        setLlmFormSubmitError(null);
         setLlmSubmitting(true);
         try {
             const payload = {
@@ -4799,18 +5118,39 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     method: "PATCH",
                     body: JSON.stringify(payload),
                 });
-                toast.success("模型配置已更新");
+                toast.success(recruitmentToast.updated(recruitmentToastEntities.modelConfig));
             } else {
                 await recruitmentApi(`/llm-configs`, {
                     method: "POST",
                     body: JSON.stringify(payload),
                 });
-                toast.success("模型配置已创建");
+                toast.success(recruitmentToast.created(recruitmentToastEntities.modelConfig));
             }
             setLlmDialogOpen(false);
             await loadLLMConfigs();
         } catch (error) {
-            toast.error(`保存模型配置失败：${error instanceof Error ? error.message : "未知错误"}`);
+            const resolved = resolveLLMSubmitError(error);
+            if (resolved.fieldErrors) {
+                setLlmFormErrors(resolved.fieldErrors);
+                requestAnimationFrame(() => {
+                    if (resolved.fieldErrors?.configKey) {
+                        llmConfigKeyInputRef.current?.focus();
+                        return;
+                    }
+                    if (resolved.fieldErrors?.taskType) {
+                        llmTaskTypeInputRef.current?.focus();
+                        return;
+                    }
+                    if (resolved.fieldErrors?.modelName) {
+                        llmModelNameInputRef.current?.focus();
+                        return;
+                    }
+                    if (resolved.fieldErrors?.extraConfigText) {
+                        llmExtraConfigInputRef.current?.focus();
+                    }
+                });
+            }
+            setLlmFormSubmitError(resolved.submitError);
         }
         setLlmSubmitting(false);
     }
@@ -4821,14 +5161,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         try {
             await recruitmentApi(`/llm-configs/${configId}`, {method: "DELETE"});
             setLlmDeleteTarget(null);
-            toast.success("模型配置已删除");
+            toast.success(recruitmentToast.deleted(recruitmentToastEntities.modelConfig));
             try {
                 await loadLLMConfigs();
             } catch (refreshError) {
-                toast.error(`模型配置已删除，但列表刷新失败：${formatActionError(refreshError)}`);
+                toast.error(recruitmentToast.deletedButRefreshFailed(recruitmentToastEntities.modelConfig, formatActionError(refreshError)));
             }
         } catch (error) {
-            toast.error(`删除模型配置失败：${formatActionError(error)}`);
+            toast.error(recruitmentToast.deleteFailed(recruitmentToastEntities.modelConfig, formatActionError(error)));
         } finally {
             setDeleteActionKey((current) => (current === actionKey ? null : current));
         }
@@ -4862,10 +5202,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     }),
                 });
             }
-            toast.success(`已切换 ${targetConfig.task_type} 的当前模型为 ${targetConfig.model_name}`);
+            toast.success(recruitmentUiText.currentModelSwitched(targetConfig.task_type, targetConfig.model_name));
             await loadLLMConfigs();
         } catch (error) {
-            toast.error(`切换当前模型失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.currentModel, formatActionError(error)));
         }
     }
 
@@ -7032,16 +7372,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>确认删除模型配置</DialogTitle>
-                        <DialogDescription>删除后将不再参与任务路由。如果它是当前生效模型，系统会自动回落到其他可用配置。</DialogDescription>
+                        <DialogTitle>{recruitmentUiText.llmDeleteTitle}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.llmDeleteDescription}</DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setLlmDeleteTarget(null)}
-                                disabled={deleteActionKey === `llm-${llmDeleteTarget?.id}`}>取消</Button>
+                                disabled={deleteActionKey === `llm-${llmDeleteTarget?.id}`}>{recruitmentUiText.cancel}</Button>
                         <Button variant="destructive"
                                 onClick={() => llmDeleteTarget && void deleteLLMConfig(llmDeleteTarget.id)}
                                 disabled={deleteActionKey === `llm-${llmDeleteTarget?.id}`}>
-                            {deleteActionKey === `llm-${llmDeleteTarget?.id}` ? "删除中..." : "确认删除"}
+                            {deleteActionKey === `llm-${llmDeleteTarget?.id}` ? recruitmentUiText.deleting : recruitmentUiText.confirmDelete}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -7052,16 +7392,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>确认删除 Skill</DialogTitle>
-                        <DialogDescription>删除后该规则将不再参与新的招聘流程，但历史对话和任务日志仍会保留这次使用痕迹。</DialogDescription>
+                        <DialogTitle>{recruitmentUiText.skillDeleteTitle}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.skillDeleteDescription}</DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setSkillDeleteTarget(null)}
-                                disabled={deleteActionKey === `skill-${skillDeleteTarget?.id}`}>取消</Button>
+                                disabled={deleteActionKey === `skill-${skillDeleteTarget?.id}`}>{recruitmentUiText.cancel}</Button>
                         <Button variant="destructive"
                                 onClick={() => skillDeleteTarget && void deleteSkill(skillDeleteTarget.id)}
                                 disabled={deleteActionKey === `skill-${skillDeleteTarget?.id}`}>
-                            {deleteActionKey === `skill-${skillDeleteTarget?.id}` ? "删除中..." : "确认删除"}
+                            {deleteActionKey === `skill-${skillDeleteTarget?.id}` ? recruitmentUiText.deleting : recruitmentUiText.confirmDelete}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -7136,141 +7476,194 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={skillDialogOpen} onOpenChange={setSkillDialogOpen}>
+            <Dialog open={skillDialogOpen} onOpenChange={(open) => {
+                setSkillDialogOpen(open);
+                if (!open) {
+                    setSkillFormErrors({});
+                    setSkillFormSubmitError(null);
+                    setSkillSubmitting(false);
+                }
+            }}>
                 <DialogContent className="flex h-[min(88vh,840px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-3xl">
                     <DialogHeader>
-                        <DialogTitle>{skillEditingId ? "编辑 Skill" : "新增 Skill"}</DialogTitle>
-                        <DialogDescription>Skills
-                            是管理员配置项，因此入口收在管理设置里，不占用主工作台主路径。</DialogDescription>
+                        <DialogTitle>{skillEditingId ? recruitmentUiText.skillEditTitle : recruitmentUiText.skillCreateTitle}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.skillDialogDescription}</DialogDescription>
                     </DialogHeader>
                     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-1 py-1">
                         <div className="grid gap-4 md:grid-cols-2">
-                            <Field label="名称"><Input value={skillForm.name}
-                                                       onChange={(event) => setSkillForm((current) => ({
-                                                           ...current,
-                                                           name: event.target.value
-                                                       }))}/></Field>
-                            <Field label="排序"><Input type="number" value={skillForm.sortOrder}
-                                                       onChange={(event) => setSkillForm((current) => ({
-                                                           ...current,
-                                                           sortOrder: event.target.value
-                                                       }))}/></Field>
+                            <Field label={recruitmentUiText.nameLabel} required error={skillFormErrors.name}>
+                                <Input
+                                    ref={skillNameInputRef}
+                                    value={skillForm.name}
+                                    maxLength={120}
+                                    aria-invalid={Boolean(skillFormErrors.name)}
+                                    className={cn(skillFormErrors.name ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    onChange={(event) => updateSkillFormField("name", event.target.value.slice(0, 120))}
+                                />
+                            </Field>
+                            <Field label={recruitmentUiText.sortLabel} error={skillFormErrors.sortOrder}>
+                                <Input
+                                    type="number"
+                                    value={skillForm.sortOrder}
+                                    aria-invalid={Boolean(skillFormErrors.sortOrder)}
+                                    className={cn(skillFormErrors.sortOrder ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    onChange={(event) => updateSkillFormField("sortOrder", event.target.value)}
+                                />
+                            </Field>
                         </div>
-                        <Field label="描述"><Input value={skillForm.description}
-                                                   onChange={(event) => setSkillForm((current) => ({
-                                                       ...current,
-                                                       description: event.target.value
-                                                   }))}/></Field>
-                        <Field label="标签"><Input value={skillForm.tagsText}
-                                                   onChange={(event) => setSkillForm((current) => ({
-                                                       ...current,
-                                                       tagsText: event.target.value
-                                                   }))} placeholder="标签，使用英文逗号分隔"/></Field>
-                        <Field label="内容" className="flex min-h-0 flex-1 flex-col">
+                        <Field label={recruitmentUiText.descriptionLabel}>
+                            <Input
+                                value={skillForm.description}
+                                onChange={(event) => updateSkillFormField("description", event.target.value)}
+                            />
+                        </Field>
+                        <Field label={recruitmentUiText.tagsLabel}>
+                            <Input
+                                value={skillForm.tagsText}
+                                onChange={(event) => updateSkillFormField("tagsText", event.target.value)}
+                                placeholder={recruitmentUiText.tagsPlaceholder}
+                            />
+                        </Field>
+                        <Field label={recruitmentUiText.contentLabel} required error={skillFormErrors.content} className="flex min-h-0 flex-1 flex-col">
                             <Textarea
+                                ref={skillContentInputRef}
                                 className="h-full min-h-[260px] flex-1 resize-none overflow-y-auto [field-sizing:fixed]"
-                                value={skillForm.content} onChange={(event) => setSkillForm((current) => ({
-                                ...current,
-                                content: event.target.value
-                            }))} rows={16}/>
+                                value={skillForm.content}
+                                aria-invalid={Boolean(skillFormErrors.content)}
+                                onChange={(event) => updateSkillFormField("content", event.target.value)}
+                                rows={16}
+                            />
                         </Field>
                         <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                             <input type="checkbox" checked={skillForm.isEnabled}
-                                   onChange={(event) => setSkillForm((current) => ({
-                                       ...current,
-                                       isEnabled: event.target.checked
-                                   }))}/>
-                            保存后立即启用
+                                   onChange={(event) => updateSkillFormField("isEnabled", event.target.checked)}/>
+                            {recruitmentUiText.saveAndEnableLabel}
                         </label>
                     </div>
-                    <DialogFooter className="shrink-0">
+                    <DialogFooter className="shrink-0 items-center justify-between gap-3 sm:justify-between">
+                        <div className="min-h-5 flex-1 text-sm text-red-600 dark:text-red-400">
+                            {skillFormSubmitError ?? ""}
+                        </div>
                         <Button variant="outline" onClick={() => setSkillDialogOpen(false)}
-                                disabled={skillSubmitting}>取消</Button>
+                                disabled={skillSubmitting}>{recruitmentUiText.cancel}</Button>
                         <Button onClick={() => void submitSkill()}
-                                disabled={skillSubmitting}>{skillSubmitting ? "保存中..." : "保存 Skill"}</Button>
+                                disabled={skillSubmitting}>{skillSubmitting ? recruitmentUiText.saving : recruitmentUiText.saveSkill}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={llmDialogOpen} onOpenChange={setLlmDialogOpen}>
+            <Dialog open={llmDialogOpen} onOpenChange={(open) => {
+                setLlmDialogOpen(open);
+                if (!open) {
+                    setLlmFormErrors({});
+                    setLlmFormSubmitError(null);
+                    setLlmSubmitting(false);
+                }
+            }}>
                 <DialogContent className="flex h-[min(85vh,840px)] max-h-[85vh] flex-col overflow-hidden sm:max-w-3xl">
                     <DialogHeader>
-                        <DialogTitle>{llmEditingId ? "编辑模型配置" : "新增模型配置"}</DialogTitle>
-                        <DialogDescription>按任务类型维护 provider、model、API key
-                            和运行时环境变量，支持随时切换供应商。</DialogDescription>
+                        <DialogTitle>{llmEditingId ? recruitmentUiText.modelConfigEditTitle : recruitmentUiText.modelConfigCreateTitle}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.modelDialogDescription}</DialogDescription>
                     </DialogHeader>
                     <ScrollArea className="min-h-0 flex-1">
                         <div className="grid gap-4 px-1 py-1 md:grid-cols-2">
-                            <Field label="配置键"><Input value={llmForm.configKey}
-                                                         onChange={(event) => setLlmForm((current) => ({
-                                                             ...current,
-                                                             configKey: event.target.value
-                                                         }))}/></Field>
-                            <Field label="任务类型"><Input value={llmForm.taskType}
-                                                           onChange={(event) => setLlmForm((current) => ({
-                                                               ...current,
-                                                               taskType: event.target.value
-                                                           }))}/></Field>
-                            <Field label="Provider">
-                                <NativeSelect value={llmForm.provider} onChange={(event) => setLlmForm((current) => ({
-                                    ...current,
-                                    provider: event.target.value
-                                }))}>
+                            <Field label={recruitmentUiText.configKeyLabel} required error={llmFormErrors.configKey}>
+                                <Input
+                                    ref={llmConfigKeyInputRef}
+                                    value={llmForm.configKey}
+                                    maxLength={120}
+                                    aria-invalid={Boolean(llmFormErrors.configKey)}
+                                    className={cn(llmFormErrors.configKey ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    onChange={(event) => updateLLMFormField("configKey", event.target.value.slice(0, 120))}
+                                />
+                            </Field>
+                            <Field label={recruitmentUiText.taskTypeLabel} required error={llmFormErrors.taskType}>
+                                <Input
+                                    ref={llmTaskTypeInputRef}
+                                    value={llmForm.taskType}
+                                    maxLength={80}
+                                    aria-invalid={Boolean(llmFormErrors.taskType)}
+                                    className={cn(llmFormErrors.taskType ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    onChange={(event) => updateLLMFormField("taskType", event.target.value.slice(0, 80))}
+                                />
+                            </Field>
+                            <Field label={recruitmentUiText.providerLabel} required error={llmFormErrors.provider}>
+                                <NativeSelect
+                                    value={llmForm.provider}
+                                    aria-invalid={Boolean(llmFormErrors.provider)}
+                                    className={cn(llmFormErrors.provider ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    onChange={(event) => updateLLMFormField("provider", event.target.value)}
+                                >
                                     {Object.entries(providerLabels).map(([value, label]) => (
                                         <option key={value} value={value}>{label}</option>
                                     ))}
                                 </NativeSelect>
                             </Field>
-                            <Field label="模型名称"><Input value={llmForm.modelName}
-                                                           onChange={(event) => setLlmForm((current) => ({
-                                                               ...current,
-                                                               modelName: event.target.value
-                                                           }))}/>
+                            <Field label={recruitmentUiText.modelNameLabel} required error={llmFormErrors.modelName}>
+                                <Input
+                                    ref={llmModelNameInputRef}
+                                    value={llmForm.modelName}
+                                    maxLength={120}
+                                    aria-invalid={Boolean(llmFormErrors.modelName)}
+                                    className={cn(llmFormErrors.modelName ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    onChange={(event) => updateLLMFormField("modelName", event.target.value.slice(0, 120))}
+                                />
                                 <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                                    这里就是实际调用的大模型标识。如果你要换模型版本，直接编辑这里即可。
+                                    {recruitmentUiText.modelNameHint}
                                 </p>
                             </Field>
-                            <Field label="Base URL"><Input value={llmForm.baseUrl}
-                                                           onChange={(event) => setLlmForm((current) => ({
-                                                               ...current,
-                                                               baseUrl: event.target.value
-                                                           }))}/></Field>
-                            <Field label="API Key 环境变量"><Input value={llmForm.apiKeyEnv}
-                                                                   onChange={(event) => setLlmForm((current) => ({
-                                                                       ...current,
-                                                                       apiKeyEnv: event.target.value
-                                                                   }))} placeholder="例如 GEMINI_API_KEY"/></Field>
-                            <Field label="API Key 值"><Input value={llmForm.apiKeyValue}
-                                                             onChange={(event) => setLlmForm((current) => ({
-                                                                 ...current,
-                                                                 apiKeyValue: event.target.value
-                                                             }))} placeholder="可选，留空则使用环境变量"/></Field>
-                            <Field label="优先级"><Input type="number" value={llmForm.priority}
-                                                         onChange={(event) => setLlmForm((current) => ({
-                                                             ...current,
-                                                             priority: event.target.value
-                                                         }))}/></Field>
+                            <Field label={recruitmentUiText.baseUrlLabel}>
+                                <Input value={llmForm.baseUrl}
+                                       onChange={(event) => updateLLMFormField("baseUrl", event.target.value)}/>
+                            </Field>
+                            <Field label={recruitmentUiText.apiKeyEnvLabel}>
+                                <Input
+                                    value={llmForm.apiKeyEnv}
+                                    onChange={(event) => updateLLMFormField("apiKeyEnv", event.target.value)}
+                                    placeholder={recruitmentUiText.apiKeyEnvPlaceholder}
+                                />
+                            </Field>
+                            <Field label={recruitmentUiText.apiKeyValueLabel}>
+                                <Input
+                                    value={llmForm.apiKeyValue}
+                                    onChange={(event) => updateLLMFormField("apiKeyValue", event.target.value)}
+                                    placeholder={recruitmentUiText.apiKeyValuePlaceholder}
+                                />
+                            </Field>
+                            <Field label={recruitmentUiText.priorityLabel} error={llmFormErrors.priority}>
+                                <Input
+                                    type="number"
+                                    value={llmForm.priority}
+                                    aria-invalid={Boolean(llmFormErrors.priority)}
+                                    className={cn(llmFormErrors.priority ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    onChange={(event) => updateLLMFormField("priority", event.target.value)}
+                                />
+                            </Field>
                         </div>
-                        <Field label="Extra Config" className="mt-4">
-                            <Textarea value={llmForm.extraConfigText} onChange={(event) => setLlmForm((current) => ({
-                                ...current,
-                                extraConfigText: event.target.value
-                            }))} rows={10}/>
+                        <Field label={recruitmentUiText.extraConfigLabel} error={llmFormErrors.extraConfigText} className="mt-4">
+                            <Textarea
+                                ref={llmExtraConfigInputRef}
+                                value={llmForm.extraConfigText}
+                                aria-invalid={Boolean(llmFormErrors.extraConfigText)}
+                                className={cn(llmFormErrors.extraConfigText ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                onChange={(event) => updateLLMFormField("extraConfigText", event.target.value)}
+                                rows={10}
+                            />
                         </Field>
                         <label className="mt-4 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                             <input type="checkbox" checked={llmForm.isActive}
-                                   onChange={(event) => setLlmForm((current) => ({
-                                       ...current,
-                                       isActive: event.target.checked
-                                   }))}/>
-                            保存后立即启用
+                                   onChange={(event) => updateLLMFormField("isActive", event.target.checked)}/>
+                            {recruitmentUiText.saveAndEnableLabel}
                         </label>
                     </ScrollArea>
-                    <DialogFooter className="shrink-0">
+                    <DialogFooter className="shrink-0 items-center justify-between gap-3 sm:justify-between">
+                        <div className="min-h-5 flex-1 text-sm text-red-600 dark:text-red-400">
+                            {llmFormSubmitError ?? ""}
+                        </div>
                         <Button variant="outline" onClick={() => setLlmDialogOpen(false)}
-                                disabled={llmSubmitting}>取消</Button>
+                                disabled={llmSubmitting}>{recruitmentUiText.cancel}</Button>
                         <Button onClick={() => void submitLLMConfig()}
-                                disabled={llmSubmitting}>{llmSubmitting ? "保存中..." : "保存配置"}</Button>
+                                disabled={llmSubmitting}>{llmSubmitting ? recruitmentUiText.saving : recruitmentUiText.saveModelConfig}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
