@@ -1599,16 +1599,6 @@ export function CandidatesPage({
         const match = selectedCandidateResumeMailSummary.match(tr.sentCountRegex);
         return match ? tr.sentCountLabel(match[1]) : tr.sentLabel;
     }, [selectedCandidateResumeMailSummary, tr]);
-    const candidateDetailHeadlineMeta = candidateDetail
-        ? [
-            candidateDetail.candidate.position_title,
-            candidateDetail.candidate.years_of_experience,
-            candidateDetail.candidate.education,
-            candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${tr.ageSuffix}` : null,
-            candidateDetail.candidate.city,
-            candidateDetail.candidate.phone || candidateDetail.candidate.email,
-        ].filter(Boolean).join(" · ")
-        : "";
     const candidateDetailIdentityMeta = candidateDetail?.candidate.current_company || "";
     const primaryResumeFile = candidateDetail?.resume_files[0] ?? null;
     const latestInterviewQuestion = candidateDetail?.interview_questions[0] ?? null;
@@ -1943,6 +1933,7 @@ export function CandidatesPage({
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="min-w-0 flex-1 space-y-1">
                                             <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                                <span className="text-[1rem] font-semibold text-slate-900 dark:text-slate-100">{candidateDetail.candidate.name}</span>
                                                 <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidateDetailDisplayStatus))}>
                                                     {labelForCandidateStatus(candidateDetailDisplayStatus)}
                                                 </Badge>
@@ -1962,14 +1953,6 @@ export function CandidatesPage({
                                                     <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
                                                         {selectedCandidateResumeMailSummary}
                                                     </Badge>
-                                                ) : null}
-                                            </div>
-                                            <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-                                                <h3 className="break-words text-[1.12rem] font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-[1.2rem]">
-                                                    {candidateDetail.candidate.name}
-                                                </h3>
-                                                {candidateDetailHeadlineMeta ? (
-                                                    <p className="text-sm text-slate-500 dark:text-slate-400">{candidateDetailHeadlineMeta}</p>
                                                 ) : null}
                                             </div>
                                             <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
