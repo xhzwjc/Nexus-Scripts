@@ -1061,12 +1061,12 @@ function MultiSelect({ options, selected, onChange, placeholder }: MultiSelectPr
                     key={option.value}
                     onClick={() => toggleValue(option.value)}
                     className={cn(
-                        "flex cursor-pointer items-center gap-2 px-3 py-1.5",
+                        "flex cursor-pointer items-center gap-2 overflow-hidden px-3 py-1.5",
                         selected.includes(option.value) ? "bg-slate-100 dark:bg-slate-800" : "hover:bg-slate-50 dark:hover:bg-slate-800"
                     )}
                 >
                     <div className={cn(
-                        "flex h-4 w-4 items-center justify-center rounded border",
+                        "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
                         selected.includes(option.value) ? "border-slate-500 bg-slate-500" : "border-slate-300"
                     )}>
                         {selected.includes(option.value) && (
@@ -1075,7 +1075,9 @@ function MultiSelect({ options, selected, onChange, placeholder }: MultiSelectPr
                             </svg>
                         )}
                     </div>
-                    <span className="text-sm text-slate-700 dark:text-slate-300">{option.label}</span>
+                    <span className="truncate block min-w-0 flex-1 text-sm text-slate-700 dark:text-slate-300" title={option.label}>
+                        {option.label}
+                    </span>
                 </div>
             ))}
         </div>
@@ -1087,12 +1089,16 @@ function MultiSelect({ options, selected, onChange, placeholder }: MultiSelectPr
                 ref={triggerRef}
                 type="button"
                 onClick={handleOpen}
+                title={displayText}
                 className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
             >
-                <span className={selected.length === 0 ? "text-slate-400" : "text-slate-900 dark:text-slate-100"}>
+                <span className={cn(
+                    "block w-full truncate",
+                    selected.length === 0 ? "text-slate-400" : "text-slate-900 dark:text-slate-100"
+                )}>
                     {displayText}
                 </span>
-                <ChevronDown className={cn("h-4 w-4 text-slate-400", open && "rotate-180")} />
+                <ChevronDown className={cn("h-4 w-4 text-slate-400 shrink-0", open && "rotate-180")} />
             </button>
             {open && ReactDOM.createPortal(menuContent, document.body)}
         </>
