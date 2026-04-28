@@ -82,7 +82,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     );
 
     return (
-        <div className={cn('relative h-screen shrink-0 transition-[width] duration-300', collapsed ? 'w-[76px]' : 'w-[260px]')}>
+        <div className={cn('relative h-screen shrink-0 transition-[width] duration-300', collapsed ? 'w-[76px]' : 'w-[210px]')}>
             <aside
                 className={cn(
                     'dashboard-sidebar h-screen flex flex-col overflow-hidden border-r border-[var(--sidebar-border)] bg-[var(--glass-bg)] py-6 shadow-sm',
