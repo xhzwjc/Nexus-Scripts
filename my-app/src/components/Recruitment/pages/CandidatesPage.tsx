@@ -2328,6 +2328,10 @@ export function CandidatesPage({
                                                     <Input value={candidateEditor.manualOverrideReason} onChange={(event) => setCandidateEditor((current) => ({...current, manualOverrideReason: event.target.value}))} placeholder={tr.overrideReasonPlaceholder}/>
                                                 </Field>
                                             </div>
+                                            <Button onClick={() => void saveCandidate()}>
+                                                <Save className="h-4 w-4"/>
+                                                {tr.saveCandidateInfo}
+                                            </Button>
 
                                             <Field label={tr.aiAssistant}>
                                                 <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
