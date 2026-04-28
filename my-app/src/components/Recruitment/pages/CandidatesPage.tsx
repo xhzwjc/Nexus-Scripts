@@ -2,6 +2,7 @@
 
 import React from "react";
 import ReactMarkdown from "react-markdown";
+import {useVirtualizer} from "@tanstack/react-virtual";
 import {
     Bot,
     Check,
@@ -99,17 +100,218 @@ type CandidateBoardGroup = {
 
 type CandidateListDisplayColumnWidths = Record<CandidateListColumnKey, number>;
 
-type VirtualCandidateRowMetric = {
-    candidateId: number;
-    start: number;
-    size: number;
-};
-
 type CandidateInterviewQuestion = CandidateDetail["interview_questions"][number];
 
 const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 84;
 const CANDIDATE_LIST_OVERSCAN = 6;
 const SCORE_SUGGESTED_STATUS_VALUES = new Set(["screening_passed", "talent_pool", "screening_rejected"]);
+
+type CandidateRowProps = {
+    candidate: CandidateSummary;
+    isSelected: boolean;
+    isChecked: boolean;
+    columns: CandidateListColumnKey[];
+    columnWidths: CandidateListDisplayColumnWidths;
+    onSelect: () => void;
+    onToggleCheck: (checked: boolean) => void;
+    getResumeMailSummary: (candidateId: number) => string | null;
+    getOrganizationLabel: (orgCode: string | null | undefined) => string;
+    tr: ReturnType<typeof getCandidatesLocale>;
+    measureRef?: (node: HTMLTableRowElement | null) => void;
+    dataIndex?: number;
+};
+
+const CandidateRow = React.memo(function CandidateRow({
+    candidate,
+    isSelected,
+    isChecked,
+    columns,
+    columnWidths,
+    onSelect,
+    onToggleCheck,
+    getResumeMailSummary,
+    getOrganizationLabel,
+    tr,
+    measureRef,
+    dataIndex,
+}: CandidateRowProps) {
+    const resumeMailSummary = getResumeMailSummary(candidate.id);
+    const displayStatus = resolveCandidateDisplayStatus(candidate);
+
+    return (
+        <tr
+            ref={measureRef}
+            data-index={dataIndex}
+            className={cn("cursor-pointer", isSelected && "bg-slate-100 dark:bg-slate-900")}
+            onClick={onSelect}
+        >
+            <td className="p-2 align-middle whitespace-nowrap" onClick={(event) => event.stopPropagation()}>
+                <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={(event) => onToggleCheck(event.target.checked)}
+                    aria-label={tr.selectCandidate(candidate.name)}
+                />
+            </td>
+            {columns.map((columnKey) => {
+                if (columnKey === "candidate") {
+                    return (
+                        <td
+                            key={columnKey}
+                            style={{
+                                width: columnWidths.candidate,
+                                minWidth: columnWidths.candidate,
+                                maxWidth: columnWidths.candidate,
+                            }}
+                            className="p-2 align-middle"
+                        >
+                            <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <HoverRevealText text={candidate.name} className="font-medium text-slate-900 dark:text-slate-100"/>
+                                    {resumeMailSummary ? (
+                                        <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                            {tr.resumeSent}
+                                        </Badge>
+                                    ) : null}
+                                </div>
+                                <HoverRevealText
+                                    text={candidate.phone || candidate.email || tr.noContact}
+                                    className="text-xs text-slate-500 dark:text-slate-400"
+                                />
+                                {resumeMailSummary ? (
+                                    <HoverRevealText
+                                        text={resumeMailSummary}
+                                        className="mt-1 text-xs text-sky-600 dark:text-slate-300"
+                                        tooltipClassName="max-w-sm"
+                                    />
+                                ) : null}
+                            </div>
+                        </td>
+                    );
+                }
+                if (columnKey === "organization") {
+                    return (
+                        <td
+                            key={columnKey}
+                            style={{
+                                width: columnWidths.organization,
+                                minWidth: columnWidths.organization,
+                                maxWidth: columnWidths.organization,
+                            }}
+                            className="p-2 align-middle"
+                        >
+                            <HoverRevealText
+                                text={getOrganizationLabel(candidate.org_code)}
+                                className="text-xs text-slate-600 dark:text-slate-300"
+                            />
+                        </td>
+                    );
+                }
+                if (columnKey === "position") {
+                    return (
+                        <td
+                            key={columnKey}
+                            style={{
+                                width: columnWidths.position,
+                                minWidth: columnWidths.position,
+                                maxWidth: columnWidths.position,
+                            }}
+                            className="p-2 align-middle"
+                        >
+                            <HoverRevealText text={candidate.position_title || tr.unassignedPosition}/>
+                        </td>
+                    );
+                }
+                if (columnKey === "status") {
+                    return (
+                        <td
+                            key={columnKey}
+                            style={{
+                                width: columnWidths.status,
+                                minWidth: columnWidths.status,
+                                maxWidth: columnWidths.status,
+                            }}
+                            className="p-2 align-middle whitespace-nowrap"
+                        >
+                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", displayStatus))}>
+                                {labelForCandidateStatus(displayStatus)}
+                            </Badge>
+                            {candidate.display_status_reason ? (
+                                <HoverRevealText
+                                    text={candidate.display_status_reason}
+                                    className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400"
+                                    tooltipClassName="max-w-sm"
+                                />
+                            ) : null}
+                        </td>
+                    );
+                }
+                if (columnKey === "match") {
+                    return (
+                        <td
+                            key={columnKey}
+                            style={{
+                                width: columnWidths.match,
+                                minWidth: columnWidths.match,
+                                maxWidth: columnWidths.match,
+                            }}
+                            className="p-2 align-middle whitespace-nowrap"
+                        >
+                            {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
+                        </td>
+                    );
+                }
+                if (columnKey === "source") {
+                    return (
+                        <td
+                            key={columnKey}
+                            style={{
+                                width: columnWidths.source,
+                                minWidth: columnWidths.source,
+                                maxWidth: columnWidths.source,
+                            }}
+                            className="p-2 align-middle"
+                        >
+                            <HoverRevealText text={candidate.source || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
+                        </td>
+                    );
+                }
+                if (columnKey === "updated") {
+                    return (
+                        <td
+                            key={columnKey}
+                            style={{
+                                width: columnWidths.updated,
+                                minWidth: columnWidths.updated,
+                                maxWidth: columnWidths.updated,
+                            }}
+                            className="p-2 align-middle"
+                        >
+                            <HoverRevealText text={formatDateTime(candidate.updated_at)}/>
+                        </td>
+                    );
+                }
+                return null;
+            })}
+        </tr>
+    );
+}, (prev, next) => {
+    return prev.isSelected === next.isSelected
+        && prev.isChecked === next.isChecked
+        && prev.columns === next.columns
+        && prev.columnWidths === next.columnWidths
+        && prev.candidate.status === next.candidate.status
+        && prev.candidate.display_status_reason === next.candidate.display_status_reason
+        && prev.candidate.match_percent === next.candidate.match_percent
+        && prev.candidate.updated_at === next.candidate.updated_at
+        && prev.candidate.name === next.candidate.name
+        && prev.candidate.phone === next.candidate.phone
+        && prev.candidate.email === next.candidate.email
+        && prev.candidate.org_code === next.candidate.org_code
+        && prev.candidate.position_title === next.candidate.position_title
+        && prev.candidate.source === next.candidate.source
+        && prev.getResumeMailSummary(prev.candidate.id) === next.getResumeMailSummary(next.candidate.id);
+});
 
 function getCandidatesLocale(language = getCurrentLanguage()) {
     const isZh = language !== "en-US";
@@ -301,24 +503,6 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         batchHandleResultsDesc: isZh ? "可以先在左侧勾选需要处理的候选人，再执行批量初筛或批量发送简历。" : "Select candidates on the left first, then run batch screening or send resumes in batch.",
         unrecorded: isZh ? "未记录" : "Unrecorded",
     };
-}
-
-function findVirtualRowStartIndex(metrics: VirtualCandidateRowMetric[], scrollTop: number) {
-    let low = 0;
-    let high = metrics.length - 1;
-
-    while (low <= high) {
-        const mid = Math.floor((low + high) / 2);
-        const row = metrics[mid];
-
-        if (row.start + row.size < scrollTop) {
-            low = mid + 1;
-        } else {
-            high = mid - 1;
-        }
-    }
-
-    return Math.max(0, Math.min(metrics.length - 1, low));
 }
 
 function OutputSnippet({content}: { content: string }) {
@@ -1178,14 +1362,9 @@ export function CandidatesPage({
     const {language} = useI18n();
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
     const [candidateListViewportEl, setCandidateListViewportEl] = React.useState<HTMLDivElement | null>(null);
-    const [candidateListScrollTop, setCandidateListScrollTop] = React.useState(0);
-    const [candidateListViewportHeight, setCandidateListViewportHeight] = React.useState(0);
-    const [candidateListMeasuredRowHeights, setCandidateListMeasuredRowHeights] = React.useState<Record<number, number>>({});
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
     const [candidateFilterBarExpanded, setCandidateFilterBarExpanded] = React.useState(false);
     const [candidateAiOutputDialogOpen, setCandidateAiOutputDialogOpen] = React.useState(false);
-    const candidateListMetricsFrameRef = React.useRef<number | null>(null);
-    const candidateListRowObserversRef = React.useRef<Map<number, ResizeObserver>>(new Map());
     const candidateDetailToolbarScrollRef = React.useRef<HTMLDivElement | null>(null);
     const candidateDetailToolbarRailRef = React.useRef<HTMLDivElement | null>(null);
     const candidateDetailToolbarSyncSourceRef = React.useRef<"viewport" | "rail" | null>(null);
@@ -1277,55 +1456,12 @@ export function CandidatesPage({
         candidateListScrollRef(node);
     }, [candidateListScrollRef]);
 
-    React.useEffect(() => {
-        if (candidateViewMode !== "list" || !candidateListViewportEl) {
-            setCandidateListScrollTop(0);
-            setCandidateListViewportHeight(0);
-            return;
-        }
-
-        const updateMetrics = () => {
-            setCandidateListScrollTop(candidateListViewportEl.scrollTop);
-            setCandidateListViewportHeight(candidateListViewportEl.clientHeight);
-        };
-
-        const scheduleMetricsUpdate = () => {
-            if (candidateListMetricsFrameRef.current != null) {
-                return;
-            }
-            candidateListMetricsFrameRef.current = window.requestAnimationFrame(() => {
-                candidateListMetricsFrameRef.current = null;
-                updateMetrics();
-            });
-        };
-
-        updateMetrics();
-        candidateListViewportEl.addEventListener("scroll", scheduleMetricsUpdate, {passive: true});
-
-        if (typeof ResizeObserver === "undefined") {
-            window.addEventListener("resize", scheduleMetricsUpdate);
-            return () => {
-                candidateListViewportEl.removeEventListener("scroll", scheduleMetricsUpdate);
-                window.removeEventListener("resize", scheduleMetricsUpdate);
-                if (candidateListMetricsFrameRef.current != null) {
-                    window.cancelAnimationFrame(candidateListMetricsFrameRef.current);
-                    candidateListMetricsFrameRef.current = null;
-                }
-            };
-        }
-
-        const observer = new ResizeObserver(() => scheduleMetricsUpdate());
-        observer.observe(candidateListViewportEl);
-
-        return () => {
-            candidateListViewportEl.removeEventListener("scroll", scheduleMetricsUpdate);
-            observer.disconnect();
-            if (candidateListMetricsFrameRef.current != null) {
-                window.cancelAnimationFrame(candidateListMetricsFrameRef.current);
-                candidateListMetricsFrameRef.current = null;
-            }
-        };
-    }, [candidateViewMode, candidateListViewportEl]);
+    const rowVirtualizer = useVirtualizer({
+        count: visibleCandidates.length,
+        getScrollElement: () => candidateListViewportEl,
+        estimateSize: () => CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT,
+        overscan: CANDIDATE_LIST_OVERSCAN,
+    });
 
     const candidateListVisibleColumns = React.useMemo<CandidateListColumnKey[]>(
         () => (
@@ -1353,108 +1489,32 @@ export function CandidatesPage({
         );
     }, [candidateListEffectiveColumnWidths, candidateListVisibleColumns]);
 
-    React.useEffect(() => {
-        setCandidateListMeasuredRowHeights({});
-    }, [candidateViewMode, candidateListEffectiveTableWidth, visibleCandidates]);
+    const selectedCandidateIdSet = React.useMemo(() => new Set(selectedCandidateIds), [selectedCandidateIds]);
 
-    React.useEffect(() => {
-        const rowObservers = candidateListRowObserversRef.current;
-        return () => {
-            rowObservers.forEach((observer) => observer.disconnect());
-            rowObservers.clear();
-        };
-    }, []);
+    const stableGetResumeMailSummary = React.useCallback(
+        (id: number) => getCandidateResumeMailSummary(id),
+        [getCandidateResumeMailSummary],
+    );
+    const stableGetOrganizationLabel = React.useCallback(
+        (orgCode?: string | null) => getOrganizationLabel(orgCode),
+        [getOrganizationLabel],
+    );
 
-    const candidateListVirtualMetrics = React.useMemo(() => {
-        let totalHeight = 0;
-        const metrics: VirtualCandidateRowMetric[] = visibleCandidates.map((candidate) => {
-            const size = candidateListMeasuredRowHeights[candidate.id] || CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT;
-            const metric = {
-                candidateId: candidate.id,
-                start: totalHeight,
-                size,
-            };
-            totalHeight += size;
-            return metric;
+    const stableCallbacks = React.useMemo(() => {
+        const selectMap = new Map<number, () => void>();
+        const toggleMap = new Map<number, (checked: boolean) => void>();
+        visibleCandidates.forEach((c) => {
+            selectMap.set(c.id, () => setSelectedCandidateId(c.id));
+            toggleMap.set(c.id, (checked: boolean) => toggleCandidateSelection(c.id, checked));
         });
+        return {selectMap, toggleMap};
+    }, [visibleCandidates, setSelectedCandidateId, toggleCandidateSelection]);
 
-        if (!metrics.length) {
-            return {
-                totalHeight: 0,
-                topSpacerHeight: 0,
-                bottomSpacerHeight: 0,
-                startIndex: 0,
-                endIndex: -1,
-            };
-        }
-
-        const viewportHeight = candidateListViewportHeight || Math.min(metrics.length, 10) * CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT;
-        const visibleStartIndex = findVirtualRowStartIndex(metrics, Math.max(0, candidateListScrollTop));
-        let visibleEndIndex = visibleStartIndex;
-        const visibleBottom = candidateListScrollTop + viewportHeight;
-
-        while (visibleEndIndex < metrics.length - 1 && metrics[visibleEndIndex].start + metrics[visibleEndIndex].size < visibleBottom) {
-            visibleEndIndex += 1;
-        }
-
-        const startIndex = Math.max(0, visibleStartIndex - CANDIDATE_LIST_OVERSCAN);
-        const endIndex = Math.min(metrics.length - 1, visibleEndIndex + CANDIDATE_LIST_OVERSCAN);
-        const startMetric = metrics[startIndex];
-        const endMetric = metrics[endIndex];
-        const topSpacerHeight = startMetric?.start || 0;
-        const bottomSpacerHeight = Math.max(0, totalHeight - (endMetric.start + endMetric.size));
-
-        return {
-            totalHeight,
-            topSpacerHeight,
-            bottomSpacerHeight,
-            startIndex,
-            endIndex,
-        };
-    }, [candidateListMeasuredRowHeights, candidateListScrollTop, candidateListViewportHeight, visibleCandidates]);
-
-    const visibleCandidateWindow = React.useMemo(() => {
-        if (candidateListVirtualMetrics.endIndex < candidateListVirtualMetrics.startIndex) {
-            return [];
-        }
-        return visibleCandidates.slice(candidateListVirtualMetrics.startIndex, candidateListVirtualMetrics.endIndex + 1);
-    }, [candidateListVirtualMetrics.endIndex, candidateListVirtualMetrics.startIndex, visibleCandidates]);
-
-    const createCandidateRowMeasureRef = React.useCallback((candidateId: number) => {
-        return (node: HTMLTableRowElement | null) => {
-            const existingObserver = candidateListRowObserversRef.current.get(candidateId);
-            if (existingObserver) {
-                existingObserver.disconnect();
-                candidateListRowObserversRef.current.delete(candidateId);
-            }
-
-            if (!node) {
-                return;
-            }
-
-            const measureRow = () => {
-                const nextHeight = Math.ceil(node.getBoundingClientRect().height);
-                setCandidateListMeasuredRowHeights((current) => (
-                    current[candidateId] === nextHeight
-                        ? current
-                        : {
-                            ...current,
-                            [candidateId]: nextHeight,
-                        }
-                ));
-            };
-
-            measureRow();
-
-            if (typeof ResizeObserver === "undefined") {
-                return;
-            }
-
-            const observer = new ResizeObserver(() => measureRow());
-            observer.observe(node);
-            candidateListRowObserversRef.current.set(candidateId, observer);
-        };
-    }, []);
+    const virtualItems = rowVirtualizer.getVirtualItems();
+    const topSpacerHeight = virtualItems.length > 0 ? virtualItems[0].start : 0;
+    const bottomSpacerHeight = virtualItems.length > 0
+        ? rowVirtualizer.getTotalSize() - (virtualItems[virtualItems.length - 1].start + virtualItems[virtualItems.length - 1].size)
+        : 0;
 
     const [candidateDetailPanel, setCandidateDetailPanel] = React.useState<"profile" | "ai" | "interview">("profile");
 
@@ -1481,16 +1541,20 @@ export function CandidatesPage({
     }, [candidateDetail, candidateDetailPanel, updateCandidateDetailToolbarMetrics]);
 
     const candidateOverviewStats = React.useMemo(() => {
-        const pendingScreeningCount = visibleCandidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_screening").length;
-        const pendingInterviewCount = visibleCandidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_interview").length;
-        const talentPoolCount = visibleCandidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "talent_pool").length;
-        const sentResumeCount = visibleCandidates.filter((candidate) => Boolean(getCandidateResumeMailSummary(candidate.id))).length;
+        const stats = visibleCandidates.reduce((acc, candidate) => {
+            const status = resolveCandidateDisplayStatus(candidate);
+            if (status === "pending_screening") acc.pendingScreening++;
+            if (status === "pending_interview") acc.pendingInterview++;
+            if (status === "talent_pool") acc.talentPool++;
+            if (getCandidateResumeMailSummary(candidate.id)) acc.sent++;
+            return acc;
+        }, {pendingScreening: 0, pendingInterview: 0, talentPool: 0, sent: 0});
 
         return [
             {label: tr.currentResults, value: `${visibleCandidates.length}${tr.peopleSuffix}`},
-            {label: tr.pendingScreening, value: `${pendingScreeningCount}${tr.peopleSuffix}`},
-            {label: tr.pendingInterview, value: `${pendingInterviewCount}${tr.peopleSuffix}`},
-            {label: tr.talentPoolAndSent, value: `${talentPoolCount} / ${sentResumeCount}`},
+            {label: tr.pendingScreening, value: `${stats.pendingScreening}${tr.peopleSuffix}`},
+            {label: tr.pendingInterview, value: `${stats.pendingInterview}${tr.peopleSuffix}`},
+            {label: tr.talentPoolAndSent, value: `${stats.talentPool} / ${stats.sent}`},
         ];
     }, [getCandidateResumeMailSummary, tr, visibleCandidates]);
 
@@ -1670,7 +1734,7 @@ export function CandidatesPage({
                                                 <th className="text-foreground sticky top-0 z-10 h-10 w-14 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap">
                                                     <input
                                                         type="checkbox"
-                                                        checked={visibleCandidates.length > 0 && visibleCandidates.every((candidate) => selectedCandidateIds.includes(candidate.id))}
+                                                        checked={visibleCandidates.length > 0 && visibleCandidates.every((candidate) => selectedCandidateIdSet.has(candidate.id))}
                                                         onChange={(event) => setSelectedCandidateIds(event.target.checked ? visibleCandidates.map((candidate) => candidate.id) : [])}
                                                         aria-label={tr.selectAllCandidates}
                                                     />
@@ -1713,178 +1777,40 @@ export function CandidatesPage({
                                         <tbody className="[&_tr:last-child]:border-0">
                                             {visibleCandidates.length ? (
                                                 <>
-                                                    {candidateListVirtualMetrics.topSpacerHeight > 0 ? (
+                                                    {topSpacerHeight > 0 ? (
                                                         <tr aria-hidden="true" className="border-0">
                                                             <td
                                                                 colSpan={candidateListVisibleColumns.length + 1}
                                                                 className="h-0 p-0"
-                                                                style={{height: candidateListVirtualMetrics.topSpacerHeight, border: 0}}
+                                                                style={{height: topSpacerHeight, border: 0}}
                                                             />
                                                         </tr>
                                                     ) : null}
-                                                    {visibleCandidateWindow.map((candidate) => (
-                                                <tr
-                                                    key={candidate.id}
-                                                    ref={createCandidateRowMeasureRef(candidate.id)}
-                                                    className={cn("cursor-pointer", selectedCandidateId === candidate.id && "bg-slate-100 dark:bg-slate-900")}
-                                                    onClick={() => setSelectedCandidateId(candidate.id)}
-                                                >
-                                                    <td className="p-2 align-middle whitespace-nowrap" onClick={(event) => event.stopPropagation()}>
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={selectedCandidateIds.includes(candidate.id)}
-                                                            onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
-                                                            aria-label={tr.selectCandidate(candidate.name)}
-                                                        />
-                                                    </td>
-                                                    {candidateListVisibleColumns.map((columnKey) => {
-                                                        if (columnKey === "candidate") {
-                                                            return (
-                                                                <td
-                                                                    key={columnKey}
-                                                                    style={{
-                                                                        width: candidateListEffectiveColumnWidths.candidate,
-                                                                        minWidth: candidateListEffectiveColumnWidths.candidate,
-                                                                        maxWidth: candidateListEffectiveColumnWidths.candidate,
-                                                                    }}
-                                                                    className="p-2 align-middle"
-                                                                >
-                                                                    <div className="min-w-0">
-                                                                        <div className="flex flex-wrap items-center gap-2">
-                                                                            <HoverRevealText text={candidate.name} className="font-medium text-slate-900 dark:text-slate-100"/>
-                                                                            {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                                <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                                                    {tr.resumeSent}
-                                                                                </Badge>
-                                                                            ) : null}
-                                                                        </div>
-                                                                        <HoverRevealText
-                                                                            text={candidate.phone || candidate.email || tr.noContact}
-                                                                            className="text-xs text-slate-500 dark:text-slate-400"
-                                                                        />
-                                                                        {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                            <HoverRevealText
-                                                                                text={getCandidateResumeMailSummary(candidate.id) || ""}
-                                                                                className="mt-1 text-xs text-sky-600 dark:text-slate-300"
-                                                                                tooltipClassName="max-w-sm"
-                                                                            />
-                                                                        ) : null}
-                                                                    </div>
-                                                                </td>
-                                                            );
-                                                        }
-                                                        if (columnKey === "organization") {
-                                                            return (
-                                                                <td
-                                                                    key={columnKey}
-                                                                    style={{
-                                                                        width: candidateListEffectiveColumnWidths.organization,
-                                                                        minWidth: candidateListEffectiveColumnWidths.organization,
-                                                                        maxWidth: candidateListEffectiveColumnWidths.organization,
-                                                                    }}
-                                                                    className="p-2 align-middle"
-                                                                >
-                                                                    <HoverRevealText
-                                                                        text={getOrganizationLabel(candidate.org_code)}
-                                                                        className="text-xs text-slate-600 dark:text-slate-300"
-                                                                    />
-                                                                </td>
-                                                            );
-                                                        }
-                                                        if (columnKey === "position") {
-                                                            return (
-                                                                <td
-                                                                    key={columnKey}
-                                                                    style={{
-                                                                        width: candidateListEffectiveColumnWidths.position,
-                                                                        minWidth: candidateListEffectiveColumnWidths.position,
-                                                                        maxWidth: candidateListEffectiveColumnWidths.position,
-                                                                    }}
-                                                                    className="p-2 align-middle"
-                                                                >
-                                                                    <HoverRevealText text={candidate.position_title || tr.unassignedPosition}/>
-                                                                </td>
-                                                            );
-                                                        }
-                                                        if (columnKey === "status") {
-                                                            return (
-                                                                <td
-                                                                    key={columnKey}
-                                                                    style={{
-                                                                        width: candidateListEffectiveColumnWidths.status,
-                                                                        minWidth: candidateListEffectiveColumnWidths.status,
-                                                                        maxWidth: candidateListEffectiveColumnWidths.status,
-                                                                    }}
-                                                                    className="p-2 align-middle whitespace-nowrap"
-                                                                >
-                                                                    <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(candidate)))}>
-                                                                        {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))}
-                                                                    </Badge>
-                                                                    {candidate.display_status_reason ? (
-                                                                        <HoverRevealText
-                                                                            text={candidate.display_status_reason}
-                                                                            className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400"
-                                                                            tooltipClassName="max-w-sm"
-                                                                        />
-                                                                    ) : null}
-                                                                </td>
-                                                            );
-                                                        }
-                                                        if (columnKey === "match") {
-                                                            return (
-                                                                <td
-                                                                    key={columnKey}
-                                                                    style={{
-                                                                        width: candidateListEffectiveColumnWidths.match,
-                                                                        minWidth: candidateListEffectiveColumnWidths.match,
-                                                                        maxWidth: candidateListEffectiveColumnWidths.match,
-                                                                    }}
-                                                                    className="p-2 align-middle whitespace-nowrap"
-                                                                >
-                                                                    {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
-                                                                </td>
-                                                            );
-                                                        }
-                                                        if (columnKey === "source") {
-                                                            return (
-                                                                <td
-                                                                    key={columnKey}
-                                                                    style={{
-                                                                        width: candidateListEffectiveColumnWidths.source,
-                                                                        minWidth: candidateListEffectiveColumnWidths.source,
-                                                                        maxWidth: candidateListEffectiveColumnWidths.source,
-                                                                    }}
-                                                                    className="p-2 align-middle"
-                                                                >
-                                                                    <HoverRevealText text={candidate.source || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
-                                                                </td>
-                                                            );
-                                                        }
-                                                        if (columnKey === "updated") {
-                                                            return (
-                                                                <td
-                                                                    key={columnKey}
-                                                                    style={{
-                                                                        width: candidateListEffectiveColumnWidths.updated,
-                                                                        minWidth: candidateListEffectiveColumnWidths.updated,
-                                                                        maxWidth: candidateListEffectiveColumnWidths.updated,
-                                                                    }}
-                                                                    className="p-2 align-middle"
-                                                                >
-                                                                    <HoverRevealText text={formatDateTime(candidate.updated_at)}/>
-                                                                </td>
-                                                            );
-                                                        }
-                                                        return null;
-                                                    })}
-                                                </tr>
-                                                    ))}
-                                                    {candidateListVirtualMetrics.bottomSpacerHeight > 0 ? (
+                                                    {virtualItems.map((virtualRow) => {
+                                                        const candidate = visibleCandidates[virtualRow.index];
+                                                        return (
+                                                            <CandidateRow
+                                                                key={candidate.id}
+                                                                candidate={candidate}
+                                                                isSelected={selectedCandidateId === candidate.id}
+                                                                isChecked={selectedCandidateIdSet.has(candidate.id)}
+                                                                columns={candidateListVisibleColumns}
+                                                                columnWidths={candidateListEffectiveColumnWidths}
+                                                                onSelect={stableCallbacks.selectMap.get(candidate.id)!}
+                                                                onToggleCheck={stableCallbacks.toggleMap.get(candidate.id)!}
+                                                                getResumeMailSummary={stableGetResumeMailSummary}
+                                                                getOrganizationLabel={stableGetOrganizationLabel}
+                                                                tr={tr}
+                                                                measureRef={rowVirtualizer.measureElement}
+                                                                dataIndex={virtualRow.index}
+                                                            />
+                                                    )})}
+                                                    {bottomSpacerHeight > 0 ? (
                                                         <tr aria-hidden="true" className="border-0">
                                                             <td
                                                                 colSpan={candidateListVisibleColumns.length + 1}
                                                                 className="h-0 p-0"
-                                                                style={{height: candidateListVirtualMetrics.bottomSpacerHeight, border: 0}}
+                                                                style={{height: bottomSpacerHeight, border: 0}}
                                                             />
                                                         </tr>
                                                     ) : null}
@@ -1957,7 +1883,7 @@ export function CandidatesPage({
                                                             </button>
                                                             <input
                                                                 type="checkbox"
-                                                                checked={selectedCandidateIds.includes(candidate.id)}
+                                                                checked={selectedCandidateIdSet.has(candidate.id)}
                                                                 onChange={(event) => toggleCandidateSelection(candidate.id, event.target.checked)}
                                                                 aria-label={tr.selectCandidate(candidate.name)}
                                                             />

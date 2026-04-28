@@ -193,6 +193,7 @@ const PAGE_ACTIVITY_POLL_MAX_INTERVAL_MS = 15000;
 const TASK_MONITOR_VISIBLE_INTERVAL_MS = 1200;
 const TASK_MONITOR_HIDDEN_INTERVAL_MS = 5000;
 const TASK_MONITOR_MAX_INTERVAL_MS = 15000;
+const TASK_MONITOR_BATCH_SCALE_THRESHOLD = 8;
 const ALL_COMPANY_DEPARTMENTS_VALUE = "__all_company_departments__";
 
 type OrgScopedItem = {
@@ -404,6 +405,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const screeningLaunchInFlightRef = useRef(false);
     const taskMonitorTimersRef = useRef<Map<number, number>>(new Map());
     const taskMonitorTokensRef = useRef<Map<number, symbol>>(new Map());
+    const pendingLogUpdatesRef = useRef<AITaskLog[]>([]);
+    const logFlushRafRef = useRef<number | null>(null);
     const requestInflightRef = useRef<Map<string, Promise<unknown>>>(new Map());
     const primaryNavScrollRef = useRef<HTMLDivElement | null>(null);
     const primaryNavButtonRefs = useRef<Partial<Record<RecruitmentPage, HTMLButtonElement | null>>>({});
@@ -1589,6 +1592,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             taskMonitorTimers.clear();
             taskMonitorTokens.clear();
             inflightRequests.clear();
+            if (logFlushRafRef.current != null) {
+                window.cancelAnimationFrame(logFlushRafRef.current);
+                logFlushRafRef.current = null;
+            }
         };
     }, []);
 
@@ -2627,22 +2634,46 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setSelectedLogId(logId);
     }
 
-    function mergeAiTaskLog(log: AITaskLog) {
+    function flushPendingLogUpdates() {
+        const updates = pendingLogUpdatesRef.current;
+        pendingLogUpdatesRef.current = [];
+        logFlushRafRef.current = null;
+        if (!updates.length) return;
+
         setCancellingTaskIds((current) => {
-            if (log.status === "cancelling") {
-                return current.includes(log.id) ? current : [...current, log.id];
+            let next = current;
+            for (const log of updates) {
+                if (log.status === "cancelling") {
+                    if (!next.includes(log.id)) next = [...next, log.id];
+                } else {
+                    next = next.filter((item) => item !== log.id);
+                }
             }
-            return current.includes(log.id) ? current.filter((item) => item !== log.id) : current;
-        });
-        setAllAiLogs((current) => {
-            const index = current.findIndex((item) => item.id === log.id);
-            if (index === -1) {
-                return [log, ...current];
-            }
-            const next = [...current];
-            next[index] = log;
             return next;
         });
+
+        setAllAiLogs((current) => {
+            let changed = false;
+            const next = [...current];
+            for (const log of updates) {
+                const index = next.findIndex((item) => item.id === log.id);
+                if (index === -1) {
+                    next.unshift(log);
+                    changed = true;
+                } else if (next[index] !== log) {
+                    next[index] = log;
+                    changed = true;
+                }
+            }
+            return changed ? next : current;
+        });
+    }
+
+    function mergeAiTaskLog(log: AITaskLog) {
+        pendingLogUpdatesRef.current.push(log);
+        if (!logFlushRafRef.current) {
+            logFlushRafRef.current = requestAnimationFrame(flushPendingLogUpdates);
+        }
     }
 
     function stopTaskMonitor(taskId: number) {
@@ -2862,10 +2893,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             } finally {
                 polling = false;
                 if (mountedRef.current && taskMonitorTokensRef.current.get(taskId) === token) {
+                    const activeCount = taskMonitorTimersRef.current.size;
+                    const batchScale = activeCount > TASK_MONITOR_BATCH_SCALE_THRESHOLD
+                        ? Math.min(3, 1 + Math.floor(activeCount / TASK_MONITOR_BATCH_SCALE_THRESHOLD))
+                        : 1;
                     scheduleNextPoll(getPollingDelay(
                         pageVisibleRef.current,
                         failureCount,
-                        TASK_MONITOR_VISIBLE_INTERVAL_MS,
+                        TASK_MONITOR_VISIBLE_INTERVAL_MS * batchScale,
                         TASK_MONITOR_HIDDEN_INTERVAL_MS,
                         TASK_MONITOR_MAX_INTERVAL_MS,
                     ));
