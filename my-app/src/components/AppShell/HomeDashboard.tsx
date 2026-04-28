@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { CheckCircle, ChevronRight, Cloud, Server, Settings, Terminal } from 'lucide-react';
 
 import { QuickActions } from '@/components/Layout/QuickActions';
@@ -39,6 +40,17 @@ export function HomeDashboard({
     onSetCurrentView,
 }: HomeDashboardProps) {
     const { t } = useI18n();
+
+    // CM 系统任意脚本权限检查
+    const hasAnyChunmiaoPermission = React.useMemo(() => {
+        if (!currentUser) return false;
+        const chunmiaoPermissions = [
+            'settlement', 'commission', 'balance', 'task-automation',
+            'sms_operations_center', 'tax-reporting', 'tax-calculation',
+            'settlement-sim', 'payment-stats', 'delivery-tool', 'biz-scene', 'biz-task'
+        ];
+        return chunmiaoPermissions.some(p => currentUser.permissions[p]);
+    }, [currentUser]);
 
     const hour = now.getHours();
     let timeGreeting = t.home.greetingEvening;
@@ -159,6 +171,7 @@ export function HomeDashboard({
 
             <div className="flex gap-6 items-start">
                 <div className="flex-[3] grid grid-cols-2 gap-6">
+                    {hasAnyChunmiaoPermission && (
                     <div className="system-card p-6 cursor-pointer flex flex-col h-[280px]" onClick={() => onOpenSystem('chunmiao')}>
                         <div className="flex justify-between items-start mb-4">
                             <div className="w-12 h-12 bg-background border border-[var(--border-subtle)] shadow-sm rounded-xl flex items-center justify-center group-hover:border-primary/50 transition-colors">
@@ -178,6 +191,7 @@ export function HomeDashboard({
                             <ChevronRight className="w-4 h-4" />
                         </button>
                     </div>
+                    )}
 
                     {currentUser?.permissions['dev-tools'] && (
                         <div className="system-card p-6 cursor-pointer flex flex-col h-[280px]" onClick={() => onSetCurrentView('dev-tools')}>

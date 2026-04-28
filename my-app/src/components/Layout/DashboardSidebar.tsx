@@ -116,16 +116,22 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                         ),
                                         onClick: () => setCurrentView(homeNavView),
                                     })}
-                                    {renderNavItem({
-                                        active: currentView === 'system',
-                                        label: t.nav.cmTools,
-                                        icon: <Wrench className="h-[18px] w-[18px]" />,
-                                        onClick: () => {
-                                            setSelectedSystem('chunmiao');
-                                            setScriptQuery('');
-                                            setCurrentView('system');
-                                        },
-                                    })}
+                                    {currentUser?.permissions &&
+                                     ['settlement', 'commission', 'balance', 'task-automation',
+                                      'sms_operations_center', 'tax-reporting', 'tax-calculation',
+                                      'settlement-sim', 'payment-stats', 'delivery-tool', 'biz-scene', 'biz-task'
+                                     ].some(p => currentUser.permissions[p])
+                                        ? renderNavItem({
+                                            active: currentView === 'system',
+                                            label: t.nav.cmTools,
+                                            icon: <Wrench className="h-[18px] w-[18px]" />,
+                                            onClick: () => {
+                                                setSelectedSystem('chunmiao');
+                                                setScriptQuery('');
+                                                setCurrentView('system');
+                                            },
+                                        })
+                                        : null}
                                     {currentUser?.permissions['ocr-tool']
                                         ? renderNavItem({
                                             active: currentView === 'ocr-tool',
