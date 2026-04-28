@@ -5239,10 +5239,11 @@ class RecruitmentService:
             return
         row_org_code = normalize_org_code(getattr(row, "org_code", None))
         if row_org_code not in set(self.permission_context.visible_org_codes or ()):
-            raise ValueError("操作失败")
+            visible = ", ".join(self.permission_context.visible_org_codes or [])
+            raise ValueError(f"无权访问此资源，该资源属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
         owner = getattr(row, "created_by", None) or getattr(row, "uploaded_by", None)
         if self.permission_context.is_self_scope and owner != self.permission_context.actor_user_code:
-            raise ValueError("操作失败")
+            raise ValueError("无权访问此资源，仅能访问自己创建的数据")
 
     def _is_business_row_visible(self, row: Any) -> bool:
         """Check if a business row is visible in the current permission context. Returns bool instead of throwing."""
@@ -5264,11 +5265,14 @@ class RecruitmentService:
             return
         if getattr(row, "created_by", None) == actor_id:
             return
-        raise ValueError("操作失败")
+        visible = ", ".join(self.permission_context.visible_org_codes or [])
+        raise ValueError(f"无权操作此资源，该资源属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
 
     def _assert_resource_copyable(self, row: Any) -> None:
         if not self._can_access_org_resource(row):
-            raise ValueError("操作失败")
+            row_org_code = normalize_org_code(getattr(row, "org_code", None))
+            visible = ", ".join(self.permission_context.visible_org_codes or []) if self.permission_context else ""
+            raise ValueError(f"无权复制此资源，该资源属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
         if normalize_share_policy(getattr(row, "share_policy", None)) != SHARE_POLICY_SHARED_COPYABLE:
             raise ValueError("资源不允许复制")
         if not bool(getattr(row, "allow_copy", False)):
@@ -5278,7 +5282,8 @@ class RecruitmentService:
         if not self.permission_context or self.permission_context.has_all_orgs:
             return
         if normalize_org_code(org_code) not in set(self.permission_context.visible_org_codes or ()):
-            raise ValueError("操作失败")
+            visible = ", ".join(self.permission_context.visible_org_codes or [])
+            raise ValueError(f"无权在组织 {org_code} 创建资源，当前用户可访问的组织为 {visible}")
 
     def _serialize_organization_scope_row(self, row: ScriptHubOrganization) -> Dict[str, Any]:
         return {
@@ -5339,7 +5344,7 @@ class RecruitmentService:
     def _get_ai_task_log_row(self, task_id: int) -> RecruitmentAITaskLog:
         row = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.id == task_id).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"AI 任务记录 ID={task_id} 不存在")
         return row
 
     def _raise_if_cancelled(self, cancel_control: Optional[RecruitmentTaskControl]) -> None:
@@ -6309,23 +6314,25 @@ class RecruitmentService:
     def _get_position(self, position_id: int) -> RecruitmentPosition:
         row = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == position_id, RecruitmentPosition.deleted.is_(False)).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"岗位 ID={position_id} 不存在或已删除")
         self._assert_business_row_visible(row)
         return row
 
     def _get_candidate(self, candidate_id: int) -> RecruitmentCandidate:
         row = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == candidate_id, RecruitmentCandidate.deleted.is_(False)).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"候选人 ID={candidate_id} 不存在或已删除")
         self._assert_business_row_visible(row)
         return row
 
     def _get_skill(self, skill_id: int) -> RecruitmentSkill:
         row = self.db.query(RecruitmentSkill).filter(RecruitmentSkill.id == skill_id, RecruitmentSkill.deleted.is_(False)).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"Skill ID={skill_id} 不存在或已删除")
         if not self._can_access_org_resource(row):
-            raise ValueError("操作失败")
+            row_org_code = normalize_org_code(getattr(row, "org_code", None))
+            visible = ", ".join(self.permission_context.visible_org_codes or []) if self.permission_context else ""
+            raise ValueError(f"无权操作此 Skill，该 Skill 属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
         return row
 
     def _get_resume_file(self, resume_file_id: int) -> RecruitmentResumeFile:
@@ -9069,7 +9076,7 @@ class RecruitmentService:
         batch_id: Optional[str] = None,
     ) -> Tuple[RecruitmentResumeParseResult, RecruitmentCandidateScore]:
         if not candidate.latest_resume_file_id:
-            raise ValueError("操作失败")
+            raise ValueError(f"候选人 ID={candidate.id} 尚未上传简历，无法进行简历评分")
         resume_file = self._get_resume_file(candidate.latest_resume_file_id)
         resume_file.parse_status = "processing"
         self.db.add(resume_file)
@@ -9472,7 +9479,7 @@ class RecruitmentService:
         deadline_at: Optional[datetime] = None,
     ) -> RecruitmentResumeParseResult:
         if not candidate.latest_resume_file_id:
-            raise ValueError("操作失败")
+            raise ValueError(f"候选人 ID={candidate.id} 尚未上传简历，无法解析简历")
         resume_file = self._get_resume_file(candidate.latest_resume_file_id)
         shared_flow_log = task_log_row is not None
         request_hash = self._build_request_hash("resume_parse", candidate.id, resume_file.id, resume_file.storage_path)
@@ -12311,7 +12318,7 @@ class RecruitmentService:
     def get_interview_question_download(self, question_id: int) -> Dict[str, Any]:
         row = self.db.query(RecruitmentInterviewQuestion).filter(RecruitmentInterviewQuestion.id == question_id).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"面试问题 ID={question_id} 不存在")
         candidate = self._get_candidate(row.candidate_id)
         file_name = f"interview-question-{safe_file_stem(candidate.name)}-{safe_file_stem(row.round_name)}.html".replace(" ", "-")
         return {"file_name": file_name, "html_content": ensure_interview_html_document(file_name, html_content=row.html_content or "", markdown_content=row.markdown_content or "")}
@@ -12320,7 +12327,7 @@ class RecruitmentService:
         resume_file = self._get_resume_file(resume_file_id)
         path = Path(resume_file.storage_path)
         if not path.exists():
-            raise ValueError("操作失败")
+            raise ValueError(f"简历文件（ID={resume_file_id}）存储路径不存在，可能已被删除")
         media_type = (resume_file.mime_type or "").strip()
         if not media_type or media_type in {"application/octet-stream", "binary/octet-stream"}:
             media_type = mimetypes.guess_type(resume_file.original_name or "")[0] or "application/octet-stream"
@@ -12492,7 +12499,7 @@ class RecruitmentService:
         position = self._get_position(position_id)
         row = self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.id == version_id, RecruitmentJDVersion.position_id == position.id).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"JD 版本 ID={version_id} 不存在或不属于岗位 ID={position_id}")
         self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.position_id == position.id).update({RecruitmentJDVersion.is_active: False}, synchronize_session=False)
         row.is_active = True
         position.current_jd_version_id = row.id
@@ -12541,9 +12548,11 @@ class RecruitmentService:
     def update_llm_config(self, config_id: int, payload: Dict[str, Any], actor_id: str = "unknown") -> Dict[str, Any]:
         row = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.id == config_id).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"LLM 配置 ID={config_id} 不存在")
         if not self._can_access_org_resource(row):
-            raise ValueError("操作失败")
+            row_org_code = normalize_org_code(getattr(row, "org_code", None))
+            visible = ", ".join(self.permission_context.visible_org_codes or []) if self.permission_context else ""
+            raise ValueError(f"无权操作此 LLM 配置，该配置属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
         self._assert_resource_manageable(row, actor_id)
         if "config_key" in payload:
             payload["config_key"] = self._ensure_llm_config_key_available(payload.get("config_key"), exclude_id=config_id)
@@ -12576,7 +12585,7 @@ class RecruitmentService:
     def copy_llm_config(self, config_id: int, actor_id: str = "unknown", target_org_code: Optional[str] = None) -> Dict[str, Any]:
         source = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.id == config_id).first()
         if not source:
-            raise ValueError("操作失败")
+            raise ValueError(f"LLM 配置 ID={config_id} 不存在")
         self._assert_resource_copyable(source)
         org_code = normalize_org_code(target_org_code or self._current_org_code())
         self._assert_can_create_in_org(org_code)
@@ -12607,9 +12616,11 @@ class RecruitmentService:
     def delete_llm_config(self, config_id: int, actor_id: str = "unknown") -> None:
         row = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.id == config_id).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"LLM 配置 ID={config_id} 不存在")
         if not self._can_access_org_resource(row):
-            raise ValueError("操作失败")
+            row_org_code = normalize_org_code(getattr(row, "org_code", None))
+            visible = ", ".join(self.permission_context.visible_org_codes or []) if self.permission_context else ""
+            raise ValueError(f"无权删除此 LLM 配置，该配置属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
         self._assert_resource_manageable(row, actor_id)
         self.db.delete(row)
         self.db.commit()
@@ -12636,9 +12647,11 @@ class RecruitmentService:
     def update_mail_sender(self, sender_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         row = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == sender_id, RecruitmentMailSenderConfig.deleted.is_(False)).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"发件人配置 ID={sender_id} 不存在或已删除")
         if not self._can_access_org_resource(row):
-            raise ValueError("操作失败")
+            row_org_code = normalize_org_code(getattr(row, "org_code", None))
+            visible = ", ".join(self.permission_context.visible_org_codes or []) if self.permission_context else ""
+            raise ValueError(f"无权操作此发件人配置，该配置属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
         self._assert_resource_manageable(row, actor_id)
         if payload.get("is_default"):
             self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.deleted.is_(False), RecruitmentMailSenderConfig.org_code == row.org_code, RecruitmentMailSenderConfig.id != sender_id).update({RecruitmentMailSenderConfig.is_default: False}, synchronize_session=False)
@@ -12663,7 +12676,7 @@ class RecruitmentService:
     def copy_mail_sender(self, sender_id: int, actor_id: str, target_org_code: Optional[str] = None) -> Dict[str, Any]:
         source = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == sender_id, RecruitmentMailSenderConfig.deleted.is_(False)).first()
         if not source:
-            raise ValueError("操作失败")
+            raise ValueError(f"发件人配置 ID={sender_id} 不存在或已删除")
         self._assert_resource_copyable(source)
         org_code = normalize_org_code(target_org_code or self._current_org_code())
         self._assert_can_create_in_org(org_code)
@@ -12696,9 +12709,11 @@ class RecruitmentService:
     def delete_mail_sender(self, sender_id: int, actor_id: str) -> None:
         row = self.db.query(RecruitmentMailSenderConfig).filter(RecruitmentMailSenderConfig.id == sender_id, RecruitmentMailSenderConfig.deleted.is_(False)).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"发件人配置 ID={sender_id} 不存在或已删除")
         if not self._can_access_org_resource(row):
-            raise ValueError("操作失败")
+            row_org_code = normalize_org_code(getattr(row, "org_code", None))
+            visible = ", ".join(self.permission_context.visible_org_codes or []) if self.permission_context else ""
+            raise ValueError(f"无权删除此发件人配置，该配置属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
         self._assert_resource_manageable(row, actor_id)
         row.deleted = True
         row.updated_by = actor_id
@@ -12725,9 +12740,11 @@ class RecruitmentService:
     def update_mail_recipient(self, recipient_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         row = self.db.query(RecruitmentMailRecipient).filter(RecruitmentMailRecipient.id == recipient_id, RecruitmentMailRecipient.deleted.is_(False)).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"收件人 ID={recipient_id} 不存在或已删除")
         if not self._can_access_org_resource(row):
-            raise ValueError("操作失败")
+            row_org_code = normalize_org_code(getattr(row, "org_code", None))
+            visible = ", ".join(self.permission_context.visible_org_codes or []) if self.permission_context else ""
+            raise ValueError(f"无权操作此收件人，该收件人属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
         self._assert_resource_manageable(row, actor_id)
         for field in ["name", "email", "department", "role_title", "notes", "is_enabled", "scope_level", "allow_sub_org_use", "allow_copy"]:
             if field in payload:
@@ -12749,7 +12766,7 @@ class RecruitmentService:
     def copy_mail_recipient(self, recipient_id: int, actor_id: str, target_org_code: Optional[str] = None) -> Dict[str, Any]:
         source = self.db.query(RecruitmentMailRecipient).filter(RecruitmentMailRecipient.id == recipient_id, RecruitmentMailRecipient.deleted.is_(False)).first()
         if not source:
-            raise ValueError("操作失败")
+            raise ValueError(f"收件人 ID={recipient_id} 不存在或已删除")
         self._assert_resource_copyable(source)
         org_code = normalize_org_code(target_org_code or self._current_org_code())
         self._assert_can_create_in_org(org_code)
@@ -12778,9 +12795,11 @@ class RecruitmentService:
     def delete_mail_recipient(self, recipient_id: int, actor_id: str) -> None:
         row = self.db.query(RecruitmentMailRecipient).filter(RecruitmentMailRecipient.id == recipient_id, RecruitmentMailRecipient.deleted.is_(False)).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"收件人 ID={recipient_id} 不存在或已删除")
         if not self._can_access_org_resource(row):
-            raise ValueError("操作失败")
+            row_org_code = normalize_org_code(getattr(row, "org_code", None))
+            visible = ", ".join(self.permission_context.visible_org_codes or []) if self.permission_context else ""
+            raise ValueError(f"无权删除此收件人，该收件人属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
         self._assert_resource_manageable(row, actor_id)
         row.deleted = True
         row.updated_by = actor_id
@@ -13405,7 +13424,7 @@ class RecruitmentService:
     def _build_sender_runtime(self, row: RecruitmentMailSenderConfig) -> RecruitmentMailSenderRuntime:
         password = decrypt_secret(row.password_ciphertext or "")
         if not password:
-            raise ValueError("操作失败")
+            raise ValueError(f"发件人配置「{row.name}」（ID={row.id}）未设置密码，无法发送邮件")
         return RecruitmentMailSenderRuntime(from_email=row.from_email, from_name=row.from_name, smtp_host=row.smtp_host, smtp_port=row.smtp_port, username=row.username, password=password, use_ssl=bool(row.use_ssl), use_starttls=bool(row.use_starttls))
 
     def list_resume_mail_dispatches(self) -> List[Dict[str, Any]]:
@@ -13487,7 +13506,7 @@ class RecruitmentService:
     def get_ai_task_log(self, task_id: int) -> Dict[str, Any]:
         row = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.id == task_id).first()
         if not row:
-            raise ValueError("操作失败")
+            raise ValueError(f"AI 任务日志 ID={task_id} 不存在")
         self._assert_business_row_visible(row)
         if self._settle_orphaned_live_task(row):
             self.db.commit()

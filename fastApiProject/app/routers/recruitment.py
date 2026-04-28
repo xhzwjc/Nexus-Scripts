@@ -959,7 +959,8 @@ async def update_llm_config(http_request: Request, config_id: int, payload: Recr
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         detail = str(exc)
-        raise HTTPException(status_code=404 if detail == "操作失败" else 400, detail=detail)
+        is_not_found = "不存在" in detail or "不存在或已删除" in detail
+        raise HTTPException(status_code=404 if is_not_found else 400, detail=detail)
 
 
 @recruitment_router.delete("/llm-configs/{config_id}")

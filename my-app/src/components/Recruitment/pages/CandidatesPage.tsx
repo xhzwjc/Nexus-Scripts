@@ -1330,8 +1330,8 @@ export function CandidatesPage({
     const candidateListVisibleColumns = React.useMemo<CandidateListColumnKey[]>(
         () => (
             showOrganizationColumn
-                ? ["candidate", "organization", "position", "status", "match", "source", "updated"]
-                : ["candidate", "position", "status", "match", "source", "updated"]
+                ? ["candidate", "status", "match", "position", "organization", "source", "updated"]
+                : ["candidate", "status", "match", "position", "source", "updated"]
         ),
         [showOrganizationColumn],
     );
@@ -1737,110 +1737,146 @@ export function CandidatesPage({
                                                             aria-label={tr.selectCandidate(candidate.name)}
                                                         />
                                                     </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListEffectiveColumnWidths.candidate,
-                                                            minWidth: candidateListEffectiveColumnWidths.candidate,
-                                                            maxWidth: candidateListEffectiveColumnWidths.candidate,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <div className="min-w-0">
-                                                            <div className="flex flex-wrap items-center gap-2">
-                                                                <HoverRevealText text={candidate.name} className="font-medium text-slate-900 dark:text-slate-100"/>
-                                                                {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                        <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                                        {tr.resumeSent}
+                                                    {candidateListVisibleColumns.map((columnKey) => {
+                                                        if (columnKey === "candidate") {
+                                                            return (
+                                                                <td
+                                                                    key={columnKey}
+                                                                    style={{
+                                                                        width: candidateListEffectiveColumnWidths.candidate,
+                                                                        minWidth: candidateListEffectiveColumnWidths.candidate,
+                                                                        maxWidth: candidateListEffectiveColumnWidths.candidate,
+                                                                    }}
+                                                                    className="p-2 align-middle"
+                                                                >
+                                                                    <div className="min-w-0">
+                                                                        <div className="flex flex-wrap items-center gap-2">
+                                                                            <HoverRevealText text={candidate.name} className="font-medium text-slate-900 dark:text-slate-100"/>
+                                                                            {getCandidateResumeMailSummary(candidate.id) ? (
+                                                                                <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                                                    {tr.resumeSent}
+                                                                                </Badge>
+                                                                            ) : null}
+                                                                        </div>
+                                                                        <HoverRevealText
+                                                                            text={candidate.phone || candidate.email || tr.noContact}
+                                                                            className="text-xs text-slate-500 dark:text-slate-400"
+                                                                        />
+                                                                        {getCandidateResumeMailSummary(candidate.id) ? (
+                                                                            <HoverRevealText
+                                                                                text={getCandidateResumeMailSummary(candidate.id) || ""}
+                                                                                className="mt-1 text-xs text-sky-600 dark:text-slate-300"
+                                                                                tooltipClassName="max-w-sm"
+                                                                            />
+                                                                        ) : null}
+                                                                    </div>
+                                                                </td>
+                                                            );
+                                                        }
+                                                        if (columnKey === "organization") {
+                                                            return (
+                                                                <td
+                                                                    key={columnKey}
+                                                                    style={{
+                                                                        width: candidateListEffectiveColumnWidths.organization,
+                                                                        minWidth: candidateListEffectiveColumnWidths.organization,
+                                                                        maxWidth: candidateListEffectiveColumnWidths.organization,
+                                                                    }}
+                                                                    className="p-2 align-middle"
+                                                                >
+                                                                    <HoverRevealText
+                                                                        text={getOrganizationLabel(candidate.org_code)}
+                                                                        className="text-xs text-slate-600 dark:text-slate-300"
+                                                                    />
+                                                                </td>
+                                                            );
+                                                        }
+                                                        if (columnKey === "position") {
+                                                            return (
+                                                                <td
+                                                                    key={columnKey}
+                                                                    style={{
+                                                                        width: candidateListEffectiveColumnWidths.position,
+                                                                        minWidth: candidateListEffectiveColumnWidths.position,
+                                                                        maxWidth: candidateListEffectiveColumnWidths.position,
+                                                                    }}
+                                                                    className="p-2 align-middle"
+                                                                >
+                                                                    <HoverRevealText text={candidate.position_title || tr.unassignedPosition}/>
+                                                                </td>
+                                                            );
+                                                        }
+                                                        if (columnKey === "status") {
+                                                            return (
+                                                                <td
+                                                                    key={columnKey}
+                                                                    style={{
+                                                                        width: candidateListEffectiveColumnWidths.status,
+                                                                        minWidth: candidateListEffectiveColumnWidths.status,
+                                                                        maxWidth: candidateListEffectiveColumnWidths.status,
+                                                                    }}
+                                                                    className="p-2 align-middle whitespace-nowrap"
+                                                                >
+                                                                    <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(candidate)))}>
+                                                                        {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))}
                                                                     </Badge>
-                                                                ) : null}
-                                                            </div>
-                                                            <HoverRevealText
-                                                                text={candidate.phone || candidate.email || tr.noContact}
-                                                                className="text-xs text-slate-500 dark:text-slate-400"
-                                                            />
-                                                            {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                <HoverRevealText
-                                                                    text={getCandidateResumeMailSummary(candidate.id) || ""}
-                                                                    className="mt-1 text-xs text-sky-600 dark:text-slate-300"
-                                                                    tooltipClassName="max-w-sm"
-                                                                />
-                                                            ) : null}
-                                                        </div>
-                                                    </td>
-                                                    {showOrganizationColumn ? (
-                                                        <td
-                                                            style={{
-                                                                width: candidateListEffectiveColumnWidths.organization,
-                                                                minWidth: candidateListEffectiveColumnWidths.organization,
-                                                                maxWidth: candidateListEffectiveColumnWidths.organization,
-                                                            }}
-                                                            className="p-2 align-middle"
-                                                        >
-                                                            <HoverRevealText
-                                                                text={getOrganizationLabel(candidate.org_code)}
-                                                                className="text-xs text-slate-600 dark:text-slate-300"
-                                                            />
-                                                        </td>
-                                                    ) : null}
-                                                    <td
-                                                        style={{
-                                                            width: candidateListEffectiveColumnWidths.position,
-                                                            minWidth: candidateListEffectiveColumnWidths.position,
-                                                            maxWidth: candidateListEffectiveColumnWidths.position,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <HoverRevealText text={candidate.position_title || tr.unassignedPosition}/>
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListEffectiveColumnWidths.status,
-                                                            minWidth: candidateListEffectiveColumnWidths.status,
-                                                            maxWidth: candidateListEffectiveColumnWidths.status,
-                                                        }}
-                                                        className="p-2 align-middle whitespace-nowrap"
-                                                    >
-                                                        <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(candidate)))}>
-                                                            {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))}
-                                                        </Badge>
-                                                        {candidate.display_status_reason ? (
-                                                            <HoverRevealText
-                                                                text={candidate.display_status_reason}
-                                                                className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400"
-                                                                tooltipClassName="max-w-sm"
-                                                            />
-                                                        ) : null}
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListEffectiveColumnWidths.match,
-                                                            minWidth: candidateListEffectiveColumnWidths.match,
-                                                            maxWidth: candidateListEffectiveColumnWidths.match,
-                                                        }}
-                                                        className="p-2 align-middle whitespace-nowrap"
-                                                    >
-                                                        {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListEffectiveColumnWidths.source,
-                                                            minWidth: candidateListEffectiveColumnWidths.source,
-                                                            maxWidth: candidateListEffectiveColumnWidths.source,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <HoverRevealText text={candidate.source || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
-                                                    </td>
-                                                    <td
-                                                        style={{
-                                                            width: candidateListEffectiveColumnWidths.updated,
-                                                            minWidth: candidateListEffectiveColumnWidths.updated,
-                                                            maxWidth: candidateListEffectiveColumnWidths.updated,
-                                                        }}
-                                                        className="p-2 align-middle"
-                                                    >
-                                                        <HoverRevealText text={formatDateTime(candidate.updated_at)}/>
-                                                    </td>
+                                                                    {candidate.display_status_reason ? (
+                                                                        <HoverRevealText
+                                                                            text={candidate.display_status_reason}
+                                                                            className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400"
+                                                                            tooltipClassName="max-w-sm"
+                                                                        />
+                                                                    ) : null}
+                                                                </td>
+                                                            );
+                                                        }
+                                                        if (columnKey === "match") {
+                                                            return (
+                                                                <td
+                                                                    key={columnKey}
+                                                                    style={{
+                                                                        width: candidateListEffectiveColumnWidths.match,
+                                                                        minWidth: candidateListEffectiveColumnWidths.match,
+                                                                        maxWidth: candidateListEffectiveColumnWidths.match,
+                                                                    }}
+                                                                    className="p-2 align-middle whitespace-nowrap"
+                                                                >
+                                                                    {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
+                                                                </td>
+                                                            );
+                                                        }
+                                                        if (columnKey === "source") {
+                                                            return (
+                                                                <td
+                                                                    key={columnKey}
+                                                                    style={{
+                                                                        width: candidateListEffectiveColumnWidths.source,
+                                                                        minWidth: candidateListEffectiveColumnWidths.source,
+                                                                        maxWidth: candidateListEffectiveColumnWidths.source,
+                                                                    }}
+                                                                    className="p-2 align-middle"
+                                                                >
+                                                                    <HoverRevealText text={candidate.source || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
+                                                                </td>
+                                                            );
+                                                        }
+                                                        if (columnKey === "updated") {
+                                                            return (
+                                                                <td
+                                                                    key={columnKey}
+                                                                    style={{
+                                                                        width: candidateListEffectiveColumnWidths.updated,
+                                                                        minWidth: candidateListEffectiveColumnWidths.updated,
+                                                                        maxWidth: candidateListEffectiveColumnWidths.updated,
+                                                                    }}
+                                                                    className="p-2 align-middle"
+                                                                >
+                                                                    <HoverRevealText text={formatDateTime(candidate.updated_at)}/>
+                                                                </td>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })}
                                                 </tr>
                                                     ))}
                                                     {candidateListVirtualMetrics.bottomSpacerHeight > 0 ? (
