@@ -33,7 +33,6 @@ interface I18nProviderProps {
 
 export function I18nProvider({ children, defaultLanguage }: I18nProviderProps) {
     const [language, setLanguageState] = useState<Language>(defaultLanguage || DEFAULT_LANGUAGE);
-    const [isInitialized, setIsInitialized] = useState(false);
 
     // Initialize language from localStorage
     useEffect(() => {
@@ -44,7 +43,6 @@ export function I18nProvider({ children, defaultLanguage }: I18nProviderProps) {
         } else {
             currentLanguageRef = defaultLanguage || DEFAULT_LANGUAGE;
         }
-        setIsInitialized(true);
     }, [defaultLanguage]);
 
     // Set language and persist to localStorage
@@ -70,11 +68,6 @@ export function I18nProvider({ children, defaultLanguage }: I18nProviderProps) {
         }),
         [language, setLanguage, t]
     );
-
-    // Prevent flash of wrong language on initial load
-    if (!isInitialized) {
-        return null;
-    }
 
     return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
