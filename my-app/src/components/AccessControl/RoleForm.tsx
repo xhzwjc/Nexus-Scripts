@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import type { ScriptHubPermissionDefinition, ScriptHubRoleDefinition } from '@/lib/types';
@@ -119,6 +120,26 @@ export function RoleForm({
                                     rows={3}
                                     disabled={saving}
                                 />
+                            </div>
+
+                            <div className="mt-4 grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label>{labels.landingPageLabel}</Label>
+                                    <Select
+                                        value={form.landingPage}
+                                        onValueChange={(value) => onChange({ ...form, landingPage: value as 'home' | 'welcome' })}
+                                        disabled={saving}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="home">{labels.landingPageHome}</SelectItem>
+                                            <SelectItem value="welcome">{labels.landingPageWelcome}</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">{labels.landingPageHint}</p>
+                                </div>
                             </div>
 
                             {role && (

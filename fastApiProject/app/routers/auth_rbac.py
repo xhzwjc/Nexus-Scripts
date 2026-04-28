@@ -234,6 +234,7 @@ async def create_rbac_role_endpoint(
             name=payload.name,
             description=payload.description,
             permission_keys=payload.permission_keys,
+            landing_page=payload.landing_page,
         )
         write_audit_log(
             db,
@@ -436,6 +437,7 @@ async def update_rbac_role_endpoint(
             description=payload.description,
             permission_keys=payload.permission_keys,
             is_active=payload.is_active,
+            landing_page=payload.landing_page,
         )
         write_audit_log(
             db,

@@ -354,6 +354,7 @@ def serialize_admin_role(db: Session, role: ScriptHubRole) -> Dict[str, object]:
         "is_system": bool(role.is_system),
         "is_active": bool(role.is_active),
         "assigned_user_count": _get_assigned_user_count(db, role.id),
+        "landing_page": getattr(role, "landing_page", None) or "home",
     }
 
 
@@ -655,6 +656,7 @@ def create_rbac_role(
     name: str,
     description: Optional[str],
     permission_keys: Iterable[str],
+    landing_page: Optional[str] = None,
 ) -> Dict[str, object]:
     normalized_code = _normalize_role_code(code)
     if db.query(ScriptHubRole).filter(
@@ -681,6 +683,7 @@ def create_rbac_role(
         sort_order=next_sort_order,
         is_system=False,
         is_active=True,
+        landing_page=landing_page if landing_page in ("home", "welcome") else "home",
     )
     db.add(role)
     db.flush()
@@ -698,6 +701,7 @@ def update_rbac_role(
     description: Optional[str] = None,
     permission_keys: Optional[Iterable[str]] = None,
     is_active: Optional[bool] = None,
+    landing_page: Optional[str] = None,
 ) -> Dict[str, object]:
     normalized_role_code = _normalize_role_code(role_code)
     role = db.query(ScriptHubRole).filter(
@@ -730,6 +734,9 @@ def update_rbac_role(
 
     if description is not None:
         role.description = _normalize_text(description)
+
+    if landing_page is not None:
+        role.landing_page = landing_page if landing_page in ("home", "welcome") else "home"
 
     role.is_active = next_is_active
     _set_role_permissions(db, role.id, normalized_permission_keys, permission_rows)

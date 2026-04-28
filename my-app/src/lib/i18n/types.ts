@@ -542,6 +542,10 @@ export interface Translations {
     roleFormBasicInfo: string;
     roleFormBoundaryHint: string;
     rolePermissionOnlyHint: string;
+    landingPageLabel: string;
+    landingPageHome: string;
+    landingPageWelcome: string;
+    landingPageHint: string;
     systemRole: string;
     customRole: string;
     assignedUsers: string;

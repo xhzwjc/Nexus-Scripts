@@ -37,6 +37,7 @@ export interface RoleFormState {
     description: string;
     permissionKeys: string[];
     isActive: boolean;
+    landingPage: 'home' | 'welcome';
 }
 
 export interface RoleFormErrors {

@@ -140,9 +140,9 @@ def serialize_user_session(db: Session, user: ScriptHubUser) -> Dict[str, Any]:
         if user.is_super_admin or "admin" in role_codes
         else user.data_scope or DATA_SCOPE_ORG_ONLY
     )
-    # 根据角色配置决定默认首页
-    primary_role_def = ROLE_INDEX.get(primary_role)
-    landing_page = primary_role_def.landing_page if primary_role_def else "home"
+    # 根据角色配置决定默认首页（从数据库读取，而非硬编码 catalog）
+    primary_role_record = next((r for r in roles if r.role_code == primary_role), None)
+    landing_page = getattr(primary_role_record, "landing_page", None) or "home"
     return {
         "id": user.user_code,
         "role": primary_role,

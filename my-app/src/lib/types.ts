@@ -93,6 +93,7 @@ export interface ScriptHubRoleDefinition {
     is_system: boolean;
     is_active: boolean;
     assigned_user_count: number;
+    landing_page: 'home' | 'welcome';
 }
 
 export interface ScriptHubOrganizationDefinition {
