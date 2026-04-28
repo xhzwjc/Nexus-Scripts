@@ -720,9 +720,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const deferredPositionQuery = useDeferredValue(positionQuery);
 
     const [candidateQuery, setCandidateQuery] = useState("");
-    const [candidateStatusFilter, setCandidateStatusFilter] = useState("all");
-    const [candidatePositionFilter, setCandidatePositionFilter] = useState("all");
-    const [candidateSourceFilter, setCandidateSourceFilter] = useState("all");
+    const [candidateStatusFilter, setCandidateStatusFilter] = useState<string[]>([]);
+    const [candidatePositionFilter, setCandidatePositionFilter] = useState<string[]>([]);
+    const [candidateSourceFilter, setCandidateSourceFilter] = useState<string[]>([]);
     const [candidateTimeFilter, setCandidateTimeFilter] = useState("all");
     const [candidateMatchFilter, setCandidateMatchFilter] = useState("all");
     const [candidateViewMode, setCandidateViewMode] = useState<CandidateViewMode>("list");
@@ -1283,10 +1283,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const visibleCandidates = useMemo(() => {
         const normalizedQuery = deferredCandidateQuery.trim().toLowerCase();
         return candidates.filter((candidate) => {
-            if (candidatePositionFilter !== "all" && String(candidate.position_id || "") !== candidatePositionFilter) {
+            if (candidatePositionFilter.length > 0 && !candidatePositionFilter.includes(String(candidate.position_id || ""))) {
                 return false;
             }
-            if (candidateStatusFilter !== "all" && resolveCandidateDisplayStatus(candidate) !== candidateStatusFilter) {
+            if (candidateStatusFilter.length > 0 && !candidateStatusFilter.includes(resolveCandidateDisplayStatus(candidate))) {
                 return false;
             }
             if (normalizedQuery && ![
@@ -1297,7 +1297,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery))) {
                 return false;
             }
-            if (candidateSourceFilter !== "all" && (candidate.source || "未知来源") !== candidateSourceFilter) {
+            if (candidateSourceFilter.length > 0 && !candidateSourceFilter.includes(candidate.source || "未知来源")) {
                 return false;
             }
             if (candidateTimeFilter === "today" && !isToday(candidate.created_at)) {
@@ -1385,19 +1385,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const recentCandidates = scopedDashboard.recent_candidates || [];
     const recentLogs = aiLogs.slice(0, 6);
     const candidateFilterSummary = useMemo(() => {
-        const positionLabel = candidatePositionFilter === "all"
+        const positionLabel = candidatePositionFilter.length === 0
             ? recruitmentUiText.allPositions
-            : (positions.find((position) => String(position.id) === candidatePositionFilter)?.title || recruitmentUiText.specifiedPosition);
-        const statusLabel = candidateStatusFilter === "all"
+            : candidatePositionFilter.map(id => positions.find((p) => String(p.id) === id)?.title).filter(Boolean).join(", ") || recruitmentUiText.specifiedPosition;
+        const statusLabel = candidateStatusFilter.length === 0
             ? recruitmentUiText.allStatuses
-            : (candidateStatusLabels[candidateStatusFilter] || candidateStatusFilter);
+            : candidateStatusFilter.map(s => candidateStatusLabels[s] || s).join(", ");
         const matchLabel = ({
             all: recruitmentUiText.allMatchPercent,
             "80+": recruitmentUiText.above80,
             "60+": recruitmentUiText.above60,
             "40+": recruitmentUiText.above40,
         } as Record<string, string>)[candidateMatchFilter] || candidateMatchFilter;
-        const sourceLabel = candidateSourceFilter === "all" ? recruitmentUiText.allSources : candidateSourceFilter;
+        const sourceLabel = candidateSourceFilter.length === 0 ? recruitmentUiText.allSources : candidateSourceFilter.join(", ");
         const timeLabel = ({
             all: recruitmentUiText.allTime,
             today: recruitmentUiText.today,
@@ -1519,11 +1519,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }, [visibleCandidates]);
 
     useEffect(() => {
-        if (
-            candidatePositionFilter !== "all"
-            && !positions.some((position) => String(position.id) === candidatePositionFilter)
-        ) {
-            setCandidatePositionFilter("all");
+        if (candidatePositionFilter.length > 0) {
+            const validIds = candidatePositionFilter.filter(id =>
+                positions.some((position) => String(position.id) === id)
+            );
+            if (validIds.length !== candidatePositionFilter.length) {
+                setCandidatePositionFilter(validIds);
+            }
         }
     }, [candidatePositionFilter, positions]);
 
@@ -6167,7 +6169,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             size="sm"
                                                             variant="outline"
                                                             onClick={() => {
-                                                                setCandidatePositionFilter(String(positionDetail.position.id));
+                                                                setCandidatePositionFilter([String(positionDetail.position.id)]);
                                                                 setActivePage("candidates");
                                                             }}
                                                         >

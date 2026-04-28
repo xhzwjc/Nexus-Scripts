@@ -1,6 +1,7 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
+import ReactDOM from "react-dom";
 import ReactMarkdown from "react-markdown";
 import {useVirtualizer} from "@tanstack/react-virtual";
 import {
@@ -999,6 +1000,105 @@ function CandidateAiOutputDialog({
     );
 }
 
+type MultiSelectProps = {
+    options: { value: string; label: string }[];
+    selected: string[];
+    onChange: (values: string[]) => void;
+    placeholder?: string;
+};
+
+function MultiSelect({ options, selected, onChange, placeholder }: MultiSelectProps) {
+    const [open, setOpen] = useState(false);
+    const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+    const triggerRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (open && triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
+                setOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [open]);
+
+    const handleOpen = () => {
+        if (triggerRef.current) {
+            const rect = triggerRef.current.getBoundingClientRect();
+            setMenuStyle({
+                position: 'fixed',
+                top: rect.bottom + 4,
+                left: rect.left,
+                width: rect.width,
+                zIndex: 99999,
+            });
+        }
+        setOpen(true);
+    };
+
+    const toggleValue = (value: string) => {
+        if (selected.includes(value)) {
+            onChange(selected.filter((v) => v !== value));
+        } else {
+            onChange([...selected, value]);
+        }
+    };
+
+    const displayText = selected.length === 0
+        ? (placeholder || "")
+        : selected.length === 1
+            ? options.find((o) => o.value === selected[0])?.label || selected[0]
+            : `${selected.length} selected`;
+
+    const menuContent = open && (
+        <div
+            style={menuStyle}
+            onMouseDown={(e) => e.stopPropagation()}
+            className="max-h-60 overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-800 dark:bg-slate-950"
+        >
+            {options.map((option) => (
+                <div
+                    key={option.value}
+                    onClick={() => toggleValue(option.value)}
+                    className={cn(
+                        "flex cursor-pointer items-center gap-2 px-3 py-1.5",
+                        selected.includes(option.value) ? "bg-slate-100 dark:bg-slate-800" : "hover:bg-slate-50 dark:hover:bg-slate-800"
+                    )}
+                >
+                    <div className={cn(
+                        "flex h-4 w-4 items-center justify-center rounded border",
+                        selected.includes(option.value) ? "border-slate-500 bg-slate-500" : "border-slate-300"
+                    )}>
+                        {selected.includes(option.value) && (
+                            <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                        )}
+                    </div>
+                    <span className="text-sm text-slate-700 dark:text-slate-300">{option.label}</span>
+                </div>
+            ))}
+        </div>
+    );
+
+    return (
+        <>
+            <button
+                ref={triggerRef}
+                type="button"
+                onClick={handleOpen}
+                className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950"
+            >
+                <span className={selected.length === 0 ? "text-slate-400" : "text-slate-900 dark:text-slate-100"}>
+                    {displayText}
+                </span>
+                <ChevronDown className={cn("h-4 w-4 text-slate-400", open && "rotate-180")} />
+            </button>
+            {open && ReactDOM.createPortal(menuContent, document.body)}
+        </>
+    );
+}
+
 function CandidateFilterBar({
     candidateFilterSummary,
     candidateViewMode,
@@ -1025,14 +1125,14 @@ function CandidateFilterBar({
     setCandidateViewMode: React.Dispatch<React.SetStateAction<CandidateViewMode>>;
     candidateQuery: string;
     setCandidateQuery: (value: string) => void;
-    candidatePositionFilter: string;
-    setCandidatePositionFilter: React.Dispatch<React.SetStateAction<string>>;
-    candidateStatusFilter: string;
-    setCandidateStatusFilter: React.Dispatch<React.SetStateAction<string>>;
+    candidatePositionFilter: string[];
+    setCandidatePositionFilter: React.Dispatch<React.SetStateAction<string[]>>;
+    candidateStatusFilter: string[];
+    setCandidateStatusFilter: React.Dispatch<React.SetStateAction<string[]>>;
     candidateMatchFilter: string;
     setCandidateMatchFilter: React.Dispatch<React.SetStateAction<string>>;
-    candidateSourceFilter: string;
-    setCandidateSourceFilter: React.Dispatch<React.SetStateAction<string>>;
+    candidateSourceFilter: string[];
+    setCandidateSourceFilter: React.Dispatch<React.SetStateAction<string[]>>;
     candidateTimeFilter: string;
     setCandidateTimeFilter: React.Dispatch<React.SetStateAction<string>>;
     positions: PositionSummary[];
@@ -1051,10 +1151,10 @@ function CandidateFilterBar({
 
     const hasActiveFilters = React.useMemo(() => (
         candidateQuery.trim().length > 0
-        || candidatePositionFilter !== "all"
-        || candidateStatusFilter !== "all"
+        || candidatePositionFilter.length > 0
+        || candidateStatusFilter.length > 0
         || candidateMatchFilter !== "all"
-        || candidateSourceFilter !== "all"
+        || candidateSourceFilter.length > 0
         || candidateTimeFilter !== "all"
     ), [
         candidateMatchFilter,
@@ -1067,10 +1167,10 @@ function CandidateFilterBar({
 
     const resetFilters = React.useCallback(() => {
         setCandidateQuery("");
-        setCandidatePositionFilter("all");
-        setCandidateStatusFilter("all");
+        setCandidatePositionFilter([]);
+        setCandidateStatusFilter([]);
         setCandidateMatchFilter("all");
-        setCandidateSourceFilter("all");
+        setCandidateSourceFilter([]);
         setCandidateTimeFilter("all");
     }, [
         setCandidateMatchFilter,
@@ -1147,25 +1247,21 @@ function CandidateFilterBar({
                         </div>
                         <div className="space-y-1">
                             <label className={fieldLabelClassName}>{tr.position}</label>
-                            <NativeSelect value={candidatePositionFilter} onChange={(event) => setCandidatePositionFilter(event.target.value)}>
-                                <option value="all">{tr.allPositions}</option>
-                                {positions.map((position) => (
-                                    <option key={position.id} value={position.id}>
-                                        {position.title}
-                                    </option>
-                                ))}
-                            </NativeSelect>
+                            <MultiSelect
+                                options={positions.map((p) => ({ value: String(p.id), label: p.title }))}
+                                selected={candidatePositionFilter}
+                                onChange={setCandidatePositionFilter}
+                                placeholder={tr.allPositions}
+                            />
                         </div>
                         <div className="space-y-1">
                             <label className={fieldLabelClassName}>{tr.status}</label>
-                            <NativeSelect value={candidateStatusFilter} onChange={(event) => setCandidateStatusFilter(event.target.value)}>
-                                <option value="all">{tr.allStatuses}</option>
-                                {Object.entries(candidateStatusLabels).map(([value, label]) => (
-                                    <option key={value} value={value}>
-                                        {label}
-                                    </option>
-                                ))}
-                            </NativeSelect>
+                            <MultiSelect
+                                options={Object.entries(candidateStatusLabels).map(([value, label]) => ({ value, label }))}
+                                selected={candidateStatusFilter}
+                                onChange={setCandidateStatusFilter}
+                                placeholder={tr.allStatuses}
+                            />
                         </div>
                         <div className="space-y-1">
                             <label className={fieldLabelClassName}>{tr.matchPercent}</label>
@@ -1178,14 +1274,12 @@ function CandidateFilterBar({
                         </div>
                         <div className="space-y-1">
                             <label className={fieldLabelClassName}>{tr.source}</label>
-                            <NativeSelect value={candidateSourceFilter} onChange={(event) => setCandidateSourceFilter(event.target.value)}>
-                                <option value="all">{tr.allSources}</option>
-                                {sourceOptions.map((source) => (
-                                    <option key={source} value={source}>
-                                        {source}
-                                    </option>
-                                ))}
-                            </NativeSelect>
+                            <MultiSelect
+                                options={sourceOptions.map((s) => ({ value: s, label: s }))}
+                                selected={candidateSourceFilter}
+                                onChange={setCandidateSourceFilter}
+                                placeholder={tr.allSources}
+                            />
                         </div>
                         <div className="space-y-1">
                             <label className={fieldLabelClassName}>{tr.timeFilter}</label>
@@ -1227,14 +1321,14 @@ type CandidatesPageProps = {
     setCandidateViewMode: React.Dispatch<React.SetStateAction<CandidateViewMode>>;
     candidateQuery: string;
     setCandidateQuery: (value: string) => void;
-    candidatePositionFilter: string;
-    setCandidatePositionFilter: React.Dispatch<React.SetStateAction<string>>;
-    candidateStatusFilter: string;
-    setCandidateStatusFilter: React.Dispatch<React.SetStateAction<string>>;
+    candidatePositionFilter: string[];
+    setCandidatePositionFilter: React.Dispatch<React.SetStateAction<string[]>>;
+    candidateStatusFilter: string[];
+    setCandidateStatusFilter: React.Dispatch<React.SetStateAction<string[]>>;
     candidateMatchFilter: string;
     setCandidateMatchFilter: React.Dispatch<React.SetStateAction<string>>;
-    candidateSourceFilter: string;
-    setCandidateSourceFilter: React.Dispatch<React.SetStateAction<string>>;
+    candidateSourceFilter: string[];
+    setCandidateSourceFilter: React.Dispatch<React.SetStateAction<string[]>>;
     candidateTimeFilter: string;
     setCandidateTimeFilter: React.Dispatch<React.SetStateAction<string>>;
     positions: PositionSummary[];
