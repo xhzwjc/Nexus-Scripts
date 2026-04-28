@@ -11,4 +11,3 @@ export {
     useLazyLoad,
     useIncrementalLoad,
 } from './useStagedLoading';
-export { VirtualList, VirtualTable, VirtualRow, useInfiniteScroll } from '../components/VirtualList';

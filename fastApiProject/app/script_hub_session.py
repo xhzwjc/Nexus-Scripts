@@ -93,6 +93,7 @@ def create_script_hub_session(user: Dict[str, Any]) -> Dict[str, Any]:
             "authorizationBoundary": payload.get("authorizationBoundary") or {},
             "permissionVersion": int(payload.get("permissionVersion") or 1),
             "teamResourcesLoginKeyEnabled": bool(payload.get("teamResourcesLoginKeyEnabled")),
+            "landingPage": payload.get("landingPage") or "home",
         },
         "expiresAt": payload["exp"],
     }

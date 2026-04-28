@@ -52,6 +52,7 @@ function createLocalSessionResponse(token: string) {
             name: session.name,
             permissions: session.permissions,
             teamResourcesLoginKeyEnabled: session.teamResourcesLoginKeyEnabled,
+            landingPage: session.landingPage || 'home',
         },
         expiresAt: session.exp,
     };

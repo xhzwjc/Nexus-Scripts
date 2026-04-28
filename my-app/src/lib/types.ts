@@ -20,6 +20,7 @@ export interface User {
     authorizationBoundary?: Record<string, unknown>;
     permissionVersion?: number;
     teamResourcesLoginKeyEnabled?: boolean;
+    landingPage?: 'home' | 'welcome';
 }
 
 export type AccessControlView = 'overview' | 'organizations' | 'users' | 'roles' | 'resources' | 'audit';
@@ -154,7 +155,7 @@ export interface ScriptHubRbacOverview {
 }
 
 // ============== 视图类型 ==============
-export type ViewType = 'home' | 'system' | 'script' | 'ocr-tool' | 'help' | 'dev-tools' | 'team-resources' | 'ai-resources' | 'ops-center' | 'agent-chat' | 'access-control' | 'ai-recruitment';
+export type ViewType = 'home' | 'welcome' | 'system' | 'script' | 'ocr-tool' | 'help' | 'dev-tools' | 'team-resources' | 'ai-resources' | 'ops-center' | 'agent-chat' | 'access-control' | 'ai-recruitment';
 
 // ============== 脚本类型 ==============
 export interface Script {

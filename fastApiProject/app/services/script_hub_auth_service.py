@@ -134,14 +134,18 @@ def resolve_primary_role(role_codes: Iterable[str]) -> str:
 def serialize_user_session(db: Session, user: ScriptHubUser) -> Dict[str, Any]:
     roles = load_roles_for_user(db, user.id)
     role_codes = [role.role_code for role in roles]
+    primary_role = resolve_primary_role(role_codes)
     session_data_scope = (
         DATA_SCOPE_ALL
         if user.is_super_admin or "admin" in role_codes
         else user.data_scope or DATA_SCOPE_ORG_ONLY
     )
+    # 根据角色配置决定默认首页
+    primary_role_def = ROLE_INDEX.get(primary_role)
+    landing_page = primary_role_def.landing_page if primary_role_def else "home"
     return {
         "id": user.user_code,
-        "role": resolve_primary_role(role_codes),
+        "role": primary_role,
         "roles": role_codes,
         "name": user.display_name,
         "permissions": build_permission_map(db, user),
@@ -152,6 +156,7 @@ def serialize_user_session(db: Session, user: ScriptHubUser) -> Dict[str, Any]:
         "authorizationBoundary": json_loads_safe(user.authorization_boundary_json, {}),
         "permissionVersion": int(user.permission_version or 1),
         "teamResourcesLoginKeyEnabled": bool(user.team_resources_access_enabled),
+        "landingPage": landing_page,
     }
 
 

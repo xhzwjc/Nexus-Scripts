@@ -42,6 +42,11 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     const { t, language } = useI18n();
     const [collapsed, setCollapsed] = React.useState(false);
     const aiRecruitmentNavLabel = language === 'en-US' ? 'AI Recruiting' : 'AI 招聘';
+    const userLandingPage = currentUser?.landingPage || 'home';
+    const homeNavView: ViewType = userLandingPage === 'welcome' ? 'welcome' : 'home';
+    const homeNavLabel = userLandingPage === 'welcome'
+        ? (language === 'en-US' ? 'Welcome' : '欢迎')
+        : t.nav.home;
 
     const navItemClass = (active: boolean, disabled = false) =>
         cn(
@@ -100,16 +105,16 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                 ) : null}
                                 <nav className="space-y-1">
                                     {renderNavItem({
-                                        active: currentView === 'home',
-                                        label: t.nav.home,
+                                        active: currentView === 'home' || currentView === 'welcome',
+                                        label: homeNavLabel,
                                         icon: (
-                                            <div className={`flex h-5 w-5 items-center justify-center ${currentView === 'home' ? 'text-teal-600' : 'text-current'}`}>
+                                            <div className={`flex h-5 w-5 items-center justify-center ${currentView === 'home' || currentView === 'welcome' ? 'text-teal-600' : 'text-current'}`}>
                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                                     <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
                                                 </svg>
                                             </div>
                                         ),
-                                        onClick: () => setCurrentView('home'),
+                                        onClick: () => setCurrentView(homeNavView),
                                     })}
                                     {renderNavItem({
                                         active: currentView === 'system',

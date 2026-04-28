@@ -47,6 +47,7 @@ import { saveRecentScript } from './components/Layout/QuickActions';
 import { DashboardLoadingScreen } from './components/Layout/DashboardLoadingScreen';
 import { getScriptDesc, getScriptName, getSystemDesc, getSystemName } from './components/AppShell/dashboardLabels';
 import { HomeDashboard } from './components/AppShell/HomeDashboard';
+import { WelcomePage, WelcomePageUnauthorized } from './components/AppShell/WelcomePage';
 import { LoginScreen } from './components/AppShell/LoginScreen';
 import { LockScreenOverlay } from './components/AppShell/LockScreenOverlay';
 import { useDashboardSearch } from './components/AppShell/hooks/useDashboardSearch';
@@ -81,6 +82,7 @@ export default function App() {
 function AppContent() {
     const { t, language } = useI18n();
     const [currentView, setCurrentView] = useState<ViewType>('home');
+    const [landingPageApplied, setLandingPageApplied] = useState(false);
     const [selectedSystem, setSelectedSystem] = useState<string>('');
     const [selectedScript, setSelectedScript] = useState<string>('');
     const [isKeyInputFocused, setIsKeyInputFocused] = useState(false);
@@ -201,12 +203,23 @@ function AppContent() {
             setSelectedSystem('');
             setSelectedScript('');
             setCurrentView('home');
+            setLandingPageApplied(false);
             setScriptQuery('');
             setHomeSearchQuery('');
             setShowSearchResults(false);
             setHealthCheckState(undefined);
         },
     });
+
+    // 根据用户角色配置决定初始页面（登录后/刷新后仅执行一次）
+    useEffect(() => {
+        if (!currentUser || landingPageApplied) return;
+        setLandingPageApplied(true);
+        const landing = currentUser.landingPage || 'home';
+        if (landing === 'welcome' && currentUser.permissions['ai-recruitment']) {
+            setCurrentView('welcome');
+        }
+    }, [currentUser, landingPageApplied]);
 
     useEffect(() => {
         if (typeof document === 'undefined') {
@@ -271,6 +284,7 @@ function AppContent() {
             'agent-chat': 'agent-chat',
             'access-control': 'rbac-manage',
             'ai-recruitment': 'ai-recruitment',
+            'welcome': 'ai-recruitment',
         };
 
         const requiredPermission = requiredViewPermissions[currentView];
@@ -385,6 +399,20 @@ function AppContent() {
         />
     );
 
+    // ============== 欢迎页面 ==============
+    const renderWelcomeContent = () => {
+        const hasRecruitmentPermission = !!currentUser?.permissions['ai-recruitment'];
+        if (!hasRecruitmentPermission) {
+            return <WelcomePageUnauthorized />;
+        }
+        return (
+            <WelcomePage
+                currentUser={currentUser}
+                onNavigate={setCurrentView}
+            />
+        );
+    };
+
     // ============== 系统工具页面 ==============
     const renderSystemContent = () => (
         <SystemScriptsView
@@ -464,6 +492,7 @@ function AppContent() {
 
                 <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' ? 'p-0' : 'p-6'}`}>
                         {currentView === 'home' && renderHomeContent()}
+                        {currentView === 'welcome' && renderWelcomeContent()}
                         {currentView === 'system' && renderSystemContent()}
                         {currentView === 'dev-tools' && (
                             <div className="h-full">
