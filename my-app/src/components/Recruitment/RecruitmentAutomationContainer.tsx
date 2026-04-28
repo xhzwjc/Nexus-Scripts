@@ -185,6 +185,7 @@ import {MailSettingsPage} from "./pages/MailSettingsPage";
 import {ModelSettingsPage} from "./pages/ModelSettingsPage";
 import {SkillSettingsPage} from "./pages/SkillSettingsPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
+import { useOptimizedStats, useCachedListData } from "./hooks";
 
 const PAGE_ACTIVITY_POLL_VISIBLE_INTERVAL_MS = 1500;
 const PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS = 6000;
@@ -1354,46 +1355,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return Object.values(auditListDisplayColumnWidths).reduce((sum, width) => sum + width, 0);
     }, [auditListDisplayColumnWidths]);
 
-    const scopedDashboard = useMemo<DashboardData>(() => {
-        const statusDistribution = new Map<string, number>();
-        candidates.forEach((candidate) => {
-            const status = resolveCandidateDisplayStatus(candidate);
-            statusDistribution.set(status, (statusDistribution.get(status) || 0) + 1);
-        });
-        const sortedRecentCandidates = [...candidates]
+    // 使用优化的统计计算 hook (单次遍历完成所有统计)
+    const stats = useOptimizedStats(positions, candidates, aiLogs);
+
+    // 兼容原有接口
+    const scopedDashboard: DashboardData = useMemo(() => ({
+        cards: stats.cards,
+        status_distribution: stats.status_distribution,
+        recent_candidates: [...candidates]
             .sort((left, right) => new Date(right.updated_at || right.created_at || 0).getTime() - new Date(left.updated_at || left.created_at || 0).getTime())
-            .slice(0, 8);
-        return {
-            cards: {
-                positions_total: positions.length,
-                positions_recruiting: positions.filter((position) => position.status === "recruiting").length,
-                candidates_total: candidates.length,
-                pending_screening: candidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_screening").length,
-                screening_passed: candidates.filter((candidate) => (
-                    ["screening_passed", "pending_interview", "interview_passed", "pending_offer", "offer_sent", "hired"].includes(resolveCandidateDisplayStatus(candidate))
-                )).length,
-                recent_ai_tasks: aiLogs.filter((log) => isToday(log.created_at)).length,
-            },
-            status_distribution: [...statusDistribution.entries()]
-                .sort(([left], [right]) => left.localeCompare(right))
-                .map(([status, count]) => ({status, count})),
-            recent_candidates: sortedRecentCandidates,
-        };
-    }, [aiLogs, candidates, positions]);
+            .slice(0, 8),
+    }), [stats, candidates]);
 
-    const todayNewResumes = useMemo(
-        () => candidates.filter((candidate) => isToday(candidate.created_at)).length,
-        [candidates],
-    );
+    const todayNewResumes = stats.todayNewResumes;
 
-    const todoSummary = useMemo(() => {
-        return {
-            pendingPublish: positions.filter((position) => position.status === "draft" || !position.current_jd_version_id).length,
-            pendingScreening: candidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_screening").length,
-            pendingInterview: candidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_interview").length,
-            pendingDecision: candidates.filter((candidate) => resolveCandidateDisplayStatus(candidate) === "pending_offer").length,
-        };
-    }, [candidates, positions]);
+    const todoSummary = stats.todo;
 
     const recentCandidates = scopedDashboard.recent_candidates || [];
     const recentLogs = aiLogs.slice(0, 6);
@@ -1652,31 +1628,139 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return () => window.clearTimeout(timer);
     }, [activePage, assistantOpen, assistantDisplayMode]);
 
+    // 使用缓存 hook
+    const { getCachedOrFetch: getCachedPositions, invalidateCache: invalidatePositionsCache } = useCachedListData<PositionSummary>({ ttl: 60000 });
+    const { getCachedOrFetch: getCachedCandidates, invalidateCache: invalidateCandidatesCache } = useCachedListData<CandidateSummary>({ ttl: 60000 });
+    const { getCachedOrFetch: getCachedLogs, invalidateCache: invalidateLogsCache } = useCachedListData<AITaskLog>({ ttl: 30000 });
+
+    // 优化的分阶段加载策略
     useEffect(() => {
         let cancelled = false;
+        let criticalLoaded = false;
 
         async function bootstrap() {
             setBootstrapping(true);
             logsFiltersInitializedRef.current = false;
+
             try {
+                // 阶段 1: 关键数据 (阻塞渲染，最高优先级)
+                // 这些是 UI 框架必需的数据
                 await Promise.allSettled([
-                    loadOrganizationCatalog(),
                     loadMetadata(),
-                    loadDashboard(),
-                    loadPositions(),
-                    loadCandidates(),
-                    loadLogs(),
+                    loadOrganizationCatalog(),
                 ]);
-                void Promise.allSettled([
-                    loadSkills(),
-                    loadMailSettings(),
-                    loadChatContext(),
-                    canManageRecruitment ? loadLLMConfigs() : Promise.resolve(),
+
+                if (cancelled) return;
+
+                // 阶段 2: 工作台核心数据 (尽快显示工作台)
+                // 使用 Promise.all 并行加载，但设置超时避免长时间等待
+                const dashboardPromise = loadDashboardWithTimeout(5000);
+                const criticalPromise = Promise.allSettled([
+                    dashboardPromise,
                 ]);
-            } finally {
-                if (!cancelled) {
+
+                await criticalPromise;
+
+                if (cancelled) return;
+                criticalLoaded = true;
+                setBootstrapping(false);
+
+                // 阶段 3: 列表数据 (后台加载，使用缓存)
+                // 这些数据变化频率较低，使用缓存减少重复请求
+                void loadPositionsWithCache();
+                void loadCandidatesWithCache();
+                void loadLogsWithCache();
+
+                // 阶段 4: 配置数据 (最低优先级，延迟加载)
+                // 使用 requestIdleCallback 在浏览器空闲时加载
+                if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+                    window.requestIdleCallback(() => {
+                        if (!cancelled) {
+                            void Promise.allSettled([
+                                loadSkills(),
+                                loadMailSettings(),
+                                loadChatContext(),
+                                canManageRecruitment ? loadLLMConfigs() : Promise.resolve(),
+                            ]);
+                        }
+                    }, { timeout: 5000 });
+                } else {
+                    // 降级方案: 延迟 500ms 后加载
+                    setTimeout(() => {
+                        if (!cancelled) {
+                            void Promise.allSettled([
+                                loadSkills(),
+                                loadMailSettings(),
+                                loadChatContext(),
+                                canManageRecruitment ? loadLLMConfigs() : Promise.resolve(),
+                            ]);
+                        }
+                    }, 500);
+                }
+            } catch (error) {
+                // 即使出错也解除 loading 状态，避免用户卡住
+                if (!criticalLoaded && !cancelled) {
                     setBootstrapping(false);
                 }
+            }
+        }
+
+        // 带超时的 dashboard 加载
+        async function loadDashboardWithTimeout(timeoutMs: number): Promise<void> {
+            return new Promise((resolve) => {
+                const timeout = setTimeout(() => {
+                    resolve(); // 超时后返回，不阻塞后续加载
+                }, timeoutMs);
+
+                loadDashboard().finally(() => {
+                    clearTimeout(timeout);
+                    resolve();
+                });
+            });
+        }
+
+        // 使用缓存的 positions 加载
+        async function loadPositionsWithCache(): Promise<void> {
+            try {
+                const data = await getCachedPositions(
+                    'positions:all',
+                    () => recruitmentApi<PositionSummary[]>("/positions")
+                );
+                if (!cancelled) {
+                    setAllPositions(data);
+                }
+            } catch (error) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.positions, formatActionError(error)));
+            }
+        }
+
+        // 使用缓存的 candidates 加载
+        async function loadCandidatesWithCache(): Promise<void> {
+            try {
+                const data = await getCachedCandidates(
+                    'candidates:all',
+                    () => recruitmentApi<CandidateSummary[]>("/candidates")
+                );
+                if (!cancelled) {
+                    setAllCandidates(data);
+                }
+            } catch (error) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidates, formatActionError(error)));
+            }
+        }
+
+        // 使用缓存的 logs 加载
+        async function loadLogsWithCache(): Promise<void> {
+            try {
+                const data = await getCachedLogs(
+                    'logs:all',
+                    () => recruitmentApi<AITaskLog[]>("/ai-task-logs")
+                );
+                if (!cancelled) {
+                    setAllAiLogs(data);
+                }
+            } catch (error) {
+                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.aiTasks, formatActionError(error)));
             }
         }
 
@@ -2452,7 +2536,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
-    async function refreshCoreData(options?: { includeMailSettings?: boolean }) {
+    async function refreshCoreData(options?: { includeMailSettings?: boolean; silent?: boolean }) {
+        // 清除缓存，确保获取最新数据
+        invalidatePositionsCache('positions:all');
+        invalidateCandidatesCache('candidates:all');
+        invalidateLogsCache('logs:all');
+
         const tasks: Promise<unknown>[] = [
             loadDashboard(),
             loadPositions(),
@@ -2462,7 +2551,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         if (options?.includeMailSettings) {
             tasks.push(loadMailSettings());
         }
-        await Promise.all(tasks);
+        await Promise.allSettled(tasks);
+        
+        // 静默刷新时不显示 toast
+        if (!options?.silent) {
+            toast.success(isZh ? "数据已刷新" : "Data refreshed");
+        }
     }
 
     async function refreshCoreDataWithFeedback() {
