@@ -66,13 +66,11 @@
     font-weight: 500;
     color: var(--text-secondary);
     cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar-nav-item:hover {
     background: rgba(20, 184, 166, 0.06);
     color: var(--accent-color);
-    transform: translateX(2px);
 }
 
 .dark .sidebar-nav-item:hover {

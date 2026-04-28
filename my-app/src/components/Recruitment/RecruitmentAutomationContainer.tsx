@@ -6804,14 +6804,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                 <div
                     className={cn(
-                        "grid min-h-0 flex-1 transition-all duration-300",
+                        "grid min-h-0 flex-1",
                     navCollapsed ? "lg:grid-cols-[56px_minmax(0,1fr)]" : "lg:grid-cols-[176px_minmax(0,1fr)] 2xl:grid-cols-[188px_minmax(0,1fr)]",
                 )}
             >
                 <div className="relative min-h-0">
                     <aside
                         className={cn(
-                            "flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white/70 px-2 py-3.5 backdrop-blur transition-all duration-300 dark:border-slate-800 dark:bg-slate-950/50",
+                            "flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white/70 px-2 py-3.5 backdrop-blur dark:border-slate-800 dark:bg-slate-950/50",
                             navCollapsed ? "lg:px-1" : "lg:px-2.5",
                         )}
                     >
