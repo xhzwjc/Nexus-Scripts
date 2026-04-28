@@ -346,6 +346,8 @@ export function emptyCandidateEditor(): CandidateEditorState {
         currentCompany: "",
         yearsOfExperience: "",
         education: "",
+        age: "",
+        city: "",
         notes: "",
         tagsText: "",
         manualOverrideScore: "",

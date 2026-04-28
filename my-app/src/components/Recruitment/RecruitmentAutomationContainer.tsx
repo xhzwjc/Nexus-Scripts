@@ -196,6 +196,13 @@ const TASK_MONITOR_MAX_INTERVAL_MS = 15000;
 const TASK_MONITOR_BATCH_SCALE_THRESHOLD = 8;
 const ALL_COMPANY_DEPARTMENTS_VALUE = "__all_company_departments__";
 
+const POPULAR_CITIES = [
+    "北京", "上海", "广州", "深圳", "杭州", "成都", "南京", "武汉",
+    "西安", "重庆", "天津", "苏州", "长沙", "郑州", "东莞", "沈阳",
+    "青岛", "宁波", "昆明", "厦门", "福州", "无锡", "合肥", "大连",
+    "南昌", "哈尔滨", "济南", "佛山", "长春", "石家庄", "贵阳", "兰州",
+];
+
 type OrgScopedItem = {
     org_code?: string | null;
     scope_level?: string | null;
@@ -783,6 +790,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [resumeUploadFiles, setResumeUploadFiles] = useState<File[]>([]);
     const [resumeUploadPositionId, setResumeUploadPositionId] = useState("all");
     const [resumeUploadOrgCode, setResumeUploadOrgCode] = useState(defaultOrgScope);
+    const [resumeUploadCity, setResumeUploadCity] = useState("");
 
     const [publishDialogOpen, setPublishDialogOpen] = useState(false);
     const [publishPlatform, setPublishPlatform] = useState("boss");
@@ -1931,6 +1939,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             currentCompany: candidate?.current_company || "",
             yearsOfExperience: candidate?.years_of_experience || "",
             education: candidate?.education || "",
+            age: candidate?.age != null ? String(candidate.age) : "",
+            city: candidate?.city || "",
             notes: candidate?.notes || "",
             tagsText: joinTags(candidate?.tags),
             manualOverrideScore: score?.manual_override_score ? String(score.manual_override_score) : "",
@@ -4015,6 +4025,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         const query = buildQuery({
             position_id: resumeUploadPositionId === "all" ? null : resumeUploadPositionId,
             org_code: resumeUploadPositionId === "all" ? resumeUploadOrgCode : null,
+            city: resumeUploadCity || null,
         });
         try {
             const uploaded = await recruitmentApi<ResumeUploadResponse>(`/candidates/upload-resumes${query}`, {
@@ -4035,10 +4046,46 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             );
             setResumeUploadOpen(false);
             setResumeUploadFiles([]);
+            setResumeUploadCity("");
             await refreshCoreData();
             setActivePage("candidates");
         } catch (error) {
             toast.error(recruitmentToast.createFailed(recruitmentToastEntities.resume, formatActionError(error)));
+        }
+    }
+
+    async function exportCandidates(candidateIds: number[], includeResumes = true) {
+        if (!candidateIds.length) {
+            toast.error(isZh ? "请先选择要导出的候选人" : "Please select candidates to export");
+            return;
+        }
+        const exportToastId = toast.loading(isZh ? "正在导出..." : "Exporting...");
+        try {
+            const response = await authenticatedFetch("/api/recruitment/candidates/export", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    candidate_ids: candidateIds,
+                    include_resumes: includeResumes,
+                }),
+                cache: "no-store",
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText);
+            }
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = `candidates_export_${new Date().toISOString().slice(0, 10)}.zip`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+            toast.success(isZh ? `已导出 ${candidateIds.length} 位候选人` : `Exported ${candidateIds.length} candidates`, {id: exportToastId});
+        } catch (error) {
+            toast.error(isZh ? `导出失败：${error instanceof Error ? error.message : "未知错误"}` : `Export failed: ${error instanceof Error ? error.message : "Unknown error"}`, {id: exportToastId});
         }
     }
 
@@ -4067,6 +4114,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     current_company: candidateEditor.currentCompany.trim() || null,
                     years_of_experience: candidateEditor.yearsOfExperience.trim() || null,
                     education: candidateEditor.education.trim() || null,
+                    age: (() => { const v = Number(candidateEditor.age.trim()); return v && !isNaN(v) ? v : null; })(),
+                    city: candidateEditor.city.trim() || null,
                     notes: candidateEditor.notes.trim() || null,
                     tags: splitTags(candidateEditor.tagsText),
                     manual_override_score: candidateEditor.manualOverrideScore.trim()
@@ -6523,6 +6572,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 skills={skills}
                 toggleInterviewSkillSelection={toggleInterviewSkillSelection}
                 downloadInterviewQuestion={downloadInterviewQuestion}
+                exportCandidates={exportCandidates}
             />
         );
     }
@@ -7392,6 +7442,38 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 ) : null}
                             </Field>
                         ) : null}
+                        <Field label={isZh ? "所在城市" : "City"}>
+                            <div className="flex flex-col gap-1.5">
+                                <Input
+                                    list="city-options"
+                                    placeholder={isZh ? "输入或选择城市" : "Enter or select city"}
+                                    value={resumeUploadCity}
+                                    onChange={(event) => setResumeUploadCity(event.target.value)}
+                                />
+                                <datalist id="city-options">
+                                    {POPULAR_CITIES.map((city) => (
+                                        <option key={city} value={city}/>
+                                    ))}
+                                </datalist>
+                                <div className="flex flex-wrap gap-1">
+                                    {POPULAR_CITIES.slice(0, 8).map((city) => (
+                                        <button
+                                            key={city}
+                                            type="button"
+                                            className={cn(
+                                                "rounded-full border px-2 py-0.5 text-xs transition-colors",
+                                                resumeUploadCity === city
+                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
+                                            )}
+                                            onClick={() => setResumeUploadCity(city)}
+                                        >
+                                            {city}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </Field>
                         <Field label="选择文件">
                             <Input type="file" multiple
                                    onChange={(event) => setResumeUploadFiles(Array.from(event.target.files || []))}/>

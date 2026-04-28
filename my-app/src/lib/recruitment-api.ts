@@ -132,6 +132,8 @@ export interface CandidateSummary {
   current_company?: string | null;
   years_of_experience?: string | null;
   education?: string | null;
+  age?: number | null;
+  city?: string | null;
   source?: string | null;
   source_detail?: string | null;
   status: string;
@@ -452,6 +454,13 @@ export interface ResumeUploadResponse {
   auto_screen_failed_count: number;
   auto_screen_task_ids: number[];
   auto_screen_tasks: RecruitmentTaskStartResponse[];
+}
+
+export interface CandidateExportRequest {
+  candidate_ids?: number[] | null;
+  status_filter?: string | null;
+  position_id?: number | null;
+  include_resumes?: boolean;
 }
 
 export interface RecruitmentMailSenderConfig {

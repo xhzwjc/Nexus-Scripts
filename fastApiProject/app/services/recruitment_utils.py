@@ -1538,6 +1538,17 @@ def extract_basic_info(
     email_match = re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", raw_text)
     name_match = re.search(r"(?:姓名|Name)[:：\s]+([^\n]{2,20})", raw_text, re.IGNORECASE)
     years_match = re.search(r"(\d{1,2})\s*年", raw_text)
+    age_match = re.search(r"(?:年龄|Age|岁数)[:：\s]*(\d{1,3})", raw_text, re.IGNORECASE)
+    if not age_match:
+        age_match = re.search(r"(\d{1,2})\s*岁", raw_text)
+    age_value = age_match.group(1) if age_match else ""
+    if not age_value:
+        birth_match = re.search(r"(?:出生|生日|Birth)[:：\s]*(19[6-9]\d|200[0-5])", raw_text, re.IGNORECASE)
+        if birth_match:
+            from datetime import datetime as _dt
+            computed_age = _dt.now().year - int(birth_match.group(1))
+            if 14 <= computed_age <= 100:
+                age_value = str(computed_age)
     normalized_lines = list(lines or _extract_resume_lines(raw_text))
     normalized_education_items = list(education_items or [])
     education = _build_basic_education_text(normalized_education_items)
@@ -1551,6 +1562,7 @@ def extract_basic_info(
         "name": (name_match.group(1).strip() if name_match else "") or normalized_fallback_name,
         "phone": phone_match.group(0) if phone_match else "",
         "email": email_match.group(0) if email_match else "",
+        "age": age_value,
         "years_of_experience": years_match.group(1) + "年" if years_match else "",
         "education": education,
         "location": _extract_resume_location(raw_text, normalized_lines),

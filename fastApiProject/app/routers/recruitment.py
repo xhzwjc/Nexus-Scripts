@@ -10,14 +10,16 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 import anyio
+from starlette.background import BackgroundTask
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal, get_db
 from ..permission_governance import expand_permission_aliases
 from ..recruitment_schemas import (
+    CandidateExportRequest,
     CandidateScreenBatchCancelRequest,
     CandidateScreenBatchQueryRequest,
     CandidateScreenBatchStartRequest,
@@ -264,6 +266,31 @@ async def list_candidates(query: Optional[str] = Query(None), status: Optional[s
     return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
 
 
+@recruitment_router.post("/candidates/export")
+async def export_candidates(payload: CandidateExportRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        zip_path = service.export_candidates(payload.candidate_ids, payload.include_resumes)
+        zip_filename = Path(zip_path).name
+        zip_dir = str(Path(zip_path).parent)
+
+        def cleanup():
+            try:
+                shutil.rmtree(zip_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+        return FileResponse(
+            zip_path,
+            media_type="application/zip",
+            filename=zip_filename,
+            background=BackgroundTask(cleanup),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @recruitment_router.get("/candidates/{candidate_id}")
 async def get_candidate_detail(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
@@ -335,7 +362,7 @@ async def get_candidate_status_history(candidate_id: int, _session: Dict[str, An
 
 
 @recruitment_router.post("/candidates/upload-resumes")
-async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), city: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     staging_root = RECRUITMENT_UPLOAD_ROOT / "_staging"
     staging_root.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(tempfile.mkdtemp(prefix="resume-batch-", dir=str(staging_root)))
@@ -343,7 +370,7 @@ async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optio
     try:
         for item in files:
             uploaded_files.append(await _stage_upload_file(item, staging_dir))
-        rows = service.upload_resume_files(uploaded_files, position_id, _session.get("id") or "unknown", org_code)
+        rows = service.upload_resume_files(uploaded_files, position_id, _session.get("id") or "unknown", org_code, city)
         auto_screen_queued_count = 0
         auto_screen_skipped_existing_live_task_count = 0
         auto_screen_failed_count = 0

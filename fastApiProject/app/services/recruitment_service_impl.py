@@ -85,7 +85,7 @@ VALID_SCREENING_SUGGESTED_STATUSES = {"screening_passed", "talent_pool", "screen
 VALID_SCREENING_MODES = {"default", "rerank_from_existing_parse", "fallback_parse_then_score"}
 SCREENING_PAYLOAD_SCHEMA_CONFIG = {
     "parsed_resume": {
-        "basic_info_fields": ("name", "phone", "email", "years_of_experience", "education", "location"),
+        "basic_info_fields": ("name", "phone", "email", "age", "years_of_experience", "education", "location"),
         "list_fields": ("work_experiences", "education_experiences", "skills", "projects"),
         "string_fields": ("summary",),
     },
@@ -3940,8 +3940,11 @@ def _sanitize_resume_basic_info(
     ai_info = ai_basic_info if isinstance(ai_basic_info, dict) else {}
     fallback = dict(fallback_basic_info if isinstance(fallback_basic_info, dict) else {})
     searchable = _resume_search_text(raw_text)
-    for field in ["name", "phone", "email", "years_of_experience", "education", "location"]:
-        value = str(ai_info.get(field) or "").strip()
+    for field in ["name", "phone", "email", "age", "years_of_experience", "education", "location"]:
+        raw_value = ai_info.get(field)
+        if raw_value is None or raw_value == "":
+            continue
+        value = str(raw_value).strip()
         if not value:
             continue
         if field in {"phone", "email"}:
@@ -4359,8 +4362,47 @@ DIRTY_BASIC_INFO_VALUES = {",", "，", "-", "--", "null", "none", "未提及", "
 SUMMARY_EVIDENCE_MARKERS = ("简历中提及", "候选人具备", "体现了", "说明其", "反映出", "可以看出")
 
 
+def _parse_age_value(raw: Any) -> Optional[int]:
+    """Parse age from AI/fallback value like 28, '28', '28岁', '28 岁', '1996', '1996年' etc."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    # Try direct numeric first — if it's a plausible age, use it
+    try:
+        val = int(float(text))
+        if 14 <= val <= 100:  # Add range check here
+            return val
+    except (ValueError, TypeError):
+        pass
+    # Extract leading digits (handles "28岁", "28 岁", "28岁半")
+    m = re.match(r"(\d{1,3})", text)
+    if m:
+        val = int(m.group(1))
+        if 14 <= val <= 100:
+            return val
+    # Try birth year like "1996年", "1996-05-01", "1996/05"
+    m = re.search(r"(19[6-9]\d|200[0-5])\s*[年/\-]", text)
+    if m:
+        birth_year = int(m.group(1))
+        age = datetime.now().year - birth_year
+        if 14 <= age <= 100:
+            return age
+    # Just a 4-digit year by itself
+    m = re.fullmatch(r"(19[6-9]\d|200[0-5])", text)
+    if m:
+        birth_year = int(m.group(1))
+        age = datetime.now().year - birth_year
+        if 14 <= age <= 100:
+            return age
+    return None
+
+
 def _sanitize_basic_info_value(field: str, value: Any) -> str:
-    text = re.sub(r"\s+", " ", strip_markdown(str(value or ""))).strip()
+    if value is None or value == "":
+        return ""
+    text = re.sub(r"\s+", " ", strip_markdown(str(value))).strip()
     if not text:
         return ""
     if text.lower() in DIRTY_BASIC_INFO_VALUES or text in DIRTY_BASIC_INFO_VALUES:
@@ -4378,7 +4420,7 @@ def _sanitize_screening_basic_info_payload(basic_info: Any) -> Dict[str, Any]:
     source = basic_info if isinstance(basic_info, dict) else {}
     return {
         field: _sanitize_basic_info_value(field, source.get(field))
-        for field in ["name", "phone", "email", "years_of_experience", "education", "location"]
+        for field in ["name", "phone", "email", "age", "years_of_experience", "education", "location"]
     }
 
 
@@ -4636,11 +4678,14 @@ def _validate_screening_basic_info_payload(value: Any) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("AI 返回的 screening JSON 非法：parsed_resume.basic_info 不是对象")
     result: Dict[str, Any] = {}
-    for field in ["name", "phone", "email", "years_of_experience", "education", "location"]:
+    for field in ["name", "phone", "email", "age", "years_of_experience", "education", "location"]:
         item = value.get(field)
-        if not isinstance(item, str):
+        if field == "age" and isinstance(item, (int, float)):
+            result[field] = str(int(item))
+        elif isinstance(item, str):
+            result[field] = item
+        else:
             raise ValueError(f"AI 返回的 screening JSON 非法：parsed_resume.basic_info.{field} 类型错误")
-        result[field] = item
     return result
 
 
@@ -8097,7 +8142,7 @@ class RecruitmentService:
         position_screening_skill_rows = self._get_position_task_skill_rows(position.id, "screening") if position and self._is_business_row_visible(position) else []
         position_interview_skill_rows = self._get_position_task_skill_rows(position.id, "interview") if position and self._is_business_row_visible(position) else []
         position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
-        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None) -> List[Dict[str, Any]]:
         builder = self._apply_business_org_filter(self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)), RecruitmentCandidate)
@@ -8238,7 +8283,7 @@ class RecruitmentService:
                     candidate.org_code = next_org_code
             else:
                 candidate.position_id = None
-        for field in ["name", "phone", "email", "current_company", "years_of_experience", "education", "notes"]:
+        for field in ["name", "phone", "email", "current_company", "years_of_experience", "education", "age", "city", "notes"]:
             if field in payload:
                 setattr(candidate, field, payload.get(field))
         if "tags" in payload:
@@ -8270,7 +8315,7 @@ class RecruitmentService:
         rows = self.db.query(RecruitmentCandidateStatusHistory).filter(RecruitmentCandidateStatusHistory.candidate_id == candidate_id).order_by(RecruitmentCandidateStatusHistory.created_at.desc(), RecruitmentCandidateStatusHistory.id.desc()).all()
         return [self._serialize_status_history(row) for row in rows]
 
-    def upload_resume_files(self, uploaded_files: List[Dict[str, Any]], position_id: Optional[int], actor_id: str, target_org_code: Optional[str] = None) -> List[Dict[str, Any]]:
+    def upload_resume_files(self, uploaded_files: List[Dict[str, Any]], position_id: Optional[int], actor_id: str, target_org_code: Optional[str] = None, city: Optional[str] = None) -> List[Dict[str, Any]]:
         position = self._get_position(position_id) if position_id else None
         fallback_org_code = normalize_org_code(target_org_code or self._current_org_code())
         if not position:
@@ -8301,7 +8346,7 @@ class RecruitmentService:
                 storage_path.write_bytes(content)
                 file_size = len(content)
             candidate_org_code = normalize_org_code(getattr(position, "org_code", None) if position else fallback_org_code)
-            candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=candidate_org_code, position_id=position.id if position else None, name=safe_file_stem(file_name), source="manual_upload", source_detail=file_name, status="pending_screening", tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
+            candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=candidate_org_code, position_id=position.id if position else None, name=safe_file_stem(file_name), source="manual_upload", source_detail=file_name, status="pending_screening", city=city, tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
             self.db.add(candidate)
             self.db.flush()
             candidate.candidate_code = f"CAD-{candidate.id:05d}"
@@ -8319,6 +8364,49 @@ class RecruitmentService:
             payload["auto_screen_enabled"] = bool(position.auto_screen_on_upload) if position else False
             results.append(payload)
         return results
+
+    def export_candidates(self, candidate_ids: List[int], include_resumes: bool = True) -> str:
+        import zipfile
+        import tempfile
+        from openpyxl import Workbook
+        candidates = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.id.in_(candidate_ids),
+            RecruitmentCandidate.deleted.is_(False),
+        ).all()
+        if not candidates:
+            raise ValueError("No candidates found for the given IDs")
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Candidates"
+        ws.append(["姓名", "电话", "年龄", "城市", "学历", "工作经验", "状态"])
+        for c in candidates:
+            display_status = SCREENING_STATUS_LABELS.get(c.status, c.status or "")
+            ws.append([
+                c.name, c.phone, getattr(c, "age", None), getattr(c, "city", None),
+                c.education, c.years_of_experience, display_status,
+            ])
+        tmp_dir = tempfile.mkdtemp(prefix="candidate-export-")
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        excel_path = os.path.join(tmp_dir, f"candidates_{date_str}.xlsx")
+        wb.save(excel_path)
+        zip_path = os.path.join(tmp_dir, f"candidates_export_{date_str}.zip")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(excel_path, f"candidates_{date_str}.xlsx")
+            if include_resumes:
+                for c in candidates:
+                    resume_files = self.db.query(RecruitmentResumeFile).filter(
+                        RecruitmentResumeFile.candidate_id == c.id,
+                    ).order_by(RecruitmentResumeFile.created_at.desc()).all()
+                    for rf in resume_files:
+                        storage_path = getattr(rf, "storage_path", None)
+                        if not storage_path or not os.path.isfile(storage_path):
+                            continue
+                        safe_name = re.sub(r'[/\\?%*:|"<>\x00-\x1f]', '_', c.name)
+                        ext = rf.file_ext or os.path.splitext(rf.original_name)[1] or ".pdf"
+                        arc_name = f"resumes/{safe_name}_{c.id}_{rf.id}{ext}"
+                        zf.write(storage_path, arc_name)
+        os.remove(excel_path)
+        return zip_path
 
     def _resolve_screening_skills(
         self,
@@ -9343,6 +9431,12 @@ class RecruitmentService:
         candidate.email = str(basic_info.get("email") or "").strip() or None
         candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
         candidate.education = str(basic_info.get("education") or "").strip() or None
+        parsed_age = _parse_age_value(basic_info.get("age"))
+        if parsed_age is not None:
+            candidate.age = parsed_age
+        location_value = str(basic_info.get("location") or "").strip()
+        if location_value and not getattr(candidate, "city", None):
+            candidate.city = location_value
         candidate.latest_parse_result_id = parse_row.id
         candidate.updated_by = actor_id
         resume_file.parse_status = "success"
@@ -9600,6 +9694,12 @@ class RecruitmentService:
             candidate.email = str(basic_info.get("email") or "").strip() or None
             candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
             candidate.education = str(basic_info.get("education") or "").strip() or None
+            parsed_age = _parse_age_value(basic_info.get("age"))
+            if parsed_age is not None:
+                candidate.age = parsed_age
+            location_value = str(basic_info.get("location") or "").strip()
+            if location_value and not getattr(candidate, "city", None):
+                candidate.city = location_value
             candidate.latest_parse_result_id = parse_row.id
             candidate.updated_by = actor_id
             resume_file.parse_status = "success"

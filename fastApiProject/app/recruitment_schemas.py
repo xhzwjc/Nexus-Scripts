@@ -84,6 +84,8 @@ class CandidateUpdateRequest(BaseModel):
     current_company: Optional[str] = None
     years_of_experience: Optional[str] = None
     education: Optional[str] = None
+    age: Optional[int] = None
+    city: Optional[str] = None
     notes: Optional[str] = None
     tags: Optional[List[str]] = None
     manual_override_score: Optional[float] = Field(None, ge=0, le=100)
@@ -93,6 +95,11 @@ class CandidateUpdateRequest(BaseModel):
 class CandidateStatusUpdateRequest(BaseModel):
     status: str = Field(..., min_length=1, max_length=50)
     reason: Optional[str] = None
+
+
+class CandidateExportRequest(BaseModel):
+    candidate_ids: List[int] = Field(..., min_length=1)
+    include_resumes: bool = True
 
 
 class TriggerCandidateProcessRequest(BaseModel):

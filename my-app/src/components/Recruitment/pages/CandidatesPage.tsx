@@ -167,7 +167,7 @@ const CandidateRow = React.memo(function CandidateRow({
                         >
                             <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <HoverRevealText text={candidate.name} className="font-medium text-slate-900 dark:text-slate-100"/>
+                                    <HoverRevealText text={candidate.name + (candidate.age ? ` (${candidate.age}${tr.ageSuffix})` : "")} className="font-medium text-slate-900 dark:text-slate-100"/>
                                     {resumeMailSummary ? (
                                         <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
                                             {tr.resumeSent}
@@ -261,6 +261,21 @@ const CandidateRow = React.memo(function CandidateRow({
                         </td>
                     );
                 }
+                if (columnKey === "city") {
+                    return (
+                        <td
+                            key={columnKey}
+                            style={{
+                                width: columnWidths.city,
+                                minWidth: columnWidths.city,
+                                maxWidth: columnWidths.city,
+                            }}
+                            className="p-2 align-middle"
+                        >
+                            <HoverRevealText text={candidate.city || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
+                        </td>
+                    );
+                }
                 if (columnKey === "source") {
                     return (
                         <td
@@ -310,6 +325,8 @@ const CandidateRow = React.memo(function CandidateRow({
         && prev.candidate.org_code === next.candidate.org_code
         && prev.candidate.position_title === next.candidate.position_title
         && prev.candidate.source === next.candidate.source
+        && prev.candidate.age === next.candidate.age
+        && prev.candidate.city === next.candidate.city
         && prev.getResumeMailSummary(prev.candidate.id) === next.getResumeMailSummary(next.candidate.id);
 });
 
@@ -391,6 +408,9 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         stopBatchScreening: isZh ? "停止批量初筛" : "Stop Batch Screening",
         queueBatch: isZh ? "批量入队" : "Queue Batch",
         sendResumesBatch: isZh ? "批量发送简历" : "Send Resumes in Batch",
+        exportCandidates: isZh ? "导出" : "Export",
+        ageSuffix: isZh ? "岁" : "yo",
+        cityLabel: isZh ? "城市" : "City",
         selectAllCandidates: isZh ? "全选候选人" : "Select all candidates",
         selectCandidate: (name: string) => (isZh ? `选择候选人 ${name}` : `Select candidate ${name}`),
         stopping: isZh ? "停止中..." : "Stopping...",
@@ -424,6 +444,8 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         companyPlaceholder: isZh ? "当前公司" : "Current Company",
         experiencePlaceholder: isZh ? "工作年限" : "Years of Experience",
         educationPlaceholder: isZh ? "学历" : "Education",
+        agePlaceholder: isZh ? "年龄" : "Age",
+        cityPlaceholder: isZh ? "城市" : "City",
         tagsAndNotes: isZh ? "标签与备注" : "Tags & Notes",
         tagsPlaceholder: isZh ? "标签，使用英文逗号分隔" : "Tags, separated by commas",
         notesPlaceholder: isZh ? "例如：沟通不错，但对设备联调经验需要进一步核实" : "Example: strong communication, but device integration experience needs follow-up",
@@ -1277,6 +1299,7 @@ type CandidatesPageProps = {
     skills: RecruitmentSkill[];
     toggleInterviewSkillSelection: (skillId: number) => void;
     downloadInterviewQuestion: (questionId: number) => Promise<void>;
+    exportCandidates: (candidateIds: number[], includeResumes?: boolean) => Promise<void>;
 };
 
 export function CandidatesPage({
@@ -1358,6 +1381,7 @@ export function CandidatesPage({
     skills,
     toggleInterviewSkillSelection,
     downloadInterviewQuestion,
+    exportCandidates,
 }: CandidatesPageProps) {
     const {language} = useI18n();
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
@@ -1466,8 +1490,8 @@ export function CandidatesPage({
     const candidateListVisibleColumns = React.useMemo<CandidateListColumnKey[]>(
         () => (
             showOrganizationColumn
-                ? ["candidate", "status", "match", "position", "organization", "source", "updated"]
-                : ["candidate", "status", "match", "position", "source", "updated"]
+                ? ["candidate", "status", "match", "city", "position", "organization", "source", "updated"]
+                : ["candidate", "status", "match", "city", "position", "source", "updated"]
         ),
         [showOrganizationColumn],
     );
@@ -1580,6 +1604,8 @@ export function CandidatesPage({
             candidateDetail.candidate.position_title,
             candidateDetail.candidate.years_of_experience,
             candidateDetail.candidate.education,
+            candidateDetail.candidate.age ? `${candidateDetail.candidate.age}${tr.ageSuffix}` : null,
+            candidateDetail.candidate.city,
             candidateDetail.candidate.phone || candidateDetail.candidate.email,
         ].filter(Boolean).join(" · ")
         : "";
@@ -1718,6 +1744,10 @@ export function CandidatesPage({
                                     <Mail className="h-4 w-4"/>
                                     {tr.sendResumesBatch}
                                 </Button>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => void exportCandidates(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
+                                    <Download className="h-4 w-4"/>
+                                    {tr.exportCandidates}
+                                </Button>
                             </div>
                         </div>
                         {candidatesLoading ? (
@@ -1750,9 +1780,11 @@ export function CandidatesPage({
                                                                     ? tr.status
                                                                     : columnKey === "match"
                                                                         ? tr.matchPercent
-                                                                        : columnKey === "source"
-                                                                            ? tr.source
-                                                                            : tr.timeLabel;
+                                                                        : columnKey === "city"
+                                                                            ? tr.cityLabel
+                                                                            : columnKey === "source"
+                                                                                ? tr.source
+                                                                                : tr.timeLabel;
 
                                                     if (!candidateListCompactMode) {
                                                         return renderCandidateListHeaderCell(columnKey, label);
@@ -2068,6 +2100,8 @@ export function CandidatesPage({
                                                     <Input value={candidateEditor.currentCompany} onChange={(event) => setCandidateEditor((current) => ({...current, currentCompany: event.target.value}))} placeholder={tr.companyPlaceholder}/>
                                                     <Input value={candidateEditor.yearsOfExperience} onChange={(event) => setCandidateEditor((current) => ({...current, yearsOfExperience: event.target.value}))} placeholder={tr.experiencePlaceholder}/>
                                                     <Input value={candidateEditor.education} onChange={(event) => setCandidateEditor((current) => ({...current, education: event.target.value}))} placeholder={tr.educationPlaceholder}/>
+                                                    <Input value={candidateEditor.age} onChange={(event) => setCandidateEditor((current) => ({...current, age: event.target.value}))} placeholder={tr.agePlaceholder}/>
+                                                    <Input value={candidateEditor.city} onChange={(event) => setCandidateEditor((current) => ({...current, city: event.target.value}))} placeholder={tr.cityPlaceholder}/>
                                                 </div>
                                             </Field>
 

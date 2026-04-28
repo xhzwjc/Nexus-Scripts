@@ -80,6 +80,8 @@ export type CandidateEditorState = {
     currentCompany: string;
     yearsOfExperience: string;
     education: string;
+    age: string;
+    city: string;
     notes: string;
     tagsText: string;
     manualOverrideScore: string;
@@ -615,7 +617,7 @@ export const mailSenderPresets: MailSenderPreset[] = [
 export const panelClass =
     "rounded-[24px] border border-slate-200/80 bg-white/95 shadow-[0_20px_50px_-30px_rgba(15,23,42,0.45)] backdrop-blur dark:border-slate-800/90 dark:bg-slate-950/85";
 
-export type CandidateListColumnKey = "candidate" | "organization" | "position" | "status" | "match" | "source" | "updated";
+export type CandidateListColumnKey = "candidate" | "organization" | "position" | "status" | "match" | "city" | "source" | "updated";
 export type AuditListColumnKey = "taskType" | "object" | "status" | "model" | "duration" | "time";
 
 export const candidateListColumnDefaultWidths: Record<CandidateListColumnKey, number> = {
@@ -624,6 +626,7 @@ export const candidateListColumnDefaultWidths: Record<CandidateListColumnKey, nu
     position: 148,
     status: 96,
     match: 84,
+    city: 96,
     source: 128,
     updated: 156,
 };
@@ -634,6 +637,7 @@ export const candidateListColumnMinWidths: Record<CandidateListColumnKey, number
     position: 120,
     status: 88,
     match: 72,
+    city: 72,
     source: 104,
     updated: 136,
 };
@@ -644,6 +648,7 @@ export const candidateListColumnMaxWidths: Record<CandidateListColumnKey, number
     position: 260,
     status: 180,
     match: 140,
+    city: 160,
     source: 240,
     updated: 240,
 };
@@ -654,6 +659,7 @@ export const candidateListColumnFillWeights: Record<CandidateListColumnKey, numb
     position: 1.8,
     status: 1,
     match: 1,
+    city: 1,
     source: 1.5,
     updated: 1.3,
 };

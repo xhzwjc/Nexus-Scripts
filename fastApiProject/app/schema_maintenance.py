@@ -666,6 +666,16 @@ def ensure_recruitment_schema() -> None:
                 connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN trigger_rule_json TEXT NULL"))
             logger.info("Added recruitment_resume_mail_dispatches.trigger_rule_json column")
 
+        candidate_columns = {column["name"] for column in inspector.get_columns("recruitment_candidates")}
+        if "age" not in candidate_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN age INTEGER NULL"))
+            logger.info("Added recruitment_candidates.age column")
+        if "city" not in candidate_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN city VARCHAR(100) NULL"))
+            logger.info("Added recruitment_candidates.city column")
+
         db = SessionLocal()
         try:
             for config_key, config_value in DEFAULT_RULE_CONFIGS.items():

@@ -71,6 +71,8 @@ class RecruitmentCandidate(Base):
     current_company = Column(String(180))
     years_of_experience = Column(String(60))
     education = Column(String(120))
+    age = Column(Integer)
+    city = Column(String(100))
     source = Column(String(50), default="manual_upload", nullable=False, index=True)
     source_detail = Column(String(255))
     status = Column(String(50), default="pending_screening", nullable=False, index=True)

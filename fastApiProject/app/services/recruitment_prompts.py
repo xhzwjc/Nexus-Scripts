@@ -52,6 +52,7 @@ Return this schema exactly:
     "name": "",
     "phone": "",
     "email": "",
+    "age": "",
     "years_of_experience": "",
     "education": "",
     "location": ""
@@ -105,6 +106,7 @@ SCREENING_OUTPUT_SCHEMA = """{
       "name": "",
       "phone": "",
       "email": "",
+      "age": "",
       "years_of_experience": "",
       "education": "",
       "location": ""
@@ -160,7 +162,7 @@ SCORE_ONLY_OUTPUT_SCHEMA = """{
 
 SCREENING_OUTPUT_SCHEMA_V3 = """{
   "parsed_resume": {
-    "basic_info": {"name":"","phone":"","email":"","years_of_experience":"","education":"","location":""},
+    "basic_info": {"name":"","phone":"","email":"","age":"","years_of_experience":"","education":"","location":""},
     "work_experiences": [{"company_name":"","position":"","start_date":"","end_date":"","description":""}],
     "education_experiences": [{"school":"","degree":"","major":"","start_date":"","end_date":""}],
     "skills": ["string"],
