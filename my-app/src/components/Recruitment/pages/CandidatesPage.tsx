@@ -1541,10 +1541,12 @@ export function CandidatesPage({
         : 0;
 
     const [candidateDetailPanel, setCandidateDetailPanel] = React.useState<"profile" | "ai" | "interview">("profile");
+    const [detailExpanded, setDetailExpanded] = React.useState(false);
 
     React.useEffect(() => {
         setCandidateDetailPanel("profile");
         setCandidateAiOutputDialogOpen(false);
+        setDetailExpanded(false);
     }, [selectedCandidateId]);
 
     React.useEffect(() => {
@@ -1692,8 +1694,13 @@ export function CandidatesPage({
                     />
                 ) : null}
 
-                <div className="grid min-h-0 items-stretch gap-4 overflow-hidden 2xl:gap-6 xl:grid-cols-[minmax(300px,0.44fr)_minmax(0,0.56fr)] 2xl:grid-cols-[minmax(320px,0.44fr)_minmax(0,0.56fr)]">
-                <Card className={cn(panelClass, "min-h-0 !gap-0 overflow-hidden !py-0")}>
+                <div className={cn(
+                    "grid min-h-0 items-stretch gap-4 overflow-hidden 2xl:gap-6 transition-all duration-200",
+                    detailExpanded
+                        ? "xl:grid-cols-[0fr_1fr] 2xl:grid-cols-[0fr_1fr]"
+                        : "xl:grid-cols-[minmax(300px,0.44fr)_minmax(0,0.56fr)] 2xl:grid-cols-[minmax(320px,0.44fr)_minmax(0,0.56fr)]"
+                )}>
+                <Card className={cn(panelClass, "min-h-0 !gap-0 overflow-hidden !py-0 transition-all duration-200", detailExpanded && "opacity-0 pointer-events-none w-0")}>
                     <CardHeader className="px-4 pt-2 pb-0 sm:px-5">
                         <div className="flex items-center justify-between gap-3">
                             <CardTitle className="text-[15px] leading-none">{tr.candidateList}</CardTitle>
@@ -1925,7 +1932,7 @@ export function CandidatesPage({
                     </CardContent>
                 </Card>
 
-                <Card className={cn(panelClass, "min-h-0 min-w-0 gap-0 overflow-hidden py-0")}>
+                <Card className={cn(panelClass, "min-h-0 min-w-0 gap-0 overflow-hidden py-0")} onDoubleClick={() => setDetailExpanded(v => !v)}>
                     {candidateDetailLoading ? <LoadingPanel label={tr.loadingCandidateDetail}/> : candidateDetail ? (
                         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
                             <div className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
