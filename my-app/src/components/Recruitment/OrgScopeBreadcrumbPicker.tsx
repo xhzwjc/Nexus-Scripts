@@ -391,37 +391,48 @@ export function OrgScopeBreadcrumbPicker({
                     variant="outline"
                     disabled={disabled}
                     className={cn(
-                        'min-w-[220px] max-w-[380px] h-9 justify-start text-left rounded-xl border-slate-200/80 bg-white/90 px-3 dark:border-slate-800 dark:bg-slate-950/80',
+                        'h-9 max-w-[320px] justify-start text-left rounded-xl border-slate-200/80 bg-white/90 px-3 dark:border-slate-800 dark:bg-slate-950/80',
                         !breadcrumbPath.length && 'text-muted-foreground',
                     )}
                 >
                     <Building2 className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" />
-                    <span className="ml-1.5 truncate text-sm">
+                    <span className="ml-1.5 flex min-w-0 flex-1 items-center overflow-hidden text-sm">
                         {breadcrumbPath.length > 0 ? (
-                            <span className="flex items-center gap-0.5 flex-wrap">
-                                {breadcrumbPath.map((segment, i) => (
-                                    <span key={i} className="flex items-center gap-0.5">
-                                        {i > 0 && (
-                                            <span className="text-muted-foreground/40 mx-0.5 text-xs">
-                                                /
+                            <span className="flex min-w-0 items-center gap-0.5 overflow-hidden">
+                                {breadcrumbPath.length <= 3 ? (
+                                    breadcrumbPath.map((segment, i) => (
+                                        <span key={i} className="flex shrink-0 items-center gap-0.5">
+                                            {i > 0 && (
+                                                <span className="mx-0.5 shrink-0 text-xs text-muted-foreground/40">/</span>
+                                            )}
+                                            <span
+                                                className={cn(
+                                                    'max-w-[120px] truncate',
+                                                    i === breadcrumbPath.length - 1
+                                                        ? 'font-medium text-foreground'
+                                                        : 'text-muted-foreground',
+                                                )}
+                                            >
+                                                {segment}
                                             </span>
-                                        )}
-                                        <span
-                                            className={
-                                                i === breadcrumbPath.length - 1
-                                                    ? 'font-medium text-foreground'
-                                                    : 'text-muted-foreground'
-                                            }
-                                        >
-                                            {segment}
                                         </span>
-                                    </span>
-                                ))}
+                                    ))
+                                ) : (
+                                    <>
+                                        <span className="max-w-[80px] shrink-0 truncate text-muted-foreground">
+                                            {breadcrumbPath[0]}
+                                        </span>
+                                        <span className="mx-0.5 shrink-0 text-xs text-muted-foreground/40">/</span>
+                                        <span className="shrink-0 text-muted-foreground">…</span>
+                                        <span className="mx-0.5 shrink-0 text-xs text-muted-foreground/40">/</span>
+                                        <span className="min-w-0 truncate font-medium text-foreground">
+                                            {breadcrumbPath[breadcrumbPath.length - 1]}
+                                        </span>
+                                    </>
+                                )}
                             </span>
                         ) : (
-                            <span className="text-xs text-muted-foreground">
-                                选择组织范围
-                            </span>
+                            <span className="text-xs text-muted-foreground">选择组织范围</span>
                         )}
                     </span>
                     <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-slate-400" />
