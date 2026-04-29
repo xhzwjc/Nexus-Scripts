@@ -558,7 +558,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         workspaceDescription: isZh ? "首页指标、待办、快捷操作与近期活动" : "Overview metrics, to-dos, quick actions, and recent activity",
         positionsTitle: isZh ? "岗位管理" : "Positions",
         positionsDescription: isZh ? "岗位列表 + 详情工作区 + JD 版本" : "Position list, detail workspace, and JD versions",
-        candidatesTitle: isZh ? "候选人" : "Candidates",
+        candidatesTitle: isZh ? "候选人" : "Recruits",
         candidatesDescription: isZh ? "ATS 列表、筛选、状态推进与档案查看" : "ATS list, filtering, status updates, and candidate profiles",
         auditTitle: isZh ? "审计中心" : "Audit Center",
         auditDescription: isZh ? "看 AI 处理记录、模型、错误与留痕" : "Inspect AI task logs, models, errors, and audit traces",
@@ -6925,6 +6925,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             onOrgScopeChange={(orgScope, deptScope) => {
                                 setSelectedOrgScope(orgScope);
                                 setSelectedDepartmentScope(deptScope);
+                                void refreshCoreData({ silent: true });
                             }}
                             allDepartmentsLabel={recruitmentUiText.allVisibleDepartments}
                             disabled={organizationCatalogLoading}

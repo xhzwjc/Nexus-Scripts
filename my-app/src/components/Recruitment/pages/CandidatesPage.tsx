@@ -235,8 +235,8 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="p-2 align-middle whitespace-nowrap"
                         >
-                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", displayStatus))}>
-                                {labelForCandidateStatus(displayStatus)}
+                            <Badge className={cn("rounded-full border max-w-full", statusBadgeClass("candidate", displayStatus))}>
+                                <span className="truncate">{labelForCandidateStatus(displayStatus)}</span>
                             </Badge>
                             {candidate.display_status_reason ? (
                                 <HoverRevealText
