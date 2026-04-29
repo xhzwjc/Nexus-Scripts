@@ -8325,7 +8325,7 @@ class RecruitmentService:
         rows = self.db.query(RecruitmentCandidateStatusHistory).filter(RecruitmentCandidateStatusHistory.candidate_id == candidate_id).order_by(RecruitmentCandidateStatusHistory.created_at.desc(), RecruitmentCandidateStatusHistory.id.desc()).all()
         return [self._serialize_status_history(row) for row in rows]
 
-    def upload_resume_files(self, uploaded_files: List[Dict[str, Any]], position_id: Optional[int], actor_id: str, target_org_code: Optional[str] = None, city: Optional[str] = None) -> List[Dict[str, Any]]:
+    def upload_resume_files(self, uploaded_files: List[Dict[str, Any]], position_id: Optional[int], actor_id: str, target_org_code: Optional[str] = None, city: Optional[str] = None, city_source: Optional[str] = None) -> List[Dict[str, Any]]:
         position = self._get_position(position_id) if position_id else None
         fallback_org_code = normalize_org_code(target_org_code or self._current_org_code())
         if not position:
@@ -8356,7 +8356,15 @@ class RecruitmentService:
                 storage_path.write_bytes(content)
                 file_size = len(content)
             candidate_org_code = normalize_org_code(getattr(position, "org_code", None) if position else fallback_org_code)
-            candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=candidate_org_code, position_id=position.id if position else None, name=safe_file_stem(file_name), source="manual_upload", source_detail=file_name, status="pending_screening", city=city, tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
+            # Resolve city based on city_source
+            resolved_city: Optional[str] = None
+            if city_source == "auto":
+                from .recruitment_utils import extract_city_from_filename
+                resolved_city = extract_city_from_filename(file_name) or None
+            else:
+                # Default "manual" mode: use the city parameter passed from frontend
+                resolved_city = city
+            candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=candidate_org_code, position_id=position.id if position else None, name=safe_file_stem(file_name), source="manual_upload", source_detail=file_name, status="pending_screening", city=resolved_city, tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
             self.db.add(candidate)
             self.db.flush()
             candidate.candidate_code = f"CAD-{candidate.id:05d}"

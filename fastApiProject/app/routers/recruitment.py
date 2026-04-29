@@ -395,7 +395,7 @@ async def get_candidate_status_history(candidate_id: int, _session: Dict[str, An
 
 
 @recruitment_router.post("/candidates/upload-resumes")
-async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), city: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), city: Optional[str] = Query(None), city_source: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
     staging_root = RECRUITMENT_UPLOAD_ROOT / "_staging"
     staging_root.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(tempfile.mkdtemp(prefix="resume-batch-", dir=str(staging_root)))
@@ -403,7 +403,7 @@ async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optio
     try:
         for item in files:
             uploaded_files.append(await _stage_upload_file(item, staging_dir))
-        rows = service.upload_resume_files(uploaded_files, position_id, _session.get("id") or "unknown", org_code, city)
+        rows = service.upload_resume_files(uploaded_files, position_id, _session.get("id") or "unknown", org_code, city, city_source=city_source)
         auto_screen_queued_count = 0
         auto_screen_skipped_existing_live_task_count = 0
         auto_screen_failed_count = 0

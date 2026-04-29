@@ -791,6 +791,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [resumeUploadPositionId, setResumeUploadPositionId] = useState("all");
     const [resumeUploadOrgCode, setResumeUploadOrgCode] = useState(defaultOrgScope);
     const [resumeUploadCity, setResumeUploadCity] = useState("");
+    const [resumeUploadCitySource, setResumeUploadCitySource] = useState<"manual" | "auto">("auto");
 
     const [publishDialogOpen, setPublishDialogOpen] = useState(false);
     const [publishPlatform, setPublishPlatform] = useState("boss");
@@ -4034,7 +4035,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         const query = buildQuery({
             position_id: resumeUploadPositionId === "all" ? null : resumeUploadPositionId,
             org_code: resumeUploadPositionId === "all" ? resumeUploadOrgCode : null,
-            city: resumeUploadCity || null,
+            city: resumeUploadCitySource === "manual" ? (resumeUploadCity || null) : null,
+            city_source: resumeUploadCitySource,
         });
         try {
             const uploaded = await recruitmentApi<ResumeUploadResponse>(`/candidates/upload-resumes${query}`, {
@@ -4056,6 +4058,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setResumeUploadOpen(false);
             setResumeUploadFiles([]);
             setResumeUploadCity("");
+            setResumeUploadCitySource("auto");
             await refreshCoreData();
             setActivePage("candidates");
         } catch (error) {
@@ -7508,35 +7511,63 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             </Field>
                         ) : null}
                         <Field label={isZh ? "所在城市" : "City"}>
-                            <div className="flex flex-col gap-1.5">
-                                <Input
-                                    list="city-options"
-                                    placeholder={isZh ? "输入或选择城市" : "Enter or select city"}
-                                    value={resumeUploadCity}
-                                    onChange={(event) => setResumeUploadCity(event.target.value)}
-                                />
-                                <datalist id="city-options">
-                                    {POPULAR_CITIES.map((city) => (
-                                        <option key={city} value={city}/>
-                                    ))}
-                                </datalist>
-                                <div className="flex flex-wrap gap-1">
-                                    {POPULAR_CITIES.slice(0, 8).map((city) => (
+                            <div className="flex flex-col gap-2">
+                                <div className="flex gap-1">
+                                    {([
+                                        {value: "manual" as const, label: isZh ? "手动指定" : "Manual"},
+                                        {value: "auto" as const, label: isZh ? "自动识别" : "Auto Detect"},
+                                    ] as const).map((opt) => (
                                         <button
-                                            key={city}
+                                            key={opt.value}
                                             type="button"
                                             className={cn(
-                                                "rounded-full border px-2 py-0.5 text-xs transition-colors",
-                                                resumeUploadCity === city
+                                                "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                                                resumeUploadCitySource === opt.value
                                                     ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
                                                     : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
                                             )}
-                                            onClick={() => setResumeUploadCity(city)}
+                                            onClick={() => setResumeUploadCitySource(opt.value)}
                                         >
-                                            {city}
+                                            {opt.label}
                                         </button>
                                     ))}
                                 </div>
+                                {resumeUploadCitySource === "manual" ? (
+                                    <div className="flex flex-col gap-1.5">
+                                        <Input
+                                            list="city-options"
+                                            placeholder={isZh ? "输入或选择城市" : "Enter or select city"}
+                                            value={resumeUploadCity}
+                                            onChange={(event) => setResumeUploadCity(event.target.value)}
+                                        />
+                                        <datalist id="city-options">
+                                            {POPULAR_CITIES.map((city) => (
+                                                <option key={city} value={city}/>
+                                            ))}
+                                        </datalist>
+                                        <div className="flex flex-wrap gap-1">
+                                            {POPULAR_CITIES.slice(0, 8).map((city) => (
+                                                <button
+                                                    key={city}
+                                                    type="button"
+                                                    className={cn(
+                                                        "rounded-full border px-2 py-0.5 text-xs transition-colors",
+                                                        resumeUploadCity === city
+                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
+                                                    )}
+                                                    onClick={() => setResumeUploadCity(city)}
+                                                >
+                                                    {city}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : resumeUploadCitySource === "auto" ? (
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        {isZh ? "系统将从文件名中自动提取城市，未识别到的由AI解析兜底" : "System extracts city from filename; AI parsing as fallback if not detected"}
+                                    </p>
+                                ) : null}
                             </div>
                         </Field>
                         <Field label="选择文件">
