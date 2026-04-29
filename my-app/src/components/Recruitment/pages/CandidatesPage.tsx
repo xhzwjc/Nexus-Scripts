@@ -1347,8 +1347,6 @@ type CandidatesPageProps = {
     positions: PositionSummary[];
     sourceOptions: string[];
     visibleCandidates: CandidateSummary[];
-    loadMoreCandidates: () => void;
-    loadingMoreCandidates: boolean;
     selectedCandidateIds: number[];
     setSelectedCandidateIds: React.Dispatch<React.SetStateAction<number[]>>;
     triggerScreening: (candidateIds?: number[]) => Promise<void>;
@@ -1431,8 +1429,6 @@ export function CandidatesPage({
     positions,
     sourceOptions,
     visibleCandidates,
-    loadMoreCandidates,
-    loadingMoreCandidates,
     selectedCandidateIds,
     setSelectedCandidateIds,
     triggerScreening,
@@ -1597,19 +1593,6 @@ export function CandidatesPage({
         estimateSize: () => CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT,
         overscan: CANDIDATE_LIST_OVERSCAN,
     });
-
-    // Infinite scroll - load more candidates when scrolled near bottom
-    React.useEffect(() => {
-        if (!candidateListViewportEl) return;
-        const handleScroll = () => {
-            const { scrollTop, scrollHeight, clientHeight } = candidateListViewportEl;
-            if (scrollHeight - scrollTop - clientHeight < 200 && !loadingMoreCandidates) {
-                loadMoreCandidates();
-            }
-        };
-        candidateListViewportEl.addEventListener("scroll", handleScroll, { passive: true });
-        return () => candidateListViewportEl.removeEventListener("scroll", handleScroll);
-    }, [candidateListViewportEl, loadMoreCandidates, loadingMoreCandidates]);
 
     const candidateListVisibleColumns = React.useMemo<CandidateListColumnKey[]>(
         () => (
@@ -1967,13 +1950,6 @@ export function CandidatesPage({
                                                             />
                                                         </tr>
                                                     ) : null}
-                                                    {loadingMoreCandidates && (
-                                                        <tr>
-                                                            <td colSpan={candidateListVisibleColumns.length + 1} className="py-2 text-center">
-                                                                <Loader2 className="inline h-4 w-4 animate-spin text-slate-400"/>
-                                                            </td>
-                                                        </tr>
-                                                    )}
                                                 </>
                                             ) : (
                                                 <tr>
