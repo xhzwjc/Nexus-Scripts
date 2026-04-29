@@ -1,6 +1,6 @@
 "use client";
 
-import React, {useCallback, useDeferredValue, useEffect, useMemo, useRef, useState} from "react";
+import React, {useCallback, useDeferredValue, useEffect, useMemo, useRef, startTransition, useState} from "react";
 import {
     ArrowLeft,
     Bot,
@@ -2631,11 +2631,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     function navigateToSettingsPage(page: Extract<RecruitmentPage, "settings-skills" | "settings-models" | "settings-mail">) {
         setSettingsPopoverOpen(false);
-        setActivePage(page);
+        startTransition(() => {
+            setActivePage(page);
+        });
     }
 
     function navigatePrimaryPage(page: RecruitmentPage) {
-        setActivePage(page);
+        startTransition(() => {
+            setActivePage(page);
+        });
     }
 
     function openTaskLogDetail(logId?: number | null) {
@@ -7012,15 +7016,30 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </div>
 
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                    {activePage === "candidates" || activePage === "audit" || activePage === "positions" || activePage === "assistant" ? (
-                        <div className="h-full min-h-0 p-4 lg:p-5 2xl:p-6">
-                            {renderPage()}
-                        </div>
-                    ) : (
-                        <ScrollArea className="h-full">
-                            <div className="p-4 lg:p-5 2xl:p-6">{renderPage()}</div>
-                        </ScrollArea>
-                    )}
+                    <div className={cn("h-full min-h-0 p-4 lg:p-5 2xl:p-6", activePage !== "candidates" && "hidden")}>
+                        {renderCandidatesPage()}
+                    </div>
+                    <div className={cn("h-full min-h-0 p-4 lg:p-5 2xl:p-6", activePage !== "positions" && "hidden")}>
+                        {renderPositionsPage()}
+                    </div>
+                    <div className={cn("h-full min-h-0 p-4 lg:p-5 2xl:p-6", activePage !== "audit" && "hidden")}>
+                        {renderAuditPage()}
+                    </div>
+                    <div className={cn("h-full min-h-0 p-4 lg:p-5 2xl:p-6", activePage !== "assistant" && "hidden")}>
+                        {renderAssistantPage()}
+                    </div>
+                    <ScrollArea className={cn("h-full", activePage !== "workspace" && "hidden")}>
+                        <div className="p-4 lg:p-5 2xl:p-6">{renderWorkspacePage()}</div>
+                    </ScrollArea>
+                    <ScrollArea className={cn("h-full", activePage !== "settings-skills" && "hidden")}>
+                        <div className="p-4 lg:p-5 2xl:p-6">{renderSkillsPage()}</div>
+                    </ScrollArea>
+                    <ScrollArea className={cn("h-full", activePage !== "settings-models" && "hidden")}>
+                        <div className="p-4 lg:p-5 2xl:p-6">{renderModelsPage()}</div>
+                    </ScrollArea>
+                    <ScrollArea className={cn("h-full", activePage !== "settings-mail" && "hidden")}>
+                        <div className="p-4 lg:p-5 2xl:p-6">{renderMailSettingsPage()}</div>
+                    </ScrollArea>
                 </div>
             </div>
 
