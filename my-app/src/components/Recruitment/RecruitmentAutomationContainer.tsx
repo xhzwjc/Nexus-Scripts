@@ -1694,9 +1694,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                 // 阶段 2: 工作台核心数据 + 统计 (并行，统计秒出)
                 const dashboardPromise = loadDashboardWithTimeout(5000);
+                const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
                 const statsPromise = Promise.allSettled([
-                    recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>("/candidates/stats").then((d) => { if (!cancelled) setCandidateStats(d); }).catch(() => {}),
-                    recruitmentApi<{total: number; status_counts: Record<string, number>}>("/ai-task-logs/stats").then((d) => { if (!cancelled) { setAiLogStats(d); setAiLogTotal(d.total); } }).catch(() => {}),
+                    recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) setCandidateStats(d); }).catch(() => {}),
+                    recruitmentApi<{total: number; status_counts: Record<string, number>}>(`/ai-task-logs/stats${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) { setAiLogStats(d); setAiLogTotal(d.total); } }).catch(() => {}),
                 ]);
 
                 await Promise.allSettled([dashboardPromise, statsPromise]);
@@ -1769,10 +1770,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
         async function loadCandidatesFirstPage(): Promise<void> {
             try {
-                const data = await getCachedCandidates(
-                    'candidates:first-page',
-                    () => recruitmentApi<{items: CandidateSummary[]; total: number}>("/candidates?limit=50&offset=0")
-                );
+                const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+                const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
+                const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
                 if (!cancelled) {
                     setAllCandidates(data?.items || []);
                     setCandidateTotal(data?.total || 0);
@@ -2400,11 +2400,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setCandidatesLoading(true);
         }
         try {
-            const request = () => recruitmentApi<{items: CandidateSummary[]; total: number}>("/candidates?limit=50&offset=0");
+            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
+            const request = () => recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
             const result = options?.force
                 ? await request()
                 : await runDedupedRequest(
-                    "candidates:first-page",
+                    `candidates:first-page${orgCodeParam ? `:${selectedDepartmentScope}` : ""}`,
                     request,
                 );
             if (!mountedRef.current || candidatesLoadRequestIdRef.current !== requestId) {
@@ -2431,7 +2433,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         loadingMoreCandidatesRef.current = true;
         try {
             const offset = allCandidates.length;
-            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(`/candidates?limit=50&offset=${offset}`);
+            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(`/candidates?limit=50&offset=${offset}${orgCodeParam}`);
             if (mountedRef.current) {
                 setAllCandidates(prev => [...prev, ...(data?.items || [])]);
                 setCandidateTotal(data?.total || 0);
@@ -2490,11 +2493,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             const statusParam = logStatusFilter !== "all"
                 ? `&status=${encodeURIComponent(logStatusFilter)}`
                 : "";
-            const dedupKey = `logs:${options?.silent ? "silent" : "full"}:${logTaskTypeFilter}:${logStatusFilter}`;
+            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const dedupKey = `logs:${options?.silent ? "silent" : "full"}:${logTaskTypeFilter}:${logStatusFilter}${orgCodeParam ? `:${selectedDepartmentScope}` : ""}`;
             const data = await runDedupedRequest(
                 dedupKey,
                 () => recruitmentApi<{items: AITaskLog[]; total: number}>(
-                    `/ai-task-logs?limit=20&offset=0${taskTypeParam}${statusParam}`
+                    `/ai-task-logs?limit=20&offset=0${taskTypeParam}${statusParam}${orgCodeParam}`
                 ),
             );
             if (mountedRef.current) {
@@ -2528,8 +2532,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             const statusParam = logStatusFilter !== "all"
                 ? `&status=${encodeURIComponent(logStatusFilter)}`
                 : "";
+            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
             const data = await recruitmentApi<{items: AITaskLog[]; total: number}>(
-                `/ai-task-logs?limit=20&offset=${offset}${taskTypeParam}${statusParam}`
+                `/ai-task-logs?limit=20&offset=${offset}${taskTypeParam}${statusParam}${orgCodeParam}`
             );
             if (mountedRef.current) {
                 setAllAiLogs(prev => [...prev, ...(data?.items || [])]);
@@ -2671,7 +2676,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     async function refreshCandidateStats() {
         try {
-            const d = await recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>("/candidates/stats");
+            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const d = await recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam}`);
             setCandidateStats(d);
             setCandidateTotal(d.total);
         } catch {}
@@ -2690,7 +2696,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             loadLogs(),
             // 并行刷新统计
             refreshCandidateStats(),
-            recruitmentApi<{total: number; status_counts: Record<string, number>}>("/ai-task-logs/stats").then((d) => { setAiLogStats(d); setAiLogTotal(d.total); }).catch(() => {}),
+            (async () => {
+                const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+                const d = await recruitmentApi<{total: number; status_counts: Record<string, number>}>(`/ai-task-logs/stats${orgCodeParam}`);
+                setAiLogStats(d);
+                setAiLogTotal(d.total);
+            })(),
         ];
         if (options?.includeMailSettings) {
             tasks.push(loadMailSettings());
@@ -7037,7 +7048,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 icon={Users}
                                 title={recruitmentUiText.candidatesTitle}
                                 description={recruitmentUiText.candidatesDescription}
-                                count={candidateStats ? candidateStats.total : visibleCandidates.length}
+                                count={candidates.length}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
                                     primaryNavButtonRefs.current.candidates = node;
@@ -7049,7 +7060,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 icon={History}
                                 title={recruitmentUiText.auditTitle}
                                 description={recruitmentUiText.auditDescription}
-                                count={aiLogStats ? aiLogStats.total : allAiLogs.length}
+                                count={allAiLogs.length}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
                                     primaryNavButtonRefs.current.audit = node;

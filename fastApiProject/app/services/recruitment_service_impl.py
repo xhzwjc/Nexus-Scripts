@@ -8154,7 +8154,23 @@ class RecruitmentService:
         position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
         return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
-    def get_candidate_stats(self, position_id: Optional[int] = None) -> Dict[str, Any]:
+    def _get_org_and_descendant_codes(self, org_code: str) -> List[str]:
+        """Get all org codes that are descendants of the given org (including the org itself)."""
+        from ..rbac_models import ScriptHubOrganization
+        org_row = self.db.query(ScriptHubOrganization.org_code, ScriptHubOrganization.path).filter(
+            ScriptHubOrganization.org_code == org_code,
+            ScriptHubOrganization.is_active.is_(True),
+        ).first()
+        if not org_row:
+            return [org_code]
+        prefix = org_row.path.rstrip("/") + "/"
+        descendant_rows = self.db.query(ScriptHubOrganization.org_code).filter(
+            ScriptHubOrganization.path.like(f"{prefix}%"),
+            ScriptHubOrganization.is_active.is_(True),
+        ).all()
+        return list(set([r.org_code for r in descendant_rows]))
+
+    def get_candidate_stats(self, position_id: Optional[int] = None, org_code: Optional[str] = None) -> Dict[str, Any]:
         """Candidate stats grouped by display_status (matches frontend resolveCandidateDisplayStatus).
         Returns both full counts and today-only counts."""
         from sqlalchemy import func as sa_func, case, literal_column, cast, Date
@@ -8192,7 +8208,11 @@ class RecruitmentService:
                 )
                 .filter(RecruitmentCandidate.deleted.is_(False))
             )
-            q = self._apply_business_org_filter(q, RecruitmentCandidate)
+            if org_code:
+                codes = self._get_org_and_descendant_codes(org_code)
+                q = q.filter(RecruitmentCandidate.org_code.in_(codes))
+            else:
+                q = self._apply_business_org_filter(q, RecruitmentCandidate)
             if position_id:
                 q = q.filter(RecruitmentCandidate.position_id == position_id)
             if extra_filters:
@@ -8227,8 +8247,15 @@ class RecruitmentService:
             "today_status_counts": today_status_counts,
         }
 
-    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0) -> Dict[str, Any]:
-        builder = self._apply_business_org_filter(self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)), RecruitmentCandidate)
+    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None) -> Dict[str, Any]:
+        if org_code:
+            codes = self._get_org_and_descendant_codes(org_code)
+            builder = self.db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.deleted.is_(False),
+                RecruitmentCandidate.org_code.in_(codes),
+            )
+        else:
+            builder = self._apply_business_org_filter(self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)), RecruitmentCandidate)
         if position_id:
             builder = builder.filter(RecruitmentCandidate.position_id == position_id)
         if query:
@@ -13677,7 +13704,7 @@ class RecruitmentService:
         rows.sort(key=lambda row: order_map.get(row.id, 9999))
         return rows
 
-    def get_ai_task_log_stats(self, task_type: Optional[str] = None) -> Dict[str, Any]:
+    def get_ai_task_log_stats(self, task_type: Optional[str] = None, org_code: Optional[str] = None) -> Dict[str, Any]:
         """Single GROUP BY query for AI task log stats. No row data loaded."""
         from sqlalchemy import func as sa_func
         base_q = (
@@ -13686,7 +13713,11 @@ class RecruitmentService:
                 sa_func.count(RecruitmentAITaskLog.id).label("cnt"),
             )
         )
-        base_q = self._apply_business_org_filter(base_q, RecruitmentAITaskLog)
+        if org_code:
+            codes = self._get_org_and_descendant_codes(org_code)
+            base_q = base_q.filter(RecruitmentAITaskLog.org_code.in_(codes))
+        else:
+            base_q = self._apply_business_org_filter(base_q, RecruitmentAITaskLog)
         if task_type:
             base_q = base_q.filter(RecruitmentAITaskLog.task_type == task_type)
         else:
@@ -13702,8 +13733,12 @@ class RecruitmentService:
             "status_counts": status_counts,
         }
 
-    def list_ai_task_logs(self, task_type: Optional[str] = None, status: Optional[str] = None, limit: int = 20, offset: int = 0) -> Dict[str, Any]:
-        builder = self._apply_business_org_filter(self.db.query(RecruitmentAITaskLog), RecruitmentAITaskLog)
+    def list_ai_task_logs(self, task_type: Optional[str] = None, status: Optional[str] = None, limit: int = 20, offset: int = 0, org_code: Optional[str] = None) -> Dict[str, Any]:
+        if org_code:
+            codes = self._get_org_and_descendant_codes(org_code)
+            builder = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.org_code.in_(codes))
+        else:
+            builder = self._apply_business_org_filter(self.db.query(RecruitmentAITaskLog), RecruitmentAITaskLog)
         if task_type:
             builder = builder.filter(RecruitmentAITaskLog.task_type == task_type)
         else:

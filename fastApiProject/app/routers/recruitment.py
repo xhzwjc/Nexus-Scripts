@@ -262,14 +262,14 @@ async def activate_jd_version(position_id: int, version_id: int, _session: Dict[
 
 
 @recruitment_router.get("/candidates/stats")
-async def get_candidate_stats(position_id: Optional[int] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
-    stats = service.get_candidate_stats(position_id=position_id)
+async def get_candidate_stats(position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    stats = service.get_candidate_stats(position_id=position_id, org_code=org_code)
     return {"success": True, "data": stats, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/candidates")
-async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), limit: int = Query(0), offset: int = Query(0), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
-    result = service.list_candidates(query=query, status=status, position_id=position_id, tag=tag, limit=limit, offset=offset)
+async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), limit: int = Query(0), offset: int = Query(0), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    result = service.list_candidates(query=query, status=status, position_id=position_id, tag=tag, limit=limit, offset=offset, org_code=org_code)
     return {"success": True, "data": {"items": result["items"], "total": result["total"]}, "request_id": str(uuid.uuid4())}
 
 
@@ -1149,14 +1149,14 @@ async def send_resume_mail_dispatch(payload: RecruitmentResumeMailSendRequest, _
 
 
 @recruitment_router.get("/ai-task-logs/stats")
-async def get_ai_task_log_stats(task_type: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-log-view")), service: RecruitmentService = Depends(get_recruitment_service)):
-    stats = service.get_ai_task_log_stats(task_type=task_type)
+async def get_ai_task_log_stats(task_type: Optional[str] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-log-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    stats = service.get_ai_task_log_stats(task_type=task_type, org_code=org_code)
     return {"success": True, "data": stats, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.get("/ai-task-logs")
-async def list_ai_task_logs(task_type: Optional[str] = Query(None), status: Optional[str] = Query(None), limit: int = Query(20), offset: int = Query(0), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-log-view")), service: RecruitmentService = Depends(get_recruitment_service)):
-    result = service.list_ai_task_logs(task_type=task_type, status=status, limit=limit, offset=offset)
+async def list_ai_task_logs(task_type: Optional[str] = Query(None), status: Optional[str] = Query(None), limit: int = Query(20), offset: int = Query(0), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-log-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    result = service.list_ai_task_logs(task_type=task_type, status=status, limit=limit, offset=offset, org_code=org_code)
     return {"success": True, "data": {"items": result["items"], "total": result["total"]}, "request_id": str(uuid.uuid4())}
 
 
