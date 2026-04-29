@@ -2692,11 +2692,28 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
         const deptScope = options?.departmentScope ?? selectedDepartmentScope;
 
+        // 直接调用 API，避免闭包中 selectedDepartmentScope 还是旧值的问题
+        const candidatesPromise = (async () => {
+            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(deptScope)}` : "";
+            const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
+            const d = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
+            setAllCandidates(d?.items || []);
+            setCandidateTotal(d?.total || 0);
+        })();
+
+        const logsPromise = (async () => {
+            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(deptScope)}` : "";
+            const url = orgCodeParam ? `/ai-task-logs?limit=20&offset=0&${orgCodeParam}` : "/ai-task-logs?limit=20&offset=0";
+            const d = await recruitmentApi<{items: AITaskLog[]; total: number}>(url);
+            setAllAiLogs(d?.items || []);
+            setAiLogTotal(d?.total || 0);
+        })();
+
         const tasks: Promise<unknown>[] = [
             loadDashboard(),
             loadPositions(),
-            loadCandidates(),
-            loadLogs(),
+            candidatesPromise,
+            logsPromise,
             // 并行刷新统计
             (async () => {
                 const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(deptScope)}` : "";
@@ -7056,7 +7073,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 icon={Users}
                                 title={recruitmentUiText.candidatesTitle}
                                 description={recruitmentUiText.candidatesDescription}
-                                count={candidates.length}
+                                count={candidateStats?.total ?? candidates.length}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
                                     primaryNavButtonRefs.current.candidates = node;
@@ -7068,7 +7085,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 icon={History}
                                 title={recruitmentUiText.auditTitle}
                                 description={recruitmentUiText.auditDescription}
-                                count={allAiLogs.length}
+                                count={aiLogStats?.total ?? allAiLogs.length}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
                                     primaryNavButtonRefs.current.audit = node;

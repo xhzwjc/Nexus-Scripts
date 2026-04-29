@@ -8168,7 +8168,10 @@ class RecruitmentService:
             ScriptHubOrganization.path.like(f"{prefix}%"),
             ScriptHubOrganization.is_active.is_(True),
         ).all()
-        return list(set([r.org_code for r in descendant_rows]))
+        # Include the org itself + all descendants
+        codes = [org_code]
+        codes.extend([r.org_code for r in descendant_rows])
+        return list(set(codes))
 
     def get_candidate_stats(self, position_id: Optional[int] = None, org_code: Optional[str] = None) -> Dict[str, Any]:
         """Candidate stats grouped by display_status (matches frontend resolveCandidateDisplayStatus).
