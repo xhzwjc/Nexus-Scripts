@@ -2674,20 +2674,23 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
-    async function refreshCandidateStats() {
+    async function refreshCandidateStats(departmentScope?: string) {
         try {
-            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const deptScope = departmentScope ?? selectedDepartmentScope;
+            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(deptScope)}` : "";
             const d = await recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam}`);
             setCandidateStats(d);
             setCandidateTotal(d.total);
         } catch {}
     }
 
-    async function refreshCoreData(options?: { includeMailSettings?: boolean; silent?: boolean }) {
+    async function refreshCoreData(options?: { includeMailSettings?: boolean; silent?: boolean; departmentScope?: string }) {
         // 清除缓存，确保获取最新数据
         invalidatePositionsCache('positions:all');
         invalidateCandidatesCache('candidates:all');
         invalidateLogsCache('logs:all');
+
+        const deptScope = options?.departmentScope ?? selectedDepartmentScope;
 
         const tasks: Promise<unknown>[] = [
             loadDashboard(),
@@ -2695,9 +2698,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             loadCandidates(),
             loadLogs(),
             // 并行刷新统计
-            refreshCandidateStats(),
             (async () => {
-                const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(deptScope)}` : "";
+                const d = await recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam}`);
+                setCandidateStats(d);
+                setCandidateTotal(d.total);
+            })(),
+            (async () => {
+                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(deptScope)}` : "";
                 const d = await recruitmentApi<{total: number; status_counts: Record<string, number>}>(`/ai-task-logs/stats${orgCodeParam}`);
                 setAiLogStats(d);
                 setAiLogTotal(d.total);
@@ -6936,7 +6944,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             onOrgScopeChange={(orgScope, deptScope) => {
                                 setSelectedOrgScope(orgScope);
                                 setSelectedDepartmentScope(deptScope);
-                                void refreshCoreData({ silent: true });
+                                void refreshCoreData({ silent: true, departmentScope: deptScope });
                             }}
                             allDepartmentsLabel={recruitmentUiText.allVisibleDepartments}
                             disabled={organizationCatalogLoading}
