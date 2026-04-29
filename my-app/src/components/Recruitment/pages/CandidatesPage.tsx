@@ -103,14 +103,14 @@ type CandidateListDisplayColumnWidths = Record<CandidateListColumnKey, number>;
 
 type CandidateInterviewQuestion = CandidateDetail["interview_questions"][number];
 
-const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 84;
+const CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT = 96;
 const CANDIDATE_LIST_OVERSCAN = 6;
 const SCORE_SUGGESTED_STATUS_VALUES = new Set(["screening_passed", "talent_pool", "screening_rejected"]);
 
 type CandidateRowProps = {
     candidate: CandidateSummary;
     isSelected: boolean;
-    isChecked: boolean;
+    selectedCandidateIdSet: ReadonlySet<number>;
     columns: CandidateListColumnKey[];
     columnWidths: CandidateListDisplayColumnWidths;
     onSelect: () => void;
@@ -125,7 +125,7 @@ type CandidateRowProps = {
 const CandidateRow = React.memo(function CandidateRow({
     candidate,
     isSelected,
-    isChecked,
+    selectedCandidateIdSet,
     columns,
     columnWidths,
     onSelect,
@@ -136,6 +136,7 @@ const CandidateRow = React.memo(function CandidateRow({
     measureRef,
     dataIndex,
 }: CandidateRowProps) {
+    const isChecked = selectedCandidateIdSet.has(candidate.id);
     const resumeMailSummary = getResumeMailSummary(candidate.id);
     const displayStatus = resolveCandidateDisplayStatus(candidate);
 
@@ -313,7 +314,7 @@ const CandidateRow = React.memo(function CandidateRow({
     );
 }, (prev, next) => {
     return prev.isSelected === next.isSelected
-        && prev.isChecked === next.isChecked
+        && prev.selectedCandidateIdSet === next.selectedCandidateIdSet
         && prev.columns === next.columns
         && prev.columnWidths === next.columnWidths
         && prev.candidate.status === next.candidate.status
@@ -529,7 +530,8 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
 }
 
 function OutputSnippet({content}: { content: string }) {
-    const tr = React.useMemo(() => getCandidatesLocale(), []);
+    const {language} = useI18n();
+    const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
     const [expanded, setExpanded] = React.useState(false);
     const lines = React.useMemo(() => content.split("\n"), [content]);
     const preview = React.useMemo(() => lines.slice(0, 3).join("\n"), [lines]);
@@ -585,7 +587,8 @@ function InterviewQuestionCard({
     onDownload: () => void;
     onPreview: () => void;
 }) {
-    const tr = React.useMemo(() => getCandidatesLocale(), []);
+    const {language} = useI18n();
+    const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
     const {modules, questionCount} = React.useMemo(
         () => question.html_content
             ? parseInterviewQuestionMetrics(question.html_content)
@@ -935,7 +938,8 @@ function CandidateAiOutputDialog({
     modelLabel?: string | null;
     generatedAt?: string | null;
 }) {
-    const tr = React.useMemo(() => getCandidatesLocale(), []);
+    const {language} = useI18n();
+    const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
     const [copied, setCopied] = React.useState(false);
 
     React.useEffect(() => {
@@ -1012,15 +1016,18 @@ function MultiSelect({ options, selected, onChange, placeholder }: MultiSelectPr
     const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
     const triggerRef = useRef<HTMLButtonElement>(null);
 
+    const openRef = useRef(open);
+    openRef.current = open;
+
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
-            if (open && triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
+            if (openRef.current && triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
                 setOpen(false);
             }
         };
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [open]);
+    }, []);
 
     const handleOpen = () => {
         if (triggerRef.current) {
@@ -1795,7 +1802,7 @@ export function CandidatesPage({
                 ) : null}
 
                 <div className={cn(
-                    "grid min-h-0 items-stretch gap-4 overflow-hidden 2xl:gap-6 transition-all duration-200",
+                    "grid min-h-0 items-stretch gap-4 overflow-hidden 2xl:gap-6 transition-[grid-template-columns] duration-200",
                     detailExpanded
                         ? "xl:grid-cols-[0fr_1fr] 2xl:grid-cols-[0fr_1fr]"
                         : "xl:grid-cols-[minmax(300px,0.44fr)_minmax(0,0.56fr)] 2xl:grid-cols-[minmax(320px,0.44fr)_minmax(0,0.56fr)]"
@@ -1922,7 +1929,7 @@ export function CandidatesPage({
                                                                 key={candidate.id}
                                                                 candidate={candidate}
                                                                 isSelected={selectedCandidateId === candidate.id}
-                                                                isChecked={selectedCandidateIdSet.has(candidate.id)}
+                                                                selectedCandidateIdSet={selectedCandidateIdSet}
                                                                 columns={candidateListVisibleColumns}
                                                                 columnWidths={candidateListEffectiveColumnWidths}
                                                                 onSelect={stableCallbacks.selectMap.get(candidate.id)!}
@@ -2032,10 +2039,10 @@ export function CandidatesPage({
                     </CardContent>
                 </Card>
 
-                <Card className={cn(panelClass, "min-h-0 min-w-0 gap-0 overflow-hidden py-0")} onDoubleClick={() => setDetailExpanded(v => !v)}>
+                <Card className={cn(panelClass, "min-h-0 min-w-0 gap-0 overflow-hidden py-0")}>
                     {candidateDetailLoading ? <LoadingPanel label={tr.loadingCandidateDetail}/> : candidateDetail ? (
                         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-                            <div className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
+                            <div className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800 cursor-zoom-in select-none" onDoubleClick={() => setDetailExpanded(v => !v)}>
                                 <div className="space-y-1">
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="min-w-0 flex-1 space-y-1">
