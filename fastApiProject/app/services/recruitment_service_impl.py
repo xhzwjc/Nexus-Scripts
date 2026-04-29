@@ -8144,24 +8144,52 @@ class RecruitmentService:
         position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
         return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
-    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 20, offset: int = 0) -> tuple[List[Dict[str, Any]], int]:
         builder = self._apply_business_org_filter(self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)), RecruitmentCandidate)
         if position_id:
             builder = builder.filter(RecruitmentCandidate.position_id == position_id)
         if query:
             keyword = f"%{query.strip()}%"
             builder = builder.filter(or_(RecruitmentCandidate.name.like(keyword), RecruitmentCandidate.phone.like(keyword), RecruitmentCandidate.email.like(keyword), RecruitmentCandidate.current_company.like(keyword)))
-        rows = builder.order_by(RecruitmentCandidate.updated_at.desc(), RecruitmentCandidate.id.desc()).all()
-        if tag:
-            rows = [row for row in rows if tag in json_loads_safe(row.tags_json, [])]
-        serialized_rows = [self._serialize_candidate_summary(row) for row in rows]
         if status:
-            serialized_rows = [
-                item
-                for item in serialized_rows
-                if str(item.get("display_status") or item.get("status") or "").strip() == status
-            ]
-        return serialized_rows
+            builder = builder.filter(RecruitmentCandidate.status == status)
+        if tag:
+            builder = builder.filter(RecruitmentCandidate.tags_json.op("JSON_OVERLAPS")(f'["{tag}"]'))
+        # Count total before pagination
+        total = builder.count()
+        # Apply pagination
+        rows = builder.order_by(RecruitmentCandidate.updated_at.desc(), RecruitmentCandidate.id.desc()).limit(limit).offset(offset).all()
+        serialized_rows = [self._serialize_candidate_summary(row) for row in rows]
+        return serialized_rows, total
+
+    def get_candidate_stats(self, position_id: Optional[int] = None) -> Dict[str, Any]:
+        """Get candidate statistics with 99 limit for each status count."""
+        MAX_COUNT = 99
+        builder = self._apply_business_org_filter(self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)), RecruitmentCandidate)
+        if position_id:
+            builder = builder.filter(RecruitmentCandidate.position_id == position_id)
+
+        # Get all unique statuses and their counts (stop at 99 for each)
+        status_counts = {}
+        statuses = [row[0] for row in self.db.query(RecruitmentCandidate.status).distinct().all()]
+        for status in statuses:
+            count = builder.filter(RecruitmentCandidate.status == status).count()
+            status_counts[status] = min(count, MAX_COUNT)
+
+        # Also count pending_screening specifically (common use case)
+        pending_screening_count = min(
+            builder.filter(RecruitmentCandidate.status == "pending_screening").count(),
+            MAX_COUNT
+        )
+
+        # Total count
+        total_count = min(builder.count(), MAX_COUNT)
+
+        return {
+            "total": total_count,
+            "pending_screening": pending_screening_count,
+            "status_counts": status_counts,
+        }
 
     def get_candidate_detail(self, candidate_id: int) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)

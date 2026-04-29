@@ -261,9 +261,15 @@ async def activate_jd_version(position_id: int, version_id: int, _session: Dict[
 
 
 @recruitment_router.get("/candidates")
-async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
-    data = service.list_candidates(query=query, status=status, position_id=position_id, tag=tag)
-    return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
+async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), limit: int = Query(20), offset: int = Query(0), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    data, total = service.list_candidates(query=query, status=status, position_id=position_id, tag=tag, limit=limit, offset=offset)
+    return {"success": True, "data": data, "total": total, "request_id": str(uuid.uuid4())}
+
+
+@recruitment_router.get("/candidates/stats")
+async def get_candidate_stats(position_id: Optional[int] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    stats = service.get_candidate_stats(position_id=position_id)
+    return {"success": True, "data": stats, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.post("/candidates/export")

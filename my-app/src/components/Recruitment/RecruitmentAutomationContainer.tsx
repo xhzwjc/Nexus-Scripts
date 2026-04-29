@@ -684,6 +684,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [positionDetail, setPositionDetail] = useState<PositionDetail | null>(null);
     const [allCandidates, setAllCandidates] = useState<CandidateSummary[]>([]);
     const [candidates, setCandidates] = useState<CandidateSummary[]>([]);
+    const [candidateStats, setCandidateStats] = useState<{total: number; pending_screening: number; status_counts: Record<string, number>} | null>(null);
+    const [candidateTotal, setCandidateTotal] = useState(0);
     const [candidateDetail, setCandidateDetail] = useState<CandidateDetail | null>(null);
     const [allSkills, setAllSkills] = useState<RecruitmentSkill[]>([]);
     const [skills, setSkills] = useState<RecruitmentSkill[]>([]);
@@ -1369,18 +1371,26 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     // 使用优化的统计计算 hook (单次遍历完成所有统计)
     const stats = useOptimizedStats(positions, candidates, aiLogs);
 
-    // 兼容原有接口
+    // 兼容原有接口 - 使用预取的stats数据（限制99），避免遍历全量候选人
     const scopedDashboard: DashboardData = useMemo(() => ({
-        cards: stats.cards,
-        status_distribution: stats.status_distribution,
+        cards: candidateStats ? {
+            ...stats.cards,
+            candidates_total: candidateStats.total,
+            pending_screening: candidateStats.pending_screening,
+        } : stats.cards,
+        status_distribution: candidateStats ? Object.entries(candidateStats.status_counts).map(([status, count]) => ({ status, count })) : stats.status_distribution,
         recent_candidates: [...candidates]
             .sort((left, right) => new Date(right.updated_at || right.created_at || 0).getTime() - new Date(left.updated_at || left.created_at || 0).getTime())
             .slice(0, 8),
-    }), [stats, candidates]);
+    }), [stats, candidates, candidateStats]);
 
     const todayNewResumes = stats.todayNewResumes;
 
-    const todoSummary = stats.todo;
+    // 使用预取的stats计算todoSummary（限制99）
+    const todoSummary = useMemo(() => candidateStats ? {
+        ...stats.todo,
+        pendingScreening: candidateStats.pending_screening,
+    } : stats.todo, [stats.todo, candidateStats]);
 
     const recentCandidates = scopedDashboard.recent_candidates || [];
     const recentLogs = aiLogs.slice(0, 6);
@@ -2343,21 +2353,29 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setCandidatesLoading(true);
         }
         try {
-            const request = () => recruitmentApi<CandidateSummary[]>("/candidates");
-            const data = options?.force
-                ? await request()
-                : await runDedupedRequest(
-                    "candidates:all",
-                    request,
-                );
-            if (!mountedRef.current || candidatesLoadRequestIdRef.current !== requestId) {
-                return data;
+            // Load stats first (lightweight, uses 99 limit)
+            const statsData = await recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>}>("/candidates/stats");
+            if (mountedRef.current && candidatesLoadRequestIdRef.current === requestId) {
+                setCandidateStats(statsData);
             }
-            setAllCandidates(data);
+            // Then load first page of candidates (limit 20) with filters
+            const statusParam = candidateStatusFilter.length === 1 ? candidateStatusFilter[0] : undefined;
+            const positionParam = candidatePositionFilter.length === 1 ? Number(candidatePositionFilter[0]) : undefined;
+            const queryParts = [`limit=20`, `offset=0`];
+            if (candidateQuery) queryParts.push(`query=${encodeURIComponent(candidateQuery)}`);
+            if (statusParam) queryParts.push(`status=${encodeURIComponent(statusParam)}`);
+            if (positionParam) queryParts.push(`position_id=${positionParam}`);
+            const queryString = queryParts.length > 0 ? `?${queryParts.join("&")}` : "";
+            const data = await recruitmentApi<{data: CandidateSummary[]; total: number}>(`/candidates${queryString}`);
+            if (!mountedRef.current || candidatesLoadRequestIdRef.current !== requestId) {
+                return;
+            }
+            setAllCandidates(data?.data || []);
+            setCandidateTotal(data.total || 0);
             return data;
         } catch (error) {
             if (!options?.silent) {
-                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidates, formatActionError(error)));
+                toast.error(recruitmentToast.loadFailed(recruitmentUiText.candidatesTitle, formatActionError(error)));
             }
             throw error;
         } finally {
@@ -2366,6 +2384,47 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
         }
     }
+
+    const [loadingMoreCandidates, setLoadingMoreCandidates] = useState(false);
+    async function loadMoreCandidates() {
+        if (loadingMoreCandidates || allCandidates.length >= candidateTotal) return;
+        setLoadingMoreCandidates(true);
+        try {
+            const offset = allCandidates.length;
+            const statusParam = candidateStatusFilter.length === 1 ? candidateStatusFilter[0] : undefined;
+            const positionParam = candidatePositionFilter.length === 1 ? Number(candidatePositionFilter[0]) : undefined;
+            const queryParts = [`limit=20`, `offset=${offset}`];
+            if (candidateQuery) queryParts.push(`query=${encodeURIComponent(candidateQuery)}`);
+            if (statusParam) queryParts.push(`status=${encodeURIComponent(statusParam)}`);
+            if (positionParam) queryParts.push(`position_id=${positionParam}`);
+            const queryString = queryParts.length > 0 ? `?${queryParts.join("&")}` : "";
+            const data = await recruitmentApi<{data: CandidateSummary[]; total: number}>(`/candidates${queryString}`);
+            if (mountedRef.current) {
+                setAllCandidates(prev => [...prev, ...(data?.data || [])]);
+                setCandidateTotal(data?.total || 0);
+            }
+        } catch (error) {
+            console.error("Failed to load more candidates:", error);
+        } finally {
+            setLoadingMoreCandidates(false);
+        }
+    }
+
+    // Reset candidates when filters change
+    const prevFiltersRef = useRef({status: candidateStatusFilter, position: candidatePositionFilter, query: candidateQuery});
+    useEffect(() => {
+        const prev = prevFiltersRef.current;
+        const filtersChanged =
+            JSON.stringify(prev.status) !== JSON.stringify(candidateStatusFilter) ||
+            JSON.stringify(prev.position) !== JSON.stringify(candidatePositionFilter) ||
+            prev.query !== candidateQuery;
+        if (filtersChanged) {
+            prevFiltersRef.current = {status: candidateStatusFilter, position: candidatePositionFilter, query: candidateQuery};
+            setAllCandidates([]);
+            setCandidateTotal(0);
+            void loadCandidates({silent: true});
+        }
+    }, [candidateStatusFilter, candidatePositionFilter, candidateQuery]);
 
     async function loadCandidateDetail(candidateId: number, options?: { silent?: boolean; force?: boolean }) {
         if (!options?.silent) {
@@ -5036,9 +5095,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setCandidateDeleteTarget(null);
             setSelectedCandidateIds((current) => current.filter((item) => item !== deletedCandidateId));
             setCandidateDetail(null);
-            const nextCandidates = await loadCandidates({silent: true});
+            // Reload candidates with new pagination - state is updated via setAllCandidates
+            await loadCandidates({silent: true});
             await Promise.all([loadDashboard(), loadLogs({silent: true})]);
-            const nextCandidateId = nextCandidates[0]?.id ?? null;
+            // Select first visible candidate after deletion
+            const nextCandidateId = candidates.find(c => c.id !== deletedCandidateId)?.id ?? null;
             setSelectedCandidateId(nextCandidateId);
             selectedCandidateIdRef.current = nextCandidateId;
             if (nextCandidateId) {
@@ -6519,6 +6580,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 positions={positions}
                 sourceOptions={sourceOptions}
                 visibleCandidates={visibleCandidates}
+                loadMoreCandidates={loadMoreCandidates}
+                loadingMoreCandidates={loadingMoreCandidates}
                 selectedCandidateIds={selectedCandidateIds}
                 setSelectedCandidateIds={setSelectedCandidateIds}
                 triggerScreening={triggerScreening}
