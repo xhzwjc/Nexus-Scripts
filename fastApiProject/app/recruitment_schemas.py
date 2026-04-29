@@ -102,6 +102,10 @@ class CandidateExportRequest(BaseModel):
     include_resumes: bool = True
 
 
+class CandidateBatchDeleteRequest(BaseModel):
+    candidate_ids: List[int] = Field(..., min_length=1)
+
+
 class TriggerCandidateProcessRequest(BaseModel):
     force: bool = False
 

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from ..database import SessionLocal, get_db
 from ..permission_governance import expand_permission_aliases
 from ..recruitment_schemas import (
+    CandidateBatchDeleteRequest,
     CandidateExportRequest,
     CandidateScreenBatchCancelRequest,
     CandidateScreenBatchQueryRequest,
@@ -304,6 +305,38 @@ async def update_candidate(candidate_id: int, payload: CandidateUpdateRequest, _
     try:
         data = service.update_candidate(candidate_id, payload.model_dump(exclude_none=True), _session.get("id") or "unknown")
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.post("/candidates/batch-delete")
+async def batch_delete_candidates(
+    http_request: Request,
+    payload: CandidateBatchDeleteRequest,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.batch_delete_candidates(payload.candidate_ids, session.get("id") or "unknown")
+        deleted_count = len(data)
+        try:
+            write_audit_log(
+                db,
+                actor=session,
+                request=http_request,
+                action="recruitment.candidate.batch_delete",
+                target_type="recruitment-candidate",
+                target_code=",".join(str(item.get("candidate_id", "")) for item in data),
+                details={
+                    "requested_ids": payload.candidate_ids,
+                    "deleted_count": deleted_count,
+                    "deleted_candidates": data,
+                },
+            )
+        except Exception:
+            pass
+        return {"success": True, "data": {"deleted_count": deleted_count}, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 

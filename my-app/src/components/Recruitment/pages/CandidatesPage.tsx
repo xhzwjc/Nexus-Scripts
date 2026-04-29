@@ -411,6 +411,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         queueBatch: isZh ? "批量入队" : "Queue Batch",
         sendResumesBatch: isZh ? "批量发送简历" : "Send Resumes in Batch",
         exportCandidates: isZh ? "导出" : "Export",
+        batchDelete: isZh ? "批量删除" : "Batch Delete",
         ageSuffix: isZh ? "岁" : "yo",
         cityLabel: isZh ? "城市" : "City",
         selectAllCandidates: isZh ? "全选候选人" : "Select all candidates",
@@ -1407,6 +1408,7 @@ type CandidatesPageProps = {
     toggleInterviewSkillSelection: (skillId: number) => void;
     downloadInterviewQuestion: (questionId: number) => Promise<void>;
     exportCandidates: (candidateIds: number[], includeResumes?: boolean) => Promise<void>;
+    requestBatchDelete: (candidateIds: number[]) => void;
 };
 
 export function CandidatesPage({
@@ -1489,6 +1491,7 @@ export function CandidatesPage({
     toggleInterviewSkillSelection,
     downloadInterviewQuestion,
     exportCandidates,
+    requestBatchDelete,
 }: CandidatesPageProps) {
     const {language} = useI18n();
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
@@ -1851,6 +1854,10 @@ export function CandidatesPage({
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => void exportCandidates(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Download className="h-4 w-4"/>
                                     {tr.exportCandidates}
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => requestBatchDelete(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
+                                    <Trash2 className="h-4 w-4"/>
+                                    {tr.batchDelete}
                                 </Button>
                             </div>
                         </div>

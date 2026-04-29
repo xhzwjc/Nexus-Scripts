@@ -6589,6 +6589,16 @@ class RecruitmentService:
 
         return deleted_candidate_snapshot
 
+    def batch_delete_candidates(self, candidate_ids: List[int], actor_id: str) -> List[Dict[str, Any]]:
+        results: List[Dict[str, Any]] = []
+        for cid in candidate_ids:
+            try:
+                snapshot = self.delete_candidate(cid, actor_id)
+                results.append(snapshot)
+            except (ValueError, RecruitmentConflictError):
+                continue
+        return results
+
     def _get_workflow_memory(self, candidate_id: int) -> Optional[RecruitmentCandidateWorkflowMemory]:
         return self.db.query(RecruitmentCandidateWorkflowMemory).filter(RecruitmentCandidateWorkflowMemory.candidate_id == candidate_id).first()
 

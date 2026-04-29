@@ -807,6 +807,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [candidateDeleteTarget, setCandidateDeleteTarget] = useState<CandidateSummary | null>(null);
     const [candidateDeleting, setCandidateDeleting] = useState(false);
     const [candidateDeleteError, setCandidateDeleteError] = useState<string | null>(null);
+    const [batchDeleteTargetIds, setBatchDeleteTargetIds] = useState<number[] | null>(null);
+    const [batchDeleting, setBatchDeleting] = useState(false);
+    const [batchDeleteError, setBatchDeleteError] = useState<string | null>(null);
     const [resumeDeleteTarget, setResumeDeleteTarget] = useState<ResumeFile | null>(null);
     const [resumeDeleting, setResumeDeleting] = useState(false);
     const [skillDeleteTarget, setSkillDeleteTarget] = useState<RecruitmentSkill | null>(null);
@@ -5056,6 +5059,46 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
+    function requestBatchDelete(candidateIds: number[]) {
+        setBatchDeleteError(null);
+        setBatchDeleteTargetIds(candidateIds);
+    }
+
+    async function batchDeleteCandidates() {
+        if (!batchDeleteTargetIds || batchDeleting) {
+            return;
+        }
+        setBatchDeleteError(null);
+        setBatchDeleting(true);
+        try {
+            const result = await recruitmentApi<{ deleted_count: number }>("/candidates/batch-delete", {
+                method: "POST",
+                body: JSON.stringify({ candidate_ids: batchDeleteTargetIds }),
+            });
+            const deletedCount = result.deleted_count ?? 0;
+            toast.success(isZh ? `已删除 ${deletedCount} 位候选人` : `Deleted ${deletedCount} candidate(s)`);
+            setBatchDeleteTargetIds(null);
+            setSelectedCandidateIds((current) => current.filter((id) => !batchDeleteTargetIds!.includes(id)));
+            if (batchDeleteTargetIds.includes(selectedCandidateIdRef.current ?? -1)) {
+                setCandidateDetail(null);
+            }
+            const nextCandidates = await loadCandidates({silent: true});
+            await Promise.all([loadDashboard(), loadLogs({silent: true})]);
+            const nextCandidateId = nextCandidates[0]?.id ?? null;
+            setSelectedCandidateId(nextCandidateId);
+            selectedCandidateIdRef.current = nextCandidateId;
+            if (nextCandidateId) {
+                await loadCandidateDetail(nextCandidateId, {silent: true});
+            } else {
+                setCandidateDetail(null);
+            }
+        } catch (error) {
+            setBatchDeleteError(formatActionError(error) || (isZh ? "批量删除候选人失败，请稍后重试" : "Failed to batch delete candidates. Please try again later."));
+        } finally {
+            setBatchDeleting(false);
+        }
+    }
+
     async function deleteResumeFile() {
         if (!resumeDeleteTarget || resumeDeleting) {
             return;
@@ -6579,6 +6622,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 toggleInterviewSkillSelection={toggleInterviewSkillSelection}
                 downloadInterviewQuestion={downloadInterviewQuestion}
                 exportCandidates={exportCandidates}
+                requestBatchDelete={requestBatchDelete}
             />
         );
     }
@@ -7562,6 +7606,42 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         </Button>
                         <Button variant="destructive" onClick={() => void deleteCandidate()} disabled={candidateDeleting}>
                             {candidateDeleting ? "删除中..." : "确认删除"}
+                        </Button>
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={Boolean(batchDeleteTargetIds)} onOpenChange={(open) => {
+                if (!open && !batchDeleting) {
+                    setBatchDeleteError(null);
+                    setBatchDeleteTargetIds(null);
+                }
+            }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>确认批量删除候选人</DialogTitle>
+                        <DialogDescription>
+                            将删除选中的 {batchDeleteTargetIds?.length ?? 0} 位候选人及其简历文件、解析结果、初筛评分、面试题、状态流转记录和工作记忆。正在执行中的候选人任务需要先结束后才能删除。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
+                        <span className="min-h-[20px] flex-1 text-sm text-rose-600 dark:text-rose-300">
+                            {batchDeleteError ?? ""}
+                        </span>
+                        <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setBatchDeleteError(null);
+                                setBatchDeleteTargetIds(null);
+                            }}
+                            disabled={batchDeleting}
+                        >
+                            取消
+                        </Button>
+                        <Button variant="destructive" onClick={() => void batchDeleteCandidates()} disabled={batchDeleting}>
+                            {batchDeleting ? "删除中..." : "确认删除"}
                         </Button>
                         </div>
                     </DialogFooter>
