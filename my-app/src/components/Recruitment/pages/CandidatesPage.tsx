@@ -1805,7 +1805,7 @@ export function CandidatesPage({
                     "grid min-h-0 items-stretch gap-4 overflow-hidden 2xl:gap-6 transition-[grid-template-columns] duration-200",
                     detailExpanded
                         ? "xl:grid-cols-[0fr_1fr] 2xl:grid-cols-[0fr_1fr]"
-                        : "xl:grid-cols-[minmax(300px,0.44fr)_minmax(0,0.56fr)] 2xl:grid-cols-[minmax(320px,0.44fr)_minmax(0,0.56fr)]"
+                        : "xl:grid-cols-[minmax(260px,0.35fr)_minmax(0,0.65fr)] 2xl:grid-cols-[minmax(280px,0.35fr)_minmax(0,0.65fr)]"
                 )}>
                 <Card className={cn(panelClass, "min-h-0 !gap-0 overflow-hidden !py-0 transition-all duration-200", detailExpanded && "opacity-0 pointer-events-none w-0")}>
                     <CardHeader className="px-4 pt-2 pb-0 sm:px-5">
