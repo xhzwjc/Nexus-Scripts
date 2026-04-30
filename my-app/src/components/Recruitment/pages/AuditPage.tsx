@@ -690,8 +690,12 @@ export function AuditPage({
             }
             return;
         }
+        const firstId = visibleAuditLogs[0].id;
+        if (selectedLogId === firstId) {
+            return;
+        }
         if (selectedLogId == null || !visibleAuditLogs.some((item) => item.id === selectedLogId)) {
-            setSelectedLogId(visibleAuditLogs[0].id);
+            setSelectedLogId(firstId);
         }
     }, [selectedLogId, setSelectedLogId, visibleAuditLogs]);
 

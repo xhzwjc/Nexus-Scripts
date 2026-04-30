@@ -1529,7 +1529,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             if (!current || visibleAiLogs.some((log) => log.id === current)) {
                 return current;
             }
-            return visibleAiLogs[0]?.id || null;
+            const firstId = visibleAiLogs[0]?.id || null;
+            return firstId;
         });
     }, [visibleAiLogs]);
 
@@ -2921,9 +2922,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 if (index === -1) {
                     next.unshift(log);
                     changed = true;
-                } else if (next[index] !== log) {
-                    next[index] = log;
-                    changed = true;
+                } else {
+                    const existing = next[index];
+                    if (existing.status !== log.status || existing.error_message !== log.error_message) {
+                        next[index] = log;
+                        changed = true;
+                    }
                 }
             }
             return changed ? next : current;
