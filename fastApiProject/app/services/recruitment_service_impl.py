@@ -8568,8 +8568,12 @@ class RecruitmentService:
         for candidate, resume_file, pos, file_name in candidate_resume_pairs:
             candidate.candidate_code = f"CAD-{candidate.id:05d}"
             resume_file.candidate_id = candidate.id
-            candidate.latest_resume_file_id = resume_file.id
             self.db.add(resume_file)
+
+        self.db.flush()
+
+        for candidate, resume_file, pos, file_name in candidate_resume_pairs:
+            candidate.latest_resume_file_id = resume_file.id
 
         self.db.commit()
 
