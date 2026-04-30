@@ -5247,11 +5247,34 @@ class RecruitmentService:
         self.db = db
         self.ai_gateway = RecruitmentAIGateway(db)
         self.permission_context: Optional[PermissionContext] = None
+        self._session_token: Optional[str] = None
 
     def set_permission_context(self, session: Optional[Dict[str, Any]]) -> "RecruitmentService":
         self.permission_context = build_permission_context(self.db, session)
         self.ai_gateway.set_permission_context(self.permission_context)
         return self
+
+    def _emit_task_event(self, row: "RecruitmentAITaskLog"):
+        """将任务状态变化发布到 SSE 总线，不抛异常（旁路逻辑）"""
+        try:
+            from .task_event_bus import TaskEventBus
+            if not self._session_token:
+                return
+            is_terminal = row.status in ("success", "failed", "cancelled", "fallback")
+            event_type = "task_completed" if is_terminal else "task_progress"
+            payload = {
+                "task_id": row.id,
+                "status": row.status,
+                "related_candidate_id": row.related_candidate_id,
+                "task_type": row.task_type,
+            }
+            TaskEventBus.emit(self._session_token, event_type, payload)
+            if is_terminal and row.related_candidate_id:
+                TaskEventBus.emit(self._session_token, "candidate_updated", {
+                    "candidate_id": row.related_candidate_id,
+                })
+        except Exception:
+            pass
 
     def _current_org_code(self) -> str:
         if self.permission_context:
@@ -5975,8 +5998,8 @@ class RecruitmentService:
             finally:
                 recruitment_task_registry.pop(task_id)
 
-        thread = threading.Thread(target=_target, name=f"recruitment-ai-task-{task_id}", daemon=True)
-        thread.start()
+        from .recruitment_worker_pool import get_worker_pool
+        get_worker_pool().submit(task_id, _target, name="screening")
 
     def _screening_root_task_filter(self) -> Any:
         return and_(
@@ -6853,6 +6876,7 @@ class RecruitmentService:
         try:
             self.db.commit()
             self.db.refresh(row)
+            self._emit_task_event(row)
             return row
         except DataError as exc:
             self.db.rollback()

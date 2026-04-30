@@ -1,4 +1,6 @@
+import asyncio
 import json
+import logging
 import queue
 import shutil
 import threading
@@ -55,10 +57,82 @@ from ..services.recruitment_service import RecruitmentConflictError, Recruitment
 from ..services.recruitment_task_control import RecruitmentTaskCancelled
 from ..services.recruitment_utils import RECRUITMENT_UPLOAD_ROOT
 from ..services.script_hub_audit_service import write_audit_log
+from ..services.task_event_bus import TaskEventBus
 recruitment_router = APIRouter(prefix="/recruitment", tags=["AI 招聘自动化管理"])
 
 UPLOAD_STREAM_CHUNK_SIZE = 1024 * 1024
 POSITION_SKILL_BIND_FIELDS = {"jd_skill_ids", "screening_skill_ids", "interview_skill_ids", "skill_pack_ids"}
+
+logger = logging.getLogger(__name__)
+
+
+@recruitment_router.get("/task-events")
+async def stream_task_events(
+    request: Request,
+    _session: Dict[str, Any] = Depends(require_script_hub_any_permission(
+        ["recruitment-process-execute", "recruitment-log-view"]
+    )),
+):
+    """
+    SSE 长连接端点。前端建立一次连接后，后端主动推送任务状态变化。
+    代替前端所有轮询行为。
+    """
+    token = get_script_hub_token_from_request(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    q = TaskEventBus.subscribe(token)
+
+    async def event_generator():
+        try:
+            yield ": heartbeat\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=25.0)
+                    yield f"data: {data}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+        finally:
+            TaskEventBus.unsubscribe(token)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@recruitment_router.on_event("startup")
+async def recover_orphaned_tasks():
+    """服务启动时将所有 status=running/queued 的任务标记为 failed，触发重新调度。"""
+    from ..database import SessionLocal
+    from ..recruitment_models import RecruitmentAITaskLog
+    db = SessionLocal()
+    try:
+        orphaned = db.query(RecruitmentAITaskLog).filter(
+            RecruitmentAITaskLog.status.in_(["running", "queued"])
+        ).all()
+        if not orphaned:
+            return
+        for row in orphaned:
+            row.status = "failed"
+            row.error_message = "服务重启，任务中断。请手动重新触发初筛。"
+        db.commit()
+        logger.warning(
+            "Marked %d orphaned tasks as failed on startup. "
+            "Manual re-trigger required.",
+            len(orphaned)
+        )
+    except Exception as exc:
+        logger.error("Failed to recover orphaned tasks: %s", exc)
+        db.rollback()
+    finally:
+        db.close()
 
 
 def _session_has_permission(session: Dict[str, Any], permission: str) -> bool:
@@ -93,7 +167,10 @@ def get_recruitment_service(request: Request, db: Session = Depends(get_db)) -> 
     if not session:
         token = get_script_hub_token_from_request(request)
         session = verify_script_hub_session(token) if token else None
-    return RecruitmentService(db).set_permission_context(session)
+    service = RecruitmentService(db).set_permission_context(session)
+    raw_token = get_script_hub_token_from_request(request)
+    service._session_token = raw_token
+    return service
 
 
 def _run_recruitment_service_call(

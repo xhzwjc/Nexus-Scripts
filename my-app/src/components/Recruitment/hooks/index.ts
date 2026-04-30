@@ -11,3 +11,4 @@ export {
     useLazyLoad,
     useIncrementalLoad,
 } from './useStagedLoading';
+export { useTaskSSE, type TaskSSEEvent, type TaskSSEHandlers } from './useTaskSSE';

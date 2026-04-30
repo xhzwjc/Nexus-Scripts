@@ -185,14 +185,14 @@ import {MailSettingsPage} from "./pages/MailSettingsPage";
 import {ModelSettingsPage} from "./pages/ModelSettingsPage";
 import {SkillSettingsPage} from "./pages/SkillSettingsPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
-import { useOptimizedStats, useCachedListData, useCachedObjectData } from "./hooks";
+import { useOptimizedStats, useCachedListData, useCachedObjectData, useTaskSSE } from "./hooks";
 
-const PAGE_ACTIVITY_POLL_VISIBLE_INTERVAL_MS = 1500;
-const PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS = 6000;
-const PAGE_ACTIVITY_POLL_MAX_INTERVAL_MS = 15000;
-const TASK_MONITOR_VISIBLE_INTERVAL_MS = 1200;
-const TASK_MONITOR_HIDDEN_INTERVAL_MS = 5000;
-const TASK_MONITOR_MAX_INTERVAL_MS = 15000;
+const PAGE_ACTIVITY_POLL_VISIBLE_INTERVAL_MS = 15_000;
+const PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS = 60_000;
+const PAGE_ACTIVITY_POLL_MAX_INTERVAL_MS = 15_000;
+const TASK_MONITOR_VISIBLE_INTERVAL_MS = 30_000;
+const TASK_MONITOR_HIDDEN_INTERVAL_MS = 60_000;
+const TASK_MONITOR_MAX_INTERVAL_MS = 30_000;
 const TASK_MONITOR_BATCH_SCALE_THRESHOLD = 8;
 const ALL_COMPANY_DEPARTMENTS_VALUE = "__all_company_departments__";
 
@@ -243,6 +243,14 @@ function isCompanyLikeOrganization(organization?: ScriptHubOrganizationDefinitio
 
 function isDepartmentOrganization(organization?: ScriptHubOrganizationDefinition | null) {
     return String(organization?.org_type || "").toLowerCase() === "department";
+}
+
+function deduplicateCandidates(candidates: CandidateSummary[]): CandidateSummary[] {
+    const seen = new Map<number, CandidateSummary>();
+    for (const c of candidates) {
+        seen.set(c.id, c);
+    }
+    return Array.from(seen.values());
 }
 
 function getOrganizationDepth(organization?: ScriptHubOrganizationDefinition | null) {
@@ -1774,7 +1782,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
                 const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
                 if (!cancelled) {
-                    setAllCandidates(data?.items || []);
+                    setAllCandidates(deduplicateCandidates(data?.items || []));
                     setCandidateTotal(data?.total || 0);
                 }
             } catch (error) {
@@ -1844,6 +1852,43 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         void loadLogDetail(selectedLogId);
     }, [selectedLogId]);
 
+    const pendingCandidateRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useTaskSSE(
+        activePage === "candidates" || activePage === "audit" || activePage === "workspace",
+        {
+            onTaskCompleted: (event) => {
+                if (event.task_id) {
+                    stopTaskMonitor(event.task_id);
+                    if (event.related_candidate_id) {
+                        clearActiveScreeningTask(event.related_candidate_id, event.task_id);
+                    }
+                }
+                if (pendingCandidateRefreshRef.current) {
+                    window.clearTimeout(pendingCandidateRefreshRef.current);
+                }
+                pendingCandidateRefreshRef.current = window.setTimeout(() => {
+                    void loadCandidates({ silent: true, force: true });
+                    void loadLogs({ silent: true });
+                    void loadDashboard();
+                    void refreshCandidateStats();
+                }, 100);
+            },
+            onCandidateUpdated: (event) => {
+                if (event.candidate_id && selectedCandidateIdRef.current === event.candidate_id) {
+                    void loadCandidateDetail(event.candidate_id, { silent: true, force: true });
+                }
+            },
+            onTaskProgress: (event) => {
+                if (event.task_id) {
+                    void recruitmentApi<AITaskLog>(`/ai-task-logs/${event.task_id}`)
+                        .then((log) => { mergeAiTaskLog(log); })
+                        .catch(() => {});
+                }
+            },
+        },
+    );
+
     useEffect(() => {
         const shouldPollLogs = activePage === "audit" || activePage === "workspace";
         const shouldPollCandidateDetail = activePage === "candidates";
@@ -1852,7 +1897,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         const hasVisibleLiveActivity = (
             (shouldPollLogs && hasLiveLogActivity)
             || (shouldPollCandidateDetail && hasLiveCandidateActivity)
-            || (shouldPollCandidateList && (hasLiveCandidateListActivity || activeScreeningTaskIds.length > 0))
+            || (shouldPollCandidateList && hasLiveCandidateListActivity)
         );
         if (!screeningSubmitting && !interviewGenerating && !chatSending && !resumeMailSubmitting && jdGenerationStatus === "idle" && !hasVisibleLiveActivity) {
             return undefined;
@@ -1927,7 +1972,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         hasLiveLogActivity,
         hasLiveCandidateActivity,
         hasLiveCandidateListActivity,
-        activeScreeningTaskIds.length,
         selectedCandidateId,
         selectedLogId,
         pageVisible,
@@ -2412,7 +2456,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             if (!mountedRef.current || candidatesLoadRequestIdRef.current !== requestId) {
                 return result?.items || [];
             }
-            setAllCandidates(result?.items || []);
+            setAllCandidates(deduplicateCandidates(result?.items || []));
             setCandidateTotal(result?.total || 0);
             return result?.items || [];
         } catch (error) {
@@ -2436,7 +2480,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
             const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(`/candidates?limit=50&offset=${offset}${orgCodeParam}`);
             if (mountedRef.current) {
-                setAllCandidates(prev => [...prev, ...(data?.items || [])]);
+                setAllCandidates(prev => deduplicateCandidates([...prev, ...(data?.items || [])]));
                 setCandidateTotal(data?.total || 0);
             }
         } catch (error) {
@@ -2706,7 +2750,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     : "";
             const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
             const d = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
-            setAllCandidates(d?.items || []);
+            setAllCandidates(deduplicateCandidates(d?.items || []));
             setCandidateTotal(d?.total || 0);
         })();
 
