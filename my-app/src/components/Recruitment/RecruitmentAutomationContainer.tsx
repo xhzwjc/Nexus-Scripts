@@ -1869,7 +1869,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         void loadLogDetail(selectedLogId);
     }, [selectedLogId]);
 
-    const pendingCandidateRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pendingCandidateRefreshRef = useRef<number | null>(null);
 
     useTaskSSE(
         activePage === "candidates" || activePage === "audit" || activePage === "workspace",
