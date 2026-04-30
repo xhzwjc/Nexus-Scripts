@@ -318,6 +318,7 @@ const CandidateRow = React.memo(function CandidateRow({
         && prev.columns === next.columns
         && prev.columnWidths === next.columnWidths
         && prev.candidate.status === next.candidate.status
+        && prev.candidate.active_screening_task_status === next.candidate.active_screening_task_status
         && prev.candidate.display_status_reason === next.candidate.display_status_reason
         && prev.candidate.match_percent === next.candidate.match_percent
         && prev.candidate.updated_at === next.candidate.updated_at

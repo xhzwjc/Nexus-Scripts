@@ -2986,6 +2986,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         if (options?.batch) {
             setActiveBatchScreeningTaskIds((current) => Array.from(new Set([...current, taskId])));
         }
+        // Optimistic update: immediately set active_screening_task_status on the candidate
+        // so the left list shows "screening_running" without waiting for server refresh
+        setAllCandidates((current) =>
+            current.map((c) =>
+                c.id === candidateId
+                    ? { ...c, active_screening_task_id: taskId, active_screening_task_status: "queued" }
+                    : c,
+            ),
+        );
         startTaskMonitor(taskId, {
             onFinish: async (log) => {
                 if (!mountedRef.current) {
