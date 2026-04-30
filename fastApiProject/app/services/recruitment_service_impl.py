@@ -8603,18 +8603,32 @@ class RecruitmentService:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.write(excel_path, f"candidates_{date_str}.xlsx")
             if include_resumes:
+                # 按状态分组
+                by_status: Dict[str, List[RecruitmentCandidate]] = {}
                 for c in candidates:
-                    resume_files = self.db.query(RecruitmentResumeFile).filter(
-                        RecruitmentResumeFile.candidate_id == c.id,
-                    ).order_by(RecruitmentResumeFile.created_at.desc()).all()
-                    for rf in resume_files:
-                        storage_path = getattr(rf, "storage_path", None)
-                        if not storage_path or not os.path.isfile(storage_path):
-                            continue
-                        safe_name = re.sub(r'[/\\?%*:|"<>\x00-\x1f]', '_', c.name)
-                        ext = rf.file_ext or os.path.splitext(rf.original_name)[1] or ".pdf"
-                        arc_name = f"resumes/{safe_name}_{c.id}_{rf.id}{ext}"
-                        zf.write(storage_path, arc_name)
+                    display_status = SCREENING_STATUS_LABELS.get(c.status, c.status or "")
+                    by_status.setdefault(display_status, []).append(c)
+                # 按城市分组并排序
+                for status_folder, status_candidates in by_status.items():
+                    by_city: Dict[str, List[RecruitmentCandidate]] = {}
+                    for c in status_candidates:
+                        city = getattr(c, "city", None) or "未知"
+                        by_city.setdefault(city, []).append(c)
+                    sorted_cities = sorted(by_city.keys())
+                    for idx, city in enumerate(sorted_cities, start=1):
+                        city_folder = f"{idx}{city}"
+                        for c in by_city[city]:
+                            resume_files = self.db.query(RecruitmentResumeFile).filter(
+                                RecruitmentResumeFile.candidate_id == c.id,
+                            ).order_by(RecruitmentResumeFile.created_at.desc()).all()
+                            for rf in resume_files:
+                                storage_path = getattr(rf, "storage_path", None)
+                                if not storage_path or not os.path.isfile(storage_path):
+                                    continue
+                                safe_name = re.sub(r'[/\\?%*:|"<>\x00-\x1f]', '_', c.name)
+                                ext = rf.file_ext or os.path.splitext(rf.original_name)[1] or ".pdf"
+                                arc_name = f"{status_folder}/{city_folder}/{safe_name}_{c.id}_{rf.id}_{city}{ext}"
+                                zf.write(storage_path, arc_name)
         os.remove(excel_path)
         return zip_path
 
