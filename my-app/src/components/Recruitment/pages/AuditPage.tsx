@@ -890,7 +890,7 @@ export function AuditPage({
                                                                 />
                                                             </TableRow>
                                                         ) : null}
-                                                        {visibleAuditLogWindow.map((log) => {
+                                                        {visibleAuditLogWindow.map((log, idx) => {
                                                             const stageLabel = formatAuditStageLabel(log.stage);
                                                             const modelLabel = formatAuditModelLabel(log, tr.unrecorded);
                                                             const durationLabel = formatAuditDurationLabel(log, {
@@ -899,12 +899,25 @@ export function AuditPage({
                                                                 inProgress: tr.durationInProgress,
                                                                 stopping: tr.durationStopping,
                                                             });
+                                                            const logKey = log.id != null ? `${log.id}-${idx}` : `log-${idx}`;
                                                             return (
                                                                 <TableRow
-                                                                    key={log.id}
+                                                                    key={logKey}
                                                                     ref={createAuditRowMeasureRef(log.id)}
-                                                                    className={cn("cursor-pointer", selectedLogId === log.id && "bg-slate-100 dark:bg-slate-900")}
-                                                                    onClick={() => setSelectedLogId(log.id)}
+                                                                    className={cn(
+                                                                        "cursor-pointer",
+                                                                        selectedLogId === log.id
+                                                                            ? "bg-slate-100 dark:bg-slate-800"
+                                                                            : "hover:bg-slate-50 dark:hover:bg-slate-900"
+                                                                    )}
+                                                                    onClick={() => {
+                                                                        const viewport = auditListScrollRef.current;
+                                                                        const currentScrollTop = viewport?.scrollTop ?? 0;
+                                                                        setSelectedLogId(log.id);
+                                                                        requestAnimationFrame(() => {
+                                                                            if (viewport) viewport.scrollTop = currentScrollTop;
+                                                                        });
+                                                                    }}
                                                                 >
                                                                     <TableCell style={{width: auditListDisplayColumnWidths.taskType, minWidth: auditListDisplayColumnWidths.taskType, maxWidth: auditListDisplayColumnWidths.taskType}}>
                                                                         <HoverRevealText text={labelForAuditLogTask(log)}/>
@@ -1022,8 +1035,8 @@ export function AuditPage({
                                                     {tr.inferredTerminal}
                                                 </div>
                                             ) : null}
-                                            {selectedFlowStages.length ? selectedFlowStages.map((stage) => (
-                                                <div key={stage.key} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
+                                            {selectedFlowStages.length ? selectedFlowStages.map((stage, idx) => (
+                                                <div key={stage.key != null ? `${stage.key}-${idx}` : `stage-${idx}`} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
                                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                                         <div className="space-y-1">
                                                             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -1041,8 +1054,8 @@ export function AuditPage({
                                                         </div>
                                                     </div>
                                                 </div>
-                                            )) : selectedRunLogs.length ? selectedRunLogs.map((log) => (
-                                                <div key={log.id} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
+                                            )) : selectedRunLogs.length ? selectedRunLogs.map((log, idx) => (
+                                                <div key={log.id != null ? `${log.id}-${idx}` : `runlog-${idx}`} className="rounded-2xl border border-slate-200/80 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-900">
                                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                                         <div className="space-y-1">
                                                             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
