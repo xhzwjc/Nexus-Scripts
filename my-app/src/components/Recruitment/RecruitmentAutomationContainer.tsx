@@ -799,6 +799,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [positionSubmitting, setPositionSubmitting] = useState(false);
 
     const [resumeUploadOpen, setResumeUploadOpen] = useState(false);
+    const [uploadingResume, setUploadingResume] = useState(false);
     const [resumeUploadFiles, setResumeUploadFiles] = useState<File[]>([]);
     const [resumeUploadPositionId, setResumeUploadPositionId] = useState("all");
     const [resumeUploadOrgCode, setResumeUploadOrgCode] = useState(defaultOrgScope);
@@ -4280,6 +4281,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             city: resumeUploadCitySource === "manual" ? (resumeUploadCity || null) : null,
             city_source: resumeUploadCitySource,
         });
+        setUploadingResume(true);
         try {
             const uploaded = await recruitmentApi<ResumeUploadResponse>(`/candidates/upload-resumes${query}`, {
                 method: "POST",
@@ -4305,6 +4307,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setActivePage("candidates");
         } catch (error) {
             toast.error(recruitmentToast.createFailed(recruitmentToastEntities.resume, formatActionError(error)));
+        } finally {
+            setUploadingResume(false);
         }
     }
 
@@ -7839,7 +7843,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setResumeUploadOpen(false)}>取消</Button>
-                        <Button onClick={() => void uploadResumes()}>开始上传</Button>
+                        <Button onClick={() => void uploadResumes()} disabled={uploadingResume}>
+                            {uploadingResume ? (isZh ? "上传中..." : "Uploading...") : (isZh ? "开始上传" : "Start Upload")}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
