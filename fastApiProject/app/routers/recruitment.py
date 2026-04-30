@@ -405,7 +405,9 @@ async def batch_delete_candidates(
 ):
     try:
         data = service.batch_delete_candidates(payload.candidate_ids, session.get("id") or "unknown")
-        deleted_count = len(data)
+        deleted = data.get("deleted", [])
+        skipped = data.get("skipped", [])
+        deleted_count = len(deleted)
         try:
             write_audit_log(
                 db,
@@ -413,16 +415,17 @@ async def batch_delete_candidates(
                 request=http_request,
                 action="recruitment.candidate.batch_delete",
                 target_type="recruitment-candidate",
-                target_code=",".join(str(item.get("candidate_id", "")) for item in data),
+                target_code=",".join(str(item.get("candidate_id", "")) for item in deleted),
                 details={
                     "requested_ids": payload.candidate_ids,
                     "deleted_count": deleted_count,
-                    "deleted_candidates": data,
+                    "deleted_candidates": deleted,
+                    "skipped": skipped,
                 },
             )
         except Exception:
             pass
-        return {"success": True, "data": {"deleted_count": deleted_count}, "request_id": str(uuid.uuid4())}
+        return {"success": True, "data": {"deleted_count": deleted_count, "skipped": skipped}, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 

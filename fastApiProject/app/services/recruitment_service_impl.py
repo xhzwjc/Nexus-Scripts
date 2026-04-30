@@ -6663,15 +6663,18 @@ class RecruitmentService:
 
         return deleted_candidate_snapshot
 
-    def batch_delete_candidates(self, candidate_ids: List[int], actor_id: str) -> List[Dict[str, Any]]:
-        results: List[Dict[str, Any]] = []
+    def batch_delete_candidates(self, candidate_ids: List[int], actor_id: str) -> Dict[str, Any]:
+        deleted: List[Dict[str, Any]] = []
+        skipped: List[Dict[str, Any]] = []
         for cid in candidate_ids:
             try:
                 snapshot = self.delete_candidate(cid, actor_id)
-                results.append(snapshot)
-            except (ValueError, RecruitmentConflictError):
-                continue
-        return results
+                deleted.append(snapshot)
+            except RecruitmentConflictError as e:
+                skipped.append({"candidate_id": cid, "reason": str(e)})
+            except ValueError:
+                skipped.append({"candidate_id": cid, "reason": "数据无效或不存在。"})
+        return {"deleted": deleted, "skipped": skipped}
 
     def _get_workflow_memory(self, candidate_id: int) -> Optional[RecruitmentCandidateWorkflowMemory]:
         return self.db.query(RecruitmentCandidateWorkflowMemory).filter(RecruitmentCandidateWorkflowMemory.candidate_id == candidate_id).first()
@@ -9529,6 +9532,18 @@ class RecruitmentService:
                     [model_schema_violation_reason, *invalid_result_reasons],
                     limit=12,
                 )
+            # Check if parsed_resume basic_info is completely empty (all fields empty)
+            # This indicates one-pass failed to parse resume properly, trigger fallback
+            basic_info = parsed_resume.get("basic_info") if isinstance(parsed_resume, dict) else None
+            if isinstance(basic_info, dict):
+                empty_basic_fields = [f for f in ("name", "phone", "email", "age", "years_of_experience", "education", "location") if not str(basic_info.get(f) or "").strip()]
+                if len(empty_basic_fields) >= 5:  # 5+ fields empty = completely empty
+                    screening_result_valid = False
+                    if "one-pass 解析结果 basic_info 为空，已触发 fallback" not in invalid_result_reasons:
+                        invalid_result_reasons = _normalize_score_warning_items(
+                            ["one-pass 解析结果 basic_info 为空，已触发 fallback", *invalid_result_reasons],
+                            limit=12,
+                        )
             validation_duration_ms = max(0, int((time.perf_counter() - validation_started_at) * 1000))
             if validation_warnings:
                 logger.warning(

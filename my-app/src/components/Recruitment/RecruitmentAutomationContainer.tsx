@@ -5321,12 +5321,22 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setBatchDeleteError(null);
         setBatchDeleting(true);
         try {
-            const result = await recruitmentApi<{ deleted_count: number }>("/candidates/batch-delete", {
+            const result = await recruitmentApi<{ deleted_count: number; skipped: { candidate_id: number; reason: string }[] }>("/candidates/batch-delete", {
                 method: "POST",
                 body: JSON.stringify({ candidate_ids: batchDeleteTargetIds }),
             });
             const deletedCount = result.deleted_count ?? 0;
-            toast.success(isZh ? `已删除 ${deletedCount} 位候选人` : `Deleted ${deletedCount} candidate(s)`);
+            const skipped = result.skipped ?? [];
+            if (skipped.length > 0) {
+                const names = skipped.map((s) => `ID:${s.candidate_id}`).join(", ");
+                toast.warning(
+                    isZh
+                        ? `已删除 ${deletedCount} 位候选人，${skipped.length} 位因任务进行中已被跳过：${names}`
+                        : `Deleted ${deletedCount} candidate(s), ${skipped.length} skipped due to active tasks: ${names}`
+                );
+            } else {
+                toast.success(isZh ? `已删除 ${deletedCount} 位候选人` : `Deleted ${deletedCount} candidate(s)`);
+            }
             setBatchDeleteTargetIds(null);
             setSelectedCandidateIds((current) => current.filter((id) => !batchDeleteTargetIds!.includes(id)));
             if (batchDeleteTargetIds.includes(selectedCandidateIdRef.current ?? -1)) {
@@ -7901,7 +7911,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     <DialogHeader>
                         <DialogTitle>确认批量删除候选人</DialogTitle>
                         <DialogDescription>
-                            将删除选中的 {batchDeleteTargetIds?.length ?? 0} 位候选人及其简历文件、解析结果、初筛评分、面试题、状态流转记录和工作记忆。正在执行中的候选人任务需要先结束后才能删除。
+                            将删除选中的 {batchDeleteTargetIds?.length ?? 0} 位候选人及其简历文件、解析结果、初筛评分、面试题、状态流转记录和工作记忆。有活动AI任务（解析或初筛中）的候选人将自动跳过。
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
