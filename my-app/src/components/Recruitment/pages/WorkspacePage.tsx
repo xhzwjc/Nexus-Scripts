@@ -49,6 +49,7 @@ type TodoSummary = {
 type WorkspacePageProps = {
     dashboard: DashboardData | null;
     todayNewResumes: number;
+    todayScreeningPassed: number;
     todoSummary: TodoSummary;
     recentCandidates: CandidateSummary[];
     recentLogs: AITaskLog[];
@@ -67,6 +68,7 @@ type WorkspacePageProps = {
 export function WorkspacePage({
     dashboard,
     todayNewResumes,
+    todayScreeningPassed,
     todoSummary,
     recentCandidates,
     recentLogs,
@@ -94,8 +96,8 @@ export function WorkspacePage({
         createPosition: isZh ? "新建岗位" : "New Position",
         activePositionsDesc: isZh ? "当前在推进的岗位" : "Positions currently in progress",
         todayResumesDesc: isZh ? "今天导入的候选人数量" : "Candidates imported today",
-        screeningPassed: isZh ? "初筛通过人数" : "Screening Passed",
-        screeningPassedDesc: isZh ? "已进入后续流程" : "Moved into the next stage",
+        screeningPassed: isZh ? "今日初筛通过" : "Screening Passed Today",
+        screeningPassedDesc: isZh ? "今天通过初筛进入后续流程" : "Passed screening today and moved into the next stage",
         aiRunsToday: isZh ? "今日 AI 处理数" : "AI Runs Today",
         aiRunsTodayDesc: isZh ? "今天触发的 AI 任务" : "AI tasks triggered today",
         pendingPublish: isZh ? "待发布岗位" : "Pending Publish",
@@ -157,7 +159,7 @@ export function WorkspacePage({
                                 </div>
                                 <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
                                     <span className="text-xs text-slate-500 dark:text-slate-400">{tr.pendingScreeningCandidates}</span>
-                                    <span className="font-semibold text-slate-950 dark:text-slate-50">{dashboard?.cards.pending_screening ?? 0}</span>
+                                    <span className="font-semibold text-slate-950 dark:text-slate-50">{todoSummary.pendingScreening}</span>
                                 </div>
                                 <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
                                     <span className="text-xs text-slate-500 dark:text-slate-400">{tr.todayNewResumes}</span>
@@ -195,9 +197,9 @@ export function WorkspacePage({
                             description={tr.activePositionsDesc} icon={BriefcaseBusiness}/>
                 <MetricCard title={tr.todayNewResumes} value={todayNewResumes} description={tr.todayResumesDesc}
                             icon={Upload}/>
-                <MetricCard title={tr.pendingScreeningCandidates} value={dashboard?.cards.pending_screening ?? 0}
+                <MetricCard title={tr.pendingScreeningCandidates} value={todoSummary.pendingScreening}
                             description={isZh ? "优先需要处理的简历" : "Resumes that need immediate attention"} icon={FileSearch}/>
-                <MetricCard title={tr.screeningPassed} value={dashboard?.cards.screening_passed ?? 0}
+                <MetricCard title={tr.screeningPassed} value={todayScreeningPassed}
                             description={tr.screeningPassedDesc} icon={ClipboardCheck}/>
                 <MetricCard title={tr.aiRunsToday} value={dashboard?.cards.recent_ai_tasks ?? 0}
                             description={tr.aiRunsTodayDesc} icon={Sparkles}/>

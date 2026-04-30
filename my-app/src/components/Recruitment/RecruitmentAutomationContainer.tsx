@@ -1411,15 +1411,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }), [stats, candidates]);
 
     const todayNewResumes = stats.todayNewResumes;
+    const todayScreeningPassed = useMemo(() => {
+        const tsc = candidateStats?.today_status_counts;
+        if (!tsc) return stats.cards.screening_passed;
+        return (tsc["screening_passed"] ?? 0) + (tsc["interview_passed"] ?? 0) + (tsc["offer_sent"] ?? 0) + (tsc["hired"] ?? 0);
+    }, [candidateStats, stats.cards.screening_passed]);
 
     const todoSummary = useMemo(() => {
-        const tsc = candidateStats?.today_status_counts;
-        if (tsc && Object.keys(tsc).length > 0) {
+        const sc = candidateStats?.status_counts;
+        if (sc && Object.keys(sc).length > 0) {
             return {
                 pendingPublish: stats.todo.pendingPublish, // positions 统计仍用前端（positions 全量加载）
-                pendingScreening: tsc["pending_screening"] ?? 0,
-                pendingInterview: tsc["pending_interview"] ?? 0,
-                pendingDecision: tsc["pending_offer"] ?? 0,
+                pendingScreening: sc["pending_screening"] ?? 0,
+                pendingInterview: sc["pending_interview"] ?? 0,
+                pendingDecision: sc["pending_offer"] ?? 0,
             };
         }
         return stats.todo;
@@ -6339,6 +6344,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             <WorkspacePage
                 dashboard={scopedDashboard}
                 todayNewResumes={todayNewResumes}
+                todayScreeningPassed={todayScreeningPassed}
                 todoSummary={todoSummary}
                 recentCandidates={recentCandidates}
                 recentLogs={recentLogs}
