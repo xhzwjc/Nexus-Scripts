@@ -235,8 +235,8 @@ const CandidateRow = React.memo(function CandidateRow({
                             }}
                             className="p-2 align-middle whitespace-nowrap"
                         >
-                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", displayStatus))}>
-                                {labelForCandidateStatus(displayStatus)}
+                            <Badge className={cn("rounded-full border max-w-full", statusBadgeClass("candidate", displayStatus))}>
+                                <span className="truncate">{labelForCandidateStatus(displayStatus)}</span>
                             </Badge>
                             {candidate.display_status_reason ? (
                                 <HoverRevealText
@@ -1857,7 +1857,6 @@ export function CandidatesPage({
                                 </Button>
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => requestBatchDelete(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Trash2 className="h-4 w-4"/>
-                                    {tr.batchDelete}
                                 </Button>
                             </div>
                         </div>

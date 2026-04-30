@@ -185,7 +185,7 @@ import {MailSettingsPage} from "./pages/MailSettingsPage";
 import {ModelSettingsPage} from "./pages/ModelSettingsPage";
 import {SkillSettingsPage} from "./pages/SkillSettingsPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
-import { useOptimizedStats, useCachedListData } from "./hooks";
+import { useOptimizedStats, useCachedListData, useCachedObjectData } from "./hooks";
 
 const PAGE_ACTIVITY_POLL_VISIBLE_INTERVAL_MS = 1500;
 const PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS = 6000;
@@ -558,7 +558,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         workspaceDescription: isZh ? "首页指标、待办、快捷操作与近期活动" : "Overview metrics, to-dos, quick actions, and recent activity",
         positionsTitle: isZh ? "岗位管理" : "Positions",
         positionsDescription: isZh ? "岗位列表 + 详情工作区 + JD 版本" : "Position list, detail workspace, and JD versions",
-        candidatesTitle: isZh ? "候选人" : "Candidates",
+        candidatesTitle: isZh ? "候选人" : "Recruits",
         candidatesDescription: isZh ? "ATS 列表、筛选、状态推进与档案查看" : "ATS list, filtering, status updates, and candidate profiles",
         auditTitle: isZh ? "审计中心" : "Audit Center",
         auditDescription: isZh ? "看 AI 处理记录、模型、错误与留痕" : "Inspect AI task logs, models, errors, and audit traces",
@@ -689,6 +689,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [skills, setSkills] = useState<RecruitmentSkill[]>([]);
     const [allAiLogs, setAllAiLogs] = useState<AITaskLog[]>([]);
     const [aiLogs, setAiLogs] = useState<AITaskLog[]>([]);
+    const [candidateStats, setCandidateStats] = useState<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>} | null>(null);
+    const [candidateTotal, setCandidateTotal] = useState(0);
+    const [aiLogStats, setAiLogStats] = useState<{total: number; status_counts: Record<string, number>} | null>(null);
+    const [aiLogTotal, setAiLogTotal] = useState(0);
     const [selectedLogDetail, setSelectedLogDetail] = useState<AITaskLog | null>(null);
     const [chatContext, setChatContext] = useState<ChatContext>({
         position_id: null,
@@ -1248,13 +1252,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         ? recruitmentUiText.sending
         : (resumeMailDialogMode === "resend" ? recruitmentUiText.resend : recruitmentUiText.sendResume);
 
-    function getCandidateResumeMailSummary(candidateId: number) {
+    const getCandidateResumeMailSummary = useCallback((candidateId: number): string | null => {
         const stat = candidateResumeMailStats.get(candidateId);
         if (!stat || stat.sentCount <= 0) {
             return null;
         }
         return recruitmentUiText.sentCountSummary(stat.sentCount, stat.latestSentAt);
-    }
+    }, [candidateResumeMailStats, recruitmentUiText]);
 
     const sourceOptions = useMemo(() => {
         return Array.from(
@@ -1327,6 +1331,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         });
     }, [candidateMatchFilter, candidatePositionFilter, candidateSourceFilter, candidateStatusFilter, candidateTimeFilter, candidates, deferredCandidateQuery]);
 
+    const visibleCandidateIdSet = useMemo(
+        () => new Set(visibleCandidates.map((c) => c.id)),
+        [visibleCandidates]
+    );
+
     const visibleAiLogs = useMemo(() => {
         return aiLogs.filter((log) => {
             if (logTaskTypeFilter !== "all" && log.task_type !== logTaskTypeFilter) {
@@ -1384,7 +1393,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     const todayNewResumes = stats.todayNewResumes;
 
-    const todoSummary = stats.todo;
+    const todoSummary = useMemo(() => {
+        const tsc = candidateStats?.today_status_counts;
+        if (tsc && Object.keys(tsc).length > 0) {
+            return {
+                pendingPublish: stats.todo.pendingPublish, // positions 统计仍用前端（positions 全量加载）
+                pendingScreening: tsc["pending_screening"] ?? 0,
+                pendingInterview: tsc["pending_interview"] ?? 0,
+                pendingDecision: tsc["pending_offer"] ?? 0,
+            };
+        }
+        return stats.todo;
+    }, [candidateStats, stats.todo]);
 
     const recentCandidates = scopedDashboard.recent_candidates || [];
     const recentLogs = aiLogs.slice(0, 6);
@@ -1488,12 +1508,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     useEffect(() => {
         setSelectedCandidateId((current) => {
-            if (current && visibleCandidates.some((candidate) => candidate.id === current)) {
+            if (current && visibleCandidateIdSet.has(current)) {
                 return current;
             }
             return visibleCandidates[0]?.id || null;
         });
-    }, [visibleCandidates]);
+    }, [visibleCandidateIdSet, visibleCandidates]);
 
     useEffect(() => {
         setSelectedLogId((current) => {
@@ -1651,8 +1671,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     // 使用缓存 hook
     const { getCachedOrFetch: getCachedPositions, invalidateCache: invalidatePositionsCache } = useCachedListData<PositionSummary>({ ttl: 60000 });
-    const { getCachedOrFetch: getCachedCandidates, invalidateCache: invalidateCandidatesCache } = useCachedListData<CandidateSummary>({ ttl: 60000 });
-    const { getCachedOrFetch: getCachedLogs, invalidateCache: invalidateLogsCache } = useCachedListData<AITaskLog>({ ttl: 30000 });
+    const { getCachedOrFetch: getCachedCandidates, invalidateCache: invalidateCandidatesCache } = useCachedObjectData<{items: CandidateSummary[]; total: number}>({ ttl: 60000 });
+    const { getCachedOrFetch: getCachedLogs, invalidateCache: invalidateLogsCache } = useCachedObjectData<{items: AITaskLog[]; total: number}>({ ttl: 30000 });
 
     // 优化的分阶段加载策略
     useEffect(() => {
@@ -1665,7 +1685,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
             try {
                 // 阶段 1: 关键数据 (阻塞渲染，最高优先级)
-                // 这些是 UI 框架必需的数据
                 await Promise.allSettled([
                     loadMetadata(),
                     loadOrganizationCatalog(),
@@ -1673,27 +1692,26 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                 if (cancelled) return;
 
-                // 阶段 2: 工作台核心数据 (尽快显示工作台)
-                // 使用 Promise.all 并行加载，但设置超时避免长时间等待
+                // 阶段 2: 工作台核心数据 + 统计 (并行，统计秒出)
                 const dashboardPromise = loadDashboardWithTimeout(5000);
-                const criticalPromise = Promise.allSettled([
-                    dashboardPromise,
+                const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+                const statsPromise = Promise.allSettled([
+                    recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) setCandidateStats(d); }).catch(() => {}),
+                    recruitmentApi<{total: number; status_counts: Record<string, number>}>(`/ai-task-logs/stats${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) { setAiLogStats(d); setAiLogTotal(d.total); } }).catch(() => {}),
                 ]);
 
-                await criticalPromise;
+                await Promise.allSettled([dashboardPromise, statsPromise]);
 
                 if (cancelled) return;
                 criticalLoaded = true;
                 setBootstrapping(false);
 
-                // 阶段 3: 列表数据 (后台加载，使用缓存)
-                // 这些数据变化频率较低，使用缓存减少重复请求
+                // 阶段 3: 列表数据 (分页首屏，后台加载)
                 void loadPositionsWithCache();
-                void loadCandidatesWithCache();
-                void loadLogsWithCache();
+                void loadCandidatesFirstPage();
+                void loadLogsFirstPage();
 
                 // 阶段 4: 配置数据 (最低优先级，延迟加载)
-                // 使用 requestIdleCallback 在浏览器空闲时加载
                 if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
                     window.requestIdleCallback(() => {
                         if (!cancelled) {
@@ -1706,7 +1724,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         }
                     }, { timeout: 5000 });
                 } else {
-                    // 降级方案: 延迟 500ms 后加载
                     setTimeout(() => {
                         if (!cancelled) {
                             void Promise.allSettled([
@@ -1719,20 +1736,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     }, 500);
                 }
             } catch (error) {
-                // 即使出错也解除 loading 状态，避免用户卡住
                 if (!criticalLoaded && !cancelled) {
                     setBootstrapping(false);
                 }
             }
         }
 
-        // 带超时的 dashboard 加载
         async function loadDashboardWithTimeout(timeoutMs: number): Promise<void> {
             return new Promise((resolve) => {
                 const timeout = setTimeout(() => {
-                    resolve(); // 超时后返回，不阻塞后续加载
+                    resolve();
                 }, timeoutMs);
-
                 loadDashboard().finally(() => {
                     clearTimeout(timeout);
                     resolve();
@@ -1740,7 +1754,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             });
         }
 
-        // 使用缓存的 positions 加载
         async function loadPositionsWithCache(): Promise<void> {
             try {
                 const data = await getCachedPositions(
@@ -1755,30 +1768,29 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
         }
 
-        // 使用缓存的 candidates 加载
-        async function loadCandidatesWithCache(): Promise<void> {
+        async function loadCandidatesFirstPage(): Promise<void> {
             try {
-                const data = await getCachedCandidates(
-                    'candidates:all',
-                    () => recruitmentApi<CandidateSummary[]>("/candidates")
-                );
+                const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+                const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
+                const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
                 if (!cancelled) {
-                    setAllCandidates(data);
+                    setAllCandidates(data?.items || []);
+                    setCandidateTotal(data?.total || 0);
                 }
             } catch (error) {
                 toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidates, formatActionError(error)));
             }
         }
 
-        // 使用缓存的 logs 加载
-        async function loadLogsWithCache(): Promise<void> {
+        async function loadLogsFirstPage(): Promise<void> {
             try {
                 const data = await getCachedLogs(
-                    'logs:all',
-                    () => recruitmentApi<AITaskLog[]>("/ai-task-logs")
+                    'logs:first-page',
+                    () => recruitmentApi<{items: AITaskLog[]; total: number}>("/ai-task-logs?limit=20&offset=0")
                 );
                 if (!cancelled) {
-                    setAllAiLogs(data);
+                    setAllAiLogs(data?.items || []);
+                    setAiLogTotal(data?.total || 0);
                 }
             } catch (error) {
                 toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.aiTasks, formatActionError(error)));
@@ -2138,6 +2150,47 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         };
     }, [auditListHorizontalRailEl, auditListScrollEl]);
 
+    // ── 无限滚动：候选人列表 ──
+    useEffect(() => {
+        const el = candidateListScrollEl;
+        if (!el) return;
+        const viewport = el.querySelector("[data-slot='scroll-area-viewport']") as HTMLDivElement | null || el;
+        let ticking = false;
+        const handleScroll = () => {
+            if (ticking) return;
+            ticking = true;
+            requestAnimationFrame(() => {
+                ticking = false;
+                const { scrollTop, scrollHeight, clientHeight } = viewport;
+                if (scrollHeight - scrollTop - clientHeight < 200) {
+                    void loadMoreCandidates();
+                }
+            });
+        };
+        viewport.addEventListener("scroll", handleScroll, { passive: true });
+        return () => viewport.removeEventListener("scroll", handleScroll);
+    }, [candidateListScrollEl, allCandidates.length, candidateTotal, candidatesLoading]);
+
+    // ── 无限滚动：审计日志列表 ──
+    useEffect(() => {
+        const el = auditListScrollEl;
+        if (!el) return;
+        let ticking = false;
+        const handleScroll = () => {
+            if (ticking) return;
+            ticking = true;
+            requestAnimationFrame(() => {
+                ticking = false;
+                const { scrollTop, scrollHeight, clientHeight } = el;
+                if (scrollHeight - scrollTop - clientHeight < 200) {
+                    void loadMoreLogs();
+                }
+            });
+        };
+        el.addEventListener("scroll", handleScroll, { passive: true });
+        return () => el.removeEventListener("scroll", handleScroll);
+    }, [auditListScrollEl, allAiLogs.length, aiLogTotal, logsLoading]);
+
     useEffect(() => {
         function stopCandidateColumnResize() {
             if (!candidateListColumnResizeRef.current) {
@@ -2347,18 +2400,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setCandidatesLoading(true);
         }
         try {
-            const request = () => recruitmentApi<CandidateSummary[]>("/candidates");
-            const data = options?.force
+            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
+            const request = () => recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
+            const result = options?.force
                 ? await request()
                 : await runDedupedRequest(
-                    "candidates:all",
+                    `candidates:first-page${orgCodeParam ? `:${selectedDepartmentScope}` : ""}`,
                     request,
                 );
             if (!mountedRef.current || candidatesLoadRequestIdRef.current !== requestId) {
-                return data;
+                return result?.items || [];
             }
-            setAllCandidates(data);
-            return data;
+            setAllCandidates(result?.items || []);
+            setCandidateTotal(result?.total || 0);
+            return result?.items || [];
         } catch (error) {
             if (!options?.silent) {
                 toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidates, formatActionError(error)));
@@ -2368,6 +2424,25 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             if (!options?.silent && mountedRef.current && candidatesLoadRequestIdRef.current === requestId) {
                 setCandidatesLoading(false);
             }
+        }
+    }
+
+    const loadingMoreCandidatesRef = useRef(false);
+    async function loadMoreCandidates() {
+        if (candidatesLoading || loadingMoreCandidatesRef.current || allCandidates.length >= candidateTotal) return;
+        loadingMoreCandidatesRef.current = true;
+        try {
+            const offset = allCandidates.length;
+            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(`/candidates?limit=50&offset=${offset}${orgCodeParam}`);
+            if (mountedRef.current) {
+                setAllCandidates(prev => [...prev, ...(data?.items || [])]);
+                setCandidateTotal(data?.total || 0);
+            }
+        } catch (error) {
+            console.error("Failed to load more candidates:", error);
+        } finally {
+            loadingMoreCandidatesRef.current = false;
         }
     }
 
@@ -2412,23 +2487,63 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setLogsLoading(true);
         }
         try {
+            const taskTypeParam = logTaskTypeFilter !== "all"
+                ? `&task_type=${encodeURIComponent(logTaskTypeFilter)}`
+                : "";
+            const statusParam = logStatusFilter !== "all"
+                ? `&status=${encodeURIComponent(logStatusFilter)}`
+                : "";
+            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const dedupKey = `logs:${options?.silent ? "silent" : "full"}:${logTaskTypeFilter}:${logStatusFilter}${orgCodeParam ? `:${selectedDepartmentScope}` : ""}`;
             const data = await runDedupedRequest(
-                `logs:${options?.silent ? "silent" : "full"}:all`,
-                () => recruitmentApi<AITaskLog[]>("/ai-task-logs"),
+                dedupKey,
+                () => recruitmentApi<{items: AITaskLog[]; total: number}>(
+                    `/ai-task-logs?limit=20&offset=0${taskTypeParam}${statusParam}${orgCodeParam}`
+                ),
             );
             if (mountedRef.current) {
-                setAllAiLogs(data);
+                setAllAiLogs(data?.items || []);
+                setAiLogTotal(data?.total || 0);
             }
-            return data;
+            return data?.items || [];
         } catch (error) {
             if (!options?.silent) {
-                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.aiTasks, formatActionError(error)));
+                toast.error(
+                    recruitmentToast.loadFailed(recruitmentToastEntities.aiTasks, formatActionError(error))
+                );
             }
             throw error;
         } finally {
             if (!options?.silent) {
                 setLogsLoading(false);
             }
+        }
+    }
+
+    const loadingMoreLogsRef = useRef(false);
+    async function loadMoreLogs() {
+        if (logsLoading || loadingMoreLogsRef.current || allAiLogs.length >= aiLogTotal) return;
+        loadingMoreLogsRef.current = true;
+        try {
+            const offset = allAiLogs.length;
+            const taskTypeParam = logTaskTypeFilter !== "all"
+                ? `&task_type=${encodeURIComponent(logTaskTypeFilter)}`
+                : "";
+            const statusParam = logStatusFilter !== "all"
+                ? `&status=${encodeURIComponent(logStatusFilter)}`
+                : "";
+            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const data = await recruitmentApi<{items: AITaskLog[]; total: number}>(
+                `/ai-task-logs?limit=20&offset=${offset}${taskTypeParam}${statusParam}${orgCodeParam}`
+            );
+            if (mountedRef.current) {
+                setAllAiLogs(prev => [...prev, ...(data?.items || [])]);
+                setAiLogTotal(data?.total || 0);
+            }
+        } catch (error) {
+            console.error("Failed to load more logs:", error);
+        } finally {
+            loadingMoreLogsRef.current = false;
         }
     }
 
@@ -2559,23 +2674,65 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
-    async function refreshCoreData(options?: { includeMailSettings?: boolean; silent?: boolean }) {
+    async function refreshCandidateStats(departmentScope?: string) {
+        try {
+            const deptScope = departmentScope ?? selectedDepartmentScope;
+            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(deptScope)}` : "";
+            const d = await recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam}`);
+            setCandidateStats(d);
+            setCandidateTotal(d.total);
+        } catch {}
+    }
+
+    async function refreshCoreData(options?: { includeMailSettings?: boolean; silent?: boolean; departmentScope?: string }) {
         // 清除缓存，确保获取最新数据
         invalidatePositionsCache('positions:all');
         invalidateCandidatesCache('candidates:all');
         invalidateLogsCache('logs:all');
 
+        const deptScope = options?.departmentScope ?? selectedDepartmentScope;
+
+        // 直接调用 API，避免闭包中 selectedDepartmentScope 还是旧值的问题
+        const candidatesPromise = (async () => {
+            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(deptScope)}` : "";
+            const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
+            const d = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
+            setAllCandidates(d?.items || []);
+            setCandidateTotal(d?.total || 0);
+        })();
+
+        const logsPromise = (async () => {
+            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(deptScope)}` : "";
+            const url = orgCodeParam ? `/ai-task-logs?limit=20&offset=0&${orgCodeParam}` : "/ai-task-logs?limit=20&offset=0";
+            const d = await recruitmentApi<{items: AITaskLog[]; total: number}>(url);
+            setAllAiLogs(d?.items || []);
+            setAiLogTotal(d?.total || 0);
+        })();
+
         const tasks: Promise<unknown>[] = [
             loadDashboard(),
             loadPositions(),
-            loadCandidates(),
-            loadLogs(),
+            candidatesPromise,
+            logsPromise,
+            // 并行刷新统计
+            (async () => {
+                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(deptScope)}` : "";
+                const d = await recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam}`);
+                setCandidateStats(d);
+                setCandidateTotal(d.total);
+            })(),
+            (async () => {
+                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(deptScope)}` : "";
+                const d = await recruitmentApi<{total: number; status_counts: Record<string, number>}>(`/ai-task-logs/stats${orgCodeParam}`);
+                setAiLogStats(d);
+                setAiLogTotal(d.total);
+            })(),
         ];
         if (options?.includeMailSettings) {
             tasks.push(loadMailSettings());
         }
         await Promise.allSettled(tasks);
-        
+
         // 静默刷新时不显示 toast
         if (!options?.silent) {
             toast.success(isZh ? "数据已刷新" : "Data refreshed");
@@ -2742,6 +2899,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     loadDashboard(),
                     loadLogs({silent: true}),
                     loadMailSettings(),
+                    refreshCandidateStats(),
                 ]);
                 if (selectedCandidateIdRef.current === candidateId) {
                     await loadCandidateDetail(candidateId, {silent: true, force: true});
@@ -3407,6 +3565,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 await Promise.all([
                     loadLogs({silent: true}),
                     loadDashboard(),
+                    refreshCandidateStats(),
                     selectedCandidateIdRef.current === refreshInterviewCandidateId
                         ? loadCandidateDetail(refreshInterviewCandidateId, {silent: true})
                         : Promise.resolve(null),
@@ -4137,7 +4296,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }),
             });
             toast.success(recruitmentToast.updated(recruitmentToastEntities.candidate));
-            await Promise.all([loadCandidateDetail(selectedCandidateId), loadCandidates(), loadDashboard()]);
+            await Promise.all([loadCandidateDetail(selectedCandidateId), loadCandidates(), loadDashboard(), refreshCandidateStats()]);
         } catch (error) {
             toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.candidate, formatActionError(error)));
         }
@@ -4158,7 +4317,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             });
             toast.success(recruitmentToast.updated(recruitmentToastEntities.candidate));
             setStatusUpdateReason("");
-            await Promise.all([loadCandidateDetail(selectedCandidateId), loadCandidates(), loadDashboard()]);
+            await Promise.all([
+                loadCandidateDetail(selectedCandidateId),
+                loadCandidates(),
+                loadDashboard(),
+                refreshCandidateStats(),
+            ]);
         } catch (error) {
             toast.error(recruitmentToast.updateFailed(recruitmentToastEntities.candidate, formatActionError(error)));
         }
@@ -5043,7 +5207,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setSelectedCandidateIds((current) => current.filter((item) => item !== deletedCandidateId));
             setCandidateDetail(null);
             const nextCandidates = await loadCandidates({silent: true});
-            await Promise.all([loadDashboard(), loadLogs({silent: true})]);
+            await Promise.all([loadDashboard(), loadLogs({silent: true}), refreshCandidateStats()]);
             const nextCandidateId = nextCandidates[0]?.id ?? null;
             setSelectedCandidateId(nextCandidateId);
             selectedCandidateIdRef.current = nextCandidateId;
@@ -5086,7 +5250,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 setCandidateDetail(null);
             }
             const nextCandidates = await loadCandidates({silent: true});
-            await Promise.all([loadDashboard(), loadLogs({silent: true})]);
+            await Promise.all([loadDashboard(), loadLogs({silent: true}), refreshCandidateStats()]);
             const nextCandidateId = nextCandidates[0]?.id ?? null;
             setSelectedCandidateId(nextCandidateId);
             selectedCandidateIdRef.current = nextCandidateId;
@@ -6797,6 +6961,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             onOrgScopeChange={(orgScope, deptScope) => {
                                 setSelectedOrgScope(orgScope);
                                 setSelectedDepartmentScope(deptScope);
+                                void refreshCoreData({ silent: true, departmentScope: deptScope });
                             }}
                             allDepartmentsLabel={recruitmentUiText.allVisibleDepartments}
                             disabled={organizationCatalogLoading}
@@ -6908,7 +7073,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 icon={Users}
                                 title={recruitmentUiText.candidatesTitle}
                                 description={recruitmentUiText.candidatesDescription}
-                                count={visibleCandidates.length}
+                                count={candidateStats?.total ?? candidates.length}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
                                     primaryNavButtonRefs.current.candidates = node;
@@ -6920,7 +7085,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 icon={History}
                                 title={recruitmentUiText.auditTitle}
                                 description={recruitmentUiText.auditDescription}
-                                count={aiLogs.length}
+                                count={aiLogStats?.total ?? allAiLogs.length}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
                                     primaryNavButtonRefs.current.audit = node;
