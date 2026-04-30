@@ -8583,12 +8583,14 @@ class RecruitmentService:
         wb = Workbook()
         ws = wb.active
         ws.title = "Candidates"
-        ws.append(["姓名", "电话", "年龄", "城市", "学历", "工作经验", "状态"])
+        ws.append(["姓名", "电话", "年龄", "城市", "学历", "工作经验", "状态", "匹配度"])
         for c in candidates:
             display_status = SCREENING_STATUS_LABELS.get(c.status, c.status or "")
+            match_percent = getattr(c, "match_percent", None)
             ws.append([
                 c.name, c.phone, getattr(c, "age", None), getattr(c, "city", None),
                 c.education, c.years_of_experience, display_status,
+                f"{round(match_percent)}%" if match_percent is not None else "-",
             ])
         tmp_dir = tempfile.mkdtemp(prefix="candidate-export-")
         date_str = datetime.now().strftime("%Y-%m-%d")
