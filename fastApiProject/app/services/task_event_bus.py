@@ -7,13 +7,12 @@ class TaskEventBus:
     """
     全局单例事件总线。
     key = session_token (str)，value = asyncio.Queue
-    使用 weakref.WeakValueDictionary 防止内存泄漏（连接断开后 Queue 自动被 GC）
     """
     _queues: Dict[str, asyncio.Queue] = {}
 
     @classmethod
     def subscribe(cls, session_token: str) -> asyncio.Queue:
-        q = asyncio.Queue(maxsize=500)
+        q = asyncio.Queue(maxsize=2000)
         cls._queues[session_token] = q
         return q
 
@@ -35,8 +34,14 @@ class TaskEventBus:
         except RuntimeError:
             return
         data = json.dumps({"type": event_type, **payload}, ensure_ascii=False)
-        # put_nowait 在 maxsize 满时会抛 QueueFull，前端重连即可重新同步
-        loop.call_soon_threadsafe(cls._queues[session_token].put_nowait, data)
+
+        def _safe_put():
+            try:
+                q.put_nowait(data)
+            except asyncio.QueueFull:
+                pass
+
+        loop.call_soon_threadsafe(_safe_put)
 
     @classmethod
     def emit_to_all(cls, event_type: str, payload: Dict[str, Any]):

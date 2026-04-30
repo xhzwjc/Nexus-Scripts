@@ -27,6 +27,7 @@ from .routers import (
     workbench_router,
     settlement_sim_router,
 )
+from .routers.recruitment import recover_orphaned_tasks_on_startup
 from .services.recruitment_service import RecruitmentService
 
 # 配置日志
@@ -66,6 +67,7 @@ async def startup_event():
     """启动时初始化"""
     try:
         await run_in_threadpool(ensure_script_hub_schema)
+        await run_in_threadpool(recover_orphaned_tasks_on_startup)
         await run_in_threadpool(_resume_recruitment_screening_queue)
     except Exception as exc:
         logger.error("Failed to initialize schemas or recruitment queue on startup: %s", exc, exc_info=True)

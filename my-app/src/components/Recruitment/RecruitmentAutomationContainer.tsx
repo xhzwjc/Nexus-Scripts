@@ -1880,7 +1880,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }
             },
             onTaskProgress: (event) => {
-                if (event.task_id) {
+                if (
+                    event.task_id &&
+                    activePage === "audit" &&
+                    selectedLogId === event.task_id
+                ) {
                     void recruitmentApi<AITaskLog>(`/ai-task-logs/${event.task_id}`)
                         .then((log) => { mergeAiTaskLog(log); })
                         .catch(() => {});

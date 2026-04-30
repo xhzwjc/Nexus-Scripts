@@ -107,9 +107,8 @@ async def stream_task_events(
     )
 
 
-@recruitment_router.on_event("startup")
-async def recover_orphaned_tasks():
-    """服务启动时将所有 status=running/queued 的任务标记为 failed，触发重新调度。"""
+async def recover_orphaned_tasks_on_startup():
+    """供主 app lifespan 调用。服务启动时将所有 status=running/queued 的任务标记为 failed。"""
     from ..database import SessionLocal
     from ..recruitment_models import RecruitmentAITaskLog
     db = SessionLocal()

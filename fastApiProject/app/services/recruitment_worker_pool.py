@@ -57,12 +57,10 @@ _global_pool: Optional[BoundedWorkerPool] = None
 _pool_lock = threading.Lock()
 
 
-def get_worker_pool() -> BoundedWorkerPool:
+def get_worker_pool(max_workers: int) -> BoundedWorkerPool:
     global _global_pool
     if _global_pool is None:
         with _pool_lock:
             if _global_pool is None:
-                import os
-                max_workers = int(os.environ.get("RECRUITMENT_WORKER_CONCURRENCY", "20"))
                 _global_pool = BoundedWorkerPool(max_workers=max_workers)
     return _global_pool

@@ -5276,6 +5276,18 @@ class RecruitmentService:
         except Exception:
             pass
 
+    def _emit_batch_summary_if_needed(self):
+        """批量筛选全部完成时发送汇总事件。"""
+        try:
+            from .task_event_bus import TaskEventBus
+            if not self._session_token:
+                return
+            TaskEventBus.emit(self._session_token, "batch_summary", {
+                "message": "all_tasks_completed",
+            })
+        except Exception:
+            pass
+
     def _current_org_code(self) -> str:
         if self.permission_context:
             return self.permission_context.primary_org_code
@@ -5999,7 +6011,7 @@ class RecruitmentService:
                 recruitment_task_registry.pop(task_id)
 
         from .recruitment_worker_pool import get_worker_pool
-        get_worker_pool().submit(task_id, _target, name="screening")
+        get_worker_pool(SCREENING_WORKER_MAX_CONCURRENCY).submit(task_id, _target, name="screening")
 
     def _screening_root_task_filter(self) -> Any:
         return and_(
@@ -6151,6 +6163,7 @@ class RecruitmentService:
 
     def _dispatch_screening_queue(self) -> Dict[str, int]:
         scheduled_tasks: List[Tuple[int, str]] = []
+        queue_was_empty_at_start = False
         with _screening_worker_lock:
             global _screening_provider_cooldown_until
             if _screening_provider_cooldown_until and _screening_provider_cooldown_until > datetime.now():
@@ -6200,6 +6213,7 @@ class RecruitmentService:
                 queued_rows = locked_query.limit(queued_limit).all()
                 if not isinstance(queued_rows, list):
                     queued_rows = queued_query.limit(queued_limit).all()
+                queue_was_empty_at_start = len(queued_rows) == 0
                 for row in queued_rows:
                     if not dispatch_service._task_is_ready_for_dispatch(row):
                         continue
@@ -6215,6 +6229,11 @@ class RecruitmentService:
                 _screening_worker_active_task_ids.add(task_id)
         for task_id, actor_id in scheduled_tasks:
             self._start_background_ai_task(task_id, self._build_screening_queue_runner(task_id, actor_id))
+
+        # 批量全部完成时发送汇总事件（本次无调度、启动时队列为空、且无正在运行的任务）
+        if not scheduled_tasks and queue_was_empty_at_start and not _screening_worker_active_task_ids:
+            self._emit_batch_summary_if_needed()
+
         return {
             "started_count": len(scheduled_tasks),
             "active_count": len(_screening_worker_active_task_ids),
