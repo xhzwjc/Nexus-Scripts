@@ -8603,6 +8603,18 @@ class RecruitmentService:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.write(excel_path, f"candidates_{date_str}.xlsx")
             if include_resumes:
+                # 全部简历文件夹：使用原始文件名，扁平结构，不做重命名
+                for c in candidates:
+                    resume_files = self.db.query(RecruitmentResumeFile).filter(
+                        RecruitmentResumeFile.candidate_id == c.id,
+                    ).order_by(RecruitmentResumeFile.created_at.desc()).all()
+                    for rf in resume_files:
+                        storage_path = getattr(rf, "storage_path", None)
+                        if not storage_path or not os.path.isfile(storage_path):
+                            continue
+                        safe_original_name = re.sub(r'[/\\?%*:|"<>\x00-\x1f]', '_', rf.original_name)
+                        arc_name = f"全部简历/{safe_original_name}"
+                        zf.write(storage_path, arc_name)
                 # 按状态分组
                 by_status: Dict[str, List[RecruitmentCandidate]] = {}
                 for c in candidates:
