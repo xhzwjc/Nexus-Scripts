@@ -5337,16 +5337,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             } else {
                 toast.success(isZh ? `已删除 ${deletedCount} 位候选人` : `Deleted ${deletedCount} candidate(s)`);
             }
-            setBatchDeleteTargetIds(null);
-            setSelectedCandidateIds((current) => current.filter((id) => !batchDeleteTargetIds!.includes(id)));
-            if (batchDeleteTargetIds.includes(selectedCandidateIdRef.current ?? -1)) {
-                setCandidateDetail(null);
-            }
             const nextCandidates = await loadCandidates({silent: true});
             await Promise.all([loadDashboard(), loadLogs({silent: true}), refreshCandidateStats()]);
             const nextCandidateId = nextCandidates[0]?.id ?? null;
             setSelectedCandidateId(nextCandidateId);
             selectedCandidateIdRef.current = nextCandidateId;
+            setSelectedCandidateIds((current) => current.filter((id) => !batchDeleteTargetIds!.includes(id)));
+            if (batchDeleteTargetIds.includes(selectedCandidateIdRef.current ?? -1)) {
+                setCandidateDetail(null);
+            }
             if (nextCandidateId) {
                 await loadCandidateDetail(nextCandidateId, {silent: true});
             } else {
@@ -5355,6 +5354,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         } catch (error) {
             setBatchDeleteError(formatActionError(error) || (isZh ? "批量删除候选人失败，请稍后重试" : "Failed to batch delete candidates. Please try again later."));
         } finally {
+            setBatchDeleteTargetIds(null);
             setBatchDeleting(false);
         }
     }
