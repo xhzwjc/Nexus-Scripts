@@ -321,6 +321,7 @@ export interface AITaskLog {
   request_hash?: string | null;
   model_provider?: string | null;
   model_name?: string | null;
+  model_source?: string | null;
   prompt_snapshot?: string | null;
   full_request_snapshot?: string | null;
   input_summary?: string | null;

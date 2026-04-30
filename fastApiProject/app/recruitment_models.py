@@ -228,6 +228,7 @@ class RecruitmentAITaskLog(Base):
     request_hash = Column(String(120), index=True)
     model_provider = Column(String(80))
     model_name = Column(String(120))
+    model_source = Column(String(120))
     prompt_snapshot = Column(MediumText())
     full_request_snapshot = Column(MediumText())
     input_summary = Column(Text)

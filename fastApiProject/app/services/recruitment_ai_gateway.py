@@ -2,9 +2,11 @@ import json
 import logging
 import os
 import re
+import threading
 import time
+from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Deque, Dict, List, Optional, Sequence
 
 import httpx
 from sqlalchemy.orm import Session
@@ -1075,9 +1077,30 @@ class RecruitmentLLMRuntimeConfig:
 
 
 class RecruitmentAIGateway:
+    _round_robin_counters: Dict[str, int] = {}
+    _round_robin_lock = threading.Lock()
+
     def __init__(self, db: Session):
         self.db = db
         self.permission_context: Optional[PermissionContext] = None
+
+    def _pick_round_robin(
+        self,
+        task_type: str,
+        configs: List[RecruitmentLLMConfig],
+    ) -> Optional[RecruitmentLLMConfig]:
+        if not configs:
+            return None
+        if len(configs) == 1:
+            return configs[0]
+        # 所有传入的 configs 已经过 _config_visible 过滤，直接轮询
+        org_code = getattr(configs[0], "org_code", None) or "global"
+        counter_key = f"{org_code}:{task_type}"
+        with RecruitmentAIGateway._round_robin_lock:
+            counter = RecruitmentAIGateway._round_robin_counters.get(counter_key, 0)
+            selected = configs[counter % len(configs)]
+            RecruitmentAIGateway._round_robin_counters[counter_key] = counter + 1
+        return selected
 
     def set_permission_context(self, context: Optional[PermissionContext]) -> "RecruitmentAIGateway":
         self.permission_context = context
@@ -1146,10 +1169,12 @@ class RecruitmentAIGateway:
 
     def resolve_config(self, task_type: str) -> RecruitmentLLMRuntimeConfig:
         configs = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.is_active.is_(True), RecruitmentLLMConfig.task_type == task_type).order_by(RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).all()
-        config = next((row for row in configs if self._config_visible(row)), None)
+        visible_configs = [row for row in configs if self._config_visible(row)]
+        config = self._pick_round_robin(task_type, visible_configs)
         if not config:
-            configs = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.is_active.is_(True), RecruitmentLLMConfig.task_type == "default").order_by(RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).all()
-            config = next((row for row in configs if self._config_visible(row)), None)
+            default_configs = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.is_active.is_(True), RecruitmentLLMConfig.task_type == "default").order_by(RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).all()
+            visible_default_configs = [row for row in default_configs if self._config_visible(row)]
+            config = self._pick_round_robin("default", visible_default_configs)
         if config:
             return self.resolve_runtime_config_for_row(config)
 

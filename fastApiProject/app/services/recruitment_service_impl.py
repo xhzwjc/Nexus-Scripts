@@ -5439,6 +5439,7 @@ class RecruitmentService:
         return {
             "provider": str(getattr(runtime, "provider", "") or "").strip() or None,
             "model_name": str(getattr(runtime, "model_name", "") or "").strip() or None,
+            "source": str(getattr(runtime, "source", "") or "").strip() or None,
             "temperature": 0,
         }
 
@@ -5458,6 +5459,7 @@ class RecruitmentService:
         return {
             "provider": str(getattr(runtime, "provider", "") or "").strip() or None,
             "model_name": str(getattr(runtime, "model_name", "") or "").strip() or None,
+            "source": str(getattr(runtime, "source", "") or "").strip() or None,
         }
 
     def _build_screening_request_meta(
@@ -5505,6 +5507,7 @@ class RecruitmentService:
             "prompt_version": prompt_version,
             "provider": runtime_signature.get("provider"),
             "model_name": runtime_signature.get("model_name"),
+            "source": runtime_signature.get("source"),
             "temperature": runtime_signature.get("temperature"),
         }
 
@@ -5957,6 +5960,7 @@ class RecruitmentService:
             row,
             status=final_status,
             stage=final_stage,
+            model_source=None,
             output_summary=output_summary,
             output_snapshot=output_snapshot,
             error_message=error_message,
@@ -6093,9 +6097,14 @@ class RecruitmentService:
             self.db.commit()
 
     def _build_screening_queue_runner(self, task_id: int, actor_id: str) -> Callable[[RecruitmentTaskControl], None]:
+        captured_permission_context = self.permission_context
+
         def _runner(control: RecruitmentTaskControl) -> None:
             db = SessionLocal()
             service = RecruitmentService(db)
+            if captured_permission_context is not None:
+                service.permission_context = captured_permission_context
+                service.ai_gateway.set_permission_context(captured_permission_context)
             try:
                 service._run_queued_screening_task(task_id, actor_id, cancel_control=control)
             except RecruitmentTaskCancelled:
@@ -6137,6 +6146,7 @@ class RecruitmentService:
                     service._finish_ai_task_log(
                         log_row,
                         status=failure_status,
+                        model_source=None,
                         output_summary=failure_message,
                         output_snapshot=_build_screening_task_progress_snapshot(
                             "failed",
@@ -6849,7 +6859,6 @@ class RecruitmentService:
         model_name: Optional[str] = None,
     ) -> RecruitmentAITaskLog:
         now = datetime.now()
-        initial_runtime = self._resolve_initial_ai_task_runtime(task_type)
         org_code = self._current_org_code()
         if related_candidate_id:
             candidate_row = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == related_candidate_id).first()
@@ -6881,8 +6890,8 @@ class RecruitmentService:
             score_rule_snapshot_json=_prepare_ai_task_json_text(score_rule_snapshot),
             timing_breakdown_json=_prepare_ai_task_json_text(timing_breakdown),
             request_hash=request_hash,
-            model_provider=provider if provider is not None else initial_runtime.get("provider"),
-            model_name=model_name if model_name is not None else initial_runtime.get("model_name"),
+            model_provider=provider if provider is not None else None,
+            model_name=model_name if model_name is not None else None,
             status=status,
             created_by=created_by,
         )
@@ -6936,6 +6945,7 @@ class RecruitmentService:
         *,
         provider: Optional[str] = None,
         model_name: Optional[str] = None,
+        model_source: Optional[str] = None,
         status: Optional[str] = None,
         stage: Optional[str] = None,
         prompt_snapshot: Optional[str] = None,
@@ -6972,6 +6982,8 @@ class RecruitmentService:
             row.model_provider = provider
         if model_name is not None:
             row.model_name = model_name
+        if model_source is not None:
+            row.model_source = model_source
         if status is not None:
             row.status = status
         if stage is not None:
@@ -7062,6 +7074,7 @@ class RecruitmentService:
         validation_meta: Optional[Any] = None,
         persisted_result_refs: Optional[Any] = None,
         timing_breakdown: Optional[Any] = None,
+        model_source: Optional[str] = None,
     ) -> RecruitmentAITaskLog:
         try:
             self.db.refresh(row)
@@ -7084,6 +7097,8 @@ class RecruitmentService:
         row.duration_ms = max(0, int((row.stage_completed_at - row.stage_started_at).total_seconds() * 1000))
         row.model_provider = provider
         row.model_name = model_name
+        if model_source is not None:
+            row.model_source = model_source
         row.prompt_snapshot = _truncate_utf8_text(prompt_snapshot, AI_TASK_LOG_PROMPT_LIMIT)
         row.full_request_snapshot = _truncate_utf8_text(_snapshot_text(full_request_snapshot), AI_TASK_LOG_REQUEST_LIMIT)
         row.input_summary = _truncate_utf8_text(input_summary, AI_TASK_LOG_SUMMARY_LIMIT)
@@ -7528,6 +7543,7 @@ class RecruitmentService:
             "request_hash": row.request_hash,
             "model_provider": row.model_provider,
             "model_name": row.model_name,
+            "model_source": row.model_source,
             "prompt_snapshot": row.prompt_snapshot,
             "input_summary": row.input_summary,
             "output_summary": row.output_summary,
@@ -9168,6 +9184,7 @@ class RecruitmentService:
             root_task_id=row.id,
             provider=request_meta_payload.get("provider"),
             model_name=request_meta_payload.get("model_name"),
+            model_source=request_meta_payload.get("source"),
             input_summary=_truncate_utf8_text(f"{candidate.name} · {candidate.position_id or '-'}", AI_TASK_LOG_SUMMARY_LIMIT),
             output_summary="任务已入队，等待执行",
             output_snapshot=_build_screening_task_progress_snapshot(
@@ -9536,6 +9553,7 @@ class RecruitmentService:
                 status=failure_status,
                 provider=task.get("provider") if task else str(request_context.get("provider") or "").strip() or None,
                 model_name=task.get("model_name") if task else str(request_context.get("model_name") or "").strip() or None,
+                model_source=task.get("source") if task else None,
                 prompt_snapshot=task.get("prompt_snapshot") if task else request_context.get("prompt_snapshot") or prompt,
                 full_request_snapshot=task.get("full_request_snapshot") if task else request_context.get("full_request_snapshot"),
                 input_summary=task.get("input_summary") if task else request_context.get("input_summary") or truncate_text(prompt, 600),
@@ -9649,6 +9667,7 @@ class RecruitmentService:
             status=final_task_status,
             provider=task.get("provider"),
             model_name=task.get("model_name"),
+            model_source=task.get("source"),
             prompt_snapshot=task.get("prompt_snapshot"),
             full_request_snapshot=task.get("full_request_snapshot"),
             input_summary=task.get("input_summary"),
@@ -9936,6 +9955,7 @@ class RecruitmentService:
                 stage="parsed",
                 provider=task.get("provider") or str(request_context.get("provider") or "").strip() or None,
                 model_name=task.get("model_name") or str(request_context.get("model_name") or "").strip() or None,
+                model_source=task.get("source") if task else None,
                 prompt_snapshot=task.get("prompt_snapshot") or str(request_context.get("prompt_snapshot") or prompt),
                 full_request_snapshot=task.get("full_request_snapshot") or request_context.get("full_request_snapshot"),
                 input_summary=task.get("input_summary") or str(request_context.get("input_summary") or truncate_text(raw_text, 600)),
@@ -9995,6 +10015,7 @@ class RecruitmentService:
                 stage="cancelled",
                 provider=safe_task.get("provider") or str(request_context.get("provider") or "").strip() or None,
                 model_name=safe_task.get("model_name") or str(request_context.get("model_name") or "").strip() or None,
+                model_source=safe_task.get("source") if safe_task else None,
                 prompt_snapshot=safe_task.get("prompt_snapshot") or str(request_context.get("prompt_snapshot") or prompt),
                 full_request_snapshot=safe_task.get("full_request_snapshot") or request_context.get("full_request_snapshot"),
                 input_summary=safe_task.get("input_summary") or str(request_context.get("input_summary") or truncate_text(prompt, 600)),
@@ -10097,6 +10118,7 @@ class RecruitmentService:
                 stage="failed",
                 provider=provider,
                 model_name=model_name,
+                model_source=None,
                 prompt_snapshot=prompt_snapshot,
                 full_request_snapshot=full_request_snapshot,
                 input_summary=input_summary,
@@ -10488,6 +10510,7 @@ class RecruitmentService:
                 stage="completed" if screening_result_valid else "failed",
                 provider=task.get("provider"),
                 model_name=task.get("model_name"),
+                model_source=task.get("source"),
                 prompt_snapshot=task.get("prompt_snapshot"),
                 full_request_snapshot=task.get("full_request_snapshot"),
                 input_summary=task.get("input_summary"),
@@ -10558,6 +10581,7 @@ class RecruitmentService:
                 stage="cancelled",
                 provider=task.get("provider") if task else None,
                 model_name=task.get("model_name") if task else None,
+                model_source=task.get("source") if task else None,
                 prompt_snapshot=task.get("prompt_snapshot") if task else prompt,
                 full_request_snapshot=task.get("full_request_snapshot") if task else None,
                 input_summary=task.get("input_summary") if task else truncate_text(prompt, 600),
@@ -10666,6 +10690,7 @@ class RecruitmentService:
                 stage="failed",
                 provider=provider,
                 model_name=model_name,
+                model_source=None,
                 prompt_snapshot=prompt_snapshot,
                 full_request_snapshot=full_request_snapshot,
                 input_summary=input_summary,
@@ -11196,6 +11221,7 @@ class RecruitmentService:
                 stage=stage,
                 provider=resolved_provider,
                 model_name=resolved_model_name,
+                model_source=request_meta.get("source"),
                 prompt_snapshot=resolved_prompt_snapshot,
                 full_request_snapshot=resolved_full_request_snapshot,
                 input_summary=resolved_input_summary,
@@ -11896,6 +11922,7 @@ class RecruitmentService:
                     log_row,
                     status="success",
                     stage="completed",
+                    model_source=None,
                     output_summary="命中可复用初筛结果，未重复调用模型",
                     output_snapshot={
                         "task_type": SCREENING_FLOW_TASK_TYPE,
@@ -12480,6 +12507,7 @@ class RecruitmentService:
                 status=_classify_interview_generation_failure_status(exc),
                 provider=(task or {}).get("provider") or resolved_runtime.provider,
                 model_name=(task or {}).get("model_name") or resolved_runtime.model_name,
+                model_source=(task or {}).get("source"),
                 prompt_snapshot=(task or {}).get("prompt_snapshot") or prompt,
                 full_request_snapshot=(task or {}).get("full_request_snapshot"),
                 input_summary=(task or {}).get("input_summary") or truncate_text(prompt, 600),
@@ -12519,6 +12547,7 @@ class RecruitmentService:
             status="success",
             provider=task.get("provider"),
             model_name=task.get("model_name"),
+            model_source=task.get("source"),
             prompt_snapshot=task.get("prompt_snapshot"),
             full_request_snapshot=task.get("full_request_snapshot"),
             input_summary=task.get("input_summary"),
@@ -12658,7 +12687,7 @@ class RecruitmentService:
                 self.db.add(position)
             self.db.commit()
             self.db.refresh(row)
-            self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+            self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), model_source=task.get("source"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
             return self._serialize_jd_version(row)
         except RecruitmentTaskCancelled:
             self.db.rollback()
@@ -12747,7 +12776,7 @@ class RecruitmentService:
             self.db.add(position)
         self.db.commit()
         self.db.refresh(row)
-        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), model_source=task.get("source"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
         return self._serialize_jd_version(row)
 
     def save_jd_version(self, position_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
@@ -13936,7 +13965,7 @@ class RecruitmentService:
         related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
         prompt_snapshot = json_dumps_safe({"message": message, "context": current_context, "mode": "structured"})
         log_row = self._create_ai_task_log("chat_orchestrator", created_by=user_id, related_position_id=current_context.get("position_id"), related_candidate_id=current_context.get("candidate_id"), related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, memory_source=memory_source, request_hash=self._build_request_hash("chat_orchestrator", user_id, message, current_context, reply))
-        return self._finish_ai_task_log(log_row, status="success", provider=model_provider, model_name=model_name, prompt_snapshot=prompt_snapshot, input_summary=truncate_text(message, 600), output_summary=truncate_text(reply, 600), output_snapshot=output_snapshot or {"reply": reply}, memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+        return self._finish_ai_task_log(log_row, status="success", provider=model_provider, model_name=model_name, model_source=None, prompt_snapshot=prompt_snapshot, input_summary=truncate_text(message, 600), output_summary=truncate_text(reply, 600), output_snapshot=output_snapshot or {"reply": reply}, memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
 
     def _stream_plain_text(self, text: str, on_delta: Callable[[str], None], *, cancel_control: Optional[RecruitmentTaskControl] = None, chunk_size: int = 24) -> None:
         content = str(text or "")
@@ -14301,7 +14330,7 @@ class RecruitmentService:
                     markdown,
                 ]
                 reply = "\n".join(reply_lines).strip()
-                finished_log = self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured, "preview_markdown": "".join(preview_chunks).strip(), "reply": reply, "html": html, "publish_text": publish_text}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+                finished_log = self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), model_source=task.get("source"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured, "preview_markdown": "".join(preview_chunks).strip(), "reply": reply, "html": html, "publish_text": publish_text}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
                 return {"reply": reply, "context": current_context, "actions": ["已生成 JD 草稿（未保存）"], "log_id": finished_log.id, "memory_source": memory_source, "model_provider": task.get("provider"), "model_name": task.get("model_name"), "used_skill_ids": related_skill_ids, "used_skills": skill_snapshots, "used_fallback": bool(task.get("used_fallback")), "fallback_error": task.get("error_message"), "timing": {"service_started_at_ms": int(started_at * 1000), "first_model_delta_at_ms": int(first_delta_at * 1000) if first_delta_at is not None else None, "completed_at_ms": int(time.perf_counter() * 1000), "time_to_first_delta_ms": int((first_delta_at - started_at) * 1000) if first_delta_at is not None else None}}
             except RecruitmentTaskCancelled:
                 self.db.rollback()
@@ -14313,7 +14342,7 @@ class RecruitmentService:
                 fallback_markdown = render_jd_markdown_source(fallback_structured)
                 reply = f"已为“{position.title}”生成岗位 JD 草稿。\n\n{fallback_markdown}".strip()
                 self._stream_plain_text(reply, on_delta, cancel_control=cancel_control)
-                finished_log = self._finish_ai_task_log(log_row, status="fallback", provider=resolved.provider, model_name=resolved.model_name, prompt_snapshot=f"SYSTEM:\n{JD_GENERATION_SYSTEM_PROMPT}\n\nUSER:\n{prompt}", full_request_snapshot=None, input_summary=truncate_text(prompt, 600), output_summary=truncate_text(reply, 600), output_snapshot={"normalized": fallback_structured, "reply": reply, "preview_markdown": "".join(preview_chunks).strip()}, error_message=str(exc), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+                finished_log = self._finish_ai_task_log(log_row, status="fallback", provider=resolved.provider, model_name=resolved.model_name, model_source=resolved.source, prompt_snapshot=f"SYSTEM:\n{JD_GENERATION_SYSTEM_PROMPT}\n\nUSER:\n{prompt}", full_request_snapshot=None, input_summary=truncate_text(prompt, 600), output_summary=truncate_text(reply, 600), output_snapshot={"normalized": fallback_structured, "reply": reply, "preview_markdown": "".join(preview_chunks).strip()}, error_message=str(exc), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
                 return {"reply": reply, "context": current_context, "actions": ["已生成 JD 草稿（未保存）"], "log_id": finished_log.id, "memory_source": memory_source, "model_provider": resolved.provider, "model_name": resolved.model_name, "used_skill_ids": related_skill_ids, "used_skills": skill_snapshots, "used_fallback": True, "fallback_error": str(exc), "timing": {"service_started_at_ms": int(started_at * 1000), "completed_at_ms": int(time.perf_counter() * 1000)}}
 
         screening_request = self._extract_chat_screening_request(message)
@@ -14378,7 +14407,7 @@ class RecruitmentService:
             self._raise_if_cancelled(cancel_control)
             content = task.get("content") or {}
             reply = str(content.get("markdown") or "").strip() or "我可以帮你处理招聘工作台中的岗位、候选人、Skills、初筛、面试题、模型配置和招聘邮件。如果你需要非招聘问题，请到通用助手处理。"
-            finished_log = self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"reply": reply}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), related_skill_ids=related_skill_ids, related_skill_snapshots=used_skill_snapshots)
+            finished_log = self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), model_source=task.get("source"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"reply": reply}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), related_skill_ids=related_skill_ids, related_skill_snapshots=used_skill_snapshots)
             return {"reply": reply, "context": current_context, "actions": [], "log_id": finished_log.id, "memory_source": "manual", "model_provider": task.get("provider"), "model_name": task.get("model_name"), "used_skill_ids": related_skill_ids, "used_skills": used_skill_snapshots, "used_fallback": bool(task.get("used_fallback")), "fallback_error": task.get("error_message"), "timing": {"service_started_at_ms": int(started_at * 1000), "first_model_delta_at_ms": int(first_delta_at * 1000) if first_delta_at is not None else None, "completed_at_ms": int(time.perf_counter() * 1000), "time_to_first_delta_ms": int((first_delta_at - started_at) * 1000) if first_delta_at is not None else None}}
         except RecruitmentTaskCancelled:
             self.db.rollback()
@@ -14388,7 +14417,7 @@ class RecruitmentService:
             self.db.rollback()
             fallback_reply = "我可以帮你处理招聘工作台中的岗位、候选人、Skills、初筛、面试题、模型配置和招聘邮件。如果你需要非招聘问题，请到通用助手处理。"
             self._stream_plain_text(fallback_reply, on_delta, cancel_control=cancel_control)
-            finished_log = self._finish_ai_task_log(log_row, status="fallback", provider=resolved.provider, model_name=resolved.model_name, prompt_snapshot=f"SYSTEM:\n{system_prompt}\n\nUSER:\n{prompt}", full_request_snapshot=None, input_summary=truncate_text(prompt, 600), output_summary=truncate_text(fallback_reply, 600), output_snapshot={"reply": fallback_reply}, error_message=str(exc), related_skill_ids=related_skill_ids, related_skill_snapshots=used_skill_snapshots)
+            finished_log = self._finish_ai_task_log(log_row, status="fallback", provider=resolved.provider, model_name=resolved.model_name, model_source=resolved.source, prompt_snapshot=f"SYSTEM:\n{system_prompt}\n\nUSER:\n{prompt}", full_request_snapshot=None, input_summary=truncate_text(prompt, 600), output_summary=truncate_text(fallback_reply, 600), output_snapshot={"reply": fallback_reply}, error_message=str(exc), related_skill_ids=related_skill_ids, related_skill_snapshots=used_skill_snapshots)
             return {"reply": fallback_reply, "context": current_context, "actions": [], "log_id": finished_log.id, "memory_source": "manual", "model_provider": resolved.provider, "model_name": resolved.model_name, "used_skill_ids": related_skill_ids, "used_skills": used_skill_snapshots, "used_fallback": True, "fallback_error": str(exc), "timing": {"service_started_at_ms": int(started_at * 1000), "completed_at_ms": int(time.perf_counter() * 1000)}}
 
     def _run_generic_chat_task(self, task_id: int, user_id: str, user_name: str, message: str, current_context: Dict[str, Any], used_skill_snapshots: Sequence[Dict[str, Any]], cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
@@ -14408,7 +14437,7 @@ class RecruitmentService:
             self._raise_if_cancelled(cancel_control)
             content = task.get("content") or {}
             reply = str(content.get("markdown") or "").strip() or "我可以帮你处理招聘工作台中的岗位、候选人、Skills、初筛、面试题、模型配置和招聘邮件。如果你需要非招聘问题，请到通用助手处理。"
-            self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"reply": reply}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), related_skill_ids=related_skill_ids, related_skill_snapshots=used_skill_snapshots)
+            self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), model_source=task.get("source"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"reply": reply}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), related_skill_ids=related_skill_ids, related_skill_snapshots=used_skill_snapshots)
             return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "manual", "model_provider": task.get("provider"), "model_name": task.get("model_name"), "used_skill_ids": related_skill_ids, "used_skills": used_skill_snapshots, "used_fallback": bool(task.get("used_fallback")), "fallback_error": task.get("error_message")}
         except RecruitmentTaskCancelled:
             self.db.rollback()
@@ -14538,7 +14567,7 @@ class RecruitmentService:
         task = self.ai_gateway.generate_text(task_type="chat_orchestrator", system_prompt=system_prompt, user_prompt=prompt, fallback_builder=lambda: {"markdown": "我可以帮你处理招聘工作台中的岗位、候选人、Skills、初筛、面试题、模型配置和招聘邮件。如果你需要非招聘问题，请到通用助手处理。", "html": ""})
         content = task.get("content") or {}
         reply = str(content.get("markdown") or "").strip() or "我可以帮你处理招聘工作台中的岗位、候选人、Skills、初筛、面试题、模型配置和招聘邮件。如果你需要非招聘问题，请到通用助手处理。"
-        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"reply": reply}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), related_skill_ids=related_skill_ids, related_skill_snapshots=used_skill_snapshots)
+        self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), model_source=task.get("source"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"reply": reply}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), related_skill_ids=related_skill_ids, related_skill_snapshots=used_skill_snapshots)
         return {"reply": reply, "context": current_context, "actions": [], "log_id": log_row.id, "memory_source": "manual", "model_provider": task.get("provider"), "model_name": task.get("model_name"), "used_skill_ids": related_skill_ids, "used_skills": used_skill_snapshots, "used_fallback": bool(task.get("used_fallback")), "fallback_error": task.get("error_message")}
 
 def run_resume_pipeline_background(candidate_id: int, resume_file_id: int, actor_id: str) -> None:

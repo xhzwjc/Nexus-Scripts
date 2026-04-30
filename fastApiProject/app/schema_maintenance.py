@@ -584,6 +584,10 @@ def ensure_recruitment_schema() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN persisted_result_refs_json TEXT NULL"))
             logger.info("Added recruitment_ai_task_logs.persisted_result_refs_json column")
+        if "model_source" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN model_source VARCHAR(120) NULL"))
+            logger.info("Added recruitment_ai_task_logs.model_source column")
         if engine.dialect.name == "mysql":
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN related_skill_snapshots_json LONGTEXT NULL"))

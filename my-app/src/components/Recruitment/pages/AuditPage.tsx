@@ -280,15 +280,16 @@ function formatAuditStageLabel(stage?: string | null) {
 }
 
 function formatAuditModelLabel(
-    log: Pick<AITaskLog, "model_provider" | "model_name">,
+    log: Pick<AITaskLog, "model_provider" | "model_name" | "model_source">,
     unrecordedLabel: string,
 ) {
     const providerLabel = hasAuditText(log.model_provider) ? labelForProvider(log.model_provider) : "";
     const modelName = hasAuditText(log.model_name) ? log.model_name.trim() : "";
+    const modelSource = hasAuditText(log.model_source) ? ` · ${log.model_source.trim().replace(/^db:/, "")}` : "";
     if (providerLabel && modelName) {
-        return `${providerLabel} · ${modelName}`;
+        return `${providerLabel} · ${modelName}${modelSource}`;
     }
-    return providerLabel || modelName || unrecordedLabel;
+    return (providerLabel || modelName || unrecordedLabel) + modelSource;
 }
 
 function formatAuditDurationLabel(
