@@ -7073,7 +7073,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 icon={Users}
                                 title={recruitmentUiText.candidatesTitle}
                                 description={recruitmentUiText.candidatesDescription}
-                                count={candidates.length}
+                                count={candidateStats?.total ?? candidates.length}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
                                     primaryNavButtonRefs.current.candidates = node;
@@ -7085,7 +7085,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 icon={History}
                                 title={recruitmentUiText.auditTitle}
                                 description={recruitmentUiText.auditDescription}
-                                count={aiLogs.length}
+                                count={aiLogStats?.total ?? allAiLogs.length}
                                 collapsed={navCollapsed}
                                 buttonRef={(node) => {
                                     primaryNavButtonRefs.current.audit = node;
