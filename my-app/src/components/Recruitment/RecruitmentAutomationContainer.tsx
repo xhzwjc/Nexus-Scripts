@@ -2677,7 +2677,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     async function refreshCandidateStats(departmentScope?: string) {
         try {
             const deptScope = departmentScope ?? selectedDepartmentScope;
-            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(deptScope)}` : "";
+            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
+                ? `?org_code=${encodeURIComponent(deptScope)}`
+                : selectedOrgScope
+                    ? `?org_code=${encodeURIComponent(selectedOrgScope)}`
+                    : "";
             const d = await recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam}`);
             setCandidateStats(d);
             setCandidateTotal(d.total);
@@ -2691,10 +2695,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         invalidateLogsCache('logs:all');
 
         const deptScope = options?.departmentScope ?? selectedDepartmentScope;
+        const companyScope = (options as any)?.orgScope ?? selectedOrgScope;
 
         // 直接调用 API，避免闭包中 selectedDepartmentScope 还是旧值的问题
         const candidatesPromise = (async () => {
-            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(deptScope)}` : "";
+            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
+                ? `org_code=${encodeURIComponent(deptScope)}`
+                : companyScope
+                    ? `org_code=${encodeURIComponent(companyScope)}`
+                    : "";
             const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
             const d = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
             setAllCandidates(d?.items || []);
@@ -2702,7 +2711,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         })();
 
         const logsPromise = (async () => {
-            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(deptScope)}` : "";
+            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
+                ? `org_code=${encodeURIComponent(deptScope)}`
+                : companyScope
+                    ? `org_code=${encodeURIComponent(companyScope)}`
+                    : "";
             const url = orgCodeParam ? `/ai-task-logs?limit=20&offset=0&${orgCodeParam}` : "/ai-task-logs?limit=20&offset=0";
             const d = await recruitmentApi<{items: AITaskLog[]; total: number}>(url);
             setAllAiLogs(d?.items || []);
@@ -2716,13 +2729,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             logsPromise,
             // 并行刷新统计
             (async () => {
-                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(deptScope)}` : "";
+                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
+                    ? `?org_code=${encodeURIComponent(deptScope)}`
+                    : companyScope
+                        ? `?org_code=${encodeURIComponent(companyScope)}`
+                        : "";
                 const d = await recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam}`);
                 setCandidateStats(d);
                 setCandidateTotal(d.total);
             })(),
             (async () => {
-                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(deptScope)}` : "";
+                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
+                    ? `?org_code=${encodeURIComponent(deptScope)}`
+                    : companyScope
+                        ? `?org_code=${encodeURIComponent(companyScope)}`
+                        : "";
                 const d = await recruitmentApi<{total: number; status_counts: Record<string, number>}>(`/ai-task-logs/stats${orgCodeParam}`);
                 setAiLogStats(d);
                 setAiLogTotal(d.total);
