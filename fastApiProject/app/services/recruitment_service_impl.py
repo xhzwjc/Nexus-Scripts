@@ -126,8 +126,8 @@ SYSTEM_BASE_SKILL_CODES = {
 }
 logger = logging.getLogger(__name__)
 PROCESS_BOOTED_AT = datetime.now()
-SCREENING_WORKER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_WORKER_MAX_CONCURRENCY", "4")))
-SCREENING_PROVIDER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_PROVIDER_MAX_CONCURRENCY", "3")))
+SCREENING_WORKER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_WORKER_MAX_CONCURRENCY", "8")))
+SCREENING_PROVIDER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_PROVIDER_MAX_CONCURRENCY", "4")))
 
 
 class RecruitmentInterviewResultValidationError(Exception):
@@ -144,7 +144,7 @@ def _classify_interview_generation_failure_status(exc: Exception) -> str:
     if isinstance(exc, RecruitmentAIRetryExhaustedError):
         return "retry_exhausted"
     return "failed"
-SCREENING_PROVIDER_QPS = max(1, int(os.getenv("SCREENING_PROVIDER_QPS", "2")))
+SCREENING_PROVIDER_QPS = max(1, int(os.getenv("SCREENING_PROVIDER_QPS", "4")))
 SCREENING_BATCH_MAX_SIZE = max(1, int(os.getenv("SCREENING_BATCH_MAX_SIZE", "100")))
 SCREENING_ONE_PASS_MAX_RETRIES = max(0, int(os.getenv("SCREENING_ONE_PASS_MAX_RETRIES", "1")))
 SCREENING_FALLBACK_MAX_RETRIES = max(0, int(os.getenv("SCREENING_FALLBACK_MAX_RETRIES", "0")))
@@ -159,10 +159,25 @@ _screening_worker_lock = threading.Lock()
 _screening_worker_active_task_ids: set[int] = set()
 _screening_enqueue_lock = threading.Lock()
 _screening_provider_lock = threading.Lock()
-_screening_provider_semaphore = threading.BoundedSemaphore(SCREENING_PROVIDER_MAX_CONCURRENCY)
-_screening_provider_recent_request_started_at: deque[float] = deque()
+_screening_provider_semaphores: Dict[str, threading.BoundedSemaphore] = {}
+_screening_provider_qps_windows: Dict[str, deque[float]] = {}
+_screening_provider_state_lock = threading.Lock()
 _screening_provider_consecutive_retryable_failures = 0
 _screening_provider_cooldown_until: Optional[datetime] = None
+
+
+def _get_provider_semaphore(config_key: str) -> threading.BoundedSemaphore:
+    with _screening_provider_state_lock:
+        if config_key not in _screening_provider_semaphores:
+            _screening_provider_semaphores[config_key] = threading.BoundedSemaphore(SCREENING_PROVIDER_MAX_CONCURRENCY)
+        return _screening_provider_semaphores[config_key]
+
+
+def _get_provider_qps_window(config_key: str) -> deque[float]:
+    with _screening_provider_state_lock:
+        if config_key not in _screening_provider_qps_windows:
+            _screening_provider_qps_windows[config_key] = deque()
+        return _screening_provider_qps_windows[config_key]
 
 AI_TASK_LOG_PROMPT_LIMIT = 24000
 AI_TASK_LOG_REQUEST_LIMIT = 120000
@@ -5628,28 +5643,31 @@ class RecruitmentService:
     def _acquire_screening_provider_slot(
         self,
         *,
+        config_key: str = "default",
         cancel_control: Optional[RecruitmentTaskControl] = None,
     ) -> Iterable[None]:
+        semaphore = _get_provider_semaphore(config_key)
+        qps_window = _get_provider_qps_window(config_key)
         acquired = False
         while not acquired:
             self._raise_if_cancelled(cancel_control)
-            acquired = _screening_provider_semaphore.acquire(timeout=0.25)
+            acquired = semaphore.acquire(timeout=0.25)
         try:
             while True:
                 self._raise_if_cancelled(cancel_control)
                 wait_seconds = 0.0
                 with _screening_provider_lock:
                     now = time.monotonic()
-                    while _screening_provider_recent_request_started_at and (now - _screening_provider_recent_request_started_at[0]) >= 1.0:
-                        _screening_provider_recent_request_started_at.popleft()
-                    if len(_screening_provider_recent_request_started_at) < SCREENING_PROVIDER_QPS:
-                        _screening_provider_recent_request_started_at.append(now)
+                    while qps_window and (now - qps_window[0]) >= 1.0:
+                        qps_window.popleft()
+                    if len(qps_window) < SCREENING_PROVIDER_QPS:
+                        qps_window.append(now)
                         break
-                    wait_seconds = max(0.01, 1.0 - (now - _screening_provider_recent_request_started_at[0]))
+                    wait_seconds = max(0.01, 1.0 - (now - qps_window[0]))
                 time.sleep(min(wait_seconds, 0.25))
             yield
         finally:
-            _screening_provider_semaphore.release()
+            semaphore.release()
 
     def _record_screening_provider_result(self, *, failure_code: Optional[str] = None) -> None:
         global _screening_provider_cooldown_until
@@ -5680,7 +5698,8 @@ class RecruitmentService:
         remaining_budget_seconds: Optional[float] = None,
     ) -> Dict[str, Any]:
         try:
-            with self._acquire_screening_provider_slot(cancel_control=cancel_control):
+            config_key = str(getattr(runtime_config, "source", "") or "default").replace("db:", "")
+            with self._acquire_screening_provider_slot(config_key=config_key, cancel_control=cancel_control):
                 task = self.ai_gateway.generate_json(
                     task_type=task_type,
                     system_prompt=system_prompt,
