@@ -2688,7 +2688,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         } catch {}
     }
 
-    async function refreshCoreData(options?: { includeMailSettings?: boolean; silent?: boolean; departmentScope?: string }) {
+    async function refreshCoreData(options?: { includeMailSettings?: boolean; silent?: boolean; departmentScope?: string; orgScope?: string }) {
         // 清除缓存，确保获取最新数据
         invalidatePositionsCache('positions:all');
         invalidateCandidatesCache('candidates:all');
@@ -6982,7 +6982,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             onOrgScopeChange={(orgScope, deptScope) => {
                                 setSelectedOrgScope(orgScope);
                                 setSelectedDepartmentScope(deptScope);
-                                void refreshCoreData({ silent: true, departmentScope: deptScope });
+                                void refreshCoreData({ silent: true, departmentScope: deptScope, orgScope: orgScope });
                             }}
                             allDepartmentsLabel={recruitmentUiText.allVisibleDepartments}
                             disabled={organizationCatalogLoading}
