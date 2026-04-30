@@ -9548,16 +9548,25 @@ class RecruitmentService:
                 )
             # Check if parsed_resume basic_info is completely empty (all fields empty)
             # This indicates one-pass failed to parse resume properly, trigger fallback
-            basic_info = parsed_resume.get("basic_info") if isinstance(parsed_resume, dict) else None
-            if isinstance(basic_info, dict):
-                empty_basic_fields = [f for f in ("name", "phone", "email", "age", "years_of_experience", "education", "location") if not str(basic_info.get(f) or "").strip()]
-                if len(empty_basic_fields) >= 5:  # 5+ fields empty = completely empty
-                    screening_result_valid = False
-                    if "one-pass 解析结果 basic_info 为空，已触发 fallback" not in invalid_result_reasons:
-                        invalid_result_reasons = _normalize_score_warning_items(
-                            ["one-pass 解析结果 basic_info 为空，已触发 fallback", *invalid_result_reasons],
-                            limit=12,
-                        )
+            if not isinstance(parsed_resume, dict) or not parsed_resume:
+                # parsed_resume is {} or None — completely empty, trigger fallback
+                screening_result_valid = False
+                if "one-pass 解析结果为空，已触发 fallback" not in invalid_result_reasons:
+                    invalid_result_reasons = _normalize_score_warning_items(
+                        ["one-pass 解析结果为空，已触发 fallback", *invalid_result_reasons],
+                        limit=12,
+                    )
+            else:
+                basic_info = parsed_resume.get("basic_info") if isinstance(parsed_resume.get("basic_info"), dict) else None
+                if isinstance(basic_info, dict):
+                    empty_basic_fields = [f for f in ("name", "phone", "email", "age", "years_of_experience", "education", "location") if not str(basic_info.get(f) or "").strip()]
+                    if len(empty_basic_fields) >= 5:  # 5+ fields empty = completely empty
+                        screening_result_valid = False
+                        if "one-pass 解析结果 basic_info 为空，已触发 fallback" not in invalid_result_reasons:
+                            invalid_result_reasons = _normalize_score_warning_items(
+                                ["one-pass 解析结果 basic_info 为空，已触发 fallback", *invalid_result_reasons],
+                                limit=12,
+                            )
             validation_duration_ms = max(0, int((time.perf_counter() - validation_started_at) * 1000))
             if validation_warnings:
                 logger.warning(
@@ -9929,8 +9938,12 @@ class RecruitmentService:
             self.db.flush()
             basic_info = sanitized_resume.get("basic_info") or {}
             candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
-            candidate.phone = str(basic_info.get("phone") or "").strip() or None
-            candidate.email = str(basic_info.get("email") or "").strip() or None
+            parsed_phone = str(basic_info.get("phone") or "").strip()
+            parsed_email = str(basic_info.get("email") or "").strip()
+            if parsed_phone:
+                candidate.phone = parsed_phone
+            if parsed_email:
+                candidate.email = parsed_email
             candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
             candidate.education = str(basic_info.get("education") or "").strip() or None
             parsed_age = _parse_age_value(basic_info.get("age"))
