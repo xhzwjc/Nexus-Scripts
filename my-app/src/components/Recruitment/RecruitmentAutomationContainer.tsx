@@ -809,11 +809,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [publishDialogOpen, setPublishDialogOpen] = useState(false);
     const [publishPlatform, setPublishPlatform] = useState("boss");
     const [publishMode, setPublishMode] = useState("mock");
+    const [publishSubmitting, setPublishSubmitting] = useState(false);
+    const [exporting, setExporting] = useState(false);
+    const [candidateSaving, setCandidateSaving] = useState(false);
 
     const [jdExtraPrompt, setJdExtraPrompt] = useState("");
     const [jdViewMode, setJdViewMode] = useState<JDViewMode>("publish");
     const [jdGenerationStatus, setJdGenerationStatus] = useState<string>("idle");
     const [jdGenerationError, setJdGenerationError] = useState("");
+    const [jdVersionSaving, setJdVersionSaving] = useState(false);
+    const [jdVersionActivating, setJdVersionActivating] = useState(false);
     const [screeningSubmitting, setScreeningSubmitting] = useState(false);
     const [interviewGenerating, setInterviewGenerating] = useState(false);
     const [positionDeleting, setPositionDeleting] = useState(false);
@@ -909,6 +914,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [mailRecipientDialogOpen, setMailRecipientDialogOpen] = useState(false);
     const [mailRecipientEditingId, setMailRecipientEditingId] = useState<number | null>(null);
     const [mailRecipientForm, setMailRecipientForm] = useState<MailRecipientFormState>(emptyMailRecipientForm);
+    const [mailSenderSaving, setMailSenderSaving] = useState(false);
+    const [mailRecipientSaving, setMailRecipientSaving] = useState(false);
     const [resumeMailDialogOpen, setResumeMailDialogOpen] = useState(false);
     const [resumeMailDialogMode, setResumeMailDialogMode] = useState<ResumeMailDialogMode>("send");
     const [resumeMailSourceDispatchId, setResumeMailSourceDispatchId] = useState<number | null>(null);
@@ -4209,9 +4216,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     async function saveJDVersion() {
-        if (!selectedPositionId) {
+        if (!selectedPositionId || jdVersionSaving) {
             return;
         }
+        setJdVersionSaving(true);
         try {
             await recruitmentApi<JDVersion>(`/positions/${selectedPositionId}/jd-versions`, {
                 method: "POST",
@@ -4229,13 +4237,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setJdViewMode("publish");
         } catch (error) {
             toast.error(isZh ? `保存 JD 失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to save the JD: ${error instanceof Error ? error.message : "Unknown error"}`);
+        } finally {
+            setJdVersionSaving(false);
         }
     }
 
     async function activateJDVersion(versionId: number) {
-        if (!selectedPositionId) {
+        if (!selectedPositionId || jdVersionActivating) {
             return;
         }
+        setJdVersionActivating(true);
         try {
             await recruitmentApi<JDVersion>(`/positions/${selectedPositionId}/jd-versions/${versionId}/activate`, {
                 method: "POST",
@@ -4244,13 +4255,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             await Promise.all([loadPositionDetail(selectedPositionId), loadDashboard(), loadPositions()]);
         } catch (error) {
             toast.error(isZh ? `切换 JD 版本失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to switch JD version: ${error instanceof Error ? error.message : "Unknown error"}`);
+        } finally {
+            setJdVersionActivating(false);
         }
     }
 
     async function submitPublishTask() {
-        if (!selectedPositionId) {
+        if (!selectedPositionId || publishSubmitting) {
             return;
         }
+        setPublishSubmitting(true);
         try {
             await recruitmentApi("/publish-tasks", {
                 method: "POST",
@@ -4265,6 +4279,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             await Promise.all([loadPositionDetail(selectedPositionId), loadLogs()]);
         } catch (error) {
             toast.error(recruitmentToast.createFailed(recruitmentToastEntities.publishTask, formatActionError(error)));
+        } finally {
+            setPublishSubmitting(false);
         }
     }
 
@@ -4321,6 +4337,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             toast.error(isZh ? "请先选择要导出的候选人" : "Please select candidates to export");
             return;
         }
+        if (exporting) {
+            return;
+        }
+        setExporting(true);
         const exportToastId = toast.loading(isZh ? "正在导出..." : "Exporting...");
         try {
             const response = await authenticatedFetch("/api/recruitment/candidates/export", {
@@ -4348,6 +4368,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             toast.success(isZh ? `已导出 ${candidateIds.length} 位候选人` : `Exported ${candidateIds.length} candidates`, {id: exportToastId});
         } catch (error) {
             toast.error(isZh ? `导出失败：${error instanceof Error ? error.message : "未知错误"}` : `Export failed: ${error instanceof Error ? error.message : "Unknown error"}`, {id: exportToastId});
+        } finally {
+            setExporting(false);
         }
     }
 
@@ -4363,9 +4385,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     async function saveCandidate() {
-        if (!selectedCandidateId) {
+        if (!selectedCandidateId || candidateSaving) {
             return;
         }
+        setCandidateSaving(true);
         try {
             await recruitmentApi(`/candidates/${selectedCandidateId}`, {
                 method: "PATCH",
@@ -4390,6 +4413,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             await Promise.all([loadCandidateDetail(selectedCandidateId), loadCandidates(), loadDashboard(), refreshCandidateStats()]);
         } catch (error) {
             toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.candidate, formatActionError(error)));
+        } finally {
+            setCandidateSaving(false);
         }
     }
 
@@ -4888,6 +4913,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     async function submitMailSender() {
+        if (mailSenderSaving) {
+            return;
+        }
+        setMailSenderSaving(true);
         try {
             const inferredPreset = inferMailSenderPreset(mailSenderForm.fromEmail || mailSenderForm.username);
             const smtpHost = mailSenderForm.smtpHost.trim() || inferredPreset?.smtpHost || "";
@@ -4932,6 +4961,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
         } catch (error) {
             toast.error(`保存发件箱失败：${formatActionError(error)}`);
+        } finally {
+            setMailSenderSaving(false);
         }
     }
 
@@ -4970,6 +5001,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     async function submitMailRecipient() {
+        if (mailRecipientSaving) {
+            return;
+        }
+        setMailRecipientSaving(true);
         try {
             const payload = {
                 name: mailRecipientForm.name.trim(),
@@ -4997,6 +5032,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             await loadMailSettings();
         } catch (error) {
             toast.error(`保存收件人失败：${error instanceof Error ? error.message : "未知错误"}`);
+        } finally {
+            setMailRecipientSaving(false);
         }
     }
 
@@ -6637,9 +6674,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                     ? (isZh ? "停止生成" : "Stop")
                                                                     : (isZh ? "重新生成" : "Regenerate")}
                                                         </Button>
-                                                        <Button onClick={() => void saveJDVersion()}>
+                                                        <Button onClick={() => void saveJDVersion()} disabled={jdVersionSaving}>
                                                             <Save className="h-4 w-4"/>
-                                                            {isZh ? "保存新版本" : "Save New Version"}
+                                                            {jdVersionSaving ? (isZh ? "保存中..." : "Saving...") : (isZh ? "保存新版本" : "Save New Version")}
                                                         </Button>
                                                     </div>
                                                 </div>
@@ -6720,8 +6757,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         </div>
                                                         <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{shortText(version.notes || version.prompt_snapshot || version.jd_markdown, 110)}</p>
                                                         {!version.is_active ? (
-                                                            <Button size="sm" variant="outline" className="mt-3" onClick={() => void activateJDVersion(version.id)}>
-                                                                {isZh ? "切换为当前版本" : "Set as Active Version"}
+                                                            <Button size="sm" variant="outline" className="mt-3" onClick={() => void activateJDVersion(version.id)} disabled={jdVersionActivating}>
+                                                                {jdVersionActivating ? (isZh ? "切换中..." : "Switching...") : (isZh ? "切换为当前版本" : "Set as Active Version")}
                                                             </Button>
                                                         ) : null}
                                                     </div>
@@ -6860,6 +6897,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 candidateEditor={candidateEditor}
                 setCandidateEditor={setCandidateEditor}
                 saveCandidate={saveCandidate}
+                candidateSaving={candidateSaving}
+                exporting={exporting}
                 requestDeleteResumeFile={requestDeleteResumeFile}
                 requestDeleteCandidate={requestDeleteCandidate}
                 effectiveScreeningSkillSourceLabel={effectiveScreeningSkillSourceLabel}
@@ -8082,7 +8121,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setPublishDialogOpen(false)}>{recruitmentUiText.cancel}</Button>
-                        <Button onClick={() => void submitPublishTask()}>{recruitmentUiText.createTask}</Button>
+                        <Button onClick={() => void submitPublishTask()} disabled={publishSubmitting}>{publishSubmitting ? (isZh ? "发布中..." : "Publishing...") : recruitmentUiText.createTask}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -8376,7 +8415,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </ScrollArea>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setMailSenderDialogOpen(false)}>取消</Button>
-                        <Button onClick={() => void submitMailSender()}>保存发件箱</Button>
+                        <Button onClick={() => void submitMailSender()} disabled={mailSenderSaving}>{mailSenderSaving ? (isZh ? "保存中..." : "Saving...") : "保存发件箱"}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -8437,7 +8476,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </ScrollArea>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setMailRecipientDialogOpen(false)}>取消</Button>
-                        <Button onClick={() => void submitMailRecipient()}>保存收件人</Button>
+                        <Button onClick={() => void submitMailRecipient()} disabled={mailRecipientSaving}>{mailRecipientSaving ? (isZh ? "保存中..." : "Saving...") : "保存收件人"}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

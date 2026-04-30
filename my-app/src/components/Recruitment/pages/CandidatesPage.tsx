@@ -1380,6 +1380,8 @@ type CandidatesPageProps = {
     candidateEditor: CandidateEditorState;
     setCandidateEditor: React.Dispatch<React.SetStateAction<CandidateEditorState>>;
     saveCandidate: () => Promise<void>;
+    candidateSaving: boolean;
+    exporting: boolean;
     effectiveScreeningSkillSourceLabel: string;
     effectiveScreeningSkillIds: number[];
     skillMap: Map<number, RecruitmentSkill>;
@@ -1463,6 +1465,8 @@ export function CandidatesPage({
     candidateEditor,
     setCandidateEditor,
     saveCandidate,
+    candidateSaving,
+    exporting,
     effectiveScreeningSkillSourceLabel,
     effectiveScreeningSkillIds,
     skillMap,
@@ -1851,9 +1855,9 @@ export function CandidatesPage({
                                     <Mail className="h-4 w-4"/>
                                     {tr.sendResumesBatch}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => void exportCandidates(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => void exportCandidates(selectedCandidateIds)} disabled={!selectedCandidateIds.length || exporting}>
                                     <Download className="h-4 w-4"/>
-                                    {tr.exportCandidates}
+                                    {exporting ? (language !== "en-US" ? "导出中..." : "Exporting...") : tr.exportCandidates}
                                 </Button>
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => requestBatchDelete(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Trash2 className="h-4 w-4"/>
@@ -2448,9 +2452,9 @@ export function CandidatesPage({
                                                     <Input value={candidateEditor.manualOverrideReason} onChange={(event) => setCandidateEditor((current) => ({...current, manualOverrideReason: event.target.value}))} placeholder={tr.overrideReasonPlaceholder}/>
                                                 </Field>
                                             </div>
-                                            <Button onClick={() => void saveCandidate()}>
+                                            <Button onClick={() => void saveCandidate()} disabled={candidateSaving}>
                                                 <Save className="h-4 w-4"/>
-                                                {tr.saveCandidateInfo}
+                                                {candidateSaving ? (language !== "en-US" ? "保存中..." : "Saving...") : tr.saveCandidateInfo}
                                             </Button>
 
                                             <Field label={tr.aiAssistant}>
