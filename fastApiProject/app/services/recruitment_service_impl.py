@@ -8523,6 +8523,8 @@ class RecruitmentService:
         target_dir = RECRUITMENT_UPLOAD_ROOT / uuid.uuid4().hex[:8]
         target_dir.mkdir(parents=True, exist_ok=True)
         results: List[Dict[str, Any]] = []
+        candidate_resume_pairs: List[tuple] = []
+
         for item in uploaded_files:
             file_name = str(item.get("file_name") or "resume.bin")
             ext = Path(file_name).suffix.lower()
@@ -8546,31 +8548,37 @@ class RecruitmentService:
                 storage_path.write_bytes(content)
                 file_size = len(content)
             candidate_org_code = normalize_org_code(getattr(position, "org_code", None) if position else fallback_org_code)
-            # Resolve city based on city_source
             resolved_city: Optional[str] = None
             if city_source == "auto":
                 from .recruitment_utils import extract_city_from_filename
                 resolved_city = extract_city_from_filename(file_name) or None
             else:
-                # Default "manual" mode: use the city parameter passed from frontend
                 resolved_city = city
             candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=candidate_org_code, position_id=position.id if position else None, name=safe_file_stem(file_name), source="manual_upload", source_detail=file_name, status="pending_screening", city=resolved_city, tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
             self.db.add(candidate)
-            self.db.flush()
-            candidate.candidate_code = f"CAD-{candidate.id:05d}"
             upload_mime_type = str(item.get("content_type") or "").strip()
             if not upload_mime_type or upload_mime_type in {"application/octet-stream", "binary/octet-stream"}:
                 upload_mime_type = mimetypes.guess_type(file_name)[0] or None
-            resume_file = RecruitmentResumeFile(org_code=candidate_org_code, candidate_id=candidate.id, original_name=file_name, stored_name=stored_name, file_ext=ext, mime_type=upload_mime_type or None, file_size=file_size, storage_path=str(storage_path), parse_status="pending", uploaded_by=actor_id)
-            self.db.add(resume_file)
-            self.db.flush()
+            resume_file = RecruitmentResumeFile(org_code=candidate_org_code, candidate_id=None, original_name=file_name, stored_name=stored_name, file_ext=ext, mime_type=upload_mime_type or None, file_size=file_size, storage_path=str(storage_path), parse_status="pending", uploaded_by=actor_id)
+            # 注意：不在这里 add resume_file，等 flush 拿到 candidate IDs 后再 add
+            candidate_resume_pairs.append((candidate, resume_file, position, file_name))
+
+        self.db.flush()
+
+        for candidate, resume_file, pos, file_name in candidate_resume_pairs:
+            candidate.candidate_code = f"CAD-{candidate.id:05d}"
+            resume_file.candidate_id = candidate.id
             candidate.latest_resume_file_id = resume_file.id
-            self.db.add(candidate)
-            self.db.commit()
+            self.db.add(resume_file)
+
+        self.db.commit()
+
+        for candidate, resume_file, pos, file_name in candidate_resume_pairs:
             self.db.refresh(candidate)
             payload = self._serialize_candidate_summary(candidate)
-            payload["auto_screen_enabled"] = bool(position.auto_screen_on_upload) if position else False
+            payload["auto_screen_enabled"] = bool(pos.auto_screen_on_upload) if pos else False
             results.append(payload)
+
         return results
 
     def export_candidates(self, candidate_ids: List[int], include_resumes: bool = True) -> str:

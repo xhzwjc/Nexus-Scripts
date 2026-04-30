@@ -800,11 +800,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     const [resumeUploadOpen, setResumeUploadOpen] = useState(false);
     const [uploadingResume, setUploadingResume] = useState(false);
-    const [resumeUploadFiles, setResumeUploadFiles] = useState<File[]>([]);
+    const [resumeUploadFileList, setResumeUploadFileList] = useState<FileList | null>(null);
     const [resumeUploadPositionId, setResumeUploadPositionId] = useState("all");
     const [resumeUploadOrgCode, setResumeUploadOrgCode] = useState(defaultOrgScope);
     const [resumeUploadCity, setResumeUploadCity] = useState("");
     const [resumeUploadCitySource, setResumeUploadCitySource] = useState<"manual" | "auto">("auto");
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [uploadCompletedCount, setUploadCompletedCount] = useState(0);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     const [publishDialogOpen, setPublishDialogOpen] = useState(false);
     const [publishPlatform, setPublishPlatform] = useState("boss");
@@ -4284,8 +4287,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
+    const BATCH_SIZE = 50;
+    const CONCURRENCY = 4;
+
     async function uploadResumes() {
-        if (!resumeUploadFiles.length) {
+        if (!resumeUploadFileList?.length) {
             toast.error(recruitmentToast.noResumeSelected);
             return;
         }
@@ -4293,21 +4299,57 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             toast.error(recruitmentUiText.chooseTargetOrganization);
             return;
         }
-        const formData = new FormData();
-        resumeUploadFiles.forEach((file) => formData.append("files", file));
+
+        const files = resumeUploadFileList;
+        const total = files.length;
         const query = buildQuery({
             position_id: resumeUploadPositionId === "all" ? null : resumeUploadPositionId,
             org_code: resumeUploadPositionId === "all" ? resumeUploadOrgCode : null,
             city: resumeUploadCitySource === "manual" ? (resumeUploadCity || null) : null,
             city_source: resumeUploadCitySource,
         });
+
+        const batches: File[][] = [];
+        for (let i = 0; i < total; i += BATCH_SIZE) {
+            batches.push(Array.from({ length: Math.min(BATCH_SIZE, total - i) },
+                (_, j) => files[i + j]));
+        }
+
         setUploadingResume(true);
+        setUploadProgress(0);
+        setUploadCompletedCount(0);
+        abortControllerRef.current = new AbortController();
+
+        let uploadedCount = 0, autoScreenQueued = 0, autoScreenSkipped = 0, autoScreenFailed = 0;
+        const allItems: ResumeUploadResponse["items"] = [];
+        let batchIndex = 0;
+
+        async function runOneBatch() {
+            while (batchIndex < batches.length) {
+                if (abortControllerRef.current?.signal.aborted) return;
+                const idx = batchIndex++;
+                const batch = batches[idx];
+                const formData = new FormData();
+                batch.forEach((f) => formData.append("files", f));
+                const uploaded = await recruitmentApi<ResumeUploadResponse>(
+                    `/candidates/upload-resumes${query}`,
+                    { method: "POST", body: formData, signal: abortControllerRef.current?.signal }
+                );
+                uploadedCount += uploaded.uploaded_count;
+                autoScreenQueued += uploaded.auto_screen_queued_count;
+                autoScreenSkipped += uploaded.auto_screen_skipped_existing_live_task_count;
+                autoScreenFailed += uploaded.auto_screen_failed_count;
+                allItems.push(...uploaded.items);
+                const completed = Math.min((idx + 1) * BATCH_SIZE, total);
+                setUploadCompletedCount(completed);
+                setUploadProgress(Math.round(completed / total * 100));
+            }
+        }
+
         try {
-            const uploaded = await recruitmentApi<ResumeUploadResponse>(`/candidates/upload-resumes${query}`, {
-                method: "POST",
-                body: formData,
-            });
-            uploaded.items.forEach((item) => {
+            await Promise.all(Array.from({ length: CONCURRENCY }, runOneBatch));
+
+            allItems.forEach((item) => {
                 if (item.auto_screen_task_id && item.auto_screen_task_status && isLiveTaskStatus(item.auto_screen_task_status)) {
                     attachScreeningTaskMonitor(item.id, item.auto_screen_task_id, {
                         suppressFinishToast: true,
@@ -4316,19 +4358,26 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             });
             toast.success(
                 isZh
-                    ? `已上传 ${uploaded.uploaded_count} 份简历，自动初筛已入队 ${uploaded.auto_screen_queued_count} 份，已跳过进行中任务 ${uploaded.auto_screen_skipped_existing_live_task_count} 份${uploaded.auto_screen_failed_count > 0 ? `，失败 ${uploaded.auto_screen_failed_count} 份` : ""}。`
-                    : `${uploaded.uploaded_count} resumes uploaded. Auto-screen queued ${uploaded.auto_screen_queued_count}, skipped ${uploaded.auto_screen_skipped_existing_live_task_count} active task(s)${uploaded.auto_screen_failed_count > 0 ? `, failed ${uploaded.auto_screen_failed_count}` : ""}.`,
+                    ? `已上传 ${uploadedCount} 份简历，自动初筛已入队 ${autoScreenQueued} 份，已跳过进行中任务 ${autoScreenSkipped} 份${autoScreenFailed > 0 ? `，失败 ${autoScreenFailed} 份` : ""}。`
+                    : `${uploadedCount} resumes uploaded. Auto-screen queued ${autoScreenQueued}, skipped ${autoScreenSkipped} active task(s)${autoScreenFailed > 0 ? `, failed ${autoScreenFailed}` : ""}.`,
             );
             setResumeUploadOpen(false);
-            setResumeUploadFiles([]);
+            setResumeUploadFileList(null);
             setResumeUploadCity("");
             setResumeUploadCitySource("auto");
             await refreshCoreData();
             setActivePage("candidates");
         } catch (error) {
-            toast.error(recruitmentToast.createFailed(recruitmentToastEntities.resume, formatActionError(error)));
+            if (error instanceof Error && error.name === "AbortError") {
+                toast.warning(isZh ? "上传已取消" : "Upload cancelled");
+            } else {
+                toast.error(recruitmentToast.createFailed(recruitmentToastEntities.resume, formatActionError(error)));
+            }
         } finally {
             setUploadingResume(false);
+            setUploadProgress(0);
+            setUploadCompletedCount(0);
+            abortControllerRef.current = null;
         }
     }
 
@@ -7877,19 +7926,37 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         </Field>
                         <Field label="选择文件">
                             <Input type="file" multiple
-                                   onChange={(event) => setResumeUploadFiles(Array.from(event.target.files || []))}/>
+                                   onChange={(event) => { setResumeUploadFileList(event.target.files); }}/>
                         </Field>
                         <div
                             className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                            已选择 {resumeUploadFiles.length} 个文件
+                            已选择 {resumeUploadFileList?.length ?? 0} 个文件
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setResumeUploadOpen(false)}>取消</Button>
+                        {uploadingResume ? (
+                            <Button variant="outline" onClick={() => abortControllerRef.current?.abort()}>
+                                {isZh ? "取消上传" : "Cancel Upload"}
+                            </Button>
+                        ) : (
+                            <Button variant="outline" onClick={() => setResumeUploadOpen(false)}>取消</Button>
+                        )}
                         <Button onClick={() => void uploadResumes()} disabled={uploadingResume}>
                             {uploadingResume ? (isZh ? "上传中..." : "Uploading...") : (isZh ? "开始上传" : "Start Upload")}
                         </Button>
                     </DialogFooter>
+                    {uploadingResume && (
+                        <div className="space-y-1">
+                            <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                                <span>已上传 {uploadCompletedCount} / {resumeUploadFileList?.length ?? 0} 份</span>
+                                <span>{uploadProgress}%</span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800">
+                                <div className="h-1.5 rounded-full bg-slate-900 dark:bg-slate-100 transition-all"
+                                     style={{ width: `${uploadProgress}%` }}/>
+                            </div>
+                        </div>
+                    )}
                 </DialogContent>
             </Dialog>
 
