@@ -1797,7 +1797,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     () => recruitmentApi<{items: AITaskLog[]; total: number}>("/ai-task-logs?limit=20&offset=0")
                 );
                 if (!cancelled) {
-                    setAllAiLogs(data?.items || []);
+                    setAllAiLogs((prev) => {
+                        const incoming = data?.items || [];
+                        const existingIds = new Set(prev.map((log) => log.id));
+                        const filtered = incoming.filter((log) => !existingIds.has(log.id));
+                        return filtered.length ? [...prev, ...filtered] : prev;
+                    });
                     setAiLogTotal(data?.total || 0);
                 }
             } catch (error) {
@@ -1869,7 +1874,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }
                 pendingCandidateRefreshRef.current = window.setTimeout(() => {
                     void loadCandidates({ silent: true, force: true });
-                    void loadLogs({ silent: true });
                     void loadDashboard();
                     void refreshCandidateStats();
                 }, 100);
@@ -2550,7 +2554,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 ),
             );
             if (mountedRef.current) {
-                setAllAiLogs(data?.items || []);
+                setAllAiLogs((prev) => {
+                    const incoming = data?.items || [];
+                    const existingIds = new Set(prev.map((log) => log.id));
+                    const filtered = incoming.filter((log) => !existingIds.has(log.id));
+                    return filtered.length ? [...prev, ...filtered] : prev;
+                });
                 setAiLogTotal(data?.total || 0);
             }
             return data?.items || [];
@@ -2766,7 +2775,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     : "";
             const url = orgCodeParam ? `/ai-task-logs?limit=20&offset=0&${orgCodeParam}` : "/ai-task-logs?limit=20&offset=0";
             const d = await recruitmentApi<{items: AITaskLog[]; total: number}>(url);
-            setAllAiLogs(d?.items || []);
+            setAllAiLogs((prev) => {
+                const incoming = d?.items || [];
+                const existingIds = new Set(prev.map((log) => log.id));
+                const filtered = incoming.filter((log) => !existingIds.has(log.id));
+                return filtered.length ? [...prev, ...filtered] : prev;
+            });
             setAiLogTotal(d?.total || 0);
         })();
 

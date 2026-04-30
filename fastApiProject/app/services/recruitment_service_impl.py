@@ -5260,6 +5260,9 @@ class RecruitmentService:
             from .task_event_bus import TaskEventBus
             if not self._session_token:
                 return
+            # rate_limited 不发 task_completed，任务会自动重试，前端不应刷新列表
+            if row.status == "rate_limited":
+                return
             is_terminal = row.status in ("success", "failed", "cancelled", "fallback")
             event_type = "task_completed" if is_terminal else "task_progress"
             payload = {
