@@ -1,7 +1,7 @@
 'use client';
 
-import { ChevronRight } from 'lucide-react';
-import React from 'react';
+import { ChevronRight, Loader2 } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
 
 import { useI18n } from '@/lib/i18n';
 
@@ -12,6 +12,7 @@ interface LockScreenOverlayProps {
     setLockKey: (value: string) => void;
     onUnlock: () => void;
     onSwitchAccount: () => void;
+    isUnlocking?: boolean;
 }
 
 export function LockScreenOverlay({
@@ -21,8 +22,19 @@ export function LockScreenOverlay({
     setLockKey,
     onUnlock,
     onSwitchAccount,
+    isUnlocking = false,
 }: LockScreenOverlayProps) {
     const { t } = useI18n();
+
+    // 页面保活：锁屏期间用 rAF 心跳防止浏览器降频
+    const rafRef = useRef<number>(0);
+    useEffect(() => {
+        const tick = () => {
+            rafRef.current = requestAnimationFrame(tick);
+        };
+        rafRef.current = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(rafRef.current);
+    }, []);
 
     return (
         <div className="lock-screen z-[2147483647] animate-sunlight-reveal" aria-modal="true" role="dialog">
@@ -48,18 +60,26 @@ export function LockScreenOverlay({
                                 lockKeyInputRef.current.setCustomValidity('');
                             }
                         }}
-                        onKeyDown={(event) => event.key === 'Enter' && onUnlock()}
+                        onKeyDown={(event) => event.key === 'Enter' && !isUnlocking && onUnlock()}
                         className="transition-all"
+                        disabled={isUnlocking}
                     />
-                    <button onClick={onUnlock}>
-                        {t.lock.unlockButton}
-                        <ChevronRight className="w-4 h-4" />
+                    <button onClick={onUnlock} disabled={isUnlocking}>
+                        {isUnlocking ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                            <>
+                                {t.lock.unlockButton}
+                                <ChevronRight className="w-4 h-4" />
+                            </>
+                        )}
                     </button>
                 </div>
 
                 <button
                     className="mt-8 text-xs font-medium text-slate-500 hover:text-slate-700 transition-colors active:scale-95 transform"
                     onClick={onSwitchAccount}
+                    disabled={isUnlocking}
                 >
                     {t.lock.switchAccount}
                 </button>

@@ -32,6 +32,7 @@ interface UseDashboardSessionResult {
     systems: Record<string, SystemConfig>;
     isLoading: boolean;
     isVerifying: boolean;
+    isUnlocking: boolean;
     isLocked: boolean;
     lockKey: string;
     isFreshLogin: boolean;
@@ -72,6 +73,7 @@ export function useDashboardSession({
     const [isLocked, setIsLocked] = useState(false);
     const [lockKey, setLockKey] = useState('');
     const [isFreshLogin, setIsFreshLogin] = useState(false);
+    const [isUnlocking, setIsUnlocking] = useState(false);
 
     const loginKeyInputRef = useRef<HTMLInputElement>(null);
     const lockKeyInputRef = useRef<HTMLInputElement>(null);
@@ -231,23 +233,32 @@ export function useDashboardSession({
             return;
         }
 
+        // 即时反馈：标记解锁中 + 乐观跳转（不等网络返回先移除锁屏）
+        setIsUnlocking(true);
+        setIsLocked(false);
+
         void (async () => {
             try {
                 const session = await requestScriptHubSession(input);
                 if (session.user.id !== currentUser?.id) {
+                    // 账号不匹配：回滚锁屏
+                    setIsLocked(true);
                     showInputValidationMessage(lockKeyInputRef.current, t.lock.wrongAccount);
                     return;
                 }
 
                 persistScriptHubSession(session);
-                setIsLocked(false);
                 setLockKey('');
                 setUserKey(session.user.id || '');
                 lastActivityRef.current = Date.now();
                 localStorage.setItem(APP_LAST_ACTIVITY_STORAGE_KEY, lastActivityRef.current.toString());
                 toast.success(t.lock.unlockSuccess);
             } catch {
+                // 鉴权失败：回滚锁屏
+                setIsLocked(true);
                 showInputValidationMessage(lockKeyInputRef.current, t.lock.wrongKey);
+            } finally {
+                setIsUnlocking(false);
             }
         })();
     }, [
@@ -270,6 +281,7 @@ export function useDashboardSession({
         systems,
         isLoading,
         isVerifying,
+        isUnlocking,
         isLocked,
         lockKey,
         isFreshLogin,

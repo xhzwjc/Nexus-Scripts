@@ -185,6 +185,7 @@ function AppContent() {
         systems,
         isLoading,
         isVerifying,
+        isUnlocking,
         isLocked,
         lockKey,
         isFreshLogin,
@@ -450,6 +451,7 @@ function AppContent() {
                     lockKeyInputRef={lockKeyInputRef}
                     setLockKey={setLockKey}
                     onUnlock={handleUnlock}
+                    isUnlocking={isUnlocking}
                     onSwitchAccount={() => {
                         setIsLocked(false);
                         logout();
