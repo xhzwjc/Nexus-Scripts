@@ -243,7 +243,7 @@ export function WorkspacePage({
                             <CardTitle className="text-lg">{tr.latestCandidates}</CardTitle>
                             <CardDescription>{tr.latestCandidatesDesc}</CardDescription>
                         </CardHeader>
-                        <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3">
+                        <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 space-y-3">
                             {recentCandidates.length ? recentCandidates.map((candidate) => (
                                 <button
                                     key={candidate.id}
@@ -287,7 +287,7 @@ export function WorkspacePage({
                             <CardTitle className="text-lg">{tr.recentAiTasks}</CardTitle>
                             <CardDescription>{tr.recentAiTasksDesc}</CardDescription>
                         </CardHeader>
-                        <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3">
+                        <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 space-y-3">
                             {recentLogs.length ? recentLogs.map((log) => (
                                 <button
                                     key={log.id}
@@ -322,7 +322,7 @@ export function WorkspacePage({
                             <CardTitle className="text-lg">{tr.statusDistribution}</CardTitle>
                             <CardDescription>{tr.statusDistributionDesc}</CardDescription>
                         </CardHeader>
-                        <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3">
+                        <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 space-y-3">
                             {dashboard?.status_distribution?.length ? dashboard.status_distribution.map((item) => (
                                 <div key={item.status}
                                      className="rounded-2xl border border-slate-200/80 px-4 py-4 dark:border-slate-800">
