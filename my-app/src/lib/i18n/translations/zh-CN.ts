@@ -97,6 +97,8 @@ export const zhCN: Translations = {
         wrongKey: '密钥无效',
         wrongAccount: '无法解锁：请使用当前登录账号的密钥',
         emptyKey: '请输入访问密钥',
+        networkError: '网络异常，请检查网络连接',
+        serverError: '服务异常，请稍后重试',
     },
 
     // Navigation & Layout

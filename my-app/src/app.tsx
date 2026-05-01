@@ -441,8 +441,6 @@ function AppContent() {
     return (
         <div className="colorful-background flex h-screen overflow-hidden text-slate-600 font-sans relative">
             {/* <ClothBackground /> */}
-            <Toaster richColors position="top-right" visibleToasts={2} />
-
             {/* 锁屏遮罩 */}
             {isLocked && (
                 <LockScreenOverlay
@@ -458,6 +456,8 @@ function AppContent() {
                     }}
                 />
             )}
+
+            <Toaster richColors position="top-right" visibleToasts={2} />
 
 
             <DashboardSidebar

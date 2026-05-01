@@ -75,18 +75,39 @@ export async function authenticatedFetch(input: RequestInfo | URL, init: Request
     });
 }
 
-export async function requestScriptHubSession(key: string): Promise<ScriptHubSession> {
-    const response = await fetch('/api/auth/session', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ key }),
-    });
+export class AuthError extends Error {
+    constructor(
+        message: string,
+        public readonly status: number,
+    ) {
+        super(message);
+        this.name = 'AuthError';
+    }
+}
 
-    const data = await response.json() as SessionResponse;
+export async function requestScriptHubSession(key: string): Promise<ScriptHubSession> {
+    let response: Response;
+    try {
+        response = await fetch('/api/auth/session', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ key }),
+        });
+    } catch {
+        throw new AuthError('Network error', 0);
+    }
+
+    let data: SessionResponse;
+    try {
+        data = await response.json() as SessionResponse;
+    } catch {
+        throw new AuthError('Server error', response.status);
+    }
+
     if (!response.ok || 'error' in data || !('token' in data)) {
-        throw new Error(('error' in data && data.error) || 'Authentication failed');
+        throw new AuthError(('error' in data && data.error) || 'Authentication failed', response.status);
     }
 
     return data;

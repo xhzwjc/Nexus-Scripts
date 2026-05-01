@@ -97,6 +97,8 @@ export const enUS: Translations = {
         wrongKey: 'Invalid key',
         wrongAccount: 'Cannot unlock: please use the current account key',
         emptyKey: 'Please enter access key',
+        networkError: 'Network error, please check your connection',
+        serverError: 'Server error, please try again later',
     },
 
     // Navigation & Layout

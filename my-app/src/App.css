@@ -361,7 +361,7 @@
 .lock-screen {
     position: fixed;
     inset: 0;
-    z-index: 2147483647;
+    z-index: 999999;
     background: #e3e5e7;
     /* Requested base color */
     display: flex;
@@ -384,11 +384,11 @@ body.app-locked [data-radix-popper-content-wrapper] {
 }
 
 [data-sonner-toaster] {
-    z-index: 2147483646 !important;
+    z-index: 2147483647 !important;
 }
 
 [data-sonner-toast] {
-    z-index: 2147483646 !important;
+    z-index: 2147483647 !important;
 }
 
 .dark .lock-screen {

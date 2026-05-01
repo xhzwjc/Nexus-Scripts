@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from '@/lib/toast';
 
 import {
+    AuthError,
     clearScriptHubSession,
     persistScriptHubSession,
     requestScriptHubSession,
@@ -233,30 +234,36 @@ export function useDashboardSession({
             return;
         }
 
-        // 即时反馈：标记解锁中 + 乐观跳转（不等网络返回先移除锁屏）
+        // 即时反馈：标记解锁中（按钮显示 loading），锁屏保留直到鉴权成功
         setIsUnlocking(true);
-        setIsLocked(false);
 
         void (async () => {
             try {
                 const session = await requestScriptHubSession(input);
                 if (session.user.id !== currentUser?.id) {
-                    // 账号不匹配：回滚锁屏
-                    setIsLocked(true);
                     showInputValidationMessage(lockKeyInputRef.current, t.lock.wrongAccount);
                     return;
                 }
 
                 persistScriptHubSession(session);
+                setIsLocked(false);
                 setLockKey('');
                 setUserKey(session.user.id || '');
                 lastActivityRef.current = Date.now();
                 localStorage.setItem(APP_LAST_ACTIVITY_STORAGE_KEY, lastActivityRef.current.toString());
                 toast.success(t.lock.unlockSuccess);
-            } catch {
-                // 鉴权失败：回滚锁屏
-                setIsLocked(true);
-                showInputValidationMessage(lockKeyInputRef.current, t.lock.wrongKey);
+            } catch (err) {
+                if (err instanceof AuthError) {
+                    if (err.status === 0) {
+                        showInputValidationMessage(lockKeyInputRef.current, t.lock.networkError);
+                    } else if (err.status >= 500) {
+                        showInputValidationMessage(lockKeyInputRef.current, t.lock.serverError);
+                    } else {
+                        showInputValidationMessage(lockKeyInputRef.current, t.lock.wrongKey);
+                    }
+                } else {
+                    showInputValidationMessage(lockKeyInputRef.current, t.lock.wrongKey);
+                }
             } finally {
                 setIsUnlocking(false);
             }

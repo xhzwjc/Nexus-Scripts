@@ -101,6 +101,8 @@ export interface Translations {
     wrongKey: string;
     wrongAccount: string;
     emptyKey: string;
+    networkError: string;
+    serverError: string;
   };
 
   // Navigation & Layout
