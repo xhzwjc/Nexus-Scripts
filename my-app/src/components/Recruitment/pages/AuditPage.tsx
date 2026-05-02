@@ -1012,12 +1012,15 @@ export function AuditPage({
                                     </div>
                                 ) : null}
                                 {!selectedRootNotice && !selectedFlowAuditView?.autoRequeueScheduled && selectedInvalidResultSummary ? (
-                                    <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                                    <div
+                                        className="mt-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100 line-clamp-2 cursor-default"
+                                        title={selectedInvalidResultSummary || undefined}
+                                    >
                                         {selectedInvalidResultSummary}
                                     </div>
                                 ) : null}
                             </div>
-                            <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
+                            <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600">
                                 <div className="min-w-0 space-y-5 px-6 py-6">
                                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                                         <InfoTile label={tr.currentStage} value={selectedDisplayTaskStageLabel || tr.unrecorded}/>
