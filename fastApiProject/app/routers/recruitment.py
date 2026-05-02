@@ -192,9 +192,21 @@ def _encode_sse_event(event: str, payload: Dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+ALLOWED_RESUME_EXTENSIONS = {".pdf", ".docx"}
+
+
 async def _stage_upload_file(item: UploadFile, staging_dir: Path) -> Dict[str, Any]:
     file_name = Path(item.filename or "resume.bin").name or "resume.bin"
-    staged_name = f"{uuid.uuid4().hex}{Path(file_name).suffix.lower()}"
+    file_ext = Path(file_name).suffix.lower()
+
+    # 源头拦截：只允许 PDF 和 DOCX 格式
+    if file_ext not in ALLOWED_RESUME_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件格式「{file_ext or '无扩展名'}」，简历仅支持 PDF 和 DOCX 格式。"
+        )
+
+    staged_name = f"{uuid.uuid4().hex}{file_ext}"
     staged_path = staging_dir / staged_name
     file_size = 0
     await item.seek(0)
