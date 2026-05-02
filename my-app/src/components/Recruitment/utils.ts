@@ -352,6 +352,7 @@ export function emptyCandidateEditor(): CandidateEditorState {
         tagsText: "",
         manualOverrideScore: "",
         manualOverrideReason: "",
+        positionId: "",
     };
 }
 

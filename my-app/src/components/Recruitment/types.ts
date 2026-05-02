@@ -86,6 +86,7 @@ export type CandidateEditorState = {
     tagsText: string;
     manualOverrideScore: string;
     manualOverrideReason: string;
+    positionId: string;
 };
 
 export type MailSenderFormState = {

@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import {useVirtualizer} from "@tanstack/react-virtual";
 import {
     Bot,
+    Briefcase,
     Check,
     ChevronDown,
     ChevronUp,
@@ -414,6 +415,10 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         sendResumesBatch: isZh ? "批量发送简历" : "Send Resumes in Batch",
         exportCandidates: isZh ? "导出" : "Export",
         batchDelete: isZh ? "批量删除" : "Batch Delete",
+        batchBindPosition: isZh ? "批量设置岗位" : "Batch Set Position",
+        batchBindPositionTitle: isZh ? "设置目标岗位" : "Set Target Position",
+        batchBindPositionConfirm: isZh ? "确定" : "OK",
+        batchBindPositionCancel: isZh ? "取消" : "Cancel",
         ageSuffix: isZh ? "岁" : "yo",
         cityLabel: isZh ? "城市" : "City",
         selectAllCandidates: isZh ? "全选候选人" : "Select all candidates",
@@ -1413,6 +1418,7 @@ type CandidatesPageProps = {
     downloadInterviewQuestion: (questionId: number) => Promise<void>;
     exportCandidates: (candidateIds: number[], includeResumes?: boolean) => Promise<void>;
     requestBatchDelete: (candidateIds: number[]) => void;
+    batchBindPosition: (candidateIds: number[], positionId: number | null) => Promise<void>;
 };
 
 export function CandidatesPage({
@@ -1498,6 +1504,7 @@ export function CandidatesPage({
     downloadInterviewQuestion,
     exportCandidates,
     requestBatchDelete,
+    batchBindPosition,
 }: CandidatesPageProps) {
     const {language} = useI18n();
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
@@ -1505,6 +1512,9 @@ export function CandidatesPage({
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
     const [candidateFilterBarExpanded, setCandidateFilterBarExpanded] = React.useState(false);
     const [candidateAiOutputDialogOpen, setCandidateAiOutputDialogOpen] = React.useState(false);
+    const [batchBindDialogOpen, setBatchBindDialogOpen] = React.useState(false);
+    const [batchBindPositionId, setBatchBindPositionId] = React.useState<string>("");
+    const [batchBindSubmitting, setBatchBindSubmitting] = React.useState(false);
     const candidateDetailToolbarScrollRef = React.useRef<HTMLDivElement | null>(null);
     const candidateDetailToolbarRailRef = React.useRef<HTMLDivElement | null>(null);
     const candidateDetailToolbarSyncSourceRef = React.useRef<"viewport" | "rail" | null>(null);
@@ -1938,6 +1948,10 @@ export function CandidatesPage({
                                     <Mail className="h-4 w-4"/>
                                     {tr.sendResumesBatch}
                                 </Button>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => { setBatchBindPositionId(""); setBatchBindDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
+                                    <Briefcase className="h-4 w-4"/>
+                                    {tr.batchBindPosition}
+                                </Button>
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => void exportCandidates(selectedCandidateIds)} disabled={!selectedCandidateIds.length || exporting}>
                                     <Download className="h-4 w-4"/>
                                     {exporting ? (language !== "en-US" ? "导出中..." : "Exporting...") : tr.exportCandidates}
@@ -2305,6 +2319,15 @@ export function CandidatesPage({
                                                     <Input value={candidateEditor.age} onChange={(event) => setCandidateEditor((current) => ({...current, age: event.target.value}))} placeholder={tr.agePlaceholder}/>
                                                     <Input value={candidateEditor.city} onChange={(event) => setCandidateEditor((current) => ({...current, city: event.target.value}))} placeholder={tr.cityPlaceholder}/>
                                                 </div>
+                                            </Field>
+
+                                            <Field label={tr.position}>
+                                                <NativeSelect value={candidateEditor.positionId} onChange={(event) => setCandidateEditor((current) => ({...current, positionId: event.target.value}))}>
+                                                    <option value="">{tr.unassignedPosition}</option>
+                                                    {positions.map((p) => (
+                                                        <option key={p.id} value={String(p.id)}>{p.title}</option>
+                                                    ))}
+                                                </NativeSelect>
                                             </Field>
 
                                             <Field label={tr.tagsAndNotes}>
@@ -2804,6 +2827,41 @@ export function CandidatesPage({
                 modelLabel={latestResumeScoreLog ? `${labelForProvider(latestResumeScoreLog.model_provider)} / ${latestResumeScoreLog.model_name || tr.unrecorded}` : null}
                 generatedAt={latestResumeScoreLog?.created_at || candidateDetail?.score?.updated_at || candidateDetail?.score?.created_at}
             />
+            <Dialog open={batchBindDialogOpen} onOpenChange={setBatchBindDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>{tr.batchBindPositionTitle}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <NativeSelect value={batchBindPositionId} onChange={(event) => setBatchBindPositionId(event.target.value)}>
+                            <option value="">{tr.unassignedPosition}</option>
+                            {positions.map((p) => (
+                                <option key={p.id} value={String(p.id)}>{p.title}</option>
+                            ))}
+                        </NativeSelect>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setBatchBindDialogOpen(false)}>
+                                {tr.batchBindPositionCancel}
+                            </Button>
+                            <Button
+                                disabled={batchBindSubmitting}
+                                onClick={async () => {
+                                    setBatchBindSubmitting(true);
+                                    try {
+                                        await batchBindPosition(selectedCandidateIds, batchBindPositionId ? Number(batchBindPositionId) : null);
+                                        setBatchBindDialogOpen(false);
+                                    } finally {
+                                        setBatchBindSubmitting(false);
+                                    }
+                                }}
+                            >
+                                {batchBindSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
+                                {tr.batchBindPositionConfirm}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }

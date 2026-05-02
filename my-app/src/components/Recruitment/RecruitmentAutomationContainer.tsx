@@ -2033,6 +2033,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             tagsText: joinTags(candidate?.tags),
             manualOverrideScore: score?.manual_override_score ? String(score.manual_override_score) : "",
             manualOverrideReason: score?.manual_override_reason || "",
+            positionId: candidate?.position_id != null ? String(candidate.position_id) : "",
         });
     }, [candidateDetail]);
 
@@ -4472,6 +4473,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         ? Number(candidateEditor.manualOverrideScore)
                         : null,
                     manual_override_reason: candidateEditor.manualOverrideReason.trim() || null,
+                    position_id: candidateEditor.positionId ? Number(candidateEditor.positionId) : null,
                 }),
             });
             toast.success(recruitmentToast.updated(recruitmentToastEntities.candidate));
@@ -5466,6 +5468,33 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         } finally {
             setBatchDeleteTargetIds(null);
             setBatchDeleting(false);
+        }
+    }
+
+    async function batchBindPosition(candidateIds: number[], positionId: number | null) {
+        if (!candidateIds.length) {
+            return;
+        }
+        try {
+            const result = await recruitmentApi<{ updated_count: number }>("/candidates/batch-update-position", {
+                method: "POST",
+                body: JSON.stringify({ candidate_ids: candidateIds, position_id: positionId }),
+            });
+            toast.success(
+                isZh
+                    ? `已为 ${result.updated_count} 位候选人更新岗位`
+                    : `Updated position for ${result.updated_count} candidate(s)`
+            );
+            await Promise.all([loadCandidates(), loadDashboard(), refreshCandidateStats()]);
+            if (selectedCandidateId && candidateIds.includes(selectedCandidateId)) {
+                await loadCandidateDetail(selectedCandidateId);
+            }
+        } catch (error) {
+            toast.error(
+                isZh
+                    ? `批量更新岗位失败：${formatActionError(error)}`
+                    : `Failed to batch update position: ${formatActionError(error)}`
+            );
         }
     }
 
@@ -6996,6 +7025,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 downloadInterviewQuestion={downloadInterviewQuestion}
                 exportCandidates={exportCandidates}
                 requestBatchDelete={requestBatchDelete}
+                batchBindPosition={batchBindPosition}
             />
         );
     }

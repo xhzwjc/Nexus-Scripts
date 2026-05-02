@@ -22,6 +22,7 @@ from ..database import SessionLocal, get_db
 from ..permission_governance import expand_permission_aliases
 from ..recruitment_schemas import (
     CandidateBatchDeleteRequest,
+    CandidateBatchUpdatePositionRequest,
     CandidateExportRequest,
     CandidateScreenBatchCancelRequest,
     CandidateScreenBatchQueryRequest,
@@ -440,6 +441,36 @@ async def batch_delete_candidates(
         return {"success": True, "data": {"deleted_count": deleted_count, "skipped": skipped}, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.post("/candidates/batch-update-position")
+async def batch_update_candidates_position(
+    http_request: Request,
+    payload: CandidateBatchUpdatePositionRequest,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.batch_update_candidates_position(
+            payload.candidate_ids,
+            payload.position_id,
+            session.get("id") or "unknown",
+        )
+        write_audit_log(
+            db,
+            actor=session,
+            request=http_request,
+            action="recruitment.candidate.batch_bind_position",
+            target_type="recruitment-candidate",
+            target_code="batch",
+            details={"position_id": payload.position_id, "candidate_ids": payload.candidate_ids},
+        )
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @recruitment_router.delete("/candidates/{candidate_id}")
