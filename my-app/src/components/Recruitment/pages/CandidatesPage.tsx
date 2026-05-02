@@ -144,6 +144,7 @@ const CandidateRow = React.memo(function CandidateRow({
         <tr
             ref={measureRef}
             data-index={dataIndex}
+            data-candidate-id={candidate.id}
             className={cn("cursor-pointer", isSelected && "bg-slate-100 dark:bg-slate-900")}
             onClick={onSelect}
         >
@@ -1595,6 +1596,87 @@ export function CandidatesPage({
         candidateListScrollRef(node);
     }, [candidateListScrollRef]);
 
+    // ---- 拖拽框选（Rubber Band Selection）----
+    type DragBox = { startX: number; startY: number; currentX: number; currentY: number };
+    const [dragBox, setDragBox] = React.useState<DragBox | null>(null);
+    const dragShiftRef = React.useRef(false);
+    const dragContainerRectRef = React.useRef<DOMRect | null>(null);
+
+    const rectsIntersect = (r1: DOMRect, r2: DOMRect) =>
+        !(r2.left > r1.right || r2.right < r1.left || r2.top > r1.bottom || r2.bottom < r1.top);
+
+    const updateSelectionFromDrag = React.useCallback((box: DragBox, container: HTMLDivElement) => {
+        const containerRect = container.getBoundingClientRect();
+        // dragBox 是视口坐标，row getBoundingClientRect 也是视口坐标
+        // 但行在容器内部有 padding-left 等，需要减去容器偏移
+        const selRect = {
+            left: Math.min(box.startX, box.currentX),
+            right: Math.max(box.startX, box.currentX),
+            top: Math.min(box.startY, box.currentY),
+            bottom: Math.max(box.startY, box.currentY),
+        };
+        // 快速排除：选框完全在容器外
+        if (selRect.right < containerRect.left || selRect.left > containerRect.right ||
+            selRect.bottom < containerRect.top || selRect.top > containerRect.bottom) {
+            return;
+        }
+        const rows = container.querySelectorAll('[data-candidate-id]');
+        const toSelect: number[] = [];
+        rows.forEach((row) => {
+            const rowRect = row.getBoundingClientRect();
+            if (rectsIntersect(selRect, rowRect)) {
+                const id = Number(row.getAttribute('data-candidate-id'));
+                if (!isNaN(id)) toSelect.push(id);
+            }
+        });
+        if (toSelect.length === 0) return;
+        if (dragShiftRef.current) {
+            // 追加模式
+            const merged = [...new Set([...selectedCandidateIds, ...toSelect])];
+            setSelectedCandidateIds(merged);
+        } else {
+            // 替换模式
+            setSelectedCandidateIds(toSelect);
+        }
+    }, [selectedCandidateIds]);
+
+    const handleMouseDown = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        if (e.button !== 0) return;
+        const target = e.target as HTMLElement;
+        // 排除 checkbox、button、a 等可交互元素
+        if (target.closest('input[type="checkbox"]') || target.closest('button') || target.closest('a')) return;
+        e.preventDefault();
+        dragShiftRef.current = e.shiftKey;
+        if (candidateListViewportEl) {
+            dragContainerRectRef.current = candidateListViewportEl.getBoundingClientRect();
+        }
+        // 使用视口坐标（clientX/clientY），与 getBoundingClientRect() 坐标系一致
+        setDragBox({ startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY });
+    }, []);
+
+    const handleMouseMove = React.useCallback((e: MouseEvent) => {
+        if (!dragBox || !candidateListViewportEl) return;
+        const newBox = { ...dragBox, currentX: e.clientX, currentY: e.clientY };
+        setDragBox(newBox);
+        updateSelectionFromDrag(newBox, candidateListViewportEl);
+    }, [dragBox, updateSelectionFromDrag]);
+
+    const handleMouseUp = React.useCallback((e: MouseEvent) => {
+        if (!dragBox) return;
+        dragShiftRef.current = e.shiftKey;
+        setDragBox(null);
+    }, [dragBox]);
+
+    React.useEffect(() => {
+        if (!dragBox) return;
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [dragBox, handleMouseMove, handleMouseUp]);
+
     const rowVirtualizer = useVirtualizer({
         count: visibleCandidates.length,
         getScrollElement: () => candidateListViewportEl,
@@ -1871,8 +1953,20 @@ export function CandidatesPage({
                             <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
                                 <div
                                     ref={mergedCandidateListScrollRef}
-                                    className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
+                                    onMouseDown={handleMouseDown}
+                                    className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
                                 >
+                                    {dragBox && dragContainerRectRef.current && (
+                                        <div
+                                            className="pointer-events-none absolute z-50 rounded border border-blue-400 bg-blue-400/10"
+                                            style={{
+                                                left: Math.min(dragBox.startX, dragBox.currentX) - dragContainerRectRef.current.left,
+                                                top: Math.min(dragBox.startY, dragBox.currentY) - dragContainerRectRef.current.top,
+                                                width: Math.abs(dragBox.currentX - dragBox.startX),
+                                                height: Math.abs(dragBox.currentY - dragBox.startY),
+                                            }}
+                                        />
+                                    )}
                                     <table style={{width: candidateListEffectiveTableWidth, minWidth: candidateListEffectiveTableWidth}} className="caption-bottom table-fixed text-sm">
                                         <thead className="[&_tr]:border-b">
                                             <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">

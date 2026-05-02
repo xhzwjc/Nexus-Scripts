@@ -112,13 +112,16 @@ def _strip_json_fences(value: str) -> str:
 
 
 def _normalize_json_candidate_text(value: str) -> str:
-    text = str(value or "").strip()
+    text = str(value or '').strip()
     if not text:
-        return "{}"
-    text = text.replace("\ufeff", "").replace("“", "\"").replace("”", "\"").replace("’", "'")
-    text = re.sub(r"^\s*(?:json|JSON)\s*[:：]\s*", "", text)
-    text = re.sub(r"^\s*Here(?:'s| is)?\s+the\s+JSON\s*[:：]\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"^\s*以下是(?:结果|JSON)?\s*[:：]\s*", "", text)
+        return '{}'
+    text = text.replace('\ufeff', '').replace('\u2019', "'")
+    # 修复中文逗号和冒号：AI 模型有时会在 JSON 中使用中文标点
+    text = text.replace('\uff0c', ',')
+    text = text.replace('\uff1a', ':')
+    text = re.sub(r'^\s*(?:json|JSON)\s*[:\uff1a]\s*', '', text)
+    text = re.sub(r"^\s*Here(?:'s| is)?\s+the\s+JSON\s*[:\uff1a]\s*", '', text, flags=re.IGNORECASE)
+    text = re.sub(r'^\s*以下是(?:结果|JSON)?\s*[:\uff1a]\s*', '', text)
     return text
 
 
