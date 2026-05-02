@@ -952,12 +952,76 @@ def extract_text_from_pdf(file_path: Path) -> str:
     )
 
 
+# 图片文件魔数签名
+IMAGE_FILE_SIGNATURES = (
+    (b"\xff\xd8\xff", "jpeg"),      # JPEG
+    (b"\x89PNG\r\n\x1a\n", "png"), # PNG
+    (b"GIF87a", "gif"),             # GIF87a
+    (b"GIF89a", "gif"),             # GIF89a
+    (b"RIFF", "webp"),              # WEBP (RIFF....WEBP)
+    (b"BM", "bmp"),                 # BMP
+)
+
+
+def _is_image_file(file_path: Path) -> bool:
+    """检测文件是否为图片，通过魔数签名判断。"""
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(16)
+        for signature, _ in IMAGE_FILE_SIGNATURES:
+            if header.startswith(signature):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+# 最小有效简历文本长度阈值（检测图片扫描件）
+MIN_RESUME_TEXT_LENGTH = 50
+
+
+def _is_truncated_image_text(text: str) -> bool:
+    """检测提取的文本是否像是图片二进制被当作文本读取的结果。
+    图片二进制当作文本读取时，会产生大量不可见字符和无意义字符。
+    """
+    if not text:
+        return True
+    # 计算可打印的合理字符比例
+    printable_chars = sum(1 for c in text if c.isprintable() and not c.isspace())
+    total_chars = len(text)
+    if total_chars == 0:
+        return True
+    # 如果可打印字符低于 20%，认为是图片二进制
+    if printable_chars / total_chars < 0.2:
+        return True
+    # 检查是否包含大量连续不可见字符
+    invisible_sequences = re.findall(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]{4,}', text)
+    if len(invisible_sequences) > 5:
+        return True
+    return False
+
+
 def extract_resume_text(file_path: Path, file_ext: str) -> str:
     ext = (file_ext or file_path.suffix or "").lower()
+
+    # 先检测是否为图片文件（无论扩展名是什么）
+    if _is_image_file(file_path):
+        raise ValueError(f"上传的文件似乎是图片，不支持图片格式简历，请上传包含文本内容的 PDF 或 Word 文件。")
+
     if ext == ".pdf":
-        return clean_resume_text(extract_text_from_pdf(file_path))
+        raw_text = extract_text_from_pdf(file_path)
+        # 检测是否为图片二进制被当作文本
+        if _is_truncated_image_text(raw_text) or len(raw_text.strip()) < MIN_RESUME_TEXT_LENGTH:
+            raise ValueError(f"上传的 PDF 文件似乎不包含可识别的文本内容（可能是图片扫描件），请上传包含文本内容的 PDF 文件。")
+        return clean_resume_text(raw_text)
+
     if ext == ".docx":
-        return clean_resume_text(extract_text_from_docx(file_path))
+        raw_text = extract_text_from_docx(file_path)
+        if _is_truncated_image_text(raw_text) or len(raw_text.strip()) < MIN_RESUME_TEXT_LENGTH:
+            raise ValueError(f"上传的 Word 文件似乎不包含可识别的文本内容（可能是图片或特殊格式），请上传包含文本内容的 Word 文件。")
+        return clean_resume_text(raw_text)
+
+    # 其他扩展名，尝试当作文本读取
     return clean_resume_text(file_path.read_text(encoding="utf-8", errors="ignore"))
 
 
