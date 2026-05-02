@@ -5696,6 +5696,25 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setLlmDialogOpen(true);
     }
 
+    function copyLLMEditor(config: RecruitmentLLMConfig) {
+        setLlmEditingId(null);
+        setLlmForm({
+            configKey: `${config.config_key}-copy`,
+            taskType: config.task_type,
+            provider: config.provider,
+            modelName: config.model_name,
+            baseUrl: config.base_url || "",
+            apiKeyEnv: config.api_key_env || "",
+            apiKeyValue: "",
+            priority: String(config.priority ?? 99),
+            isActive: config.is_active,
+            extraConfigText: JSON.stringify(config.extra_config || {}, null, 2),
+        });
+        setLlmFormErrors({});
+        setLlmFormSubmitError(null);
+        setLlmDialogOpen(true);
+    }
+
     async function submitLLMConfig() {
         if (llmSubmitting) {
             return;
@@ -7093,6 +7112,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 assistantActiveLLMConfig={assistantActiveLLMConfig}
                 preferredLLMConfigIds={preferredLLMConfigIds}
                 openLLMEditor={openLLMEditor}
+                copyLLMEditor={copyLLMEditor}
                 setPreferredLLMConfig={setPreferredLLMConfig}
                 setLlmDeleteTarget={setLlmDeleteTarget}
                 refreshLLMConfigsWithFeedback={refreshLLMConfigsWithFeedback}

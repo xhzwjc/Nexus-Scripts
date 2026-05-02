@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import {Loader2, Plus, RefreshCw} from "lucide-react";
+import {Copy, Loader2, Plus, RefreshCw} from "lucide-react";
 
 import type {RecruitmentLLMConfig} from "@/lib/recruitment-api";
 import {useI18n} from "@/lib/i18n";
@@ -27,6 +27,7 @@ type ModelSettingsPageProps = {
     assistantActiveLLMConfig: RecruitmentLLMConfig | null;
     preferredLLMConfigIds: Set<number>;
     openLLMEditor: (config?: RecruitmentLLMConfig) => void;
+    copyLLMEditor: (config: RecruitmentLLMConfig) => void;
     setPreferredLLMConfig: (config: RecruitmentLLMConfig) => Promise<void>;
     setLlmDeleteTarget: (config: RecruitmentLLMConfig) => void;
     refreshLLMConfigsWithFeedback: () => Promise<void>;
@@ -40,6 +41,7 @@ export function ModelSettingsPage({
     assistantActiveLLMConfig,
     preferredLLMConfigIds,
     openLLMEditor,
+    copyLLMEditor,
     setPreferredLLMConfig,
     setLlmDeleteTarget,
     refreshLLMConfigsWithFeedback,
@@ -122,6 +124,7 @@ export function ModelSettingsPage({
                                             {isCurrent ? (isZh ? "当前使用中" : "Currently Active") : (isZh ? "设为当前使用" : "Set as Current")}
                                         </Button>
                                         <Button size="sm" variant="outline" onClick={() => openLLMEditor(config)}>{isZh ? "编辑" : "Edit"}</Button>
+                                        <Button size="sm" variant="outline" onClick={() => copyLLMEditor(config)}><Copy className="h-4 w-4"/>{isZh ? "复制" : "Copy"}</Button>
                                         <Button size="sm" variant="outline" onClick={() => setLlmDeleteTarget(config)}>{isZh ? "删除" : "Delete"}</Button>
                                     </div>
                                 </div>
