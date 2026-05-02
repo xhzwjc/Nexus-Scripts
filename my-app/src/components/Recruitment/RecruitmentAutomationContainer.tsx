@@ -807,6 +807,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [resumeUploadCitySource, setResumeUploadCitySource] = useState<"manual" | "auto">("auto");
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadCompletedCount, setUploadCompletedCount] = useState(0);
+    const [resumeUploadError, setResumeUploadError] = useState<string | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
 
     const [publishDialogOpen, setPublishDialogOpen] = useState(false);
@@ -4306,11 +4307,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     async function uploadResumes() {
         if (!resumeUploadFileList?.length) {
-            toast.error(recruitmentToast.noResumeSelected);
+            setResumeUploadError(recruitmentToast.noResumeSelected);
             return;
         }
         if (resumeUploadPositionId === "all" && !resumeUploadOrgCode.trim()) {
-            toast.error(recruitmentUiText.chooseTargetOrganization);
+            setResumeUploadError(recruitmentUiText.chooseTargetOrganization);
             return;
         }
 
@@ -4376,6 +4377,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     : `${uploadedCount} resumes uploaded. Auto-screen queued ${autoScreenQueued}, skipped ${autoScreenSkipped} active task(s)${autoScreenFailed > 0 ? `, failed ${autoScreenFailed}` : ""}.`,
             );
             setResumeUploadOpen(false);
+            setResumeUploadError(null);
             setResumeUploadFileList(null);
             setResumeUploadCity("");
             setResumeUploadCitySource("auto");
@@ -4385,7 +4387,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             if (error instanceof Error && error.name === "AbortError") {
                 toast.warning(isZh ? "上传已取消" : "Upload cancelled");
             } else {
-                toast.error(recruitmentToast.createFailed(recruitmentToastEntities.resume, formatActionError(error)));
+                setResumeUploadError(recruitmentToast.createFailed(recruitmentToastEntities.resume, formatActionError(error)));
             }
         } finally {
             setUploadingResume(false);
@@ -7846,7 +7848,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={resumeUploadOpen} onOpenChange={setResumeUploadOpen}>
+            <Dialog open={resumeUploadOpen} onOpenChange={(open) => {
+                setResumeUploadOpen(open);
+                if (!open) {
+                    setResumeUploadError(null);
+                }
+            }}>
                 <DialogContent className="sm:max-w-xl">
                     <DialogHeader>
                         <DialogTitle>上传简历</DialogTitle>
@@ -7940,25 +7947,30 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             </div>
                         </Field>
                         <Field label="选择文件">
-                            <Input type="file" multiple
-                                   onChange={(event) => { setResumeUploadFileList(event.target.files); }}/>
+                            <Input type="file" multiple accept=".pdf,.docx"
+                                   onChange={(event) => { setResumeUploadError(null); setResumeUploadFileList(event.target.files); }}/>
                         </Field>
                         <div
                             className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                             已选择 {resumeUploadFileList?.length ?? 0} 个文件
                         </div>
                     </div>
-                    <DialogFooter>
-                        {uploadingResume ? (
-                            <Button variant="outline" onClick={() => abortControllerRef.current?.abort()}>
-                                {isZh ? "取消上传" : "Cancel Upload"}
+                    <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
+                        <span className="min-h-[20px] flex-1 text-sm text-rose-600 dark:text-rose-300">
+                            {resumeUploadError ?? ""}
+                        </span>
+                        <div className="flex shrink-0 items-center gap-2">
+                            {uploadingResume ? (
+                                <Button variant="outline" onClick={() => abortControllerRef.current?.abort()}>
+                                    {isZh ? "取消上传" : "Cancel Upload"}
+                                </Button>
+                            ) : (
+                                <Button variant="outline" onClick={() => setResumeUploadOpen(false)}>取消</Button>
+                            )}
+                            <Button onClick={() => void uploadResumes()} disabled={uploadingResume}>
+                                {uploadingResume ? (isZh ? "上传中..." : "Uploading...") : (isZh ? "开始上传" : "Start Upload")}
                             </Button>
-                        ) : (
-                            <Button variant="outline" onClick={() => setResumeUploadOpen(false)}>取消</Button>
-                        )}
-                        <Button onClick={() => void uploadResumes()} disabled={uploadingResume}>
-                            {uploadingResume ? (isZh ? "上传中..." : "Uploading...") : (isZh ? "开始上传" : "Start Upload")}
-                        </Button>
+                        </div>
                     </DialogFooter>
                     {uploadingResume && (
                         <div className="space-y-1">
