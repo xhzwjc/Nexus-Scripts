@@ -1027,329 +1027,12 @@ def _calculate_match_percent_from_total_score(
     return int(max(0, min(100, round((float(numeric_total_score) / float(numeric_max_possible_score) * 100) + 1e-9))))
 
 
-def _auto_correct_score_metrics_from_dimensions(
-    score_payload: Any,
-    *,
-    fallback_max_possible_score: Optional[float] = None,
-) -> Tuple[Dict[str, Any], List[str]]:
-    payload = dict(score_payload if isinstance(score_payload, dict) else {})
-    dimensions = payload.get("dimensions") if isinstance(payload.get("dimensions"), list) else []
-    if not dimensions:
-        return payload, []
-
-    dimension_scores: List[float] = []
-    for item in dimensions:
-        if not isinstance(item, dict):
-            return payload, []
-        numeric_score = _parse_score_number(item.get("score"))
-        if numeric_score is None:
-            return payload, []
-        dimension_scores.append(float(numeric_score))
-
-    dimension_total = round(sum(dimension_scores) + 1e-9, 1)
-    max_possible_score = _parse_score_number(fallback_max_possible_score)
-    expected_match_percent = _calculate_match_percent_from_total_score(
-        dimension_total,
-        max_possible_score=max_possible_score,
-    )
-    warnings: List[str] = []
-
-    current_total_score = _parse_score_number(payload.get("total_score"))
-    if current_total_score is None or abs(current_total_score - dimension_total) > 0.1:
-        warnings.append("score.total_score 已按 dimensions 自动校正")
-    payload["total_score"] = dimension_total
-
-    current_match_percent = _parse_score_number(payload.get("match_percent"))
-    if expected_match_percent is not None:
-        if current_match_percent is None or abs(current_match_percent - expected_match_percent) > 0.5:
-            warnings.append("score.match_percent 已按 total_score 自动校正")
-        payload["match_percent"] = expected_match_percent
-
-    return payload, warnings
-
-
-def _validate_screening_payload_warnings(payload: Dict[str, Any], schema_config: Dict[str, Any]) -> List[str]:
-    warnings: List[str] = []
-    parsed_resume = payload.get("parsed_resume") if isinstance(payload.get("parsed_resume"), dict) else {}
-    score_payload = payload.get("score") if isinstance(payload.get("score"), dict) else {}
-    parsed_resume_config = schema_config.get("parsed_resume") or {}
-    score_config = schema_config.get("score") or {}
-
-    missing_basic_fields = [
-        field for field in parsed_resume_config.get("basic_info_fields") or []
-        if field not in (parsed_resume.get("basic_info") or {})
-    ]
-    if missing_basic_fields:
-        warnings.append(f"parsed_resume.basic_info 缺少字段：{'、'.join(missing_basic_fields)}")
-
-    for field in parsed_resume_config.get("list_fields") or []:
-        if not isinstance(parsed_resume.get(field), list):
-            warnings.append(f"parsed_resume.{field} 不是数组，已按空数组清洗。")
-
-    dimensions = score_payload.get("dimensions") if isinstance(score_payload.get("dimensions"), list) else []
-    if not dimensions:
-        warnings.append("score.dimensions 缺失或为空。")
-    required_dimension_labels = [
-        str(item or "").strip()
-        for item in (score_config.get("required_dimension_labels") or [])
-        if str(item or "").strip()
-    ]
-    if required_dimension_labels:
-        actual_dimension_labels = {
-            str(item.get("label") or "").strip()
-            for item in dimensions
-            if isinstance(item, dict) and str(item.get("label") or "").strip()
-        }
-        missing_dimension_labels = [label for label in required_dimension_labels if label not in actual_dimension_labels]
-        if missing_dimension_labels:
-            warnings.append(f"score.dimensions 缺少维度：{'、'.join(missing_dimension_labels[:8])}")
-
-    total_score = _parse_score_number(score_payload.get("total_score"))
-    match_percent = _parse_score_number(score_payload.get("match_percent"))
-    dimension_total = round(sum((_parse_score_number(item.get("score")) or 0.0) for item in dimensions) + 1e-9, 1)
-    if total_score is not None and abs(total_score - dimension_total) > 0.1:
-        warnings.append(f"score.total_score 与 dimensions 求和不一致：当前为 {total_score:.1f}，维度求和为 {dimension_total:.1f}。")
-    if total_score is not None and match_percent is not None:
-        configured_max_possible_score = _parse_score_number(score_config.get("max_possible_score"))
-        expected_match_percent = _calculate_match_percent_from_total_score(
-            total_score,
-            max_possible_score=configured_max_possible_score,
-        )
-        if expected_match_percent is not None and abs(match_percent - expected_match_percent) > 0.1:
-            if configured_max_possible_score is not None and configured_max_possible_score > 0:
-                formula = "round(total_score / max_possible_score * 100)"
-                expected_hint = "按维度满分应为"
-            else:
-                formula = "round(total_score * 10)"
-                expected_hint = "按 10 分制应为"
-            warnings.append(
-                f"score.match_percent 与 {formula} 不一致：当前为 {match_percent:.1f}，{expected_hint} {expected_match_percent:.1f}。"
-            )
-
-    current_status = _normalize_suggested_status(score_payload.get("suggested_status"))
-    current_recommendation = _compact_recommendation(score_payload.get("recommendation"))
-    if current_status and current_recommendation and not _recommendation_matches_status(current_status, current_recommendation):
-        warnings.append("score.recommendation 与 suggested_status 不一致。")
-
-    for field, allowed_values in (score_config.get("enum_fields") or {}).items():
-        value = str(score_payload.get(field) or "").strip()
-        if value and value not in set(allowed_values):
-            warnings.append(f"score.{field} 不在合法枚举内。")
-        if not value:
-            warnings.append(f"score.{field} 缺失或无效。")
-    if not _compact_recommendation(score_payload.get("recommendation")):
-        warnings.append("score.recommendation 缺失或无效。")
-
-    if not isinstance(score_payload.get("advantages"), list):
-        warnings.append("score.advantages 不是数组，已按空数组清洗。")
-    if not isinstance(score_payload.get("concerns"), list):
-        warnings.append("score.concerns 不是数组，已按空数组清洗。")
-
-    # 校验：score > 0 但 evidence 为空
-    for dim in dimensions:
-        if not isinstance(dim, dict):
-            continue
-        dim_score = _parse_score_number(dim.get("score")) or 0.0
-        dim_evidence = dim.get("evidence")
-        dim_label = str(dim.get("label") or "").strip()
-        evidence_is_empty = (
-            dim_evidence is None
-            or (isinstance(dim_evidence, str) and not dim_evidence.strip())
-            or (isinstance(dim_evidence, list) and len(dim_evidence) == 0)
-        )
-        if dim_score > 0 and evidence_is_empty:
-            warnings.append(f"维度[{dim_label}]得分>{dim_score}但evidence为空，疑似推断评分。")
-
-    # 校验：evidence 里混入了判断句
-    PSEUDO_EVIDENCE_PATTERNS = ["简历未提及", "未见", "缺乏", "不足", "无相关经验", "未明确说明", "候选人具备", "体现了", "说明其"]
-    dimension_rule_notes = [
-        str(item or "").strip()
-        for item in ((schema_config.get("score") or {}).get("dimension_rule_notes") or [])
-        if str(item or "").strip()
-    ]
-    RULE_TEXT_PATTERNS = [
-        "核心第一优先",
-        "岗位要求",
-        "加分项",
-        "硬性要求",
-        "评分说明",
-        "评分标准",
-        "满分",
-    ]
-    for dim in dimensions:
-        if not isinstance(dim, dict):
-            continue
-        dim_label = str(dim.get("label") or "").strip()
-        dim_evidence = dim.get("evidence")
-        evidence_texts = []
-        if isinstance(dim_evidence, str):
-            evidence_texts = [dim_evidence]
-        elif isinstance(dim_evidence, list):
-            evidence_texts = [str(e) for e in dim_evidence if e]
-        for ev in evidence_texts:
-            if any(pattern in ev for pattern in PSEUDO_EVIDENCE_PATTERNS):
-                warnings.append(f"维度[{dim_label}]的evidence包含判断句而非原文摘录。")
-                break
-            if any(pattern in ev for pattern in RULE_TEXT_PATTERNS):
-                warnings.append(f"维度[{dim_label}]的evidence疑似引用了 Skill/JD 规则文本。")
-                break
-            if any(note and len(note) >= 8 and note in ev for note in dimension_rule_notes):
-                warnings.append(f"维度[{dim_label}]的evidence疑似复用了评分规则说明文本。")
-                break
-
-    return warnings[:12]
-
-
-def _build_expected_one_pass_dimensions(
-    *,
-    skill_snapshots: Sequence[Dict[str, Any]],
-    schema_config: Dict[str, Any],
-) -> List[Dict[str, Any]]:
-    expected_dimensions = _build_expected_score_dimensions_from_rules(skill_snapshots, limit=12)
-    expected_labels = {
-        str(item.get("label") or "").strip()
-        for item in expected_dimensions
-        if isinstance(item, dict) and str(item.get("label") or "").strip()
-    }
-    for label in (
-        str(item or "").strip()
-        for item in ((schema_config.get("score") or {}).get("required_dimension_labels") or [])
-    ):
-        if not label or label in expected_labels:
-            continue
-        expected_dimensions.append(
-            {
-                "label": label,
-                "score": None,
-                "max_score": 0.0,
-                "reason": "",
-                "evidence": [],
-            }
-        )
-        expected_labels.add(label)
-    return expected_dimensions[:12]
-
-
-def _backfill_missing_required_dimensions_as_zero_score(
-    score_payload: Any,
-    *,
-    expected_dimensions: Sequence[Dict[str, Any]],
-    fallback_max_possible_score: Optional[float] = None,
-) -> Tuple[Dict[str, Any], List[str]]:
-    payload = dict(score_payload if isinstance(score_payload, dict) else {})
-    actual_dimensions = [dict(item) for item in (payload.get("dimensions") or []) if isinstance(item, dict)]
-    actual_by_label: Dict[str, Dict[str, Any]] = {}
-    extra_dimensions: List[Dict[str, Any]] = []
-    for item in actual_dimensions:
-        label = str(item.get("label") or "").strip()
-        if not label:
-            extra_dimensions.append(item)
-            continue
-        if label not in actual_by_label:
-            actual_by_label[label] = item
-        else:
-            extra_dimensions.append(item)
-
-    rebuilt_dimensions: List[Dict[str, Any]] = []
-    backfilled_labels: List[str] = []
-    for expected in expected_dimensions:
-        label = str(expected.get("label") or "").strip()
-        if not label:
-            continue
-        existing = actual_by_label.pop(label, None)
-        if existing is not None:
-            rebuilt_dimensions.append(existing)
-            continue
-        rebuilt_dimensions.append(
-            {
-                "label": label,
-                "score": 0.0,
-                "max_score": round(float(_parse_score_number(expected.get("max_score")) or 0.0), 1),
-                "reason": "简历未提及",
-                "evidence": [],
-                "is_inferred": False,
-            }
-        )
-        backfilled_labels.append(label)
-    rebuilt_dimensions.extend(actual_by_label.values())
-    rebuilt_dimensions.extend(extra_dimensions)
-    payload["dimensions"] = rebuilt_dimensions
-
-    warnings: List[str] = []
-    if backfilled_labels:
-        warnings.append(f"score.dimensions 缺少维度，已按规则补零：{'、'.join(backfilled_labels[:8])}")
-        payload, metric_warnings = _auto_correct_score_metrics_from_dimensions(
-            payload,
-            fallback_max_possible_score=fallback_max_possible_score,
-        )
-        warnings.extend(metric_warnings)
-    return payload, _normalize_score_warning_items(warnings, limit=12)
-
-
 def _dimension_has_effective_evidence(value: Any) -> bool:
     if isinstance(value, str):
         return bool(value.strip())
     if isinstance(value, list):
         return any(str(item or "").strip() for item in value)
     return False
-
-
-def _derive_deterministic_suggested_status(
-    score_payload: Any,
-    schema_config: Dict[str, Any],
-) -> Tuple[Optional[str], List[str]]:
-    payload = dict(score_payload if isinstance(score_payload, dict) else {})
-    dimensions = payload.get("dimensions") if isinstance(payload.get("dimensions"), list) else []
-    required_dimension_labels = [
-        str(item or "").strip()
-        for item in ((schema_config.get("score") or {}).get("required_dimension_labels") or [])
-        if str(item or "").strip()
-    ]
-    actual_by_label = {
-        str(item.get("label") or "").strip(): item
-        for item in dimensions
-        if isinstance(item, dict) and str(item.get("label") or "").strip()
-    }
-    if any(label not in actual_by_label for label in required_dimension_labels):
-        return None, []
-
-    total_score = _parse_score_number(payload.get("total_score"))
-    match_percent = _parse_score_number(payload.get("match_percent"))
-    if total_score is None and match_percent is None:
-        return None, []
-    max_possible_score = _parse_score_number((schema_config.get("score") or {}).get("max_possible_score"))
-    if total_score is None and match_percent is not None and max_possible_score is not None:
-        total_score = round((float(match_percent) / 100.0 * max_possible_score) + 1e-9, 1)
-    if match_percent is None and total_score is not None:
-        match_percent = _calculate_match_percent_from_total_score(
-            total_score,
-            max_possible_score=max_possible_score,
-        )
-    if total_score is None or match_percent is None:
-        return None, []
-
-    thresholds = (schema_config.get("score") or {}).get("status_thresholds") or {}
-    pass_threshold = _parse_score_number(thresholds.get("pass_threshold")) or 75.0
-    pool_threshold = _parse_score_number(thresholds.get("pool_threshold")) or 55.0
-    required_core_labels = [
-        str(item or "").strip()
-        for item in ((schema_config.get("score") or {}).get("required_core_dimension_labels") or [])
-        if str(item or "").strip()
-    ]
-    missing_core_evidence = [
-        label
-        for label in required_core_labels
-        if label in actual_by_label and not _dimension_has_effective_evidence(actual_by_label[label].get("evidence"))
-    ]
-    if match_percent >= pass_threshold:
-        status = "screening_passed"
-    elif match_percent >= pool_threshold:
-        status = "talent_pool"
-    else:
-        status = "screening_rejected"
-    if status == "screening_passed" and missing_core_evidence:
-        status = "talent_pool" if match_percent >= pool_threshold else "screening_rejected"
-    return status, missing_core_evidence
 
 
 def sanitize_screening_payload(
@@ -1360,6 +1043,11 @@ def sanitize_screening_payload(
     skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None,
     extra_warnings: Optional[Sequence[Any]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Sanitize screening payload structure without any auto-correction.
+
+    NOTE: All auto-correction logic has been removed.
+    The system now uses AI-returned scores directly without modification.
+    """
     sanitized_payload = _sanitize_screening_payload_structure(
         payload,
         schema_config,
@@ -1367,62 +1055,24 @@ def sanitize_screening_payload(
     )
     raw_model_suggested_status = _normalize_suggested_status((sanitized_payload.get("score") or {}).get("suggested_status"))
     sanitize_meta = sanitized_payload.get("_sanitize_meta") if isinstance(sanitized_payload.get("_sanitize_meta"), dict) else {}
-    sanitized_score = dict(sanitized_payload.get("score") if isinstance(sanitized_payload.get("score"), dict) else {})
-    repair_warnings: List[str] = []
-    normalized_final_suggested_status = raw_model_suggested_status
 
-    if sanitized_score.get("dimensions"):
-        sanitized_score, metric_warnings = _auto_correct_score_metrics_from_dimensions(
-            sanitized_score,
-            fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
-        )
-        repair_warnings.extend(metric_warnings)
-        sanitized_payload["score"] = sanitized_score
-
-    if one_pass_compat:
-        expected_dimensions = _build_expected_one_pass_dimensions(
-            skill_snapshots=list(skill_snapshots or []),
-            schema_config=schema_config,
-        )
-        if expected_dimensions:
-            sanitized_score, backfill_warnings = _backfill_missing_required_dimensions_as_zero_score(
-                sanitized_score,
-                expected_dimensions=expected_dimensions,
-                fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
-            )
-            repair_warnings.extend(backfill_warnings)
-        if (
-            not _normalize_suggested_status(sanitized_score.get("suggested_status"))
-            and sanitized_score.get("dimensions")
-            and not _score_payload_reuses_rule_text_as_evidence(
-                dimensions=sanitized_score.get("dimensions") or [],
-                skill_snapshots=list(skill_snapshots or []),
-            )
-        ):
-            derived_status, _missing_core_evidence = _derive_deterministic_suggested_status(
-                sanitized_score,
-                schema_config,
-            )
-            if derived_status:
-                sanitized_score["suggested_status"] = derived_status
-                normalized_final_suggested_status = derived_status
-                repair_warnings.append("score.suggested_status 缺失，已按最终分数规则自动推导")
-        sanitized_payload["score"] = sanitized_score
+    # 直接使用AI返回的评分，不做任何自动校正
+    # - 不校正 total_score 和 match_percent
+    # - 不补全缺失维度
+    # - 不推导 suggested_status
 
     warnings = _normalize_score_warning_items(
         [
             *(sanitize_meta.get("dimension_warnings") or []),
             *(sanitize_meta.get("structure_warnings") or []),
             *(extra_warnings or []),
-            *repair_warnings,
-            *_validate_screening_payload_warnings(sanitized_payload, schema_config),
         ],
         limit=12,
     )
     return sanitized_payload, {
         "warnings": warnings,
         "raw_model_suggested_status": raw_model_suggested_status,
-        "normalized_final_suggested_status": normalized_final_suggested_status,
+        "normalized_final_suggested_status": raw_model_suggested_status,
     }
 
 
@@ -1434,17 +1084,16 @@ def sanitize_screening_payload_fast(
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """Critical-path-only sanitization for one-pass screening.
 
+    NOTE: All auto-correction logic has been removed.
+    The system now uses AI-returned scores directly without modification.
+
     Performs ONLY the business-critical steps:
     1. Structure/type sanitization
-    2. Score metric auto-correction (total_score / match_percent from dimensions)
-    3. Missing required dimension backfill (zero-score)
-    4. Deterministic suggested_status derivation
 
-    Skips (deferred to background or omitted):
-    - _validate_screening_payload_warnings
-    - _score_payload_reuses_rule_text_as_evidence
-    - _analyze_ai_score_payload_quality
-    - Pseudo-evidence pattern detection
+    Skipped (no longer performed):
+    - Score metric auto-correction (total_score / match_percent from dimensions)
+    - Missing required dimension backfill (zero-score)
+    - Deterministic suggested_status derivation
     """
     sanitized_payload = _sanitize_screening_payload_structure(
         payload,
@@ -1454,53 +1103,12 @@ def sanitize_screening_payload_fast(
     raw_model_suggested_status = _normalize_suggested_status(
         (sanitized_payload.get("score") or {}).get("suggested_status")
     )
-    sanitized_score = dict(
-        sanitized_payload.get("score")
-        if isinstance(sanitized_payload.get("score"), dict)
-        else {}
-    )
-    repair_warnings: List[str] = []
-    normalized_final_suggested_status = raw_model_suggested_status
 
-    # Step 1: auto-correct total_score and match_percent from dimensions
-    if sanitized_score.get("dimensions"):
-        sanitized_score, metric_warnings = _auto_correct_score_metrics_from_dimensions(
-            sanitized_score,
-            fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
-        )
-        repair_warnings.extend(metric_warnings)
-        sanitized_payload["score"] = sanitized_score
-
-    # Step 2: backfill missing required dimensions as zero-score
-    expected_dimensions = _build_expected_one_pass_dimensions(
-        skill_snapshots=list(skill_snapshots or []),
-        schema_config=schema_config,
-    )
-    if expected_dimensions:
-        sanitized_score, backfill_warnings = _backfill_missing_required_dimensions_as_zero_score(
-            sanitized_score,
-            expected_dimensions=expected_dimensions,
-            fallback_max_possible_score=(schema_config.get("score") or {}).get("max_possible_score"),
-        )
-        repair_warnings.extend(backfill_warnings)
-        sanitized_payload["score"] = sanitized_score
-
-    # Step 3: derive suggested_status if missing
-    if not _normalize_suggested_status(sanitized_score.get("suggested_status")):
-        derived_status, _missing = _derive_deterministic_suggested_status(
-            sanitized_score,
-            schema_config,
-        )
-        if derived_status:
-            sanitized_score["suggested_status"] = derived_status
-            normalized_final_suggested_status = derived_status
-            repair_warnings.append("score.suggested_status 缺失，已按最终分数规则自动推导")
-            sanitized_payload["score"] = sanitized_score
-
+    # 直接使用AI返回的评分，不做任何自动校正
     return sanitized_payload, {
-        "warnings": repair_warnings,
+        "warnings": [],
         "raw_model_suggested_status": raw_model_suggested_status,
-        "normalized_final_suggested_status": normalized_final_suggested_status,
+        "normalized_final_suggested_status": raw_model_suggested_status,
         "fast_path": True,
     }
 
@@ -2073,8 +1681,6 @@ def _detect_one_pass_json_variant_conflict(candidate_metas: Sequence[Dict[str, A
         for item in candidate_metas
         if tuple(item.get("dimension_labels") or ())
     }
-    if len(candidate_metas) > 1:
-        reasons.append("检测到多个顶层 JSON 候选")
     if len(statuses) > 1:
         reasons.append("suggested_status 在同次模型返回中发生漂移")
     if len(total_scores) > 1:
@@ -2093,6 +1699,14 @@ def _detect_one_pass_json_variant_conflict(candidate_metas: Sequence[Dict[str, A
         "reasons": normalized_reasons,
         "message": "；".join(normalized_reasons),
     }
+
+
+def _normalize_payload_for_comparison(payload: Any) -> str:
+    """Normalize a payload to a canonical JSON string for comparison."""
+    try:
+        return json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    except Exception:
+        return str(payload)
 
 
 def _select_one_pass_json_candidate(
@@ -2121,7 +1735,8 @@ def _select_one_pass_json_candidate(
             )
     if isinstance(authoritative_payload, dict) and _looks_like_one_pass_screening_payload(authoritative_payload):
         merged_payload, _merge_warnings = _merge_top_level_one_pass_score_fields(authoritative_payload, schema_config.get("score") or {})
-        if not any(meta.get("payload") == merged_payload for meta in candidate_metas):
+        normalized_merged = _normalize_payload_for_comparison(merged_payload)
+        if not any(_normalize_payload_for_comparison(meta.get("payload")) == normalized_merged for meta in candidate_metas):
             candidate_metas.append(
                 _build_one_pass_json_candidate_meta(
                     authoritative_payload,
@@ -2266,43 +1881,6 @@ def _is_score_metric_auto_correction_warning(value: Any) -> bool:
         or text.startswith("score.total_score 已按 dimensions 求和自动归一化")
         or text.startswith("score.match_percent 已按维度满分自动归一化")
     )
-
-
-def _build_business_normalized_score_payload(score_payload: Any) -> Dict[str, Any]:
-    normalized = _normalize_resume_score_payload(score_payload)
-    return {
-        "total_score": normalized.get("total_score"),
-        "match_percent": normalized.get("match_percent"),
-        "advantages": _normalize_score_text_items(normalized.get("advantages"), limit=5),
-        "concerns": _normalize_score_text_items(normalized.get("concerns"), limit=5),
-        "recommendation": _compact_recommendation(normalized.get("recommendation")),
-        "suggested_status": normalized.get("suggested_status"),
-        "dimensions": sanitize_dimensions((score_payload or {}).get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
-    }
-
-
-def _build_score_normalization_warnings(
-    raw_score_payload: Dict[str, Any],
-    normalized_score_payload: Dict[str, Any],
-) -> List[str]:
-    warnings: List[str] = []
-    raw_total_score = _parse_score_number(raw_score_payload.get("total_score"))
-    normalized_total_score = _parse_score_number(normalized_score_payload.get("total_score"))
-    if (
-        raw_total_score is not None
-        and normalized_total_score is not None
-        and abs(raw_total_score - normalized_total_score) > 0.1
-    ):
-        warnings.append("score.total_score 已按 dimensions 自动校正")
-    raw_match_percent = _parse_score_number(raw_score_payload.get("match_percent"))
-    normalized_match_percent = _parse_score_number(normalized_score_payload.get("match_percent"))
-    if (
-        raw_match_percent is not None
-        and normalized_match_percent is not None
-        and abs(raw_match_percent - normalized_match_percent) > 0.1
-    ):
-        warnings.append("score.match_percent 已按 total_score 自动校正")
-    return warnings
 
 
 def _merge_score_validation_warnings(
@@ -2804,10 +2382,6 @@ def _build_score_compat_payload(normalized_score: Dict[str, Any], score_enhancem
     normalized_payload = _shape_resume_score_payload(normalized_score)
     derived_total_score = _parse_score_number(score_enhancements.get("derived_total_score_from_dimensions"))
     derived_match_percent = _parse_score_number(score_enhancements.get("derived_match_percent_from_dimensions"))
-    if derived_total_score is not None:
-        normalized_payload["total_score"] = derived_total_score
-    if derived_match_percent is not None:
-        normalized_payload["match_percent"] = derived_match_percent
     missing_core_labels = [str(item or "").strip() for item in score_enhancements.get("missing_core_labels") or [] if str(item or "").strip()]
     return {
         **normalized_payload,
@@ -8502,6 +8076,34 @@ class RecruitmentService:
         self.db.refresh(candidate)
         return self._serialize_candidate_summary(candidate)
 
+    def batch_update_candidates_position(self, candidate_ids: List[int], position_id: Optional[int], actor_id: str) -> Dict[str, Any]:
+        position = None
+        if position_id:
+            position = self._get_position(position_id)
+        updated = 0
+        for candidate_id in candidate_ids:
+            try:
+                candidate = self._get_candidate(candidate_id)
+            except ValueError:
+                continue
+            candidate.position_id = position.id if position else None
+            if position:
+                next_org_code = normalize_org_code(getattr(position, "org_code", None))
+                if normalize_org_code(getattr(candidate, "org_code", None)) != next_org_code:
+                    self.db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.candidate_id == candidate.id).update({RecruitmentResumeFile.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentResumeParseResult).filter(RecruitmentResumeParseResult.candidate_id == candidate.id).update({RecruitmentResumeParseResult.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.candidate_id == candidate.id).update({RecruitmentCandidateScore.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentCandidateStatusHistory).filter(RecruitmentCandidateStatusHistory.candidate_id == candidate.id).update({RecruitmentCandidateStatusHistory.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentCandidateWorkflowMemory).filter(RecruitmentCandidateWorkflowMemory.candidate_id == candidate.id).update({RecruitmentCandidateWorkflowMemory.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentInterviewQuestion).filter(RecruitmentInterviewQuestion.candidate_id == candidate.id).update({RecruitmentInterviewQuestion.org_code: next_org_code}, synchronize_session=False)
+                    self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.related_candidate_id == candidate.id).update({RecruitmentAITaskLog.org_code: next_org_code}, synchronize_session=False)
+                    candidate.org_code = next_org_code
+            candidate.updated_by = actor_id
+            self.db.add(candidate)
+            updated += 1
+        self.db.commit()
+        return {"updated_count": updated, "candidate_ids": candidate_ids, "position_id": position_id}
+
     def update_candidate_status(self, candidate_id: int, status: str, reason: str, actor_id: str) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
         self._create_status_history(candidate, status, reason, actor_id, "manual")
@@ -9648,7 +9250,10 @@ class RecruitmentService:
                         "failure_status": failure_status,
                         "parse_strategy": "combined_parse_and_score",
                         "request_meta": resolved_request_meta,
-                        "response_debug": dict((task.get("response_debug") if task else {}) or getattr(exc, "debug_meta", {}) or {}),
+                        "response_debug": {
+                            **(dict(task.get("response_debug") or {}) if task else {}),
+                            **(dict(getattr(exc, "debug_meta", {}) or {}) if isinstance(exc, RecruitmentAIJSONParseError) else {}),
+                        },
                     },
                 ),
                 error_message=failure_message,
@@ -9669,7 +9274,10 @@ class RecruitmentService:
                     "reused_existing_score": False,
                     "request_meta": resolved_request_meta,
                     "final_response_source": "screening_request_failed",
-                    "response_debug": dict((task.get("response_debug") if task else {}) or getattr(exc, "debug_meta", {}) or {}),
+                    "response_debug": {
+                        **(dict(task.get("response_debug") or {}) if task else {}),
+                        **(dict(getattr(exc, "debug_meta", {}) or {}) if isinstance(exc, RecruitmentAIJSONParseError) else {}),
+                    },
                 },
                 timing_breakdown={
                     "score_duration_ms": score_duration_ms,
@@ -10241,6 +9849,87 @@ class RecruitmentService:
                 timing_breakdown={"parse_duration_ms": parse_duration_ms, "total_duration_ms": parse_duration_ms},
             )
             raise
+
+    def _reparse_candidate_basic_info(
+        self,
+        candidate: RecruitmentCandidate,
+        parse_row: RecruitmentResumeParseResult,
+        actor_id: str,
+        *,
+        screening_run_id: Optional[str] = None,
+        parent_task_id: Optional[int] = None,
+        root_task_id: Optional[int] = None,
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+        deadline_at: Optional[datetime] = None,
+    ) -> Optional[RecruitmentResumeParseResult]:
+        """Re-parse resume to extract basic_info when one-pass returned empty data."""
+        raw_text = str(getattr(parse_row, "raw_text", "") or "").strip()
+        if not raw_text:
+            return None
+
+        remaining_budget_seconds = _ensure_screening_budget_available(deadline_at) if deadline_at else None
+        prompt = self._build_resume_parse_prompt(raw_text=raw_text)
+        request_context = self.ai_gateway.prepare_json_request_context(
+            task_type="resume_parse",
+            system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
+            user_prompt=prompt,
+            timeout_seconds_override=remaining_budget_seconds,
+            screening_total_timeout_seconds=SCREENING_TOTAL_TIMEOUT_SECONDS,
+            remaining_budget_seconds=remaining_budget_seconds,
+        )
+        self._raise_if_cancelled(cancel_control)
+        task = self._run_screening_provider_json_request(
+            task_type="resume_parse",
+            system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
+            user_prompt=prompt,
+            cancel_control=cancel_control,
+            runtime_config=request_context.get("runtime_config"),
+            timeout_seconds_override=request_context.get("effective_timeout_seconds"),
+            screening_total_timeout_seconds=SCREENING_TOTAL_TIMEOUT_SECONDS,
+            remaining_budget_seconds=request_context.get("remaining_budget_seconds"),
+        )
+        content = task.get("content") or {}
+        sanitized_resume, _ = _sanitize_ai_parsed_resume_with_meta(
+            content if isinstance(content, dict) else {},
+            raw_text,
+            candidate.name,
+        )
+        basic_info = sanitized_resume.get("basic_info") or {}
+        empty_fields = [f for f in ("name", "phone", "email", "age", "years_of_experience", "education", "location") if not str(basic_info.get(f) or "").strip()]
+        if len(empty_fields) >= 5:
+            logger.info("re-parse also returned empty basic_info candidate_id=%s", candidate.id)
+            return None
+
+        # Update parse_row in-place
+        parse_row.basic_info_json = json_dumps_safe(basic_info)
+        parse_row.work_experiences_json = json_dumps_safe(sanitized_resume.get("work_experiences") or [])
+        parse_row.education_experiences_json = json_dumps_safe(sanitized_resume.get("education_experiences") or [])
+        parse_row.skills_json = json_dumps_safe(sanitized_resume.get("skills") or [])
+        parse_row.projects_json = json_dumps_safe(sanitized_resume.get("projects") or [])
+        parse_row.summary_text = sanitized_resume.get("summary") or ""
+        self.db.add(parse_row)
+        self.db.flush()
+
+        # Update candidate basic fields
+        candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
+        parsed_phone = str(basic_info.get("phone") or "").strip()
+        parsed_email = str(basic_info.get("email") or "").strip()
+        if parsed_phone:
+            candidate.phone = parsed_phone
+        if parsed_email:
+            candidate.email = parsed_email
+        candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
+        candidate.education = str(basic_info.get("education") or "").strip() or None
+        parsed_age = _parse_age_value(basic_info.get("age"))
+        if parsed_age is not None:
+            candidate.age = parsed_age
+        location_value = str(basic_info.get("location") or "").strip()
+        if location_value and not getattr(candidate, "city", None):
+            candidate.city = location_value
+        self.db.add(candidate)
+        self.db.commit()
+        self.db.refresh(parse_row)
+        return parse_row
 
     def _score_candidate(
         self,
@@ -11482,6 +11171,36 @@ class RecruitmentService:
                             batch_id=batch_id,
                         )
                         candidate = self._get_candidate(candidate_id)
+                        # If one-pass returned empty basic_info, re-parse before proceeding
+                        _one_pass_bi = json_loads_safe(getattr(parse_row, "basic_info_json", None) or "{}", {})
+                        _one_pass_empty_bi = [f for f in ("name", "phone", "email", "age", "years_of_experience", "education", "location") if not str(_one_pass_bi.get(f) or "").strip()]
+                        if len(_one_pass_empty_bi) >= 5:
+                            logger.info(
+                                "screening one-pass returned empty basic_info, re-parsing candidate_id=%s",
+                                candidate.id,
+                            )
+                            try:
+                                _reparse_result = self._reparse_candidate_basic_info(
+                                    candidate,
+                                    parse_row,
+                                    actor_id,
+                                    screening_run_id=screening_run_id,
+                                    parent_task_id=root_log.id,
+                                    root_task_id=root_task_id,
+                                    cancel_control=cancel_control,
+                                    deadline_at=screening_deadline_at,
+                                )
+                                if _reparse_result is not None:
+                                    parse_row = _reparse_result
+                                    flow_state["reused_existing_parse"] = False
+                            except RecruitmentTaskCancelled:
+                                raise
+                            except Exception as reparse_exc:
+                                logger.warning(
+                                    "screening one-pass re-parse failed candidate_id=%s error=%s",
+                                    candidate.id,
+                                    reparse_exc,
+                                )
                         flow_state["parse_status"] = "completed"
                         flow_state["persist_status"] = "completed"
                         flow_state["parse_result_id"] = parse_row.id
@@ -11534,6 +11253,37 @@ class RecruitmentService:
                                 ),
                             )
                             try:
+                                # If one-pass returned empty basic_info, re-parse before scoring
+                                _parse_bi = json_loads_safe(getattr(parse_row, "basic_info_json", None) or "{}", {})
+                                _empty_bi_fields = [f for f in ("name", "phone", "email", "age", "years_of_experience", "education", "location") if not str(_parse_bi.get(f) or "").strip()]
+                                if len(_empty_bi_fields) >= 5:
+                                    logger.info(
+                                        "screening one-pass salvage: basic_info empty, re-parsing candidate_id=%s",
+                                        candidate.id,
+                                    )
+                                    try:
+                                        _reparse_result = self._reparse_candidate_basic_info(
+                                            candidate,
+                                            parse_row,
+                                            actor_id,
+                                            screening_run_id=screening_run_id,
+                                            parent_task_id=root_log.id,
+                                            root_task_id=root_task_id,
+                                            cancel_control=cancel_control,
+                                            deadline_at=screening_deadline_at,
+                                        )
+                                        if _reparse_result is not None:
+                                            parse_row = _reparse_result
+                                            flow_state["parse_result_id"] = parse_row.id
+                                            flow_state["reused_existing_parse"] = False
+                                    except RecruitmentTaskCancelled:
+                                        raise
+                                    except Exception as reparse_exc:
+                                        logger.warning(
+                                            "screening one-pass salvage re-parse failed candidate_id=%s error=%s",
+                                            candidate.id,
+                                            reparse_exc,
+                                        )
                                 score_row = self._score_candidate(
                                     candidate,
                                     parse_row,

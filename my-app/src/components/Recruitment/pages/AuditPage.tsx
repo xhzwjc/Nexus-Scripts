@@ -231,11 +231,15 @@ function isUserVisibleAuditLog(log: AITaskLog) {
     if (log.task_type === "screening_flow") {
         return true;
     }
+    // 隐藏 screening_flow 的子任务（one-pass、salvage score 等中间步骤）
+    if (log.parent_task_id != null) {
+        return false;
+    }
     if (log.task_type === "resume_parse") {
-        return !log.screening_run_id && (log.parent_task_id == null);
+        return !log.screening_run_id;
     }
     if (log.task_type === "resume_score") {
-        return !log.screening_run_id && (log.parent_task_id == null);
+        return !log.screening_run_id;
     }
     return true;
 }
@@ -679,25 +683,24 @@ export function AuditPage({
         };
     }, [auditListViewportEl]);
 
-    React.useEffect(() => {
-        setAuditListMeasuredRowHeights({});
-    }, [visibleAuditLogs, auditListTableWidth]);
+    const firstVisibleAuditLogId = visibleAuditLogs[0]?.id ?? null;
+    const selectedLogVisible = selectedLogId != null && visibleAuditLogs.some((item) => item.id === selectedLogId);
 
     React.useEffect(() => {
-        if (!visibleAuditLogs.length) {
+        setAuditListMeasuredRowHeights({});
+    }, [firstVisibleAuditLogId, visibleAuditLogs.length, auditListTableWidth]);
+
+    React.useEffect(() => {
+        if (firstVisibleAuditLogId == null) {
             if (selectedLogId != null) {
                 setSelectedLogId(null);
             }
             return;
         }
-        const firstId = visibleAuditLogs[0].id;
-        if (selectedLogId === firstId) {
-            return;
+        if (!selectedLogVisible) {
+            setSelectedLogId(firstVisibleAuditLogId);
         }
-        if (selectedLogId == null || !visibleAuditLogs.some((item) => item.id === selectedLogId)) {
-            setSelectedLogId(firstId);
-        }
-    }, [selectedLogId, setSelectedLogId, visibleAuditLogs]);
+    }, [firstVisibleAuditLogId, selectedLogVisible, selectedLogId, setSelectedLogId]);
 
     React.useEffect(() => {
         const rowObservers = auditListRowObserversRef.current;
