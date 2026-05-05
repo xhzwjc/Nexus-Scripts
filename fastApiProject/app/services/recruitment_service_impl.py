@@ -150,7 +150,7 @@ def _classify_interview_generation_failure_status(exc: Exception) -> str:
 SCREENING_PROVIDER_QPS = max(1, int(os.getenv("SCREENING_PROVIDER_QPS", "4")))
 SCREENING_BATCH_MAX_SIZE = max(1, int(os.getenv("SCREENING_BATCH_MAX_SIZE", "100")))
 SCREENING_ONE_PASS_MAX_RETRIES = max(0, int(os.getenv("SCREENING_ONE_PASS_MAX_RETRIES", "1")))
-SCREENING_FALLBACK_MAX_RETRIES = max(0, int(os.getenv("SCREENING_FALLBACK_MAX_RETRIES", "0")))
+SCREENING_FALLBACK_MAX_RETRIES = max(0, int(os.getenv("SCREENING_FALLBACK_MAX_RETRIES", "1")))
 SCREENING_PROVIDER_COOLDOWN_THRESHOLD = max(1, int(os.getenv("SCREENING_PROVIDER_COOLDOWN_THRESHOLD", "3")))
 SCREENING_PROVIDER_COOLDOWN_SECONDS = max(30, int(os.getenv("SCREENING_PROVIDER_COOLDOWN_SECONDS", "45")))
 SCREENING_LIVE_TASK_STATUSES = ("pending", "queued", "running", "cancelling")
@@ -1197,6 +1197,17 @@ def _normalize_suggested_status(value: Any) -> Optional[str]:
     }
     normalized = mapping.get(text, text)
     return normalized if normalized in {"screening_passed", "talent_pool", "screening_rejected"} else None
+
+
+def _derive_fallback_status_from_score(match_percent: Optional[float]) -> str:
+    """当 AI 返回的 suggested_status 无法解析时，根据 match_percent 推导一个合理的后备状态。"""
+    if match_percent is None:
+        return "talent_pool"
+    if match_percent >= 60:
+        return "screening_passed"
+    if match_percent >= 30:
+        return "talent_pool"
+    return "screening_rejected"
 
 
 def _build_expected_score_dimensions_from_rules(skill_snapshots: Sequence[Dict[str, Any]], *, limit: int = 12) -> List[Dict[str, Any]]:
@@ -5413,6 +5424,19 @@ class RecruitmentService:
             RecruitmentCandidateScore.candidate_id == candidate.id,
             RecruitmentCandidateScore.id == candidate.latest_score_id,
         ).first() if candidate and candidate.latest_score_id else None
+        if not score_row and score_log:
+            score_snapshot = _decode_ai_task_json_text(getattr(score_log, "output_snapshot", None), {})
+            persisted_refs = score_snapshot.get("persisted_result_refs") if isinstance(score_snapshot, dict) else {}
+            ref_score_id = persisted_refs.get("score_result_id") if isinstance(persisted_refs, dict) else None
+            if ref_score_id:
+                score_row = self.db.query(RecruitmentCandidateScore).filter(
+                    RecruitmentCandidateScore.candidate_id == candidate.id,
+                    RecruitmentCandidateScore.id == ref_score_id,
+                ).first()
+            if not score_row and candidate:
+                score_row = self.db.query(RecruitmentCandidateScore).filter(
+                    RecruitmentCandidateScore.candidate_id == candidate.id,
+                ).order_by(RecruitmentCandidateScore.id.desc()).first()
         source_log = score_log or parse_log or latest_child
         source_meta = _decode_ai_task_json_text(getattr(source_log, "validation_meta_json", None), None) if source_log else None
         source_meta_record = dict(source_meta) if isinstance(source_meta, dict) else {}
@@ -5470,6 +5494,17 @@ class RecruitmentService:
             error_message = output_summary
             screening_result_valid = False
             screening_result_state = "failed"
+
+        if candidate and final_status == "success" and score_row:
+            normalized_status = _normalize_suggested_status(getattr(score_row, "suggested_status", None))
+            if normalized_status and candidate.status in {"pending_screening", "screening_failed"} and normalized_status != candidate.status:
+                if not candidate.latest_score_id:
+                    candidate.latest_score_id = score_row.id
+                if not candidate.ai_recommended_status:
+                    candidate.ai_recommended_status = normalized_status
+                self._auto_advance_candidate_after_screening(candidate, actor_id="system")
+                self.db.add(candidate)
+                self.db.commit()
 
         validation_warnings = _normalize_score_warning_items(
             source_meta_record.get("validation_warnings") or current_validation_record.get("validation_warnings"),
@@ -5564,6 +5599,21 @@ class RecruitmentService:
             persisted_result_refs=persisted_result_refs,
             timing_breakdown=timing_breakdown,
         )
+        if not self._session_token:
+            try:
+                from .task_event_bus import TaskEventBus
+                TaskEventBus.emit_to_all("task_completed", {
+                    "task_id": row.id,
+                    "status": final_status,
+                    "related_candidate_id": row.related_candidate_id,
+                    "task_type": row.task_type,
+                })
+                if row.related_candidate_id:
+                    TaskEventBus.emit_to_all("candidate_updated", {
+                        "candidate_id": row.related_candidate_id,
+                    })
+            except Exception:
+                pass
         logger.warning(
             "screening_flow orphan settled run_id=%s task_id=%s old_status=%s new_status=%s",
             row.screening_run_id,
@@ -8723,11 +8773,16 @@ class RecruitmentService:
             )
             self.db.add(score_row)
             self.db.flush()
+            normalized_status = _normalize_suggested_status(suggested_status)
             if allow_status_advance:
                 candidate.latest_score_id = score_row.id
                 candidate.match_percent = match_percent
-                candidate.ai_recommended_status = suggested_status
+                candidate.ai_recommended_status = normalized_status
                 self._auto_advance_candidate_after_screening(candidate, actor_id=actor_id)
+            elif normalized_status:
+                candidate.ai_recommended_status = normalized_status
+            elif not candidate.ai_recommended_status:
+                candidate.ai_recommended_status = _derive_fallback_status_from_score(match_percent)
             candidate.updated_by = actor_id
             self.db.add(candidate)
             return score_row
@@ -8770,11 +8825,16 @@ class RecruitmentService:
         )
         self.db.add(score_row)
         self.db.flush()
+        normalized_status = _normalize_suggested_status(normalized.get("suggested_status"))
         if allow_status_advance:
             candidate.latest_score_id = score_row.id
             candidate.match_percent = normalized.get("match_percent")
-            candidate.ai_recommended_status = normalized.get("suggested_status")
+            candidate.ai_recommended_status = normalized_status
             self._auto_advance_candidate_after_screening(candidate, actor_id=actor_id)
+        elif normalized_status:
+            candidate.ai_recommended_status = normalized_status
+        elif not candidate.ai_recommended_status:
+            candidate.ai_recommended_status = _derive_fallback_status_from_score(normalized.get("match_percent"))
         candidate.updated_by = actor_id
         self.db.add(candidate)
         return score_row
@@ -11456,6 +11516,7 @@ class RecruitmentService:
             if normalized_screening_mode == "default":
                 flow_state["parse_strategy"] = "combined_parse_and_score"
                 one_pass_attempt_limit = max(1, SCREENING_ONE_PASS_MAX_RETRIES + 1)
+                is_valid_result = False
                 for attempt in range(1, one_pass_attempt_limit + 1):
                     try:
                         _ensure_screening_budget_available(screening_deadline_at)
@@ -11663,30 +11724,25 @@ class RecruitmentService:
                             custom_requirements=prepared_custom_requirements,
                         )
                         candidate = self._get_candidate(candidate_id)
-                        final_output_summary = str(
-                            getattr(score_log_for_root, "output_summary", None)
-                            or root_log.output_summary
-                            or ""
-                        ).strip() or _build_screening_output_summary(
-                            parsed_resume=self._serialize_parse_result(parse_row) if parse_row else None,
-                            score_payload=self._serialize_score(score_row) if score_row else None,
-                        ) or "初筛流程已完成"
-                        finish_root_task(
-                            candidate_ref=candidate,
-                            status="success" if is_valid_result else "invalid_result",
-                            stage="completed" if is_valid_result else "failed",
-                            output_summary=final_output_summary,
-                            error_message=(getattr(score_log_for_root, "error_message", None) or root_log.error_message) if not is_valid_result else None,
-                            fallback_state=str(score_validation_meta.get("screening_result_state") or ("success" if is_valid_result else "invalid")),
-                            fallback_valid=is_valid_result,
-                            fallback_reasons=_normalize_score_warning_items(
-                                score_validation_meta.get("invalid_result_reasons")
-                                or ([getattr(score_log_for_root, "error_message", None) or root_log.error_message] if not is_valid_result and (getattr(score_log_for_root, "error_message", None) or root_log.error_message) else []),
-                                limit=12,
-                            ),
-                            fallback_summary=final_output_summary if not is_valid_result else None,
-                        )
-                        return self.get_candidate_detail(candidate.id)
+                        if is_valid_result:
+                            final_output_summary = str(
+                                getattr(score_log_for_root, "output_summary", None)
+                                or root_log.output_summary
+                                or ""
+                            ).strip() or _build_screening_output_summary(
+                                parsed_resume=self._serialize_parse_result(parse_row) if parse_row else None,
+                                score_payload=self._serialize_score(score_row) if score_row else None,
+                            ) or "初筛流程已完成"
+                            finish_root_task(
+                                candidate_ref=candidate,
+                                status="success",
+                                stage="completed",
+                                output_summary=final_output_summary,
+                                fallback_state="success",
+                                fallback_valid=True,
+                            )
+                            return self.get_candidate_detail(candidate.id)
+                        break
                     except RecruitmentTaskCancelled:
                         raise
                     except Exception as exc:
@@ -11750,6 +11806,8 @@ class RecruitmentService:
                             )
                             break
                         raise
+                if is_valid_result:
+                    return self.get_candidate_detail(candidate.id)
 
             reused_existing_parse_for_score = bool(parse_row)
             flow_state["reused_existing_parse"] = reused_existing_parse_for_score
