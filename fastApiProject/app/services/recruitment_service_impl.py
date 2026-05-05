@@ -62,7 +62,7 @@ from ..rbac_models import ScriptHubOrganization
 from ..secret_crypto import decrypt_secret, encrypt_secret, mask_secret
 from .recruitment_ai_gateway import RecruitmentAIGateway, RecruitmentAIJSONParseError, RecruitmentAIRetryExhaustedError, RecruitmentAIScreeningTotalTimeoutError, RecruitmentAITimeoutError, SCREENING_STAGE_MIN_TIMEOUT_SECONDS, SCREENING_TOTAL_TIMEOUT_SECONDS, _parse_llm_json_response, get_provider_options
 from .recruitment_mailer import RecruitmentMailSenderRuntime, build_resume_email, load_attachment_from_path, send_email_via_smtp
-from .recruitment_prompts import INTERVIEW_QUESTION_STREAM_PREVIEW_SYSTEM_PROMPT, INTERVIEW_QUESTION_SYSTEM_PROMPT, JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, JD_GENERATION_SYSTEM_PROMPT, RESUME_PARSE_SYSTEM_PROMPT, RESUME_SCORE_PROMPT_VERSION, RESUME_SCORE_SYSTEM_PROMPT, RESUME_SCREENING_PROMPT_VERSION, RESUME_SCREENING_SYSTEM_PROMPT
+from .recruitment_prompts import INTERVIEW_QUESTION_STREAM_PREVIEW_SYSTEM_PROMPT, INTERVIEW_QUESTION_SYSTEM_PROMPT, JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, JD_GENERATION_SYSTEM_PROMPT, RESUME_PARSE_SYSTEM_PROMPT, RESUME_SCORE_PROMPT_VERSION, RESUME_SCORE_SYSTEM_PROMPT, RESUME_SCREENING_PROMPT_VERSION, RESUME_SCREENING_SYSTEM_PROMPT, SKILL_GENERATION_SYSTEM_PROMPT
 from .recruitment_publish_adapters import build_publish_adapter
 from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl, recruitment_task_registry
 from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_keywords, extract_resume_structured_data, extract_resume_text, extract_screening_dimension_rules, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text, validate_structured_interview_payload
@@ -7012,7 +7012,9 @@ class RecruitmentService:
 
     def _serialize_skill(self, row: RecruitmentSkill) -> Dict[str, Any]:
         meta = _extract_skill_runtime_meta(row)
-        return {"id": row.id, "skill_code": row.skill_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "is_system_base": bool(getattr(row, "is_system_base", False)), "name": row.name, "description": row.description, "skill_group": row.skill_group or meta.get("group"), "version": row.version or meta.get("version"), "task_types": list(meta.get("tasks") or []), "content": row.content, "tags": json_loads_safe(row.tags_json, []), "sort_order": row.sort_order, "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        stored_task_types = json_loads_safe(getattr(row, "task_types_json", None), None)
+        task_types = list(stored_task_types) if isinstance(stored_task_types, list) and stored_task_types else list(meta.get("tasks") or [])
+        return {"id": row.id, "skill_code": row.skill_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "is_system_base": bool(getattr(row, "is_system_base", False)), "name": row.name, "description": row.description, "skill_group": row.skill_group or meta.get("group"), "version": row.version or meta.get("version"), "task_types": task_types, "content": row.content, "tags": json_loads_safe(row.tags_json, []), "sort_order": row.sort_order, "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _serialize_skill_snapshot(self, skill: Any, fallback_index: int = 0) -> Dict[str, Any]:
         if isinstance(skill, dict):
@@ -7408,11 +7410,24 @@ class RecruitmentService:
         meta = _extract_skill_runtime_meta(payload)
         org_code = normalize_org_code(payload.get("org_code") or self._current_org_code())
         self._assert_can_create_in_org(org_code)
-        row = RecruitmentSkill(skill_code=f"skill-{_slugify(str(payload.get('name') or 'skill'))}-{uuid.uuid4().hex[:4]}", org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), is_system_base=False, name=str(payload.get("name") or "").strip(), description=payload.get("description"), skill_group=str(payload.get("skill_group") or meta.get("group") or "").strip() or None, version=str(payload.get("version") or meta.get("version") or "").strip() or None, content=str(payload.get("content") or "").strip(), tags_json=json_dumps_safe(payload.get("tags") or []), sort_order=int(payload.get("sort_order") or 99), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
+        task_types = payload.get("task_types") or []
+        row = RecruitmentSkill(skill_code=f"skill-{_slugify(str(payload.get('name') or 'skill'))}-{uuid.uuid4().hex[:4]}", org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), is_system_base=False, name=str(payload.get("name") or "").strip(), description=payload.get("description"), skill_group=str(payload.get("skill_group") or meta.get("group") or "").strip() or None, version=str(payload.get("version") or meta.get("version") or "").strip() or None, content=str(payload.get("content") or "").strip(), tags_json=json_dumps_safe(payload.get("tags") or []), task_types_json=json_dumps_safe(task_types) if task_types else None, sort_order=int(payload.get("sort_order") or 99), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
         return self._serialize_skill(row)
+
+    def generate_skill_content_stream(self, role_name: str, role_background: str, on_delta: Callable[[str], None]) -> Dict[str, Any]:
+        user_prompt = f"岗位名称：{role_name}"
+        if role_background:
+            user_prompt += f"\n岗位背景/行业：{role_background}"
+        user_prompt += "\n\n请生成完整的初筛评分 Skill，维度总分必须恰好 10.0 分。"
+        return self.ai_gateway.stream_text(
+            task_type="skill_content_generation",
+            system_prompt=SKILL_GENERATION_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            on_delta=on_delta,
+        )
 
     def update_skill(self, skill_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         row = self._get_skill(skill_id)
@@ -7428,6 +7443,9 @@ class RecruitmentService:
             row.org_code = next_org_code
         if "tags" in payload:
             row.tags_json = json_dumps_safe(payload.get("tags") or [])
+        if "task_types" in payload:
+            task_types = payload.get("task_types") or []
+            row.task_types_json = json_dumps_safe(task_types) if task_types else None
         runtime_meta = _extract_skill_runtime_meta(
             {
                 "skill_code": row.skill_code,
@@ -12875,6 +12893,49 @@ class RecruitmentService:
             "task_type": "jd_generation",
             "related_position_id": position.id,
         }
+
+    def generate_jd_stream(self, position_id: int, extra_prompt: str, actor_id: str, on_delta: Callable[[str], None], auto_activate: bool = True) -> Dict[str, Any]:
+        position = self._get_position(position_id)
+        skill_rows, memory_source = self._resolve_jd_skills(position, [], use_position_skills=True, use_global_skills=False)
+        skill_snapshots = self._build_skill_snapshots(skill_rows)
+        related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
+        request_hash = self._build_request_hash("jd_generation", position.id, extra_prompt, related_skill_ids)
+        log_row = self._create_ai_task_log("jd_generation", created_by=actor_id, related_position_id=position.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, memory_source=memory_source, request_hash=request_hash)
+        position_payload = self._serialize_position_for_jd_prompt(position)
+        prompt = self._build_jd_preview_prompt(position_payload, skill_snapshots, extra_prompt)
+        preview_chunks: List[str] = []
+
+        def _handle_delta(chunk: str) -> None:
+            preview_chunks.append(chunk)
+            on_delta(chunk)
+
+        try:
+            resolved_runtime = self.ai_gateway.resolve_config("jd_generation")
+            self._update_ai_task_log(log_row, status="running", provider=resolved_runtime.provider, model_name=resolved_runtime.model_name, prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成 JD 草稿")
+            prefix = (
+                f"已定位当前岗位：{position.title}\n正在生成 JD 草稿，请稍候...\n\n"
+                if getattr(position, "id", None)
+                else f"正在为\u201C{position.title}\u201D起草岗位 JD，请稍候...\n\n"
+            )
+            on_delta(prefix)
+            self.ai_gateway.stream_text(task_type="jd_generation", system_prompt=JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, user_prompt=prompt, on_delta=_handle_delta)
+            task = self.ai_gateway.generate_json(task_type="jd_generation", system_prompt=JD_GENERATION_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: build_jd_structured_fallback(position))
+            content = task.get("content") or {}
+            structured = normalize_structured_jd(content if isinstance(content, dict) else {}, position)
+            markdown = render_jd_markdown_source(structured)
+            html = markdown_to_html(markdown)
+            publish_text = render_publish_ready_jd(structured)
+            reply = f"已为\u201C{position.title}\u201D生成岗位 JD 草稿。\n\n{markdown}".strip()
+            finished_log = self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), model_source=task.get("source"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured, "preview_markdown": "".join(preview_chunks).strip(), "reply": reply, "html": html, "publish_text": publish_text}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+            return {"reply": reply, "log_id": finished_log.id, "structured": structured, "markdown": markdown, "html": html, "publish_text": publish_text, "used_fallback": bool(task.get("used_fallback")), "model_provider": task.get("provider"), "model_name": task.get("model_name")}
+        except Exception as exc:
+            self.db.rollback()
+            fallback_structured = build_jd_structured_fallback(position)
+            fallback_markdown = render_jd_markdown_source(fallback_structured)
+            reply = f"已为\u201C{position.title}\u201D生成岗位 JD 草稿。\n\n{fallback_markdown}".strip()
+            on_delta(reply)
+            finished_log = self._finish_ai_task_log(log_row, status="fallback", provider=resolved_runtime.provider, model_name=resolved_runtime.model_name, model_source=resolved_runtime.source, prompt_snapshot=f"SYSTEM:\n{JD_GENERATION_SYSTEM_PROMPT}\n\nUSER:\n{prompt}", full_request_snapshot=None, input_summary=truncate_text(prompt, 600), output_summary=truncate_text(reply, 600), output_snapshot={"normalized": fallback_structured, "reply": reply, "preview_markdown": "".join(preview_chunks).strip()}, error_message=str(exc), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+            return {"reply": reply, "log_id": finished_log.id, "structured": fallback_structured, "markdown": fallback_markdown, "html": markdown_to_html(fallback_markdown), "publish_text": render_publish_ready_jd(fallback_structured), "used_fallback": True, "model_provider": resolved_runtime.provider, "model_name": resolved_runtime.model_name}
 
     def generate_jd(self, position_id: int, extra_prompt: str, actor_id: str, auto_activate: bool = True) -> Dict[str, Any]:
         position = self._get_position(position_id)

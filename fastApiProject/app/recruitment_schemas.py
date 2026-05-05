@@ -169,8 +169,14 @@ class SkillUpsertRequest(BaseModel):
     version: Optional[str] = Field(None, max_length=40)
     content: str = Field(..., min_length=1)
     tags: List[str] = Field(default_factory=list)
+    task_types: List[str] = Field(default_factory=list)
     sort_order: int = Field(99, ge=0, le=9999)
     is_enabled: bool = True
+
+
+class SkillContentGenerateRequest(BaseModel):
+    role_name: str = Field(..., min_length=1, max_length=120)
+    role_background: Optional[str] = Field(None, max_length=500)
 
 
 class PublishTaskCreateRequest(BaseModel):

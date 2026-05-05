@@ -22,6 +22,8 @@ import {
     type MailSenderPreset,
     type PositionFormState,
     type ResumeMailFormState,
+    type ScreeningSkillDimension,
+    type ScreeningSkillFormData,
     type SkillFormState,
 } from "./types";
 
@@ -318,9 +320,172 @@ export function emptySkillForm(): SkillFormState {
         description: "",
         content: "",
         tagsText: "",
+        taskTypes: [],
         sortOrder: "99",
         isEnabled: true,
     };
+}
+
+let _dimIdCounter = 0;
+function newDimId(): string {
+    return `dim-${Date.now()}-${++_dimIdCounter}`;
+}
+
+export function emptyScreeningSkillForm(): ScreeningSkillFormData {
+    return {
+        roleName: "",
+        roleBackground: "",
+        hardRules: "",
+        dimensions: [],
+        judgmentRules: "",
+        name: "",
+        description: "",
+        tagsText: "",
+        taskTypes: ["screening"],
+        sortOrder: "99",
+        isEnabled: true,
+    };
+}
+
+export function newDimension(): ScreeningSkillDimension {
+    return {
+        id: newDimId(),
+        name: "",
+        maxScore: 1.0,
+        priority: "secondary",
+        description: "",
+        isHardRequirement: false,
+    };
+}
+
+const PRIORITY_LABELS: Record<string, string> = {
+    core: "核心",
+    secondary: "次要",
+    auxiliary: "辅助",
+    bonus: "加分",
+};
+
+export function generateSkillContent(form: ScreeningSkillFormData): string {
+    const lines: string[] = [];
+    lines.push(`你负责对 ${form.roleName || "{岗位名称}"} 候选人做简历初筛评分。`);
+    if (form.roleBackground.trim()) {
+        lines.push(`岗位背景：${form.roleBackground.trim()}`);
+    }
+    lines.push("事实来源：只能使用岗位 JD 原文、简历原文和系统传入的结构化信息。没有直接证据就写\u201C简历未提及\u201D并给 0 分，不得虚构或脑补经历。");
+
+    lines.push("硬性规则：");
+    let ruleIdx = 1;
+    lines.push(`${ruleIdx++}. 必须逐维度评分，不得跳过任何维度。`);
+    const hardDims = form.dimensions.filter((d) => d.isHardRequirement && d.name.trim());
+    if (hardDims.length >= 2) {
+        lines.push(`${ruleIdx++}. ${hardDims.map((d) => d.name.trim()).join("和")}任一缺失时，concerns 不得为空，suggested_status 不得为 screening_passed。`);
+    } else if (hardDims.length === 1) {
+        lines.push(`${ruleIdx++}. ${hardDims[0].name.trim()}缺失时，concerns 不得为空，suggested_status 不得为 screening_passed。`);
+    }
+    if (form.hardRules.trim()) {
+        for (const rule of form.hardRules.split("\n").map((r) => r.trim()).filter(Boolean)) {
+            lines.push(`${ruleIdx++}. ${rule}`);
+        }
+    }
+    lines.push(`${ruleIdx++}. 不得给拍脑袋圆整分，总分必须严格等于所有维度分数之和。`);
+
+    lines.push("评分维度与满分：");
+    form.dimensions.forEach((dim, i) => {
+        const prefix = dim.priority === "core" ? "核心第一优先，" : "";
+        lines.push(`${i + 1}. ${dim.name || "{维度名}"}：满分 ${dim.maxScore} 分。${prefix}${dim.description || "{评估重点}"}`);
+    });
+
+    lines.push("判定规则：");
+    lines.push("1. total_score 必须等于所有维度分数之和。");
+    lines.push("2. match_percent 必须按 total_score 换算，不得另给一套与维度不一致的印象分。");
+    lines.push("3. advantages 只能来自得分大于 0 的维度，且必须是招聘视角的自然语言总结。");
+    lines.push("4. concerns 只能来自低分、零分或核心缺口维度，必须具体到可用于后续追问。");
+    lines.push("5. recommendation 用一句话说明是否建议进入面试，suggested_status 只能从 screening_passed、talent_pool、screening_rejected 中选择。");
+    if (form.judgmentRules.trim()) {
+        let jIdx = 6;
+        for (const rule of form.judgmentRules.split("\n").map((r) => r.trim()).filter(Boolean)) {
+            lines.push(`${jIdx++}. ${rule}`);
+        }
+    }
+
+    return lines.join("\n");
+}
+
+export function parseSkillContent(content: string): Partial<ScreeningSkillFormData> {
+    const result: Partial<ScreeningSkillFormData> = {
+        dimensions: [],
+    };
+
+    const roleMatch = content.match(/你负责对\s*(.+?)\s*候选人做简历初筛评分/);
+    if (roleMatch) result.roleName = roleMatch[1].trim();
+
+    const bgMatch = content.match(/岗位背景[：:]\s*([\s\S]+?)(?=\n事实来源[：:])/);
+    if (bgMatch) result.roleBackground = bgMatch[1].trim();
+
+    const hardSection = content.match(/硬性规则[：:]\n([\s\S]+?)(?=\n评分维度与满分[：:])/);
+    if (hardSection) {
+        const rules = hardSection[1].split("\n")
+            .map((l) => l.replace(/^\d+\.\s*/, "").trim())
+            .filter(Boolean);
+        const customRules = rules.filter((r) =>
+            r !== "必须逐维度评分，不得跳过任何维度。" &&
+            !r.includes("不得给拍脑袋圆整分") &&
+            !r.includes("缺失时，concerns")
+        );
+        result.hardRules = customRules.join("\n");
+    }
+
+    const dimSection = content.match(/评分维度与满分[：:]\n([\s\S]+?)(?=\n判定规则[：:])/);
+    if (dimSection) {
+        const dims: ScreeningSkillDimension[] = [];
+        for (const line of dimSection[1].split("\n")) {
+            const m = line.match(/^\d+\.\s*(.+?)[：:]\s*满分\s*([\d.]+)\s*分[。.]\s*(.*)/);
+            if (m) {
+                const desc = m[3].trim();
+                const isCore = desc.startsWith("核心第一优先");
+                dims.push({
+                    id: newDimId(),
+                    name: m[1].trim(),
+                    maxScore: parseFloat(m[2]),
+                    priority: isCore ? "core" : (parseFloat(m[2]) >= 1.0 ? "secondary" : parseFloat(m[2]) >= 0.3 ? "auxiliary" : "bonus"),
+                    description: isCore ? desc.replace(/^核心第一优先[，,]\s*/, "") : desc,
+                    isHardRequirement: false,
+                });
+            }
+        }
+        result.dimensions = dims;
+    }
+
+    const judgeSection = content.match(/判定规则[：:]\n([\s\S]+)$/);
+    if (judgeSection) {
+        const rules = judgeSection[1].split("\n")
+            .map((l) => l.replace(/^\d+\.\s*/, "").trim())
+            .filter(Boolean);
+        const fixedRules = [
+            "total_score 必须等于所有维度分数之和。",
+            "match_percent 必须按 total_score 换算",
+            "advantages 只能来自得分大于 0 的维度",
+            "concerns 只能来自低分、零分或核心缺口维度",
+            "recommendation 用一句话说明",
+        ];
+        const customRules = rules.filter((r) => !fixedRules.some((f) => r.includes(f)));
+        result.judgmentRules = customRules.join("\n");
+    }
+
+    return result;
+}
+
+export function validateSkillDimensions(dimensions: ScreeningSkillDimension[]): { valid: boolean; total: number; message: string } {
+    if (dimensions.length === 0) {
+        return { valid: false, total: 0, message: "至少需要一个评分维度" };
+    }
+    const total = Math.round(dimensions.reduce((sum, d) => sum + d.maxScore, 0) * 100) / 100;
+    const diff = Math.abs(total - 10.0);
+    if (diff > 0.01) {
+        const direction = total < 10 ? "还需分配" : "超出";
+        return { valid: false, total, message: `当前总分 ${total.toFixed(1)}，${direction} ${Math.abs(10 - total).toFixed(1)} 分` };
+    }
+    return { valid: true, total: 10.0, message: "总分校验通过" };
 }
 
 export function emptyLLMForm(): LLMFormState {

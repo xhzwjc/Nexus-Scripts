@@ -51,6 +51,7 @@ from ..recruitment_schemas import (
     RecruitmentResourceGovernanceUpdateRequest,
     RecruitmentResumeMailSendRequest,
     SaveJDVersionRequest,
+    SkillContentGenerateRequest,
     SkillUpsertRequest,
 )
 from ..schema_maintenance import ensure_recruitment_schema
@@ -327,6 +328,39 @@ async def start_generate_jd(position_id: int, payload: JDGenerateRequest, _sessi
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.post("/positions/{position_id}/generate-jd/stream")
+async def stream_generate_jd(position_id: int, payload: JDGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage"))):
+    event_queue: "queue.Queue[Optional[str]]" = queue.Queue()
+
+    def push(event_name: str, data: Dict[str, Any]) -> None:
+        event_queue.put(_encode_sse_event(event_name, data))
+
+    def worker() -> None:
+        db = SessionLocal()
+        service = RecruitmentService(db).set_permission_context(_session)
+        try:
+            def on_delta(delta: str) -> None:
+                push("delta", {"delta": delta})
+            result = service.generate_jd_stream(position_id, payload.extra_prompt or "", _session.get("id") or "unknown", on_delta, auto_activate=payload.auto_activate)
+            push("completed", result)
+        except Exception as exc:
+            push("error", {"message": str(exc)})
+        finally:
+            event_queue.put(None)
+            db.close()
+
+    threading.Thread(target=worker, name="jd-stream-gen", daemon=True).start()
+
+    async def event_generator():
+        while True:
+            item = await run_in_threadpool(event_queue.get)
+            if item is None:
+                break
+            yield item
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"})
 
 
 @recruitment_router.post("/positions/{position_id}/jd-versions")
@@ -1160,6 +1194,45 @@ async def toggle_skill(skill_id: int, enabled: bool = Query(...), _session: Dict
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.post("/skills/generate-content")
+async def generate_skill_content_stream(payload: SkillContentGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-skill-manage"))):
+    event_queue: "queue.Queue[Optional[str]]" = queue.Queue()
+
+    def push(event_name: str, data: Dict[str, Any]) -> None:
+        event_queue.put(_encode_sse_event(event_name, data))
+
+    def worker() -> None:
+        db = SessionLocal()
+        service = RecruitmentService(db).set_permission_context(_session)
+        try:
+            chunks: List[str] = []
+            def on_delta(delta: str) -> None:
+                chunks.append(delta)
+                push("delta", {"delta": delta})
+            service.generate_skill_content_stream(payload.role_name, payload.role_background or "", on_delta)
+            push("completed", {"content": "".join(chunks)})
+        except Exception as exc:
+            push("error", {"message": str(exc)})
+        finally:
+            event_queue.put(None)
+            db.close()
+
+    threading.Thread(target=worker, name="skill-content-gen", daemon=True).start()
+
+    async def event_generator():
+        while True:
+            item = await run_in_threadpool(event_queue.get)
+            if item is None:
+                break
+            yield item
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @recruitment_router.patch("/resource-governance/{resource_kind}/{resource_id}")

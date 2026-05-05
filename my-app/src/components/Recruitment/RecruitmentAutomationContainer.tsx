@@ -128,7 +128,9 @@ import {
     getRecruitmentToastLocale,
     type ResumeMailDialogMode,
     type ResumeMailFormState,
+    type ScreeningSkillFormData,
     type SkillFormState,
+    type SkillTaskKind,
 } from "./types";
 import {
     buildQuery,
@@ -140,11 +142,14 @@ import {
     emptyMailSenderForm,
     emptyPositionForm,
     emptyResumeMailForm,
+    emptyScreeningSkillForm,
     emptySkillForm,
     extractFileNameFromDisposition,
     extractPublishText,
     formatActionError,
     formatDateTime,
+    generateSkillContent,
+    parseSkillContent,
     formatLongDateTime,
     formatPercent,
     formatSkillNames,
@@ -181,6 +186,7 @@ import {
     SectionNavButton,
     SettingsEntry,
 } from "./components/SharedComponents";
+import {StructuredSkillEditor} from "./components/StructuredSkillEditor";
 import {AssistantPage} from "./pages/AssistantPage";
 import {AuditPage} from "./pages/AuditPage";
 import {CandidatesPage} from "./pages/CandidatesPage";
@@ -827,6 +833,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [jdViewMode, setJdViewMode] = useState<JDViewMode>("publish");
     const [jdGenerationStatus, setJdGenerationStatus] = useState<string>("idle");
     const [jdGenerationError, setJdGenerationError] = useState("");
+    const [jdStreamingContent, setJdStreamingContent] = useState("");
     const [jdVersionSaving, setJdVersionSaving] = useState(false);
     const [jdVersionActivating, setJdVersionActivating] = useState(false);
     const [screeningSubmitting, setScreeningSubmitting] = useState(false);
@@ -915,6 +922,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [skillForm, setSkillForm] = useState<SkillFormState>(emptySkillForm);
     const [skillFormErrors, setSkillFormErrors] = useState<SkillFormErrors>({});
     const [skillFormSubmitError, setSkillFormSubmitError] = useState<string | null>(null);
+    const [skillEditorData, setSkillEditorData] = useState<ScreeningSkillFormData>(emptyScreeningSkillForm());
+    const [skillEditorDefaultTab, setSkillEditorDefaultTab] = useState<"structured" | "advanced" | "ai">("structured");
+    const [skillGenerating, setSkillGenerating] = useState(false);
+    const [skillAutoBindCategory, setSkillAutoBindCategory] = useState<"jdSkillIds" | "screeningSkillIds" | "interviewSkillIds" | null>(null);
 
     const [llmDialogOpen, setLlmDialogOpen] = useState(false);
     const [llmEditingId, setLlmEditingId] = useState<number | null>(null);
@@ -1047,9 +1058,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const skillMap = useMemo(() => new Map(skills.map((item) => [item.id, item])), [skills]);
     const enabledSkills = useMemo(() => skills.filter((skill) => skill.is_enabled !== false), [skills]);
     const enabledSkillMap = useMemo(() => new Map(enabledSkills.map((item) => [item.id, item])), [enabledSkills]);
-    const jdAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "jd"), [enabledSkills]);
-    const screeningAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "screening"), [enabledSkills]);
-    const interviewAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills, "interview"), [enabledSkills]);
+    const jdAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills.filter((s) => !s.task_types?.length || s.task_types.includes("jd")), "jd"), [enabledSkills]);
+    const screeningAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills.filter((s) => !s.task_types?.length || s.task_types.includes("screening")), "screening"), [enabledSkills]);
+    const interviewAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills.filter((s) => !s.task_types?.length || s.task_types.includes("interview")), "interview"), [enabledSkills]);
     const mailSenderMap = useMemo(() => new Map(mailSenderConfigs.map((item) => [item.id, item])), [mailSenderConfigs]);
     const mailRecipientMap = useMemo(() => new Map(mailRecipients.map((item) => [item.id, item])), [mailRecipients]);
     const currentJDVersion = positionDetail?.current_jd_version || null;
@@ -1068,7 +1079,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         : positionDetail?.jd_generation?.status || "idle";
     const isJDGenerating = isLiveTaskStatus(currentJDGenerationStatus) || currentJDGenerationStatus === "syncing";
     const latestJDGenerationError = jdGenerationError || positionDetail?.jd_generation?.error_message || "";
-    const currentPositionJDTaskId = activeJDPositionId === selectedPositionId ? activeJDTaskId : null;
     const defaultMailSenderId = useMemo(() => {
         const defaultSender = mailSenderConfigs.find((item) => item.is_default && item.is_enabled);
         return String(defaultSender?.id || mailSenderConfigs.find((item) => item.is_enabled)?.id || "");
@@ -1223,7 +1233,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         return cancellingTaskIds.includes(taskId);
     }, [cancellingTaskIds]);
-    const isCurrentJDTaskCancelling = isTaskCancelling(currentPositionJDTaskId);
     const isSelectedCandidateScreeningCancelling = isTaskCancelling(selectedCandidateScreeningTaskId);
     const isCurrentInterviewTaskCancelling = isTaskCancelling(currentCandidateInterviewTaskId);
     const isCurrentChatTaskCancelling = isTaskCancelling(activeChatTaskId);
@@ -4227,89 +4236,65 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             return;
         }
         const positionId = selectedPositionId;
-        if (currentPositionJDTaskId) {
-            if (isCurrentJDTaskCancelling) {
-                return;
-            }
-            setJdGenerationStatus("cancelling");
-            try {
-                const log = await cancelTaskGeneration(currentPositionJDTaskId, isZh ? "JD 生成" : "JD generation");
-                if (log?.status === "cancelled") {
-                    stopTaskMonitor(currentPositionJDTaskId);
-                    setActiveJDTaskId((current) => (current === currentPositionJDTaskId ? null : current));
-                    setActiveJDPositionId((current) => (current === positionId ? null : current));
-                    setJdGenerationStatus("cancelled");
-                    setJdGenerationError(log.error_message || (isZh ? "已停止生成" : "Generation stopped"));
-                }
-            } catch (error) {
-                toast.error(isZh ? `停止 JD 生成失败：${formatActionError(error)}` : `Failed to stop JD generation: ${formatActionError(error)}`);
-            }
-            return;
-        }
         if (isJDGenerating || jdGenerationInFlightRef.current) {
             return;
         }
         jdGenerationInFlightRef.current = true;
-        setJdGenerationStatus("pending");
+        setJdGenerationStatus("running");
         setJdGenerationError("");
+        setJdStreamingContent("");
         try {
-            const task = await recruitmentApi<RecruitmentTaskStartResponse>(`/positions/${positionId}/generate-jd/start`, {
+            const response = await authenticatedFetch(`/api/recruitment/positions/${positionId}/generate-jd/stream`, {
                 method: "POST",
+                headers: {"Content-Type": "application/json", Accept: "text/event-stream"},
                 body: JSON.stringify({
                     extra_prompt: jdExtraPrompt.trim() || null,
                     auto_activate: jdDraft.autoActivate,
                 }),
             });
-            setActiveJDTaskId(task.task_id);
-            setActiveJDPositionId(positionId);
-            setJdGenerationStatus(task.status || "pending");
-            await loadLogs({silent: true});
-            startTaskMonitor(task.task_id, {
-                onUpdate: (log) => {
-                    setJdGenerationStatus(log.status || "pending");
-                },
-                onFinish: async (log) => {
-                    if (!mountedRef.current) {
-                        return;
+            if (!response.body) throw new Error("No response body");
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let fullContent = "";
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, {stream: true});
+                let sep = buffer.indexOf("\n\n");
+                while (sep !== -1) {
+                    const rawEvent = buffer.slice(0, sep);
+                    buffer = buffer.slice(sep + 2);
+                    sep = buffer.indexOf("\n\n");
+                    const dataMatch = rawEvent.match(/data: (.+)/);
+                    if (dataMatch) {
+                        try {
+                            const data = JSON.parse(dataMatch[1]);
+                            if (data.delta) {
+                                fullContent += data.delta;
+                                setJdStreamingContent(fullContent);
+                            }
+                        } catch { /* ignore malformed */ }
                     }
-                    setActiveJDTaskId((current) => (current === task.task_id ? null : current));
-                    setActiveJDPositionId((current) => (current === positionId ? null : current));
-                    if (log.status === "success" || log.status === "fallback") {
-                        setJdGenerationStatus("syncing");
-                        await Promise.all([
-                            loadDashboard(),
-                            loadLogs({silent: true}),
-                            loadPositions(),
-                            selectedPositionIdRef.current === positionId
-                                ? loadPositionDetail(positionId)
-                                : Promise.resolve(null),
-                        ]);
-                        setJdExtraPrompt("");
-                        setJdViewMode("publish");
-                        setJdGenerationStatus("idle");
-                        toast.success(log.status === "fallback" ? (isZh ? "岗位 JD 已生成（兜底完成）" : "JD generated with fallback") : (isZh ? "岗位 JD 已生成" : "JD generated"));
-                        return;
-                    }
-                    if (log.status === "cancelled") {
-                        await Promise.all([
-                            loadLogs({silent: true}),
-                            selectedPositionIdRef.current === positionId
-                                ? loadPositionDetail(positionId)
-                                : Promise.resolve(null),
-                        ]);
-                        setJdGenerationStatus("cancelled");
-                        setJdGenerationError(log.error_message || (isZh ? "已停止生成" : "Generation stopped"));
-                        toast.success(isZh ? "已停止 JD 生成" : "JD generation stopped");
-                        return;
-                    }
-                    setJdGenerationStatus("failed");
-                    setJdGenerationError(log.error_message || (isZh ? "未知错误" : "Unknown error"));
-                    await loadLogs({silent: true});
-                    toast.error(isZh ? `生成 JD 失败：${log.error_message || "未知错误"}` : `JD generation failed: ${log.error_message || "Unknown error"}`);
-                },
-            });
-            toast.success(isZh ? "已开始生成 JD，可随时停止" : "JD generation started and can be stopped at any time");
+                }
+            }
+            if (!mountedRef.current) return;
+            setJdGenerationStatus("syncing");
+            await Promise.all([
+                loadDashboard(),
+                loadLogs({silent: true}),
+                loadPositions(),
+                selectedPositionIdRef.current === positionId
+                    ? loadPositionDetail(positionId)
+                    : Promise.resolve(null),
+            ]);
+            setJdExtraPrompt("");
+            setJdStreamingContent("");
+            setJdViewMode("publish");
+            setJdGenerationStatus("idle");
+            toast.success(isZh ? "岗位 JD 已生成" : "JD generated");
         } catch (error) {
+            if (!mountedRef.current) return;
             setJdGenerationStatus("failed");
             setJdGenerationError(error instanceof Error ? error.message : (isZh ? "未知错误" : "Unknown error"));
             toast.error(isZh ? `生成 JD 失败：${error instanceof Error ? error.message : "未知错误"}` : `JD generation failed: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -5812,16 +5797,162 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 description: skill.description || "",
                 content: skill.content,
                 tagsText: joinTags(skill.tags),
+                taskTypes: (skill.task_types || []) as SkillTaskKind[],
+                sortOrder: String(skill.sort_order ?? 99),
+                isEnabled: skill.is_enabled,
+            });
+            const parsed = parseSkillContent(skill.content);
+            setSkillEditorData({
+                roleName: parsed.roleName || "",
+                roleBackground: parsed.roleBackground || "",
+                hardRules: parsed.hardRules || "",
+                dimensions: parsed.dimensions || [],
+                judgmentRules: parsed.judgmentRules || "",
+                name: skill.name,
+                description: skill.description || "",
+                tagsText: joinTags(skill.tags),
+                taskTypes: (skill.task_types || []) as SkillTaskKind[],
                 sortOrder: String(skill.sort_order ?? 99),
                 isEnabled: skill.is_enabled,
             });
         } else {
             setSkillEditingId(null);
             setSkillForm(emptySkillForm());
+            setSkillEditorData(emptyScreeningSkillForm());
         }
+        setSkillEditorDefaultTab("structured");
+        setSkillAutoBindCategory(null);
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
         setSkillDialogOpen(true);
+    }
+
+    function openSkillEditorWithAI() {
+        setSkillEditingId(null);
+        setSkillForm(emptySkillForm());
+        setSkillEditorData(emptyScreeningSkillForm());
+        setSkillEditorDefaultTab("ai");
+        setSkillAutoBindCategory(null);
+        setSkillFormErrors({});
+        setSkillFormSubmitError(null);
+        setSkillDialogOpen(true);
+    }
+
+    function openSkillEditorForPosition(taskKind: SkillTaskKind, bindCategory: "jdSkillIds" | "screeningSkillIds" | "interviewSkillIds") {
+        const roleName = positionForm.title.trim();
+        const empty = emptyScreeningSkillForm();
+        empty.taskTypes = [taskKind];
+        if (roleName) {
+            empty.roleName = roleName;
+            empty.name = taskKind === "jd" ? `${roleName} JD Skill` : taskKind === "screening" ? `${roleName}初筛评分 Skill` : `${roleName}面试题 Skill`;
+        }
+        setSkillEditingId(null);
+        const skillFormState = emptySkillForm();
+        skillFormState.taskTypes = [taskKind];
+        if (roleName) {
+            skillFormState.name = empty.name;
+        }
+        setSkillForm(skillFormState);
+        setSkillEditorData(empty);
+        setSkillEditorDefaultTab("structured");
+        setSkillAutoBindCategory(bindCategory);
+        setSkillFormErrors({});
+        setSkillFormSubmitError(null);
+        setSkillDialogOpen(true);
+    }
+
+    async function submitStructuredSkill(data: ScreeningSkillFormData) {
+        if (skillSubmitting) return;
+        if (!data.name.trim()) {
+            setSkillFormSubmitError("请输入 Skill 名称");
+            return;
+        }
+        if (!data.taskTypes.length) {
+            setSkillFormSubmitError("请选择适用场景");
+            return;
+        }
+        setSkillFormSubmitError(null);
+        setSkillSubmitting(true);
+        try {
+            const content = generateSkillContent(data);
+            const payload = {
+                name: data.name.trim(),
+                description: data.description.trim() || null,
+                content: content.trim(),
+                tags: splitTags(data.tagsText),
+                task_types: data.taskTypes,
+                sort_order: Number(data.sortOrder || "99"),
+                is_enabled: data.isEnabled,
+            };
+            if (skillEditingId) {
+                await recruitmentApi(`/skills/${skillEditingId}`, {
+                    method: "PATCH",
+                    body: JSON.stringify(payload),
+                });
+                toast.success(recruitmentToast.updated(recruitmentToastEntities.skill));
+            } else {
+                const result = await recruitmentApi<{data: RecruitmentSkill}>("/skills", {
+                    method: "POST",
+                    body: JSON.stringify(payload),
+                });
+                const newSkillId = result?.data?.id;
+                if (newSkillId && skillAutoBindCategory) {
+                    setPositionForm((current) => ({
+                        ...current,
+                        [skillAutoBindCategory]: [newSkillId],
+                    }));
+                }
+                toast.success(recruitmentToast.created(recruitmentToastEntities.skill));
+            }
+            setSkillAutoBindCategory(null);
+            setSkillDialogOpen(false);
+            await loadSkills();
+        } catch (error) {
+            const resolved = resolveSkillSubmitError(error);
+            setSkillFormSubmitError(resolved.submitError);
+        }
+        setSkillSubmitting(false);
+    }
+
+    async function generateSkillWithAI(roleName: string, roleBackground: string, onDelta?: (delta: string) => void): Promise<string> {
+        setSkillGenerating(true);
+        let fullContent = "";
+        try {
+            const response = await authenticatedFetch("/api/recruitment/skills/generate-content", {
+                method: "POST",
+                headers: {"Content-Type": "application/json", Accept: "text/event-stream"},
+                body: JSON.stringify({role_name: roleName, role_background: roleBackground || null}),
+            });
+            if (!response.body) throw new Error("No response body");
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            while (true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, {stream: true});
+                let sep = buffer.indexOf("\n\n");
+                while (sep !== -1) {
+                    const rawEvent = buffer.slice(0, sep);
+                    buffer = buffer.slice(sep + 2);
+                    sep = buffer.indexOf("\n\n");
+                    const dataMatch = rawEvent.match(/data: (.+)/);
+                    if (dataMatch) {
+                        try {
+                            const data = JSON.parse(dataMatch[1]);
+                            if (data.delta) {
+                                fullContent += data.delta;
+                                onDelta?.(data.delta);
+                            }
+                        } catch { /* ignore malformed */ }
+                    }
+                }
+            }
+        } catch (error) {
+            toast.error(formatActionError(error));
+        }
+        setSkillGenerating(false);
+        return fullContent;
     }
 
     async function submitSkill() {
@@ -6866,14 +6997,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         <Button
                                                             size="sm"
                                                             onClick={() => void generateJD()}
-                                                            disabled={isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"}
+                                                            disabled={isJDGenerating}
                                                         >
-                                                            {currentPositionJDTaskId ? <Square className="h-4 w-4"/> : <Wand2 className="h-4 w-4"/>}
-                                                            {isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"
-                                                                ? (isZh ? "停止中..." : "Stopping...")
-                                                                : currentPositionJDTaskId
-                                                                    ? (isZh ? "停止生成" : "Stop")
-                                                                    : (isZh ? "AI 生成 JD" : "Generate JD")}
+                                                            <Wand2 className="h-4 w-4"/>
+                                                            {isJDGenerating
+                                                                ? (isZh ? "生成中..." : "Generating...")
+                                                                : (isZh ? "AI 生成 JD" : "Generate JD")}
                                                         </Button>
                                                         <Button
                                                             size="sm"
@@ -6953,15 +7082,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             <Loader2 className="h-4 w-4 animate-spin"/>
                                                             {jdGenerationStatus === "syncing"
                                                                 ? (isZh ? "正在同步最新 JD 到页面..." : "Syncing the latest JD back to the page...")
-                                                                : currentJDGenerationStatus === "cancelling"
-                                                                    ? (isZh ? "正在停止 JD 生成..." : "Stopping JD generation...")
-                                                                    : (isZh ? "正在生成 JD，请稍候..." : "Generating the JD, please wait...")}
+                                                                : (isZh ? "正在生成 JD..." : "Generating JD...")}
                                                         </div>
-                                                        <div className="mt-4 grid gap-3">
-                                                            <div className="h-4 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
-                                                            <div className="h-4 w-11/12 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
-                                                            <div className="h-24 rounded-[18px] bg-white/80 dark:bg-slate-900/70"/>
-                                                        </div>
+                                                        {jdStreamingContent ? (
+                                                            <div className="mt-4 whitespace-pre-wrap rounded-[18px] border bg-white/80 px-4 py-3 text-sm leading-7 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200 max-h-[400px] overflow-y-auto">
+                                                                {jdStreamingContent}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="mt-4 grid gap-3">
+                                                                <div className="h-4 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
+                                                                <div className="h-4 w-11/12 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
+                                                                <div className="h-24 rounded-[18px] bg-white/80 dark:bg-slate-900/70"/>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 ) : null}
 
@@ -7024,13 +7157,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         {isZh ? "保存后设为生效版本" : "Set as Active Version After Saving"}
                                                     </label>
                                                     <div className="flex flex-wrap gap-2">
-                                                        <Button variant="outline" onClick={() => void generateJD()} disabled={isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"}>
-                                                            {currentPositionJDTaskId ? <Square className="h-4 w-4"/> : <Sparkles className="h-4 w-4"/>}
-                                                            {isCurrentJDTaskCancelling || currentJDGenerationStatus === "cancelling"
-                                                                ? (isZh ? "停止中..." : "Stopping...")
-                                                                : currentPositionJDTaskId
-                                                                    ? (isZh ? "停止生成" : "Stop")
-                                                                    : (isZh ? "重新生成" : "Regenerate")}
+                                                        <Button variant="outline" onClick={() => void generateJD()} disabled={isJDGenerating}>
+                                                            <Sparkles className="h-4 w-4"/>
+                                                            {isJDGenerating
+                                                                ? (isZh ? "生成中..." : "Generating...")
+                                                                : (isZh ? "重新生成" : "Regenerate")}
                                                         </Button>
                                                         <Button onClick={() => void saveJDVersion()} disabled={jdVersionSaving}>
                                                             <Save className="h-4 w-4"/>
@@ -7352,6 +7483,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 skillsLoading={skillsLoading}
                 skills={skills}
                 openSkillEditor={openSkillEditor}
+                openSkillEditorWithAI={openSkillEditorWithAI}
                 toggleSkill={toggleSkill}
                 setSkillDeleteTarget={setSkillDeleteTarget}
             />
@@ -8059,77 +8191,49 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             </div>
                                         </div>
                                         <div className="space-y-3">
-                                            <p className="text-sm text-slate-600 dark:text-slate-300">每个岗位可以分别绑定 1 条 JD Skill、1 条初筛 Skill、1 条面试题 Skill。若某一类不选择，系统会自动使用该任务的内置通用基座约束。</p>
+                                            <p className="text-sm text-slate-600 dark:text-slate-300">每个岗位可以分别绑定 1 条 JD Skill、1 条初筛 Skill、1 条面试题 Skill。若某一类不选择，系统会自动使用该任务的内置通用基座约束。如果没有合适的 Skill，可以点击下方「+」直接新建，创建后会自动绑定到当前岗位。</p>
                                             <div className="grid gap-4 xl:grid-cols-3">
-                                                <div className="space-y-2">
-                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">JD 生成 Skill</p>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {jdAuthoringSkills.length ? jdAuthoringSkills.map((skill) => (
-                                                            <button
-                                                                key={`jd-skill-${skill.id}`}
+                                                {([["jdAuthoringSkills", "jdSkillIds", "jd", "JD 生成 Skill"], ["screeningAuthoringSkills", "screeningSkillIds", "screening", "初筛 Skill"], ["interviewAuthoringSkills", "interviewSkillIds", "interview", "面试题 Skill"]] as const).map(([skillsKey, formKey, taskKind, label]) => (
+                                                    <div key={formKey} className="space-y-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{label}</p>
+                                                            <Button
                                                                 type="button"
-                                                                className={cn(
-                                                                    "rounded-full border px-3 py-2 text-xs transition",
-                                                                    positionForm.jdSkillIds.includes(skill.id)
-                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                )}
-                                                                onClick={() => setPositionForm((current) => ({
-                                                                    ...current,
-                                                                    jdSkillIds: toggleSingleSkillId(current.jdSkillIds, skill.id),
-                                                                }))}
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-5 w-5"
+                                                                title={`新建 ${label.replace(" Skill", "")} Skill`}
+                                                                onClick={() => openSkillEditorForPosition(taskKind, formKey)}
                                                             >
-                                                                {skill.name}
-                                                            </button>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用 JD Skill，不选择时将使用系统通用基座</p>}
+                                                                <Plus className="h-3.5 w-3.5"/>
+                                                            </Button>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {({jdAuthoringSkills, screeningAuthoringSkills, interviewAuthoringSkills}[skillsKey] as RecruitmentSkill[]).length ? (
+                                                                {jdAuthoringSkills, screeningAuthoringSkills, interviewAuthoringSkills}[skillsKey].map((skill: RecruitmentSkill) => (
+                                                                    <button
+                                                                        key={`${formKey}-${skill.id}`}
+                                                                        type="button"
+                                                                        className={cn(
+                                                                            "rounded-full border px-3 py-2 text-xs transition",
+                                                                            (positionForm[formKey] as number[]).includes(skill.id)
+                                                                                ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                                : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                        )}
+                                                                        onClick={() => setPositionForm((current) => ({
+                                                                            ...current,
+                                                                            [formKey]: toggleSingleSkillId(current[formKey] as number[], skill.id),
+                                                                        }))}
+                                                                    >
+                                                                        {skill.name}
+                                                                    </button>
+                                                                ))
+                                                            ) : (
+                                                                <p className="text-xs text-slate-400">暂无可选 Skill，点击上方「+」新建</p>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">初筛 Skill</p>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {screeningAuthoringSkills.length ? screeningAuthoringSkills.map((skill) => (
-                                                            <button
-                                                                key={`screening-skill-${skill.id}`}
-                                                                type="button"
-                                                                className={cn(
-                                                                    "rounded-full border px-3 py-2 text-xs transition",
-                                                                    positionForm.screeningSkillIds.includes(skill.id)
-                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                )}
-                                                                onClick={() => setPositionForm((current) => ({
-                                                                    ...current,
-                                                                    screeningSkillIds: toggleSingleSkillId(current.screeningSkillIds, skill.id),
-                                                                }))}
-                                                            >
-                                                                {skill.name}
-                                                            </button>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用初筛 Skill，不选择时将使用系统通用基座</p>}
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">面试题 Skill</p>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {interviewAuthoringSkills.length ? interviewAuthoringSkills.map((skill) => (
-                                                            <button
-                                                                key={`interview-skill-${skill.id}`}
-                                                                type="button"
-                                                                className={cn(
-                                                                    "rounded-full border px-3 py-2 text-xs transition",
-                                                                    positionForm.interviewSkillIds.includes(skill.id)
-                                                                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                )}
-                                                                onClick={() => setPositionForm((current) => ({
-                                                                    ...current,
-                                                                    interviewSkillIds: toggleSingleSkillId(current.interviewSkillIds, skill.id),
-                                                                }))}
-                                                            >
-                                                                {skill.name}
-                                                            </button>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可用面试题 Skill，不选择时将使用系统通用基座</p>}
-                                                    </div>
-                                                </div>
+                                                ))}
                                             </div>
                                         </div>
                                     </div>
@@ -8534,74 +8638,22 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     setSkillSubmitting(false);
                 }
             }}>
-                <DialogContent className="flex h-[min(88vh,840px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-3xl">
+                <DialogContent className="flex h-[min(88vh,840px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-4xl">
                     <DialogHeader>
                         <DialogTitle>{skillEditingId ? recruitmentUiText.skillEditTitle : recruitmentUiText.skillCreateTitle}</DialogTitle>
                         <DialogDescription>{recruitmentUiText.skillDialogDescription}</DialogDescription>
                     </DialogHeader>
-                    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-1 py-1">
-                        <div className="grid gap-4 md:grid-cols-2">
-                            <Field label={recruitmentUiText.nameLabel} required error={skillFormErrors.name}>
-                                <Input
-                                    ref={skillNameInputRef}
-                                    value={skillForm.name}
-                                    maxLength={120}
-                                    aria-invalid={Boolean(skillFormErrors.name)}
-                                    className={cn(skillFormErrors.name ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
-                                    onChange={(event) => updateSkillFormField("name", event.target.value.slice(0, 120))}
-                                />
-                            </Field>
-                            <Field label={recruitmentUiText.sortLabel} error={skillFormErrors.sortOrder}>
-                                <Input
-                                    type="number"
-                                    value={skillForm.sortOrder}
-                                    aria-invalid={Boolean(skillFormErrors.sortOrder)}
-                                    className={cn(skillFormErrors.sortOrder ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
-                                    onChange={(event) => updateSkillFormField("sortOrder", event.target.value)}
-                                />
-                            </Field>
-                        </div>
-                        <Field label={recruitmentUiText.descriptionLabel}>
-                            <Input
-                                value={skillForm.description}
-                                onChange={(event) => updateSkillFormField("description", event.target.value)}
-                            />
-                        </Field>
-                        <Field label={recruitmentUiText.tagsLabel}>
-                            <Input
-                                value={skillForm.tagsText}
-                                onChange={(event) => updateSkillFormField("tagsText", event.target.value)}
-                                placeholder={recruitmentUiText.tagsPlaceholder}
-                            />
-                        </Field>
-                        <Field label={recruitmentUiText.contentLabel} required className="flex min-h-0 flex-1 flex-col">
-                            <Textarea
-                                ref={skillContentInputRef}
-                                className="h-full min-h-[260px] flex-1 resize-none overflow-y-auto [field-sizing:fixed]"
-                                value={skillForm.content}
-                                aria-invalid={Boolean(skillFormErrors.content)}
-                                onChange={(event) => updateSkillFormField("content", event.target.value)}
-                                rows={16}
-                            />
-                            {skillFormErrors.content ? (
-                                <p className="mt-1 text-right text-xs text-rose-600 dark:text-rose-400">{skillFormErrors.content}</p>
-                            ) : null}
-                        </Field>
-                        <label className="mt-5 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                            <input type="checkbox" checked={skillForm.isEnabled}
-                                   onChange={(event) => updateSkillFormField("isEnabled", event.target.checked)}/>
-                            {recruitmentUiText.saveAndEnableLabel}
-                        </label>
-                    </div>
-                    <DialogFooter className="shrink-0 items-center justify-between gap-3 sm:justify-between">
-                        <div className="min-h-5 flex-1 text-sm text-red-600 dark:text-red-400">
-                            {skillFormSubmitError ?? ""}
-                        </div>
-                        <Button variant="outline" onClick={() => setSkillDialogOpen(false)}
-                                disabled={skillSubmitting}>{recruitmentUiText.cancel}</Button>
-                        <Button onClick={() => void submitSkill()}
-                                disabled={skillSubmitting}>{skillSubmitting ? recruitmentUiText.saving : recruitmentUiText.saveSkill}</Button>
-                    </DialogFooter>
+                    <StructuredSkillEditor
+                        initialData={skillEditorData}
+                        editingSkillId={skillEditingId}
+                        onSubmit={submitStructuredSkill}
+                        onCancel={() => setSkillDialogOpen(false)}
+                        submitting={skillSubmitting}
+                        submitError={skillFormSubmitError}
+                        onGenerateAI={generateSkillWithAI}
+                        aiGenerating={skillGenerating}
+                        defaultTab={skillEditorDefaultTab}
+                    />
                 </DialogContent>
             </Dialog>
 

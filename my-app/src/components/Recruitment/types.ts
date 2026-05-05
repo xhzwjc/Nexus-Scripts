@@ -51,11 +51,37 @@ export type PositionFormState = {
     interviewSkillIds: number[];
 };
 
+export type SkillTaskKind = "jd" | "screening" | "interview";
+
 export type SkillFormState = {
     name: string;
     description: string;
     content: string;
     tagsText: string;
+    taskTypes: SkillTaskKind[];
+    sortOrder: string;
+    isEnabled: boolean;
+};
+
+export type ScreeningSkillDimension = {
+    id: string;
+    name: string;
+    maxScore: number;
+    priority: "core" | "secondary" | "auxiliary" | "bonus";
+    description: string;
+    isHardRequirement: boolean;
+};
+
+export type ScreeningSkillFormData = {
+    roleName: string;
+    roleBackground: string;
+    hardRules: string;
+    dimensions: ScreeningSkillDimension[];
+    judgmentRules: string;
+    name: string;
+    description: string;
+    tagsText: string;
+    taskTypes: SkillTaskKind[];
     sortOrder: string;
     isEnabled: boolean;
 };

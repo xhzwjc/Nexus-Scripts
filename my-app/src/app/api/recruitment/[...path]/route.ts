@@ -95,6 +95,8 @@ async function proxyRecruitmentRequest(
     path.endsWith("/screen"),
     path.endsWith("/interview-questions"),
     path.endsWith("/generate-jd"),
+    path.endsWith("/generate-content"),
+    path.endsWith("/generate-jd/stream"),
     path === "candidates/upload-resumes",
   ].some(Boolean);
 
@@ -111,7 +113,7 @@ async function proxyRecruitmentRequest(
 
   try {
     const response = await fetch(targetUrl, init);
-    const raw = await response.arrayBuffer();
+    const isSSE = (response.headers.get("content-type") || "").includes("text/event-stream");
     const responseHeaders = new Headers();
     for (const headerName of [
       "content-type",
@@ -127,6 +129,13 @@ async function proxyRecruitmentRequest(
     if (!responseHeaders.has("content-type")) {
       responseHeaders.set("content-type", "application/json; charset=utf-8");
     }
+    if (isSSE && response.body) {
+      return new NextResponse(response.body, {
+        status: response.status,
+        headers: responseHeaders,
+      });
+    }
+    const raw = await response.arrayBuffer();
     return new NextResponse(raw, {
       status: response.status,
       headers: responseHeaders,

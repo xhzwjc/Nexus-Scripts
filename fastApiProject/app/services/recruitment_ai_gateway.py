@@ -1755,17 +1755,9 @@ class RecruitmentAIGateway:
                         cancel_control=cancel_control,
                     )
                 elif config.runtime_provider == "gemini":
-                    response_payload = self._call_gemini_text(config, system_prompt, user_prompt, cancel_control=cancel_control)
-                    content = response_payload.get("content") or {}
-                    markdown = str(content.get("markdown") or "")
-                    for index in range(0, len(markdown), 24):
-                        on_delta(markdown[index:index + 24])
+                    response_payload = self._stream_gemini_text(config, system_prompt, user_prompt, on_delta, cancel_control=cancel_control)
                 else:
-                    response_payload = self._call_anthropic_text(config, system_prompt, user_prompt, cancel_control=cancel_control)
-                    content = response_payload.get("content") or {}
-                    markdown = str(content.get("markdown") or "")
-                    for index in range(0, len(markdown), 24):
-                        on_delta(markdown[index:index + 24])
+                    response_payload = self._stream_anthropic_text(config, system_prompt, user_prompt, on_delta, cancel_control=cancel_control)
                 content = response_payload["content"]
                 output_summary = content.get("markdown") if isinstance(content, dict) else content
                 return {
@@ -1899,6 +1891,154 @@ class RecruitmentAIGateway:
         raw_text = "\n".join([part.get("text", "") for part in parts if part.get("text")]).strip()
         usage = payload.get("usageMetadata") or {}
         return {"content": {"markdown": raw_text, "html": raw_text.replace("\n", "<br />")}, "token_usage": {"prompt_tokens": usage.get("promptTokenCount"), "completion_tokens": usage.get("candidatesTokenCount"), "total_tokens": usage.get("totalTokenCount")}}
+
+    def _stream_gemini_text(
+        self,
+        config: RecruitmentLLMRuntimeConfig,
+        system_prompt: str,
+        user_prompt: str,
+        on_delta: Callable[[str], None],
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+    ) -> Dict[str, Any]:
+        if not config.api_key:
+            raise RuntimeError("Missing API key for Gemini")
+        base_url = (config.base_url or "https://generativelanguage.googleapis.com").rstrip("/")
+        url = f"{base_url}/v1beta/models/{config.model_name}:streamGenerateContent"
+        body = {
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+            "generationConfig": {"temperature": 0.3},
+        }
+        client = self._build_httpx_client(config, cancel_control=cancel_control)
+        full_text = ""
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+        try:
+            with client.stream("POST", url, params={"key": config.api_key, "alt": "sse"}, json=body, timeout=180) as response:
+                response.raise_for_status()
+                buffer = ""
+                for chunk in response.iter_text():
+                    if cancel_control and cancel_control.is_cancelled():
+                        raise RecruitmentTaskCancelled("任务已被用户停止。")
+                    buffer += chunk
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if not data_str or data_str == "[DONE]":
+                            continue
+                        try:
+                            event = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        candidates = event.get("candidates") or []
+                        for cand in candidates:
+                            parts = cand.get("content", {}).get("parts") or []
+                            for part in parts:
+                                text = part.get("text", "")
+                                if text:
+                                    full_text += text
+                                    on_delta(text)
+                        usage = event.get("usageMetadata")
+                        if usage:
+                            prompt_tokens = usage.get("promptTokenCount") or prompt_tokens
+                            completion_tokens = usage.get("candidatesTokenCount") or completion_tokens
+                            total_tokens = usage.get("totalTokenCount") or total_tokens
+        except RecruitmentTaskCancelled:
+            raise
+        except Exception as exc:
+            if cancel_control and cancel_control.is_cancelled():
+                raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+            raise
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+        return {
+            "content": {"markdown": full_text, "html": full_text.replace("\n", "<br />")},
+            "token_usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": total_tokens},
+        }
+
+    def _stream_anthropic_text(
+        self,
+        config: RecruitmentLLMRuntimeConfig,
+        system_prompt: str,
+        user_prompt: str,
+        on_delta: Callable[[str], None],
+        cancel_control: Optional[RecruitmentTaskControl] = None,
+    ) -> Dict[str, Any]:
+        if not config.api_key:
+            raise RuntimeError("Missing API key for Anthropic")
+        base_url = (config.base_url or "https://api.anthropic.com").rstrip("/")
+        client = self._build_httpx_client(config, cancel_control=cancel_control)
+        full_text = ""
+        input_tokens = 0
+        output_tokens = 0
+        try:
+            with client.stream(
+                "POST",
+                f"{base_url}/v1/messages",
+                headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={
+                    "model": config.model_name,
+                    "max_tokens": 4000,
+                    "temperature": 0.3,
+                    "system": system_prompt,
+                    "messages": [{"role": "user", "content": user_prompt}],
+                    "stream": True,
+                },
+                timeout=180,
+            ) as response:
+                response.raise_for_status()
+                buffer = ""
+                for chunk in response.iter_text():
+                    if cancel_control and cancel_control.is_cancelled():
+                        raise RecruitmentTaskCancelled("任务已被用户停止。")
+                    buffer += chunk
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if not data_str:
+                            continue
+                        try:
+                            event = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        event_type = event.get("type")
+                        if event_type == "content_block_delta":
+                            delta = event.get("delta") or {}
+                            text = delta.get("text", "")
+                            if text:
+                                full_text += text
+                                on_delta(text)
+                        elif event_type == "message_delta":
+                            usage = event.get("usage") or {}
+                            output_tokens = usage.get("output_tokens") or output_tokens
+                        elif event_type == "message_start":
+                            usage = (event.get("message") or {}).get("usage") or {}
+                            input_tokens = usage.get("input_tokens") or input_tokens
+        except RecruitmentTaskCancelled:
+            raise
+        except Exception as exc:
+            if cancel_control and cancel_control.is_cancelled():
+                raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
+            raise
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
+        return {
+            "content": {"markdown": full_text, "html": full_text.replace("\n", "<br />")},
+            "token_usage": {"prompt_tokens": input_tokens, "completion_tokens": output_tokens, "total_tokens": input_tokens + output_tokens},
+        }
 
     def _call_anthropic_json(
         self,

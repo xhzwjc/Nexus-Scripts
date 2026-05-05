@@ -181,6 +181,7 @@ class RecruitmentSkill(Base):
     version = Column(String(40), index=True)
     content = Column(Text, nullable=False)
     tags_json = Column(Text)
+    task_types_json = Column(Text)
     sort_order = Column(Integer, default=99, nullable=False)
     is_enabled = Column(Boolean, default=True, nullable=False, index=True)
     created_by = Column(String(100))

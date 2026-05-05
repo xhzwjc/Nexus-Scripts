@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import {Plus} from "lucide-react";
+import {Plus, Sparkles} from "lucide-react";
 
 import type {RecruitmentSkill} from "@/lib/recruitment-api";
 import {useI18n} from "@/lib/i18n";
@@ -24,6 +24,7 @@ type SkillSettingsPageProps = {
     skillsLoading: boolean;
     skills: RecruitmentSkill[];
     openSkillEditor: (skill?: RecruitmentSkill) => void;
+    openSkillEditorWithAI: () => void;
     toggleSkill: (skillId: number, enabled: boolean) => Promise<void>;
     setSkillDeleteTarget: (skill: RecruitmentSkill) => void;
 };
@@ -33,6 +34,7 @@ export function SkillSettingsPage({
     skillsLoading,
     skills,
     openSkillEditor,
+    openSkillEditorWithAI,
     toggleSkill,
     setSkillDeleteTarget,
 }: SkillSettingsPageProps) {
@@ -47,10 +49,16 @@ export function SkillSettingsPage({
                         <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{isZh ? "Skills 属于管理员设置" : "Skills belong to admin settings"}</p>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{isZh ? "入口已收进管理设置，避免主工作台被配置项干扰。" : "This entry lives inside management settings so the main workspace stays focused."}</p>
                     </div>
-                    <Button onClick={() => openSkillEditor()}>
-                        <Plus className="h-4 w-4"/>
-                        {isZh ? "新增 Skill" : "New Skill"}
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button variant="outline" onClick={openSkillEditorWithAI}>
+                            <Sparkles className="h-4 w-4"/>
+                            {isZh ? "AI 生成" : "AI Generate"}
+                        </Button>
+                        <Button onClick={() => openSkillEditor()}>
+                            <Plus className="h-4 w-4"/>
+                            {isZh ? "新增 Skill" : "New Skill"}
+                        </Button>
+                    </div>
                 </CardContent>
             </Card>
 
