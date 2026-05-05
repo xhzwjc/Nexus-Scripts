@@ -4381,7 +4381,13 @@ def _validate_screening_score_payload(value: Any) -> Dict[str, Any]:
         raise ValueError("AI 返回的 screening JSON 非法：score.concerns 类型错误")
     if not isinstance(recommendation, str):
         raise ValueError("AI 返回的 screening JSON 非法：score.recommendation 类型错误")
-    if not isinstance(suggested_status, str) or suggested_status not in VALID_SCREENING_SUGGESTED_STATUSES:
+    if isinstance(suggested_status, str):
+        normalized_status = _normalize_suggested_status(suggested_status)
+        if normalized_status:
+            suggested_status = normalized_status
+        elif suggested_status not in VALID_SCREENING_SUGGESTED_STATUSES:
+            raise ValueError("AI 返回的 screening JSON 非法：score.suggested_status 不在合法枚举内")
+    else:
         raise ValueError("AI 返回的 screening JSON 非法：score.suggested_status 不在合法枚举内")
     if not isinstance(dimensions, list):
         raise ValueError("AI 返回的 screening JSON 非法：score.dimensions 不是数组")
@@ -7610,7 +7616,7 @@ class RecruitmentService:
                 "advantages": _normalize_score_text_items(raw_score.get("advantages"), limit=5),
                 "concerns": _normalize_score_text_items(raw_score.get("concerns"), limit=5),
                 "recommendation": row.recommendation if row.recommendation is not None else raw_score.get("recommendation"),
-                "suggested_status": row.suggested_status or raw_score.get("suggested_status"),
+                "suggested_status": _normalize_suggested_status(row.suggested_status or raw_score.get("suggested_status")) or row.suggested_status or raw_score.get("suggested_status"),
                 "dimensions": sanitize_dimensions(raw_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
                 "score_validation_passed": debug_payload.get("score_validation_passed"),
                 "validation_warnings": _normalize_score_warning_items(debug_payload.get("validation_warnings"), limit=8),
@@ -7659,7 +7665,7 @@ class RecruitmentService:
             "advantages": _normalize_score_text_items(compatibility_score.get("advantages"), limit=5),
             "concerns": _normalize_score_text_items(compatibility_score.get("concerns"), limit=5),
             "recommendation": row.recommendation or compatibility_score.get("recommendation"),
-            "suggested_status": row.suggested_status or compatibility_score.get("suggested_status"),
+            "suggested_status": _normalize_suggested_status(row.suggested_status or compatibility_score.get("suggested_status")) or row.suggested_status or compatibility_score.get("suggested_status"),
             "dimensions": sanitize_dimensions(compatibility_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
             "manual_override_score": row.manual_override_score,
             "manual_override_reason": row.manual_override_reason,
@@ -8756,6 +8762,13 @@ class RecruitmentService:
             match_percent = raw_score.get("match_percent") if _is_json_number(raw_score.get("match_percent")) else None
             recommendation = raw_score.get("recommendation") if isinstance(raw_score.get("recommendation"), str) else None
             suggested_status = raw_score.get("suggested_status") if isinstance(raw_score.get("suggested_status"), str) else None
+            # Normalize Chinese/variant suggested_status before persisting to avoid
+            # displaying raw AI values like "淘汰" in the frontend before fallback runs.
+            normalized_suggested = _normalize_suggested_status(suggested_status)
+            if normalized_suggested and normalized_suggested != suggested_status:
+                suggested_status = normalized_suggested
+                # Also update the stored score_json so _serialize_score reads the normalized value.
+                raw_score["suggested_status"] = normalized_suggested
             advantages = raw_score.get("advantages") if isinstance(raw_score.get("advantages"), list) else []
             concerns = raw_score.get("concerns") if isinstance(raw_score.get("concerns"), list) else []
             score_row = RecruitmentCandidateScore(
@@ -9049,6 +9062,7 @@ class RecruitmentService:
     def _build_resume_screening_prompt(self, *, candidate: RecruitmentCandidate, raw_text: str, skill_snapshots: Sequence[Dict[str, Any]], custom_requirements: str, status_rules: Dict[str, Any]) -> str:
         dimension_rules = _distill_dimension_rules(skill_snapshots, limit=12)
         position_payload = self._get_position_screening_payload(candidate)
+        dimension_labels = [d["label"] for d in dimension_rules if d.get("label")]
         return "\n\n".join([
             "TASK: 请先解析简历，再基于岗位要求和评分维度完成初筛评分。",
             f"CANDIDATE_NAME: {candidate.name or '未提供'}",
@@ -9057,6 +9071,7 @@ class RecruitmentService:
             f"CUSTOM_REQUIREMENTS: {custom_requirements or '无'}",
             "DIMENSION_RULES:",
             json_dumps_safe(dimension_rules),
+            f"REQUIRED_DIMENSIONS: 以下 {len(dimension_labels)} 个维度每个都必须在 dimensions 数组中有评分，不得遗漏：{'、'.join(dimension_labels)}",
             "RAW_RESUME_TEXT:",
             raw_text[:30000],
             "只返回 strict JSON，不要 markdown，不要解释。",
@@ -9066,6 +9081,7 @@ class RecruitmentService:
         dimension_rules = _distill_dimension_rules(skill_snapshots, limit=12)
         max_possible_score = _resolve_dimension_max_possible_score(dimension_rules) or 0.0
         position_payload = self._get_position_screening_payload(candidate)
+        dimension_labels = [d["label"] for d in dimension_rules if d.get("label")]
         return "\n\n".join([
             "TASK: 请基于岗位要求和评分维度，对候选人进行简历评分。",
             "POSITION_SUMMARY:",
@@ -9073,6 +9089,7 @@ class RecruitmentService:
             f"CUSTOM_REQUIREMENTS: {custom_requirements or '无'}",
             "DIMENSION_RULES:",
             json_dumps_safe(dimension_rules),
+            f"REQUIRED_DIMENSIONS: 以下 {len(dimension_labels)} 个维度每个都必须在 dimensions 数组中有评分，不得遗漏：{'、'.join(dimension_labels)}",
             f"MAX_POSSIBLE_SCORE: {max_possible_score:.1f}",
             "PARSED_RESUME_HELPER:",
             json_dumps_safe(parsed_resume_helper_payload),

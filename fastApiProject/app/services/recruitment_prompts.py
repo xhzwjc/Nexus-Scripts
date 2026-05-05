@@ -195,7 +195,7 @@ RESUME_SCREENING_SYSTEM_PROMPT_V3 = """你是 ATS 初筛引擎。读取简历原
 规则：
 1. 所有文本字段用简体中文（英文专有名词除外）。
 2. parsed_resume 从简历原文逐字段提取，缺失字段用空字符串/空数组。
-3. 评分维度严格按 DIMENSION_RULES 逐条打分。
+3. 评分维度严格按 DIMENSION_RULES 逐条打分，每个维度都必须输出，不得跳过。
 4. evidence 只能直接引用简历原文片段，禁止使用 JD/规则/自编内容。无证据则 score=0, reason="简历未提及", evidence=""。
 5. total_score = 所有 dimension.score 之和；match_percent = round(total_score * 10)。
 6. suggested_status 必须是 screening_passed / talent_pool / screening_rejected，由维度得分和核心维度规则推导。
@@ -211,7 +211,7 @@ RESUME_SCORE_SYSTEM_PROMPT_V3 = """你是 ATS 评分引擎。基于已有 parsed
 规则：
 1. 所有文本字段用简体中文（英文专有名词除外）。
 2. evidence 只能直接引用简历原文片段，禁止使用 JD/规则/helper 字段/自编内容。无证据则 score=0, reason="简历未提及", evidence=""。
-3. 严格按 DIMENSION_RULES 逐条打分，不要自行新增维度。
+3. 严格按 DIMENSION_RULES 逐条打分，每个维度都必须输出，不得跳过，不要自行新增维度。
 4. total_score = 所有 dimension.score 之和；match_percent = round(total_score * 10)。
 5. suggested_status 必须是 screening_passed / talent_pool / screening_rejected，由维度分数推导。
 6. advantages 汇总正分维度；concerns 汇总零分/缺失维度。两者都不得全空。
@@ -250,6 +250,7 @@ Scoring Rules:
 - Score only against the provided position, DIMENSION_RULES, screening skills, and custom hard requirements. Do not add dimensions or extra rubric.
 - Treat screening skills and custom hard requirements as mandatory high-priority constraints.
 - Every dimension must include label, score, max_score, reason, evidence, and is_inferred.
+- Every dimension listed in DIMENSION_RULES must appear in your output dimensions array; missing any dimension results in invalid output.
 - Every numeric field must be an exact JSON number. Never output ranges, formulas, or percentages with symbols.
 - total_score must equal the exact sum of all dimension.score values.
 - match_percent must equal round(total_score * 10).
@@ -278,6 +279,7 @@ Scoring Rules:
 - Score only against the provided position, DIMENSION_RULES, screening skills, and custom hard requirements. Review every provided dimension one by one and do not add dimensions or extra rubric.
 - Treat screening skills and custom hard requirements as mandatory hard constraints with the highest priority.
 - Every dimension must include label, score, max_score, reason, evidence, and is_inferred.
+- Every dimension listed in DIMENSION_RULES must appear in your output dimensions array; missing any dimension results in invalid output.
 - Every numeric field must be an exact JSON number. Never output ranges, formulas, or percentages with symbols.
 - total_score must equal the exact sum of all dimension.score values, not a separate holistic score.
 - match_percent must equal round(total_score / MAX_POSSIBLE_SCORE * 100).

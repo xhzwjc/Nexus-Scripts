@@ -2697,8 +2697,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             return data;
         } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
             if (!options?.silent) {
                 toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.taskDetail, formatActionError(error)));
+            }
+            if (errorMessage.includes("404") || errorMessage.includes("Not Found")) {
+                if (mountedRef.current && selectedLogIdRef.current === taskId) {
+                    setSelectedLogId(null);
+                    setSelectedLogDetail(null);
+                }
             }
             return null;
         } finally {

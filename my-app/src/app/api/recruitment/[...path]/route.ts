@@ -97,15 +97,17 @@ async function proxyRecruitmentRequest(
     path.endsWith("/generate-jd"),
     path.endsWith("/generate-content"),
     path.endsWith("/generate-jd/stream"),
-    path === "task-events",
     path === "candidates/upload-resumes",
   ].some(Boolean);
+
+  const isSSEStream = path === "task-events";
 
   const init: RequestInit = {
     method: request.method,
     headers,
     cache: "no-store",
-    signal: AbortSignal.timeout(isLongRunningRequest ? 900000 : 180000),
+    // SSE streams use heartbeats to stay alive — no abort timeout.
+    signal: isSSEStream ? undefined : AbortSignal.timeout(isLongRunningRequest ? 900000 : 180000),
   };
 
   if (!["GET", "HEAD"].includes(request.method)) {
