@@ -97,6 +97,7 @@ async function proxyRecruitmentRequest(
     path.endsWith("/generate-jd"),
     path.endsWith("/generate-content"),
     path.endsWith("/generate-jd/stream"),
+    path === "task-events",
     path === "candidates/upload-resumes",
   ].some(Boolean);
 
@@ -111,43 +112,57 @@ async function proxyRecruitmentRequest(
     init.body = Buffer.from(await request.arrayBuffer());
   }
 
-  try {
-    const response = await fetch(targetUrl, init);
-    const isSSE = (response.headers.get("content-type") || "").includes("text/event-stream");
-    const responseHeaders = new Headers();
-    for (const headerName of [
-      "content-type",
-      "content-disposition",
-      "cache-control",
-      "content-length",
-    ]) {
-      const value = response.headers.get(headerName);
-      if (value) {
-        responseHeaders.set(headerName, value);
+  const isSafeToRetry = ["GET", "HEAD"].includes(request.method);
+  const maxRetries = isSafeToRetry ? 3 : 0;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt - 1)));
+    }
+    try {
+      const response = await fetch(targetUrl, init);
+      const isSSE = (response.headers.get("content-type") || "").includes("text/event-stream");
+      const responseHeaders = new Headers();
+      for (const headerName of [
+        "content-type",
+        "content-disposition",
+        "cache-control",
+        "content-length",
+      ]) {
+        const value = response.headers.get(headerName);
+        if (value) {
+          responseHeaders.set(headerName, value);
+        }
       }
-    }
-    if (!responseHeaders.has("content-type")) {
-      responseHeaders.set("content-type", "application/json; charset=utf-8");
-    }
-    if (isSSE && response.body) {
-      return new NextResponse(response.body, {
+      if (!responseHeaders.has("content-type")) {
+        responseHeaders.set("content-type", "application/json; charset=utf-8");
+      }
+      if (isSSE && response.body) {
+        return new NextResponse(response.body, {
+          status: response.status,
+          headers: responseHeaders,
+        });
+      }
+      const raw = await response.arrayBuffer();
+      return new NextResponse(raw, {
         status: response.status,
         headers: responseHeaders,
       });
+    } catch (error) {
+      lastError = error;
+      // Only retry on network-level failures (connection refused, etc.)
+      // Do NOT retry if we got an HTTP response with error status
+      if (!isSafeToRetry) break;
     }
-    const raw = await response.arrayBuffer();
-    return new NextResponse(raw, {
-      status: response.status,
-      headers: responseHeaders,
-    });
-  } catch (error) {
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Recruitment backend unavailable",
-      },
-      { status: 503 },
-    );
   }
+
+  return NextResponse.json(
+    {
+      error: lastError instanceof Error ? lastError.message : "Recruitment backend unavailable",
+    },
+    { status: 503 },
+  );
 }
 
 export async function GET(

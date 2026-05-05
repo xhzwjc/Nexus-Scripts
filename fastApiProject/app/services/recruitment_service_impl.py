@@ -8256,7 +8256,7 @@ class RecruitmentService:
         self._get_candidate(candidate_id)
         rows = self.db.query(RecruitmentInterviewSchedule).filter(
             RecruitmentInterviewSchedule.candidate_id == candidate_id,
-        ).order_by(RecruitmentInterviewSchedule.scheduled_at.desc().nullslast(), RecruitmentInterviewSchedule.id.desc()).all()
+        ).order_by(RecruitmentInterviewSchedule.scheduled_at.is_(None), RecruitmentInterviewSchedule.scheduled_at.desc(), RecruitmentInterviewSchedule.id.desc()).all()
         return [self._serialize_interview_schedule(r) for r in rows]
 
     def create_interview_schedule(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:

@@ -1016,6 +1016,9 @@ async def list_interview_schedules(candidate_id: int, _session: Dict[str, Any] =
         return {"success": True, "data": data}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.error("list_interview_schedules failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @recruitment_router.post("/interview-schedules")
@@ -1156,8 +1159,12 @@ async def delete_resume_file(
 
 @recruitment_router.get("/skills")
 async def list_skills(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-skill-view", "recruitment-skill-bind", "recruitment-skill-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
-    data = service.list_skills()
-    return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
+    try:
+        data = service.list_skills()
+        return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
+    except Exception as exc:
+        logger.error("list_skills failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @recruitment_router.post("/skills")
@@ -1400,8 +1407,12 @@ async def delete_llm_config(http_request: Request, config_id: int, db: Session =
 
 @recruitment_router.get("/mail-senders")
 async def list_mail_senders(_session: Dict[str, Any] = Depends(require_script_hub_any_permission(["recruitment-mail-view", "recruitment-mail-sender-manage"])), service: RecruitmentService = Depends(get_recruitment_service)):
-    data = service.list_mail_senders()
-    return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
+    try:
+        data = service.list_mail_senders()
+        return {"success": True, "data": data, "total": len(data), "request_id": str(uuid.uuid4())}
+    except Exception as exc:
+        logger.error("list_mail_senders failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @recruitment_router.post("/mail-senders")
