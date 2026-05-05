@@ -28,7 +28,7 @@ export function useTaskSSE(
     if (!enabled) return;
 
     let es: EventSource | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectTimer: number | null = null;
     let reconnectDelay = 2000;
     let destroyed = false;
 

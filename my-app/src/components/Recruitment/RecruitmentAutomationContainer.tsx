@@ -54,6 +54,9 @@ import {
     type CandidateDetail,
     type CandidateSummary,
     type ChatContext,
+    type InterviewSchedule,
+    type FollowUp,
+    type RecruitmentOffer,
     type ChatResponse,
     type DashboardData,
     type JDVersion,
@@ -698,6 +701,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [allAiLogs, setAllAiLogs] = useState<AITaskLog[]>([]);
     const [aiLogs, setAiLogs] = useState<AITaskLog[]>([]);
     const [candidateStats, setCandidateStats] = useState<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>} | null>(null);
+    const [funnelData, setFunnelData] = useState<import("@/lib/recruitment-api").RecruitmentFunnelData | null>(null);
+    const [sourceStatsData, setSourceStatsData] = useState<import("@/lib/recruitment-api").SourceStatsData | null>(null);
     const [candidateTotal, setCandidateTotal] = useState(0);
     const [aiLogStats, setAiLogStats] = useState<{total: number; status_counts: Record<string, number>} | null>(null);
     const [aiLogTotal, setAiLogTotal] = useState(0);
@@ -757,6 +762,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [positionDetailLoading, setPositionDetailLoading] = useState(false);
     const [candidatesLoading, setCandidatesLoading] = useState(false);
     const [candidateDetailLoading, setCandidateDetailLoading] = useState(false);
+    const [duplicateCandidates, setDuplicateCandidates] = useState<Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>>([]);
     const [logsLoading, setLogsLoading] = useState(false);
     const [logDetailLoading, setLogDetailLoading] = useState(false);
     const [skillsLoading, setSkillsLoading] = useState(false);
@@ -858,6 +864,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [interviewRoundName, setInterviewRoundName] = useState(localizedInitialInterviewRoundName);
     const [interviewCustomRequirements, setInterviewCustomRequirements] = useState("");
     const [selectedInterviewSkillIds, setSelectedInterviewSkillIds] = useState<number[]>([]);
+    const [interviewSchedules, setInterviewSchedules] = useState<InterviewSchedule[]>([]);
+    const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+    const [offers, setOffers] = useState<RecruitmentOffer[]>([]);
 
     const [chatInput, setChatInput] = useState("");
     const [assistantDisplayMode, setAssistantDisplayMode] = useState<AssistantDisplayMode>("drawer");
@@ -1724,6 +1733,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 const statsPromise = Promise.allSettled([
                     recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) setCandidateStats(d); }).catch(() => {}),
                     recruitmentApi<{total: number; status_counts: Record<string, number>}>(`/ai-task-logs/stats${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) { setAiLogStats(d); setAiLogTotal(d.total); } }).catch(() => {}),
+                    recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) setFunnelData(d); }).catch(() => {}),
+                    recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) setSourceStatsData(d); }).catch(() => {}),
                 ]);
 
                 await Promise.allSettled([dashboardPromise, statsPromise]);
@@ -1815,12 +1826,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     () => recruitmentApi<{items: AITaskLog[]; total: number}>("/ai-task-logs?limit=20&offset=0")
                 );
                 if (!cancelled) {
-                    setAllAiLogs((prev) => {
-                        const incoming = data?.items || [];
-                        const existingIds = new Set(prev.map((log) => log.id));
-                        const filtered = incoming.filter((log) => !existingIds.has(log.id));
-                        return filtered.length ? [...prev, ...filtered] : prev;
-                    });
+                    setAllAiLogs(data?.items || []);
                     setAiLogTotal(data?.total || 0);
                 }
             } catch (error) {
@@ -1874,6 +1880,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         void loadLogDetail(selectedLogId);
     }, [selectedLogId]);
+
+    // 切换到审计中心时，拉取最新日志
+    useEffect(() => {
+        if (activePage === "audit") {
+            void loadLogs({ silent: true });
+        }
+    }, [activePage]);
 
     const pendingCandidateRefreshRef = useRef<number | null>(null);
 
@@ -2033,14 +2046,30 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             tagsText: joinTags(candidate?.tags),
             manualOverrideScore: score?.manual_override_score ? String(score.manual_override_score) : "",
             manualOverrideReason: score?.manual_override_reason || "",
+            hrFeedback: score?.hr_feedback || "",
+            hrFeedbackReason: score?.hr_feedback_reason || "",
+            ownerId: candidate?.owner_id || "",
             positionId: candidate?.position_id != null ? String(candidate.position_id) : "",
         });
     }, [candidateDetail]);
 
     useEffect(() => {
+        void checkDuplicatesForCandidate(candidateDetail);
+    }, [candidateDetail?.candidate.id, candidateDetail?.candidate.phone, candidateDetail?.candidate.email]);
+
+    useEffect(() => {
         setSelectedInterviewSkillIds([]);
         setInterviewSkillSelectionDirty(false);
         setCandidateProcessLogsExpanded(false);
+        if (selectedCandidateId) {
+            void loadInterviewSchedules(selectedCandidateId);
+            void loadOffers(selectedCandidateId);
+            void loadFollowUps(selectedCandidateId);
+        } else {
+            setInterviewSchedules([]);
+            setOffers([]);
+            setFollowUps([]);
+        }
     }, [selectedCandidateId]);
 
     useEffect(() => {
@@ -2553,6 +2582,33 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
+    async function checkDuplicatesForCandidate(candidate: CandidateDetail | null) {
+        if (!candidate?.candidate) {
+            setDuplicateCandidates([]);
+            return;
+        }
+        const phone = candidate.candidate.phone?.trim();
+        const email = candidate.candidate.email?.trim();
+        if (!phone && !email) {
+            setDuplicateCandidates([]);
+            return;
+        }
+        try {
+            const params = new URLSearchParams();
+            if (phone) params.set("phone", phone);
+            if (email) params.set("email", email);
+            params.set("exclude_candidate_id", String(candidate.candidate.id));
+            const data = await recruitmentApi<Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>>(`/candidates/check-duplicates?${params.toString()}`);
+            if (mountedRef.current) {
+                setDuplicateCandidates(data);
+            }
+        } catch {
+            if (mountedRef.current) {
+                setDuplicateCandidates([]);
+            }
+        }
+    }
+
     async function loadLogs(options?: { silent?: boolean }) {
         if (!options?.silent) {
             setLogsLoading(true);
@@ -2573,12 +2629,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 ),
             );
             if (mountedRef.current) {
-                setAllAiLogs((prev) => {
-                    const incoming = data?.items || [];
-                    const existingIds = new Set(prev.map((log) => log.id));
-                    const filtered = incoming.filter((log) => !existingIds.has(log.id));
-                    return filtered.length ? [...prev, ...filtered] : prev;
-                });
+                setAllAiLogs(data?.items || []);
                 setAiLogTotal(data?.total || 0);
             }
             return data?.items || [];
@@ -2762,6 +2813,26 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setCandidateStats(d);
             setCandidateTotal(d.total);
         } catch {}
+        try {
+            const deptScope = departmentScope ?? selectedDepartmentScope;
+            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
+                ? `?org_code=${encodeURIComponent(deptScope)}`
+                : selectedOrgScope
+                    ? `?org_code=${encodeURIComponent(selectedOrgScope)}`
+                    : "";
+            const f = await recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam}`);
+            setFunnelData(f);
+        } catch {}
+        try {
+            const deptScope = departmentScope ?? selectedDepartmentScope;
+            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
+                ? `?org_code=${encodeURIComponent(deptScope)}`
+                : selectedOrgScope
+                    ? `?org_code=${encodeURIComponent(selectedOrgScope)}`
+                    : "";
+            const s = await recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam}`);
+            setSourceStatsData(s);
+        } catch {}
     }
 
     async function refreshCoreData(options?: { includeMailSettings?: boolean; silent?: boolean; departmentScope?: string; orgScope?: string }) {
@@ -2794,12 +2865,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     : "";
             const url = orgCodeParam ? `/ai-task-logs?limit=20&offset=0&${orgCodeParam}` : "/ai-task-logs?limit=20&offset=0";
             const d = await recruitmentApi<{items: AITaskLog[]; total: number}>(url);
-            setAllAiLogs((prev) => {
-                const incoming = d?.items || [];
-                const existingIds = new Set(prev.map((log) => log.id));
-                const filtered = incoming.filter((log) => !existingIds.has(log.id));
-                return filtered.length ? [...prev, ...filtered] : prev;
-            });
+            setAllAiLogs(d?.items || []);
             setAiLogTotal(d?.total || 0);
         })();
 
@@ -2828,6 +2894,24 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 const d = await recruitmentApi<{total: number; status_counts: Record<string, number>}>(`/ai-task-logs/stats${orgCodeParam}`);
                 setAiLogStats(d);
                 setAiLogTotal(d.total);
+            })(),
+            (async () => {
+                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
+                    ? `?org_code=${encodeURIComponent(deptScope)}`
+                    : companyScope
+                        ? `?org_code=${encodeURIComponent(companyScope)}`
+                        : "";
+                const f = await recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam ? `?${orgCodeParam}` : ""}`);
+                setFunnelData(f);
+            })(),
+            (async () => {
+                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
+                    ? `?org_code=${encodeURIComponent(deptScope)}`
+                    : companyScope
+                        ? `?org_code=${encodeURIComponent(companyScope)}`
+                        : "";
+                const s = await recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam ? `?${orgCodeParam}` : ""}`);
+                setSourceStatsData(s);
             })(),
         ];
         if (options?.includeMailSettings) {
@@ -4473,6 +4557,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         ? Number(candidateEditor.manualOverrideScore)
                         : null,
                     manual_override_reason: candidateEditor.manualOverrideReason.trim() || null,
+                    hr_feedback: candidateEditor.hrFeedback || null,
+                    hr_feedback_reason: candidateEditor.hrFeedbackReason.trim() || null,
+                    owner_id: candidateEditor.ownerId.trim() || null,
                     position_id: candidateEditor.positionId ? Number(candidateEditor.positionId) : null,
                 }),
             });
@@ -5498,6 +5585,33 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
+    async function batchUpdateStatus(candidateIds: number[], status: string, reason: string) {
+        if (!candidateIds.length || !status) {
+            return;
+        }
+        try {
+            const result = await recruitmentApi<{ updated_count: number }>("/candidates/batch-update-status", {
+                method: "POST",
+                body: JSON.stringify({ candidate_ids: candidateIds, status, reason: reason || undefined }),
+            });
+            toast.success(
+                isZh
+                    ? `已为 ${result.updated_count} 位候选人变更状态`
+                    : `Updated status for ${result.updated_count} candidate(s)`
+            );
+            await Promise.all([loadCandidates(), loadDashboard(), refreshCandidateStats()]);
+            if (selectedCandidateId && candidateIds.includes(selectedCandidateId)) {
+                await loadCandidateDetail(selectedCandidateId);
+            }
+        } catch (error) {
+            toast.error(
+                isZh
+                    ? `批量变更状态失败：${formatActionError(error)}`
+                    : `Failed to batch update status: ${formatActionError(error)}`
+            );
+        }
+    }
+
     async function deleteResumeFile() {
         if (!resumeDeleteTarget || resumeDeleting) {
             return;
@@ -5559,6 +5673,134 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             toast.success(isZh ? "面试题 HTML 已开始下载" : "Interview question HTML download started");
         } catch (error) {
             toast.error(isZh ? `下载面试题失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to download interview questions: ${error instanceof Error ? error.message : "Unknown error"}`);
+        }
+    }
+
+    async function loadInterviewSchedules(candidateId: number) {
+        try {
+            const data = await recruitmentApi<InterviewSchedule[]>(`/candidates/${candidateId}/interview-schedules`);
+            if (mountedRef.current) {
+                setInterviewSchedules(data);
+            }
+        } catch {
+            if (mountedRef.current) {
+                setInterviewSchedules([]);
+            }
+        }
+    }
+
+    async function createInterviewSchedule(payload: {
+        candidate_id: number;
+        round_name?: string;
+        interviewer_name?: string;
+        scheduled_at?: string;
+        duration_minutes?: number;
+        location?: string;
+        meeting_link?: string;
+        notes?: string;
+    }) {
+        const data = await recruitmentApi<InterviewSchedule>("/interview-schedules", {
+            method: "POST",
+            body: JSON.stringify(payload),
+        });
+        toast.success(isZh ? "面试安排已创建" : "Interview schedule created");
+        if (selectedCandidateId) {
+            await loadInterviewSchedules(selectedCandidateId);
+        }
+        return data;
+    }
+
+    async function deleteInterviewSchedule(scheduleId: number) {
+        await recruitmentApi(`/interview-schedules/${scheduleId}`, {method: "DELETE"});
+        toast.success(isZh ? "面试安排已删除" : "Interview schedule deleted");
+        if (selectedCandidateId) {
+            await loadInterviewSchedules(selectedCandidateId);
+        }
+    }
+
+    async function loadFollowUps(candidateId: number) {
+        try {
+            const data = await recruitmentApi<FollowUp[]>(`/candidates/${candidateId}/follow-ups`);
+            if (mountedRef.current) {
+                setFollowUps(data);
+            }
+        } catch {
+            if (mountedRef.current) {
+                setFollowUps([]);
+            }
+        }
+    }
+
+    async function createFollowUp(candidateId: number, content: string, followUpType: string = "note") {
+        const data = await recruitmentApi<FollowUp>("/follow-ups", {
+            method: "POST",
+            body: JSON.stringify({candidate_id: candidateId, content, follow_up_type: followUpType}),
+        });
+        toast.success(isZh ? "跟进记录已添加" : "Follow-up added");
+        if (selectedCandidateId) {
+            await loadFollowUps(selectedCandidateId);
+        }
+        return data;
+    }
+
+    async function deleteFollowUp(followUpId: number) {
+        await recruitmentApi(`/follow-ups/${followUpId}`, {method: "DELETE"});
+        toast.success(isZh ? "跟进记录已删除" : "Follow-up deleted");
+        if (selectedCandidateId) {
+            await loadFollowUps(selectedCandidateId);
+        }
+    }
+
+    async function loadOffers(candidateId: number) {
+        try {
+            const data = await recruitmentApi<RecruitmentOffer[]>(`/candidates/${candidateId}/offers`);
+            if (mountedRef.current) {
+                setOffers(data);
+            }
+        } catch {
+            if (mountedRef.current) {
+                setOffers([]);
+            }
+        }
+    }
+
+    async function createOffer(payload: {
+        candidate_id: number;
+        offer_title?: string;
+        salary?: string;
+        department?: string;
+        entry_date?: string;
+        offer_content?: string;
+        notes?: string;
+    }) {
+        const data = await recruitmentApi<RecruitmentOffer>("/offers", {
+            method: "POST",
+            body: JSON.stringify(payload),
+        });
+        toast.success(isZh ? "Offer 已创建" : "Offer created");
+        if (selectedCandidateId) {
+            await loadOffers(selectedCandidateId);
+        }
+        return data;
+    }
+
+    async function updateOffer(offerId: number, payload: Record<string, unknown>) {
+        const data = await recruitmentApi<RecruitmentOffer>(`/offers/${offerId}`, {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+        });
+        toast.success(isZh ? "Offer 已更新" : "Offer updated");
+        if (selectedCandidateId) {
+            await loadOffers(selectedCandidateId);
+        }
+        return data;
+    }
+
+    async function deleteOffer(offerId: number) {
+        await recruitmentApi(`/offers/${offerId}`, {method: "DELETE"});
+        toast.success(isZh ? "Offer 已删除" : "Offer deleted");
+        if (selectedCandidateId) {
+            await loadOffers(selectedCandidateId);
         }
     }
 
@@ -6398,6 +6640,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 todoSummary={todoSummary}
                 recentCandidates={recentCandidates}
                 recentLogs={recentLogs}
+                funnelData={funnelData}
+                sourceStatsData={sourceStatsData}
                 panelClass={panelClass}
                 assistantOpen={assistantOpen}
                 setActivePage={setActivePage}
@@ -7042,9 +7286,21 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 skills={skills}
                 toggleInterviewSkillSelection={toggleInterviewSkillSelection}
                 downloadInterviewQuestion={downloadInterviewQuestion}
+                interviewSchedules={interviewSchedules}
+                createInterviewSchedule={createInterviewSchedule}
+                deleteInterviewSchedule={deleteInterviewSchedule}
+                offers={offers}
+                createOffer={createOffer}
+                updateOffer={updateOffer}
+                deleteOffer={deleteOffer}
                 exportCandidates={exportCandidates}
                 requestBatchDelete={requestBatchDelete}
                 batchBindPosition={batchBindPosition}
+                batchUpdateStatus={batchUpdateStatus}
+                duplicateCandidates={duplicateCandidates}
+                followUps={followUps}
+                createFollowUp={createFollowUp}
+                deleteFollowUp={deleteFollowUp}
             />
         );
     }

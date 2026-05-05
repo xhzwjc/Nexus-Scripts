@@ -156,6 +156,7 @@ export interface CandidateSummary {
   latest_parse_result_id?: number | null;
   latest_score_id?: number | null;
   latest_total_score?: number | null;
+  owner_id?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string | null;
@@ -217,6 +218,8 @@ export interface CandidateScore {
   validation_warnings?: string[];
   manual_override_score?: number | null;
   manual_override_reason?: string | null;
+  hr_feedback?: string | null;
+  hr_feedback_reason?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   [key: string]: unknown;
@@ -243,6 +246,51 @@ export interface InterviewQuestion {
   status: string;
   created_by?: string | null;
   created_at?: string | null;
+}
+
+export interface InterviewSchedule {
+  id: number;
+  candidate_id: number;
+  position_id?: number | null;
+  org_code?: string | null;
+  round_name: string;
+  interviewer_name?: string | null;
+  scheduled_at?: string | null;
+  duration_minutes?: number | null;
+  location?: string | null;
+  meeting_link?: string | null;
+  notes?: string | null;
+  status: string;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface FollowUp {
+  id: number;
+  candidate_id: number;
+  org_code?: string | null;
+  content: string;
+  follow_up_type: string;
+  created_by?: string | null;
+  created_at?: string | null;
+}
+
+export interface RecruitmentOffer {
+  id: number;
+  candidate_id: number;
+  position_id?: number | null;
+  org_code?: string | null;
+  offer_title?: string | null;
+  salary?: string | null;
+  department?: string | null;
+  entry_date?: string | null;
+  offer_content?: string | null;
+  notes?: string | null;
+  status: string;
+  created_by?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface RecruitmentSkill {
@@ -352,6 +400,29 @@ export interface DashboardData {
   };
   status_distribution: Array<{ status: string; count: number }>;
   recent_candidates: CandidateSummary[];
+}
+
+export interface FunnelStage {
+  key: string;
+  label_zh: string;
+  label_en: string;
+  count: number;
+}
+
+export interface RecruitmentFunnelData {
+  stages: FunnelStage[];
+  rejected_count: number;
+  talent_pool_count: number;
+}
+
+export interface SourceStatItem {
+  source: string;
+  count: number;
+}
+
+export interface SourceStatsData {
+  total: number;
+  sources: SourceStatItem[];
 }
 
 export interface PositionDetail {

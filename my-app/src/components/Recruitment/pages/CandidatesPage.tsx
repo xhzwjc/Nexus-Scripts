@@ -5,8 +5,10 @@ import ReactDOM from "react-dom";
 import ReactMarkdown from "react-markdown";
 import {useVirtualizer} from "@tanstack/react-virtual";
 import {
+    ArrowRightLeft,
     Bot,
     Briefcase,
+    Calendar,
     Check,
     ChevronDown,
     ChevronUp,
@@ -18,6 +20,7 @@ import {
     Loader2,
     Mail,
     NotebookText,
+    Plus,
     RotateCcw,
     Save,
     SlidersHorizontal,
@@ -419,6 +422,15 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         batchBindPositionTitle: isZh ? "设置目标岗位" : "Set Target Position",
         batchBindPositionConfirm: isZh ? "确定" : "OK",
         batchBindPositionCancel: isZh ? "取消" : "Cancel",
+        batchUpdateStatus: isZh ? "批量变更状态" : "Batch Change Status",
+        batchUpdateStatusTitle: isZh ? "批量变更候选人状态" : "Batch Change Candidate Status",
+        batchUpdateStatusLabel: isZh ? "目标状态" : "Target Status",
+        batchUpdateStatusReason: isZh ? "变更原因（选填）" : "Reason (optional)",
+        batchUpdateStatusReasonPlaceholder: isZh ? "填写变更原因" : "Enter reason for status change",
+        batchUpdateStatusConfirm: isZh ? "确定变更" : "Confirm Change",
+        duplicateWarning: isZh ? "发现重复候选人" : "Duplicate Candidates Found",
+        duplicateWarningDesc: (count: number) => isZh ? `检测到 ${count} 位候选人的联系方式与当前候选人相同。` : `${count} candidate(s) have the same contact info.`,
+        viewDuplicate: isZh ? "查看" : "View",
         ageSuffix: isZh ? "岁" : "yo",
         cityLabel: isZh ? "城市" : "City",
         selectAllCandidates: isZh ? "全选候选人" : "Select all candidates",
@@ -478,6 +490,8 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         risks: isZh ? "风险点" : "Risks",
         dimensionScores: isZh ? "维度评分" : "Dimension Scores",
         evidence: isZh ? "证据" : "Evidence",
+        dimensionReason: isZh ? "评分依据" : "Reasoning",
+        inferredDimension: isZh ? "（推断）" : "(inferred)",
         screeningMemory: isZh ? "初筛工作记忆" : "Screening Memory",
         memorySource: isZh ? "记忆来源" : "Memory Source",
         lastScreeningTime: isZh ? "最近初筛时间" : "Last Screening Time",
@@ -491,6 +505,13 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         overrideScorePlaceholder: isZh ? "例如 88" : "e.g. 88",
         overrideReason: isZh ? "修正原因" : "Override Reason",
         overrideReasonPlaceholder: isZh ? "为什么要修正这次 AI 评分" : "Why this AI score needs adjustment",
+        hrFeedback: isZh ? "HR 反馈" : "HR Feedback",
+        hrFeedbackAgree: isZh ? "认同" : "Agree",
+        hrFeedbackDisagree: isZh ? "不认同" : "Disagree",
+        hrFeedbackNeutral: isZh ? "待定" : "Neutral",
+        hrFeedbackReason: isZh ? "反馈原因" : "Feedback Reason",
+        hrFeedbackReasonPlaceholder: isZh ? "可选，填写反馈原因" : "Optional, enter reason",
+        hrFeedbackSaved: isZh ? "HR 反馈已保存" : "HR feedback saved",
         aiAssistant: isZh ? "AI 助手" : "AI Assistant",
         assistantPackedTitle: isZh ? "对话记录已收纳到独立助手面板" : "Conversation history is grouped in the assistant panel",
         assistantPackedDescWithCount: (count: number) => (isZh ? `当前候选人已有 ${count} 条助手对话留痕。为避免详情页被聊天卡片刷满，这里改为收纳展示。` : `${count} assistant traces already exist for this candidate. To keep the detail panel readable, the conversation is grouped instead of expanded inline.`),
@@ -534,6 +555,52 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         batchHandleResults: isZh ? "批量处理当前结果" : "Batch Handle Results",
         batchHandleResultsDesc: isZh ? "可以先在左侧勾选需要处理的候选人，再执行批量初筛或批量发送简历。" : "Select candidates on the left first, then run batch screening or send resumes in batch.",
         unrecorded: isZh ? "未记录" : "Unrecorded",
+        interviewSchedules: isZh ? "面试安排" : "Interview Schedules",
+        addSchedule: isZh ? "添加面试安排" : "Add Interview Schedule",
+        scheduleRound: isZh ? "面试轮次" : "Round",
+        scheduleInterviewer: isZh ? "面试官" : "Interviewer",
+        scheduleTime: isZh ? "面试时间" : "Scheduled Time",
+        scheduleDuration: isZh ? "时长（分钟）" : "Duration (min)",
+        scheduleLocation: isZh ? "地点" : "Location",
+        scheduleMeetingLink: isZh ? "会议链接" : "Meeting Link",
+        scheduleNotes: isZh ? "备注" : "Notes",
+        scheduleStatus: isZh ? "状态" : "Status",
+        noSchedules: isZh ? "暂无面试安排" : "No interview schedules",
+        noSchedulesDesc: isZh ? "点击上方按钮添加面试安排。" : "Click the button above to add an interview schedule.",
+        deleteSchedule: isZh ? "删除" : "Delete",
+        confirmDeleteSchedule: isZh ? "确认删除此面试安排？" : "Delete this interview schedule?",
+        offers: isZh ? "Offer 管理" : "Offer Management",
+        addOffer: isZh ? "创建 Offer" : "Create Offer",
+        offerTitle: isZh ? "Offer 标题" : "Offer Title",
+        offerSalary: isZh ? "薪资" : "Salary",
+        offerDepartment: isZh ? "部门" : "Department",
+        offerEntryDate: isZh ? "入职日期" : "Entry Date",
+        offerContent: isZh ? "Offer 内容" : "Offer Content",
+        offerNotes: isZh ? "备注" : "Notes",
+        offerStatus: isZh ? "状态" : "Status",
+        noOffers: isZh ? "暂无 Offer" : "No offers",
+        noOffersDesc: isZh ? "点击上方按钮创建 Offer。" : "Click the button above to create an offer.",
+        confirmDeleteOffer: isZh ? "确认删除此 Offer？" : "Delete this offer?",
+        offerStatusDraft: isZh ? "草稿" : "Draft",
+        offerStatusSent: isZh ? "已发送" : "Sent",
+        offerStatusAccepted: isZh ? "已接受" : "Accepted",
+        offerStatusRejected: isZh ? "已拒绝" : "Rejected",
+        offerStatusCancelled: isZh ? "已撤回" : "Cancelled",
+        followUps: isZh ? "跟进记录" : "Follow-ups",
+        addFollowUp: isZh ? "添加跟进" : "Add Follow-up",
+        followUpContent: isZh ? "跟进内容" : "Content",
+        followUpContentPlaceholder: isZh ? "记录跟进内容..." : "Enter follow-up content...",
+        followUpType: isZh ? "类型" : "Type",
+        followUpTypeNote: isZh ? "备注" : "Note",
+        followUpTypeCall: isZh ? "电话" : "Call",
+        followUpTypeEmail: isZh ? "邮件" : "Email",
+        followUpTypeInterview: isZh ? "面试" : "Interview",
+        followUpTypeOther: isZh ? "其他" : "Other",
+        noFollowUps: isZh ? "暂无跟进记录" : "No follow-up records",
+        noFollowUpsDesc: isZh ? "添加跟进记录，记录与候选人的沟通和进展。" : "Add follow-up records to track communication and progress.",
+        confirmDeleteFollowUp: isZh ? "确认删除此跟进记录？" : "Delete this follow-up record?",
+        owner: isZh ? "负责人" : "Owner",
+        ownerPlaceholder: isZh ? "负责人 ID 或姓名" : "Owner ID or name",
     };
 }
 
@@ -1419,6 +1486,18 @@ type CandidatesPageProps = {
     exportCandidates: (candidateIds: number[], includeResumes?: boolean) => Promise<void>;
     requestBatchDelete: (candidateIds: number[]) => void;
     batchBindPosition: (candidateIds: number[], positionId: number | null) => Promise<void>;
+    batchUpdateStatus: (candidateIds: number[], status: string, reason: string) => Promise<void>;
+    duplicateCandidates: Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>;
+    interviewSchedules: Array<{id: number; candidate_id: number; round_name: string; interviewer_name?: string | null; scheduled_at?: string | null; duration_minutes?: number | null; location?: string | null; meeting_link?: string | null; notes?: string | null; status: string; created_at?: string | null}>;
+    createInterviewSchedule: (payload: {candidate_id: number; round_name?: string; interviewer_name?: string; scheduled_at?: string; duration_minutes?: number; location?: string; meeting_link?: string; notes?: string}) => Promise<unknown>;
+    deleteInterviewSchedule: (scheduleId: number) => Promise<void>;
+    offers: Array<{id: number; candidate_id: number; offer_title?: string | null; salary?: string | null; department?: string | null; entry_date?: string | null; offer_content?: string | null; notes?: string | null; status: string; created_at?: string | null}>;
+    createOffer: (payload: {candidate_id: number; offer_title?: string; salary?: string; department?: string; entry_date?: string; offer_content?: string; notes?: string}) => Promise<unknown>;
+    updateOffer: (offerId: number, payload: Record<string, unknown>) => Promise<unknown>;
+    deleteOffer: (offerId: number) => Promise<void>;
+    followUps: Array<{id: number; candidate_id: number; content: string; follow_up_type: string; created_by?: string | null; created_at?: string | null}>;
+    createFollowUp: (candidateId: number, content: string, followUpType?: string) => Promise<unknown>;
+    deleteFollowUp: (followUpId: number) => Promise<void>;
 };
 
 export function CandidatesPage({
@@ -1505,6 +1584,18 @@ export function CandidatesPage({
     exportCandidates,
     requestBatchDelete,
     batchBindPosition,
+    batchUpdateStatus,
+    duplicateCandidates,
+    interviewSchedules,
+    createInterviewSchedule,
+    deleteInterviewSchedule,
+    offers,
+    createOffer,
+    updateOffer,
+    deleteOffer,
+    followUps,
+    createFollowUp,
+    deleteFollowUp,
 }: CandidatesPageProps) {
     const {language} = useI18n();
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
@@ -1515,6 +1606,20 @@ export function CandidatesPage({
     const [batchBindDialogOpen, setBatchBindDialogOpen] = React.useState(false);
     const [batchBindPositionId, setBatchBindPositionId] = React.useState<string>("");
     const [batchBindSubmitting, setBatchBindSubmitting] = React.useState(false);
+    const [batchStatusDialogOpen, setBatchStatusDialogOpen] = React.useState(false);
+    const [batchStatusValue, setBatchStatusValue] = React.useState<string>("");
+    const [batchStatusReason, setBatchStatusReason] = React.useState<string>("");
+    const [batchStatusSubmitting, setBatchStatusSubmitting] = React.useState(false);
+    const [scheduleFormOpen, setScheduleFormOpen] = React.useState(false);
+    const [scheduleForm, setScheduleForm] = React.useState({round_name: "初试", interviewer_name: "", scheduled_at: "", duration_minutes: "60", location: "", meeting_link: "", notes: ""});
+    const [scheduleSubmitting, setScheduleSubmitting] = React.useState(false);
+    const [offerFormOpen, setOfferFormOpen] = React.useState(false);
+    const [offerForm, setOfferForm] = React.useState({offer_title: "", salary: "", department: "", entry_date: "", offer_content: "", notes: ""});
+    const [offerSubmitting, setOfferSubmitting] = React.useState(false);
+    const [followUpFormOpen, setFollowUpFormOpen] = React.useState(false);
+    const [followUpContent, setFollowUpContent] = React.useState("");
+    const [followUpType, setFollowUpType] = React.useState("note");
+    const [followUpSubmitting, setFollowUpSubmitting] = React.useState(false);
     const candidateDetailToolbarScrollRef = React.useRef<HTMLDivElement | null>(null);
     const candidateDetailToolbarRailRef = React.useRef<HTMLDivElement | null>(null);
     const candidateDetailToolbarSyncSourceRef = React.useRef<"viewport" | "rail" | null>(null);
@@ -1612,7 +1717,7 @@ export function CandidatesPage({
     const dragShiftRef = React.useRef(false);
     const dragContainerRectRef = React.useRef<DOMRect | null>(null);
 
-    const rectsIntersect = (r1: DOMRect, r2: DOMRect) =>
+    const rectsIntersect = (r1: {left: number; right: number; top: number; bottom: number}, r2: DOMRect) =>
         !(r2.left > r1.right || r2.right < r1.left || r2.top > r1.bottom || r2.bottom < r1.top);
 
     const updateSelectionFromDrag = React.useCallback((box: DragBox, container: HTMLDivElement) => {
@@ -1951,6 +2056,10 @@ export function CandidatesPage({
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => { setBatchBindPositionId(""); setBatchBindDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
                                     <Briefcase className="h-4 w-4"/>
                                     {tr.batchBindPosition}
+                                </Button>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => { setBatchStatusValue(""); setBatchStatusReason(""); setBatchStatusDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
+                                    <ArrowRightLeft className="h-4 w-4"/>
+                                    {tr.batchUpdateStatus}
                                 </Button>
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => void exportCandidates(selectedCandidateIds)} disabled={!selectedCandidateIds.length || exporting}>
                                     <Download className="h-4 w-4"/>
@@ -2308,6 +2417,26 @@ export function CandidatesPage({
                                         <div className="min-w-0 space-y-4 px-4 py-4">
                                     {candidateDetailPanel === "profile" ? (
                                         <>
+                                            {duplicateCandidates.length > 0 && (
+                                                <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900/80 dark:bg-amber-950/30">
+                                                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">{tr.duplicateWarning}</p>
+                                                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{tr.duplicateWarningDesc(duplicateCandidates.length)}</p>
+                                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                                        {duplicateCandidates.map((dup) => (
+                                                            <Button
+                                                                key={dup.id}
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="h-6 rounded-full border-amber-300 px-2 text-xs text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                                                                onClick={() => setSelectedCandidateId(dup.id)}
+                                                            >
+                                                                {dup.name} ({dup.candidate_code})
+                                                            </Button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
                                             <Field label={tr.baseInfo}>
                                                 <div className="grid gap-3 md:grid-cols-2">
                                                     <Input value={candidateEditor.name} onChange={(event) => setCandidateEditor((current) => ({...current, name: event.target.value}))} placeholder={tr.namePlaceholder}/>
@@ -2329,6 +2458,12 @@ export function CandidatesPage({
                                                     ))}
                                                 </NativeSelect>
                                             </Field>
+
+                                            <div className="grid gap-4 md:grid-cols-2">
+                                                <Field label={tr.owner}>
+                                                    <Input value={candidateEditor.ownerId} onChange={(event) => setCandidateEditor((current) => ({...current, ownerId: event.target.value}))} placeholder={tr.ownerPlaceholder}/>
+                                                </Field>
+                                            </div>
 
                                             <Field label={tr.tagsAndNotes}>
                                                 <div className="space-y-3">
@@ -2413,6 +2548,152 @@ export function CandidatesPage({
                                                     </div>
                                                 </div>
                                             </Field>
+
+                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.offers}</p>
+                                                    <Button size="sm" variant="outline" onClick={() => { setOfferForm({offer_title: "", salary: "", department: "", entry_date: "", offer_content: "", notes: ""}); setOfferFormOpen(!offerFormOpen); }}>
+                                                        <Plus className="h-4 w-4"/>
+                                                        {tr.addOffer}
+                                                    </Button>
+                                                </div>
+                                                {offerFormOpen && candidateDetail && (
+                                                    <div className="mt-3 space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
+                                                        <div className="grid gap-2 md:grid-cols-2">
+                                                            <Input value={offerForm.offer_title} onChange={(e) => setOfferForm((f) => ({...f, offer_title: e.target.value}))} placeholder={tr.offerTitle}/>
+                                                            <Input value={offerForm.salary} onChange={(e) => setOfferForm((f) => ({...f, salary: e.target.value}))} placeholder={tr.offerSalary}/>
+                                                            <Input value={offerForm.department} onChange={(e) => setOfferForm((f) => ({...f, department: e.target.value}))} placeholder={tr.offerDepartment}/>
+                                                            <Input type="date" value={offerForm.entry_date} onChange={(e) => setOfferForm((f) => ({...f, entry_date: e.target.value}))} placeholder={tr.offerEntryDate}/>
+                                                        </div>
+                                                        <Textarea value={offerForm.offer_content} onChange={(e) => setOfferForm((f) => ({...f, offer_content: e.target.value}))} rows={3} placeholder={tr.offerContent}/>
+                                                        <Input value={offerForm.notes} onChange={(e) => setOfferForm((f) => ({...f, notes: e.target.value}))} placeholder={tr.offerNotes}/>
+                                                        <div className="flex justify-end gap-2">
+                                                            <Button size="sm" variant="outline" onClick={() => setOfferFormOpen(false)}>{tr.batchBindPositionCancel}</Button>
+                                                            <Button size="sm" disabled={offerSubmitting} onClick={async () => {
+                                                                setOfferSubmitting(true);
+                                                                try {
+                                                                    await createOffer({
+                                                                        candidate_id: candidateDetail.candidate.id,
+                                                                        offer_title: offerForm.offer_title || undefined,
+                                                                        salary: offerForm.salary || undefined,
+                                                                        department: offerForm.department || undefined,
+                                                                        entry_date: offerForm.entry_date || undefined,
+                                                                        offer_content: offerForm.offer_content || undefined,
+                                                                        notes: offerForm.notes || undefined,
+                                                                    });
+                                                                    setOfferFormOpen(false);
+                                                                } finally {
+                                                                    setOfferSubmitting(false);
+                                                                }
+                                                            }}>
+                                                                {offerSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
+                                                                {tr.batchBindPositionConfirm}
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <div className="mt-3 space-y-2">
+                                                    {offers.length > 0 ? offers.map((offer) => {
+                                                        const statusLabels: Record<string, string> = {draft: tr.offerStatusDraft, sent: tr.offerStatusSent, accepted: tr.offerStatusAccepted, rejected: tr.offerStatusRejected, cancelled: tr.offerStatusCancelled};
+                                                        return (
+                                                            <div key={offer.id} className="rounded-xl border border-slate-200/70 px-3 py-2 dark:border-slate-800">
+                                                                <div className="flex items-start justify-between gap-2">
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{offer.offer_title || "-"}</p>
+                                                                            <Badge variant="outline" className="rounded-full text-xs">{statusLabels[offer.status] || offer.status}</Badge>
+                                                                        </div>
+                                                                        {offer.salary && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.salary}</p>}
+                                                                        {offer.department && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.department}</p>}
+                                                                        {offer.entry_date && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{offer.entry_date}</p>}
+                                                                        {offer.offer_content && <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{offer.offer_content}</p>}
+                                                                    </div>
+                                                                    <div className="flex items-center gap-1">
+                                                                        <NativeSelect
+                                                                            value={offer.status}
+                                                                            onChange={(e) => void updateOffer(offer.id, {status: e.target.value})}
+                                                                            className="h-6 text-xs"
+                                                                        >
+                                                                            <option value="draft">{tr.offerStatusDraft}</option>
+                                                                            <option value="sent">{tr.offerStatusSent}</option>
+                                                                            <option value="accepted">{tr.offerStatusAccepted}</option>
+                                                                            <option value="rejected">{tr.offerStatusRejected}</option>
+                                                                            <option value="cancelled">{tr.offerStatusCancelled}</option>
+                                                                        </NativeSelect>
+                                                                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700" onClick={() => { if (window.confirm(tr.confirmDeleteOffer)) void deleteOffer(offer.id); }}>
+                                                                            <Trash2 className="h-3.5 w-3.5"/>
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    }) : (
+                                                        <EmptyState title={tr.noOffers} description={tr.noOffersDesc}/>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.followUps}</p>
+                                                    <Button size="sm" variant="outline" onClick={() => { setFollowUpContent(""); setFollowUpType("note"); setFollowUpFormOpen(!followUpFormOpen); }}>
+                                                        <Plus className="h-4 w-4"/>
+                                                        {tr.addFollowUp}
+                                                    </Button>
+                                                </div>
+                                                {followUpFormOpen && candidateDetail && (
+                                                    <div className="mt-3 space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
+                                                        <Textarea value={followUpContent} onChange={(e) => setFollowUpContent(e.target.value)} rows={3} placeholder={tr.followUpContentPlaceholder}/>
+                                                        <div className="flex items-center gap-2">
+                                                            <NativeSelect value={followUpType} onChange={(e) => setFollowUpType(e.target.value)} className="h-8 text-xs">
+                                                                <option value="note">{tr.followUpTypeNote}</option>
+                                                                <option value="call">{tr.followUpTypeCall}</option>
+                                                                <option value="email">{tr.followUpTypeEmail}</option>
+                                                                <option value="interview">{tr.followUpTypeInterview}</option>
+                                                                <option value="other">{tr.followUpTypeOther}</option>
+                                                            </NativeSelect>
+                                                            <div className="flex-1"/>
+                                                            <Button size="sm" variant="outline" onClick={() => setFollowUpFormOpen(false)}>{tr.batchBindPositionCancel}</Button>
+                                                            <Button size="sm" disabled={followUpSubmitting || !followUpContent.trim()} onClick={async () => {
+                                                                setFollowUpSubmitting(true);
+                                                                try {
+                                                                    await createFollowUp(candidateDetail.candidate.id, followUpContent.trim(), followUpType);
+                                                                    setFollowUpFormOpen(false);
+                                                                    setFollowUpContent("");
+                                                                } finally {
+                                                                    setFollowUpSubmitting(false);
+                                                                }
+                                                            }}>
+                                                                {followUpSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
+                                                                {tr.batchBindPositionConfirm}
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <div className="mt-3 space-y-2">
+                                                    {followUps.length > 0 ? followUps.map((fu) => {
+                                                        const typeLabels: Record<string, string> = {note: tr.followUpTypeNote, call: tr.followUpTypeCall, email: tr.followUpTypeEmail, interview: tr.followUpTypeInterview, other: tr.followUpTypeOther};
+                                                        return (
+                                                            <div key={fu.id} className="rounded-xl border border-slate-200/70 px-3 py-2 dark:border-slate-800">
+                                                                <div className="flex items-start justify-between gap-2">
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <Badge variant="outline" className="rounded-full text-xs">{typeLabels[fu.follow_up_type] || fu.follow_up_type}</Badge>
+                                                                            {fu.created_at && <span className="text-xs text-slate-400 dark:text-slate-500">{formatDateTime(fu.created_at)}</span>}
+                                                                        </div>
+                                                                        <p className="mt-1 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{fu.content}</p>
+                                                                    </div>
+                                                                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700" onClick={() => { if (window.confirm(tr.confirmDeleteFollowUp)) void deleteFollowUp(fu.id); }}>
+                                                                        <Trash2 className="h-3.5 w-3.5"/>
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    }) : (
+                                                        <EmptyState title={tr.noFollowUps} description={tr.noFollowUpsDesc}/>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </>
                                     ) : null}
 
@@ -2512,12 +2793,37 @@ export function CandidatesPage({
                                                                         const scoreValue = readScoreNumberStrict(item.score);
                                                                         const maxScore = readScoreNumberStrict(item.max_score);
                                                                         const evidences = readDimensionEvidenceList(item.evidence);
+                                                                        const reason = readScoreText(item.reason);
+                                                                        const isInferred = item.is_inferred === true;
+                                                                        const percent = scoreValue !== null && maxScore !== null && maxScore > 0
+                                                                            ? Math.min(100, Math.round((scoreValue / maxScore) * 100))
+                                                                            : null;
                                                                         return (
-                                                                            <li key={`dimension-${index}`} className="rounded-xl border border-slate-200/70 px-3 py-2 dark:border-slate-800">
-                                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                                                                    {label}：{scoreValue !== null ? scoreValue : "-"} / {maxScore !== null ? maxScore : "-"}
-                                                                                </p>
-                                                                                <div className="mt-1 text-xs leading-6 text-slate-500 dark:text-slate-400">
+                                                                            <li key={`dimension-${index}`} className="rounded-xl border border-slate-200/70 px-3 py-3 dark:border-slate-800">
+                                                                                <div className="flex items-center justify-between gap-2">
+                                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                                        {label}
+                                                                                        {isInferred ? <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">{tr.inferredDimension}</span> : null}
+                                                                                    </p>
+                                                                                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                                                        {scoreValue !== null ? scoreValue : "-"} / {maxScore !== null ? maxScore : "-"}
+                                                                                    </p>
+                                                                                </div>
+                                                                                {percent !== null && (
+                                                                                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                                                                                        <div
+                                                                                            className={`h-full rounded-full transition-all ${percent >= 80 ? "bg-emerald-500" : percent >= 60 ? "bg-blue-500" : percent >= 40 ? "bg-amber-500" : "bg-rose-500"}`}
+                                                                                            style={{width: `${percent}%`}}
+                                                                                        />
+                                                                                    </div>
+                                                                                )}
+                                                                                {reason && (
+                                                                                    <div className="mt-2 text-xs leading-6 text-slate-600 dark:text-slate-300">
+                                                                                        <p className="font-medium text-slate-700 dark:text-slate-200">{tr.dimensionReason}:</p>
+                                                                                        <p className="mt-0.5 break-words">{reason}</p>
+                                                                                    </div>
+                                                                                )}
+                                                                                <div className="mt-2 text-xs leading-6 text-slate-500 dark:text-slate-400">
                                                                                     <p>{tr.evidence}:</p>
                                                                                     {evidences.length ? (
                                                                                         <ul className="mt-1 space-y-1">
@@ -2570,6 +2876,39 @@ export function CandidatesPage({
                                                     <Input value={candidateEditor.manualOverrideReason} onChange={(event) => setCandidateEditor((current) => ({...current, manualOverrideReason: event.target.value}))} placeholder={tr.overrideReasonPlaceholder}/>
                                                 </Field>
                                             </div>
+
+                                            <Field label={tr.hrFeedback}>
+                                                <div className="space-y-3">
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {[
+                                                            {value: "agree", label: tr.hrFeedbackAgree, activeClass: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"},
+                                                            {value: "disagree", label: tr.hrFeedbackDisagree, activeClass: "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300"},
+                                                            {value: "neutral", label: tr.hrFeedbackNeutral, activeClass: "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"},
+                                                        ].map((opt) => {
+                                                            const isActive = candidateEditor.hrFeedback === opt.value;
+                                                            return (
+                                                                <Button
+                                                                    key={opt.value}
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className={isActive ? opt.activeClass : ""}
+                                                                    onClick={() => setCandidateEditor((current) => ({...current, hrFeedback: isActive ? "" : opt.value}))}
+                                                                >
+                                                                    {opt.label}
+                                                                </Button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                    {candidateEditor.hrFeedback && (
+                                                        <Input
+                                                            value={candidateEditor.hrFeedbackReason}
+                                                            onChange={(event) => setCandidateEditor((current) => ({...current, hrFeedbackReason: event.target.value}))}
+                                                            placeholder={tr.hrFeedbackReasonPlaceholder}
+                                                        />
+                                                    )}
+                                                </div>
+                                            </Field>
+
                                             <Button onClick={() => void saveCandidate()} disabled={candidateSaving}>
                                                 <Save className="h-4 w-4"/>
                                                 {candidateSaving ? (language !== "en-US" ? "保存中..." : "Saving...") : tr.saveCandidateInfo}
@@ -2754,6 +3093,82 @@ export function CandidatesPage({
                                                     <EmptyState title={tr.noInterviewQuestions} description={tr.noInterviewQuestionsDesc}/>
                                                 )}
                                             </div>
+
+                                            <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.interviewSchedules}</p>
+                                                    <Button size="sm" variant="outline" onClick={() => { setScheduleForm({round_name: interviewRoundName || "初试", interviewer_name: "", scheduled_at: "", duration_minutes: "60", location: "", meeting_link: "", notes: ""}); setScheduleFormOpen(!scheduleFormOpen); }}>
+                                                        <Plus className="h-4 w-4"/>
+                                                        {tr.addSchedule}
+                                                    </Button>
+                                                </div>
+                                                {scheduleFormOpen && candidateDetail && (
+                                                    <div className="mt-3 space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
+                                                        <div className="grid gap-2 md:grid-cols-2">
+                                                            <Input value={scheduleForm.round_name} onChange={(e) => setScheduleForm((f) => ({...f, round_name: e.target.value}))} placeholder={tr.scheduleRound}/>
+                                                            <Input value={scheduleForm.interviewer_name} onChange={(e) => setScheduleForm((f) => ({...f, interviewer_name: e.target.value}))} placeholder={tr.scheduleInterviewer}/>
+                                                            <Input type="datetime-local" value={scheduleForm.scheduled_at} onChange={(e) => setScheduleForm((f) => ({...f, scheduled_at: e.target.value}))} placeholder={tr.scheduleTime}/>
+                                                            <Input type="number" value={scheduleForm.duration_minutes} onChange={(e) => setScheduleForm((f) => ({...f, duration_minutes: e.target.value}))} placeholder={tr.scheduleDuration}/>
+                                                            <Input value={scheduleForm.location} onChange={(e) => setScheduleForm((f) => ({...f, location: e.target.value}))} placeholder={tr.scheduleLocation}/>
+                                                            <Input value={scheduleForm.meeting_link} onChange={(e) => setScheduleForm((f) => ({...f, meeting_link: e.target.value}))} placeholder={tr.scheduleMeetingLink}/>
+                                                        </div>
+                                                        <Textarea value={scheduleForm.notes} onChange={(e) => setScheduleForm((f) => ({...f, notes: e.target.value}))} rows={2} placeholder={tr.scheduleNotes}/>
+                                                        <div className="flex justify-end gap-2">
+                                                            <Button size="sm" variant="outline" onClick={() => setScheduleFormOpen(false)}>{tr.batchBindPositionCancel}</Button>
+                                                            <Button size="sm" disabled={scheduleSubmitting} onClick={async () => {
+                                                                setScheduleSubmitting(true);
+                                                                try {
+                                                                    await createInterviewSchedule({
+                                                                        candidate_id: candidateDetail.candidate.id,
+                                                                        round_name: scheduleForm.round_name || undefined,
+                                                                        interviewer_name: scheduleForm.interviewer_name || undefined,
+                                                                        scheduled_at: scheduleForm.scheduled_at ? new Date(scheduleForm.scheduled_at).toISOString() : undefined,
+                                                                        duration_minutes: scheduleForm.duration_minutes ? Number(scheduleForm.duration_minutes) : undefined,
+                                                                        location: scheduleForm.location || undefined,
+                                                                        meeting_link: scheduleForm.meeting_link || undefined,
+                                                                        notes: scheduleForm.notes || undefined,
+                                                                    });
+                                                                    setScheduleFormOpen(false);
+                                                                } finally {
+                                                                    setScheduleSubmitting(false);
+                                                                }
+                                                            }}>
+                                                                {scheduleSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
+                                                                {tr.batchBindPositionConfirm}
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                <div className="mt-3 space-y-2">
+                                                    {interviewSchedules.length > 0 ? interviewSchedules.map((schedule) => (
+                                                        <div key={schedule.id} className="rounded-xl border border-slate-200/70 px-3 py-2 dark:border-slate-800">
+                                                            <div className="flex items-start justify-between gap-2">
+                                                                <div className="min-w-0 flex-1">
+                                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                                                        {schedule.round_name}
+                                                                        {schedule.interviewer_name ? ` · ${schedule.interviewer_name}` : ""}
+                                                                    </p>
+                                                                    {schedule.scheduled_at && (
+                                                                        <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                                                                            <Calendar className="h-3 w-3"/>
+                                                                            {new Date(schedule.scheduled_at).toLocaleString()}
+                                                                            {schedule.duration_minutes ? ` (${schedule.duration_minutes} min)` : ""}
+                                                                        </p>
+                                                                    )}
+                                                                    {schedule.location && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{schedule.location}</p>}
+                                                                    {schedule.meeting_link && <p className="mt-0.5 text-xs text-blue-600 dark:text-blue-400 truncate">{schedule.meeting_link}</p>}
+                                                                    {schedule.notes && <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{schedule.notes}</p>}
+                                                                </div>
+                                                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-rose-500 hover:text-rose-700" onClick={() => { if (window.confirm(tr.confirmDeleteSchedule)) void deleteInterviewSchedule(schedule.id); }}>
+                                                                    <Trash2 className="h-3.5 w-3.5"/>
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    )) : (
+                                                        <EmptyState title={tr.noSchedules} description={tr.noSchedulesDesc}/>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
                                     ) : null}
                                         </div>
@@ -2857,6 +3272,53 @@ export function CandidatesPage({
                             >
                                 {batchBindSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
                                 {tr.batchBindPositionConfirm}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={batchStatusDialogOpen} onOpenChange={setBatchStatusDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>{tr.batchUpdateStatusTitle}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-1.5">
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusLabel}</p>
+                            <NativeSelect value={batchStatusValue} onChange={(event) => setBatchStatusValue(event.target.value)}>
+                                <option value="" disabled>{language !== "en-US" ? "请选择状态" : "Select status"}</option>
+                                {Object.entries(candidateStatusLabels).map(([value, label]) => (
+                                    <option key={value} value={value}>{label}</option>
+                                ))}
+                            </NativeSelect>
+                        </div>
+                        <div className="space-y-1.5">
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusReason}</p>
+                            <Textarea
+                                value={batchStatusReason}
+                                onChange={(event) => setBatchStatusReason(event.target.value)}
+                                rows={3}
+                                placeholder={tr.batchUpdateStatusReasonPlaceholder}
+                            />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setBatchStatusDialogOpen(false)}>
+                                {tr.batchBindPositionCancel}
+                            </Button>
+                            <Button
+                                disabled={batchStatusSubmitting || !batchStatusValue}
+                                onClick={async () => {
+                                    setBatchStatusSubmitting(true);
+                                    try {
+                                        await batchUpdateStatus(selectedCandidateIds, batchStatusValue, batchStatusReason);
+                                        setBatchStatusDialogOpen(false);
+                                    } finally {
+                                        setBatchStatusSubmitting(false);
+                                    }
+                                }}
+                            >
+                                {batchStatusSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
+                                {tr.batchUpdateStatusConfirm}
                             </Button>
                         </div>
                     </div>

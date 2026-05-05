@@ -352,6 +352,9 @@ export function emptyCandidateEditor(): CandidateEditorState {
         tagsText: "",
         manualOverrideScore: "",
         manualOverrideReason: "",
+        hrFeedback: "",
+        hrFeedbackReason: "",
+        ownerId: "",
         positionId: "",
     };
 }

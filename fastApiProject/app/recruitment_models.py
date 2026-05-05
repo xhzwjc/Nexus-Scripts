@@ -83,6 +83,7 @@ class RecruitmentCandidate(Base):
     latest_resume_file_id = Column(Integer, index=True)
     latest_parse_result_id = Column(Integer, index=True)
     latest_score_id = Column(Integer, index=True)
+    owner_id = Column(String(100), index=True)
     created_by = Column(String(100))
     updated_by = Column(String(100))
     deleted = Column(Boolean, default=False, nullable=False, index=True)
@@ -143,6 +144,8 @@ class RecruitmentCandidateScore(Base):
     suggested_status = Column(String(50), index=True)
     manual_override_score = Column(Float)
     manual_override_reason = Column(Text)
+    hr_feedback = Column(String(50))
+    hr_feedback_reason = Column(Text)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -436,6 +439,59 @@ class RecruitmentInterviewResult(Base):
     analysis_json = Column(Text)
     final_recommendation = Column(String(80))
     created_by = Column(String(100))
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class RecruitmentInterviewSchedule(Base):
+    __tablename__ = "recruitment_interview_schedules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    candidate_id = Column(Integer, nullable=False, index=True)
+    position_id = Column(Integer, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
+    round_name = Column(String(80), default="初试", nullable=False)
+    interviewer_name = Column(String(120))
+    scheduled_at = Column(DateTime)
+    duration_minutes = Column(Integer, default=60)
+    location = Column(String(255))
+    meeting_link = Column(String(500))
+    notes = Column(Text)
+    status = Column(String(50), default="scheduled", nullable=False, index=True)
+    created_by = Column(String(100))
+    updated_by = Column(String(100))
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class RecruitmentFollowUp(Base):
+    __tablename__ = "recruitment_follow_ups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    candidate_id = Column(Integer, nullable=False, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
+    content = Column(Text, nullable=False)
+    follow_up_type = Column(String(50), default="note", nullable=False, index=True)
+    created_by = Column(String(100))
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class RecruitmentOffer(Base):
+    __tablename__ = "recruitment_offers"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    candidate_id = Column(Integer, nullable=False, index=True)
+    position_id = Column(Integer, index=True)
+    org_code = Column(String(100), default="group", nullable=False, index=True)
+    offer_title = Column(String(200))
+    salary = Column(String(120))
+    department = Column(String(120))
+    entry_date = Column(String(50))
+    offer_content = Column(Text)
+    notes = Column(Text)
+    status = Column(String(50), default="draft", nullable=False, index=True)
+    created_by = Column(String(100))
+    updated_by = Column(String(100))
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

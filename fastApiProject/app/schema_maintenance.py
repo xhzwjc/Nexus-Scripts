@@ -11,9 +11,12 @@ from .rbac_catalog import PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
 from .permission_governance import ROOT_ORG_CODE
 from .rbac_models import ScriptHubOrganization, ScriptHubPermission, ScriptHubRole, ScriptHubRolePermission
 from .recruitment_models import (
+    RecruitmentFollowUp,
+    RecruitmentInterviewSchedule,
     RecruitmentLLMConfig,
     RecruitmentMailRecipient,
     RecruitmentMailSenderConfig,
+    RecruitmentOffer,
     RecruitmentPosition,
     RecruitmentPositionSkillLink,
     RecruitmentResumeMailDispatch,
@@ -679,6 +682,20 @@ def ensure_recruitment_schema() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN city VARCHAR(100) NULL"))
             logger.info("Added recruitment_candidates.city column")
+        if "owner_id" not in candidate_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN owner_id VARCHAR(100) NULL"))
+            logger.info("Added recruitment_candidates.owner_id column")
+
+        score_columns = {col["name"] for col in inspector.get_columns("recruitment_candidate_scores")}
+        if "hr_feedback" not in score_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_candidate_scores ADD COLUMN hr_feedback VARCHAR(50) NULL"))
+            logger.info("Added recruitment_candidate_scores.hr_feedback column")
+        if "hr_feedback_reason" not in score_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_candidate_scores ADD COLUMN hr_feedback_reason TEXT NULL"))
+            logger.info("Added recruitment_candidate_scores.hr_feedback_reason column")
 
         db = SessionLocal()
         try:

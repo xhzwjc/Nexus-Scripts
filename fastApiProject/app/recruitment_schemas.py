@@ -90,6 +90,9 @@ class CandidateUpdateRequest(BaseModel):
     tags: Optional[List[str]] = None
     manual_override_score: Optional[float] = Field(None, ge=0, le=100)
     manual_override_reason: Optional[str] = None
+    hr_feedback: Optional[str] = None
+    hr_feedback_reason: Optional[str] = None
+    owner_id: Optional[str] = None
 
 
 class CandidateStatusUpdateRequest(BaseModel):
@@ -109,6 +112,12 @@ class CandidateBatchUpdatePositionRequest(BaseModel):
 
 class CandidateBatchDeleteRequest(BaseModel):
     candidate_ids: List[int] = Field(..., min_length=1)
+
+
+class CandidateBatchStatusUpdateRequest(BaseModel):
+    candidate_ids: List[int] = Field(..., min_length=1)
+    status: str = Field(..., min_length=1, max_length=50)
+    reason: Optional[str] = None
 
 
 class TriggerCandidateProcessRequest(BaseModel):
@@ -185,6 +194,56 @@ class InterviewResultCreateRequest(BaseModel):
     round_name: str = Field("初试", min_length=1, max_length=80)
     notes_text: Optional[str] = None
     transcript_text: Optional[str] = None
+
+
+class InterviewScheduleCreateRequest(BaseModel):
+    candidate_id: int = Field(..., ge=1)
+    position_id: Optional[int] = None
+    round_name: str = Field("初试", min_length=1, max_length=80)
+    interviewer_name: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    duration_minutes: int = Field(60, ge=1, le=480)
+    location: Optional[str] = None
+    meeting_link: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class InterviewScheduleUpdateRequest(BaseModel):
+    round_name: Optional[str] = Field(None, min_length=1, max_length=80)
+    interviewer_name: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    duration_minutes: Optional[int] = Field(None, ge=1, le=480)
+    location: Optional[str] = None
+    meeting_link: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
+
+
+class FollowUpCreateRequest(BaseModel):
+    candidate_id: int = Field(..., ge=1)
+    content: str = Field(..., min_length=1)
+    follow_up_type: str = Field("note", max_length=50)
+
+
+class OfferCreateRequest(BaseModel):
+    candidate_id: int = Field(..., ge=1)
+    position_id: Optional[int] = None
+    offer_title: Optional[str] = None
+    salary: Optional[str] = None
+    department: Optional[str] = None
+    entry_date: Optional[str] = None
+    offer_content: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class OfferUpdateRequest(BaseModel):
+    offer_title: Optional[str] = None
+    salary: Optional[str] = None
+    department: Optional[str] = None
+    entry_date: Optional[str] = None
+    offer_content: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
 
 
 class RecruitmentChatContextUpdateRequest(BaseModel):

@@ -14,7 +14,7 @@ import {
     Wand2,
 } from "lucide-react";
 
-import type {AITaskLog, CandidateSummary, DashboardData} from "@/lib/recruitment-api";
+import type {AITaskLog, CandidateSummary, DashboardData, RecruitmentFunnelData, SourceStatsData} from "@/lib/recruitment-api";
 import {useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
 import {Badge} from "@/components/ui/badge";
@@ -53,6 +53,8 @@ type WorkspacePageProps = {
     todoSummary: TodoSummary;
     recentCandidates: CandidateSummary[];
     recentLogs: AITaskLog[];
+    funnelData: RecruitmentFunnelData | null;
+    sourceStatsData: SourceStatsData | null;
     panelClass: string;
     assistantOpen: boolean;
     setActivePage: (page: RecruitmentPage) => void;
@@ -72,6 +74,8 @@ export function WorkspacePage({
     todoSummary,
     recentCandidates,
     recentLogs,
+    funnelData,
+    sourceStatsData,
     panelClass,
     assistantOpen,
     setActivePage,
@@ -131,6 +135,18 @@ export function WorkspacePage({
         statusDistributionDesc: isZh ? "帮助招聘团队快速判断流程积压位置。" : "Helps the team spot where the funnel is piling up.",
         noStats: isZh ? "暂无统计" : "No Stats Yet",
         noStatsDesc: isZh ? "候选人进入系统后，这里会展示各状态的人数分布。" : "Candidate counts by status will appear here once data starts coming in.",
+        recruitmentFunnel: isZh ? "招聘漏斗" : "Recruitment Funnel",
+        recruitmentFunnelDesc: isZh ? "从简历到入职的全流程转化情况。" : "Full pipeline conversion from resume to hire.",
+        rejected: isZh ? "已淘汰" : "Rejected",
+        talentPool: isZh ? "人才库" : "Talent Pool",
+        noFunnel: isZh ? "暂无漏斗数据" : "No Funnel Data",
+        noFunnelDesc: isZh ? "候选人进入系统后，这里会展示招聘漏斗。" : "The recruitment funnel will appear here once candidates are in the system.",
+        sourceDistribution: isZh ? "候选人来源分布" : "Candidate Source Distribution",
+        sourceDistributionDesc: isZh ? "各渠道来源的候选人数量统计。" : "Candidate counts by source channel.",
+        noSourceStats: isZh ? "暂无来源数据" : "No Source Data",
+        noSourceStatsDesc: isZh ? "候选人进入系统后，这里会展示来源分布。" : "Source distribution will appear here once candidates are in the system.",
+        sourceUnknown: isZh ? "未知来源" : "Unknown",
+        sourceManualUpload: isZh ? "手动上传" : "Manual Upload",
     }), [isZh]);
 
     return (
@@ -334,6 +350,106 @@ export function WorkspacePage({
                             )) : (
                                 <EmptyState title={tr.noStats}
                                             description={tr.noStatsDesc}/>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden xl:h-[660px] 2xl:h-[708px]")}>
+                        <CardHeader className="shrink-0">
+                            <CardTitle className="text-lg">{tr.recruitmentFunnel}</CardTitle>
+                            <CardDescription>{tr.recruitmentFunnelDesc}</CardDescription>
+                        </CardHeader>
+                        <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 space-y-2">
+                            {funnelData?.stages?.length ? (
+                                <div className="space-y-2">
+                                    {funnelData.stages.map((stage, index) => {
+                                        const maxCount = funnelData.stages[0]?.count || 1;
+                                        const widthPercent = maxCount > 0 ? Math.max(8, (stage.count / maxCount) * 100) : 8;
+                                        const label = isZh ? stage.label_zh : stage.label_en;
+                                        const conversionRate = index > 0 && funnelData.stages[index - 1].count > 0
+                                            ? ((stage.count / funnelData.stages[index - 1].count) * 100).toFixed(1)
+                                            : null;
+                                        return (
+                                            <div key={stage.key} className="space-y-1">
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <span className="font-medium text-slate-900 dark:text-slate-100">{label}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        {conversionRate && (
+                                                            <span className="text-xs text-slate-400 dark:text-slate-500">{conversionRate}%</span>
+                                                        )}
+                                                        <span className="font-semibold text-slate-900 dark:text-slate-100">{stage.count}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                    <div
+                                                        className="h-full rounded-full bg-gradient-to-r from-sky-500 to-blue-600 transition-all duration-500"
+                                                        style={{width: `${widthPercent}%`}}
+                                                    />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    {(funnelData.rejected_count > 0 || funnelData.talent_pool_count > 0) && (
+                                        <div className="mt-3 flex flex-wrap gap-3 border-t border-slate-200/80 pt-3 dark:border-slate-800">
+                                            {funnelData.rejected_count > 0 && (
+                                                <div className="flex items-center gap-2 text-sm">
+                                                    <span className="text-slate-500 dark:text-slate-400">{tr.rejected}:</span>
+                                                    <span className="font-medium text-rose-600 dark:text-rose-400">{funnelData.rejected_count}</span>
+                                                </div>
+                                            )}
+                                            {funnelData.talent_pool_count > 0 && (
+                                                <div className="flex items-center gap-2 text-sm">
+                                                    <span className="text-slate-500 dark:text-slate-400">{tr.talentPool}:</span>
+                                                    <span className="font-medium text-amber-600 dark:text-amber-400">{funnelData.talent_pool_count}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <EmptyState title={tr.noFunnel} description={tr.noFunnelDesc}/>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    <Card className={cn(panelClass, "flex min-h-0 flex-col overflow-hidden xl:h-[660px] 2xl:h-[708px]")}>
+                        <CardHeader className="shrink-0">
+                            <CardTitle className="text-lg">{tr.sourceDistribution}</CardTitle>
+                            <CardDescription>{tr.sourceDistributionDesc}</CardDescription>
+                        </CardHeader>
+                        <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 space-y-3">
+                            {sourceStatsData?.sources?.length ? (
+                                <div className="space-y-2">
+                                    {sourceStatsData.sources.map((item) => {
+                                        const maxCount = sourceStatsData.sources[0]?.count || 1;
+                                        const widthPercent = maxCount > 0 ? Math.max(8, (item.count / maxCount) * 100) : 8;
+                                        const label = item.source === "manual_upload" ? tr.sourceManualUpload
+                                            : item.source === "unknown" ? tr.sourceUnknown
+                                            : item.source;
+                                        return (
+                                            <div key={item.source} className="space-y-1">
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <span className="font-medium text-slate-900 dark:text-slate-100">{label}</span>
+                                                    <span className="font-semibold text-slate-900 dark:text-slate-100">{item.count}</span>
+                                                </div>
+                                                <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                    <div
+                                                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 transition-all duration-500"
+                                                        style={{width: `${widthPercent}%`}}
+                                                    />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    <div className="mt-2 border-t border-slate-200/80 pt-2 dark:border-slate-800">
+                                        <div className="flex items-center justify-between text-sm">
+                                            <span className="text-slate-500 dark:text-slate-400">{isZh ? "总计" : "Total"}</span>
+                                            <span className="font-semibold text-slate-900 dark:text-slate-100">{sourceStatsData.total}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <EmptyState title={tr.noSourceStats} description={tr.noSourceStatsDesc}/>
                             )}
                         </CardContent>
                     </Card>

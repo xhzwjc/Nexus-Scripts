@@ -42,6 +42,9 @@ from ..recruitment_models import (
     RecruitmentChatContextMemory,
     RecruitmentInterviewResult,
     RecruitmentInterviewQuestion,
+    RecruitmentInterviewSchedule,
+    RecruitmentFollowUp,
+    RecruitmentOffer,
     RecruitmentJDVersion,
     RecruitmentLLMConfig,
     RecruitmentMailRecipient,
@@ -4852,7 +4855,7 @@ class RecruitmentService:
             # rate_limited 不发 task_completed，任务会自动重试，前端不应刷新列表
             if row.status == "rate_limited":
                 return
-            is_terminal = row.status in ("success", "failed", "cancelled", "fallback")
+            is_terminal = row.status in ("success", "failed", "cancelled", "fallback", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "upstream_timeout")
             event_type = "task_completed" if is_terminal else "task_progress"
             payload = {
                 "task_id": row.id,
@@ -7545,6 +7548,8 @@ class RecruitmentService:
                 "validation_warnings": _normalize_score_warning_items(debug_payload.get("validation_warnings"), limit=8),
                 "manual_override_score": row.manual_override_score,
                 "manual_override_reason": row.manual_override_reason,
+                "hr_feedback": row.hr_feedback,
+                "hr_feedback_reason": row.hr_feedback_reason,
                 "created_at": isoformat_or_none(row.created_at),
                 "updated_at": isoformat_or_none(row.updated_at),
             }
@@ -7590,6 +7595,8 @@ class RecruitmentService:
             "dimensions": sanitize_dimensions(compatibility_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
             "manual_override_score": row.manual_override_score,
             "manual_override_reason": row.manual_override_reason,
+            "hr_feedback": row.hr_feedback,
+            "hr_feedback_reason": row.hr_feedback_reason,
             "created_at": isoformat_or_none(row.created_at),
             "updated_at": isoformat_or_none(row.updated_at),
         }
@@ -7810,7 +7817,7 @@ class RecruitmentService:
         position_screening_skill_rows = self._get_position_task_skill_rows(position.id, "screening") if position and self._is_business_row_visible(position) else []
         position_interview_skill_rows = self._get_position_task_skill_rows(position.id, "interview") if position and self._is_business_row_visible(position) else []
         position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
-        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "owner_id": row.owner_id, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _get_org_and_descendant_codes(self, org_code: str) -> List[str]:
         """Get all org codes that are descendants of the given org (including the org itself)."""
@@ -7906,6 +7913,72 @@ class RecruitmentService:
             "status_counts": status_counts,
             "today_total": today_total,
             "today_status_counts": today_status_counts,
+        }
+
+    def get_recruitment_funnel(self, position_id: Optional[int] = None, org_code: Optional[str] = None) -> Dict[str, Any]:
+        """Recruitment funnel stats: counts grouped by pipeline stage."""
+        from sqlalchemy import func as sa_func
+
+        base_q = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False))
+        if org_code:
+            codes = self._get_org_and_descendant_codes(org_code)
+            base_q = base_q.filter(RecruitmentCandidate.org_code.in_(codes))
+        else:
+            base_q = self._apply_business_org_filter(base_q, RecruitmentCandidate)
+        if position_id:
+            base_q = base_q.filter(RecruitmentCandidate.position_id == position_id)
+
+        def _count(statuses: List[str]) -> int:
+            return base_q.filter(RecruitmentCandidate.status.in_(statuses)).count()
+
+        stages = [
+            {"key": "total", "label_zh": "全部候选人", "label_en": "All Candidates", "count": base_q.count()},
+            {"key": "new_or_pending", "label_zh": "待筛选", "label_en": "Pending Screening", "count": _count(["new_imported", "pending_screening"])},
+            {"key": "screening_passed", "label_zh": "初筛通过", "label_en": "Screening Passed", "count": _count(["screening_passed"])},
+            {"key": "interview", "label_zh": "面试阶段", "label_en": "Interview Stage", "count": _count(["pending_interview", "interview_passed"])},
+            {"key": "offer", "label_zh": "Offer 阶段", "label_en": "Offer Stage", "count": _count(["pending_offer", "offer_sent"])},
+            {"key": "hired", "label_zh": "已入职", "label_en": "Hired", "count": _count(["hired"])},
+        ]
+        rejected_count = _count(["screening_failed", "screening_rejected", "interview_rejected"])
+        talent_pool_count = _count(["talent_pool"])
+
+        return {
+            "stages": stages,
+            "rejected_count": rejected_count,
+            "talent_pool_count": talent_pool_count,
+        }
+
+    def get_source_stats(self, position_id: Optional[int] = None, org_code: Optional[str] = None) -> Dict[str, Any]:
+        """Candidate count grouped by source channel."""
+        from sqlalchemy import func as sa_func
+
+        base_q = (
+            self.db.query(
+                RecruitmentCandidate.source,
+                sa_func.count(RecruitmentCandidate.id).label("cnt"),
+            )
+            .filter(RecruitmentCandidate.deleted.is_(False))
+        )
+        if org_code:
+            codes = self._get_org_and_descendant_codes(org_code)
+            base_q = base_q.filter(RecruitmentCandidate.org_code.in_(codes))
+        else:
+            base_q = self._apply_business_org_filter(base_q, RecruitmentCandidate)
+        if position_id:
+            base_q = base_q.filter(RecruitmentCandidate.position_id == position_id)
+        rows = base_q.group_by(RecruitmentCandidate.source).all()
+
+        source_counts: List[Dict[str, Any]] = []
+        total = 0
+        for source_val, cnt in rows:
+            label = source_val or "unknown"
+            source_counts.append({"source": label, "count": cnt})
+            total += cnt
+        source_counts.sort(key=lambda x: x["count"], reverse=True)
+
+        return {
+            "total": total,
+            "sources": source_counts,
         }
 
     def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None) -> Dict[str, Any]:
@@ -8057,19 +8130,24 @@ class RecruitmentService:
                     candidate.org_code = next_org_code
             else:
                 candidate.position_id = None
-        for field in ["name", "phone", "email", "current_company", "years_of_experience", "education", "age", "city", "notes"]:
+        for field in ["name", "phone", "email", "current_company", "years_of_experience", "education", "age", "city", "notes", "owner_id"]:
             if field in payload:
                 setattr(candidate, field, payload.get(field))
         if "tags" in payload:
             candidate.tags_json = json_dumps_safe(payload.get("tags") or [])
         candidate.updated_by = actor_id
-        if ("manual_override_score" in payload or "manual_override_reason" in payload) and candidate.latest_score_id:
+        _score_related_keys = {"manual_override_score", "manual_override_reason", "hr_feedback", "hr_feedback_reason"}
+        if _score_related_keys & set(payload) and candidate.latest_score_id:
             score_row = self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == candidate.latest_score_id).first()
             if score_row:
                 if "manual_override_score" in payload:
                     score_row.manual_override_score = payload.get("manual_override_score")
                 if "manual_override_reason" in payload:
                     score_row.manual_override_reason = payload.get("manual_override_reason")
+                if "hr_feedback" in payload:
+                    score_row.hr_feedback = payload.get("hr_feedback")
+                if "hr_feedback_reason" in payload:
+                    score_row.hr_feedback_reason = payload.get("hr_feedback_reason")
                 self.db.add(score_row)
         self.db.add(candidate)
         self.db.commit()
@@ -8103,6 +8181,233 @@ class RecruitmentService:
             updated += 1
         self.db.commit()
         return {"updated_count": updated, "candidate_ids": candidate_ids, "position_id": position_id}
+
+    def batch_update_candidates_status(self, candidate_ids: List[int], status: str, reason: str, actor_id: str) -> Dict[str, Any]:
+        updated = 0
+        for candidate_id in candidate_ids:
+            try:
+                candidate = self._get_candidate(candidate_id)
+            except ValueError:
+                continue
+            self._create_status_history(candidate, status, reason, actor_id, "manual")
+            self.db.add(candidate)
+            updated += 1
+        self.db.commit()
+        return {"updated_count": updated, "candidate_ids": candidate_ids, "status": status}
+
+    def check_candidate_duplicates(self, phone: Optional[str] = None, email: Optional[str] = None, exclude_candidate_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        if not phone and not email:
+            return []
+        query = self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False))
+        if exclude_candidate_id:
+            query = query.filter(RecruitmentCandidate.id != exclude_candidate_id)
+        from sqlalchemy import or_, func
+        conditions = []
+        normalized_phone = (phone or "").strip()
+        normalized_email = (email or "").strip().lower()
+        if normalized_phone:
+            conditions.append(func.trim(RecruitmentCandidate.phone) == normalized_phone)
+        if normalized_email:
+            conditions.append(func.lower(func.trim(RecruitmentCandidate.email)) == normalized_email)
+        if not conditions:
+            return []
+        rows = query.filter(or_(*conditions)).all()
+        visible = [r for r in rows if self._is_business_row_visible(r)]
+        return [{"id": r.id, "candidate_code": r.candidate_code, "name": r.name, "phone": r.phone, "email": r.email, "position_id": r.position_id, "status": r.status, "created_at": isoformat_or_none(r.created_at)} for r in visible[:20]]
+
+    def _serialize_interview_schedule(self, row: RecruitmentInterviewSchedule) -> Dict[str, Any]:
+        return {
+            "id": row.id,
+            "candidate_id": row.candidate_id,
+            "position_id": row.position_id,
+            "org_code": normalize_org_code(getattr(row, "org_code", None)),
+            "round_name": row.round_name,
+            "interviewer_name": row.interviewer_name,
+            "scheduled_at": isoformat_or_none(row.scheduled_at),
+            "duration_minutes": row.duration_minutes,
+            "location": row.location,
+            "meeting_link": row.meeting_link,
+            "notes": row.notes,
+            "status": row.status,
+            "created_by": row.created_by,
+            "created_at": isoformat_or_none(row.created_at),
+            "updated_at": isoformat_or_none(row.updated_at),
+        }
+
+    def list_interview_schedules(self, candidate_id: int) -> List[Dict[str, Any]]:
+        self._get_candidate(candidate_id)
+        rows = self.db.query(RecruitmentInterviewSchedule).filter(
+            RecruitmentInterviewSchedule.candidate_id == candidate_id,
+        ).order_by(RecruitmentInterviewSchedule.scheduled_at.desc().nullslast(), RecruitmentInterviewSchedule.id.desc()).all()
+        return [self._serialize_interview_schedule(r) for r in rows]
+
+    def create_interview_schedule(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
+        candidate = self._get_candidate(payload["candidate_id"])
+        org_code = normalize_org_code(getattr(candidate, "org_code", None))
+        scheduled_at = None
+        if payload.get("scheduled_at"):
+            from datetime import datetime as _dt
+            try:
+                scheduled_at = _dt.fromisoformat(payload["scheduled_at"])
+            except (ValueError, TypeError):
+                pass
+        row = RecruitmentInterviewSchedule(
+            candidate_id=candidate.id,
+            position_id=payload.get("position_id") or candidate.position_id,
+            org_code=org_code,
+            round_name=payload.get("round_name") or "初试",
+            interviewer_name=payload.get("interviewer_name"),
+            scheduled_at=scheduled_at,
+            duration_minutes=payload.get("duration_minutes") or 60,
+            location=payload.get("location"),
+            meeting_link=payload.get("meeting_link"),
+            notes=payload.get("notes"),
+            status="scheduled",
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return self._serialize_interview_schedule(row)
+
+    def update_interview_schedule(self, schedule_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
+        row = self.db.query(RecruitmentInterviewSchedule).filter(RecruitmentInterviewSchedule.id == schedule_id).first()
+        if not row:
+            raise ValueError(f"面试安排 ID={schedule_id} 不存在")
+        self._assert_business_row_visible(row)
+        if "scheduled_at" in payload:
+            from datetime import datetime as _dt
+            try:
+                row.scheduled_at = _dt.fromisoformat(payload["scheduled_at"]) if payload["scheduled_at"] else None
+            except (ValueError, TypeError):
+                pass
+        for field in ["round_name", "interviewer_name", "duration_minutes", "location", "meeting_link", "notes", "status"]:
+            if field in payload:
+                setattr(row, field, payload[field])
+        row.updated_by = actor_id
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return self._serialize_interview_schedule(row)
+
+    def delete_interview_schedule(self, schedule_id: int, actor_id: str) -> None:
+        row = self.db.query(RecruitmentInterviewSchedule).filter(RecruitmentInterviewSchedule.id == schedule_id).first()
+        if not row:
+            raise ValueError(f"面试安排 ID={schedule_id} 不存在")
+        self._assert_business_row_visible(row)
+        self.db.delete(row)
+        self.db.commit()
+
+    def _serialize_follow_up(self, row: RecruitmentFollowUp) -> Dict[str, Any]:
+        return {
+            "id": row.id,
+            "candidate_id": row.candidate_id,
+            "org_code": normalize_org_code(getattr(row, "org_code", None)),
+            "content": row.content,
+            "follow_up_type": row.follow_up_type,
+            "created_by": row.created_by,
+            "created_at": isoformat_or_none(row.created_at),
+        }
+
+    def list_follow_ups(self, candidate_id: int) -> List[Dict[str, Any]]:
+        self._get_candidate(candidate_id)
+        rows = self.db.query(RecruitmentFollowUp).filter(
+            RecruitmentFollowUp.candidate_id == candidate_id,
+        ).order_by(RecruitmentFollowUp.created_at.desc()).all()
+        return [self._serialize_follow_up(r) for r in rows]
+
+    def create_follow_up(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
+        candidate = self._get_candidate(payload["candidate_id"])
+        org_code = normalize_org_code(getattr(candidate, "org_code", None))
+        row = RecruitmentFollowUp(
+            candidate_id=candidate.id,
+            org_code=org_code,
+            content=payload["content"],
+            follow_up_type=payload.get("follow_up_type") or "note",
+            created_by=actor_id,
+        )
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return self._serialize_follow_up(row)
+
+    def delete_follow_up(self, follow_up_id: int, actor_id: str) -> None:
+        row = self.db.query(RecruitmentFollowUp).filter(RecruitmentFollowUp.id == follow_up_id).first()
+        if not row:
+            raise ValueError(f"跟进记录 ID={follow_up_id} 不存在")
+        self._assert_business_row_visible(row)
+        self.db.delete(row)
+        self.db.commit()
+
+    def _serialize_offer(self, row: RecruitmentOffer) -> Dict[str, Any]:
+        return {
+            "id": row.id,
+            "candidate_id": row.candidate_id,
+            "position_id": row.position_id,
+            "org_code": normalize_org_code(getattr(row, "org_code", None)),
+            "offer_title": row.offer_title,
+            "salary": row.salary,
+            "department": row.department,
+            "entry_date": row.entry_date,
+            "offer_content": row.offer_content,
+            "notes": row.notes,
+            "status": row.status,
+            "created_by": row.created_by,
+            "created_at": isoformat_or_none(row.created_at),
+            "updated_at": isoformat_or_none(row.updated_at),
+        }
+
+    def list_offers(self, candidate_id: int) -> List[Dict[str, Any]]:
+        self._get_candidate(candidate_id)
+        rows = self.db.query(RecruitmentOffer).filter(
+            RecruitmentOffer.candidate_id == candidate_id,
+        ).order_by(RecruitmentOffer.created_at.desc()).all()
+        return [self._serialize_offer(r) for r in rows]
+
+    def create_offer(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
+        candidate = self._get_candidate(payload["candidate_id"])
+        org_code = normalize_org_code(getattr(candidate, "org_code", None))
+        row = RecruitmentOffer(
+            candidate_id=candidate.id,
+            position_id=payload.get("position_id") or candidate.position_id,
+            org_code=org_code,
+            offer_title=payload.get("offer_title"),
+            salary=payload.get("salary"),
+            department=payload.get("department"),
+            entry_date=payload.get("entry_date"),
+            offer_content=payload.get("offer_content"),
+            notes=payload.get("notes"),
+            status="draft",
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return self._serialize_offer(row)
+
+    def update_offer(self, offer_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
+        row = self.db.query(RecruitmentOffer).filter(RecruitmentOffer.id == offer_id).first()
+        if not row:
+            raise ValueError(f"Offer ID={offer_id} 不存在")
+        self._assert_business_row_visible(row)
+        for field in ["offer_title", "salary", "department", "entry_date", "offer_content", "notes", "status"]:
+            if field in payload:
+                setattr(row, field, payload[field])
+        row.updated_by = actor_id
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return self._serialize_offer(row)
+
+    def delete_offer(self, offer_id: int, actor_id: str) -> None:
+        row = self.db.query(RecruitmentOffer).filter(RecruitmentOffer.id == offer_id).first()
+        if not row:
+            raise ValueError(f"Offer ID={offer_id} 不存在")
+        self._assert_business_row_visible(row)
+        self.db.delete(row)
+        self.db.commit()
 
     def update_candidate_status(self, candidate_id: int, status: str, reason: str, actor_id: str) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)

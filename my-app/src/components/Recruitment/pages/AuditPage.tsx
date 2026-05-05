@@ -918,7 +918,7 @@ export function AuditPage({
                                                                             : "hover:bg-slate-50 dark:hover:bg-slate-900"
                                                                     )}
                                                                     onClick={() => {
-                                                                        const viewport = auditListScrollRef.current;
+                                                                        const viewport = auditListViewportEl;
                                                                         const currentScrollTop = viewport?.scrollTop ?? 0;
                                                                         setSelectedLogId(log.id);
                                                                         requestAnimationFrame(() => {

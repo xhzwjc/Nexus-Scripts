@@ -22,6 +22,7 @@ from ..database import SessionLocal, get_db
 from ..permission_governance import expand_permission_aliases
 from ..recruitment_schemas import (
     CandidateBatchDeleteRequest,
+    CandidateBatchStatusUpdateRequest,
     CandidateBatchUpdatePositionRequest,
     CandidateExportRequest,
     CandidateScreenBatchCancelRequest,
@@ -31,7 +32,12 @@ from ..recruitment_schemas import (
     CandidateScreenRequest,
     CandidateUpdateRequest,
     InterviewQuestionGenerateRequest,
+    InterviewScheduleCreateRequest,
+    InterviewScheduleUpdateRequest,
+    FollowUpCreateRequest,
     JDGenerateRequest,
+    OfferCreateRequest,
+    OfferUpdateRequest,
     PositionCreateRequest,
     PositionUpdateRequest,
     PublishTaskCreateRequest,
@@ -356,6 +362,18 @@ async def get_candidate_stats(position_id: Optional[int] = Query(None), org_code
     return {"success": True, "data": stats, "request_id": str(uuid.uuid4())}
 
 
+@recruitment_router.get("/candidates/funnel")
+async def get_recruitment_funnel(position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    funnel = service.get_recruitment_funnel(position_id=position_id, org_code=org_code)
+    return {"success": True, "data": funnel, "request_id": str(uuid.uuid4())}
+
+
+@recruitment_router.get("/candidates/source-stats")
+async def get_source_stats(position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    stats = service.get_source_stats(position_id=position_id, org_code=org_code)
+    return {"success": True, "data": stats, "request_id": str(uuid.uuid4())}
+
+
 @recruitment_router.get("/candidates")
 async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), limit: int = Query(0), offset: int = Query(0), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     result = service.list_candidates(query=query, status=status, position_id=position_id, tag=tag, limit=limit, offset=offset, org_code=org_code)
@@ -389,6 +407,18 @@ async def export_candidates(payload: CandidateExportRequest, _session: Dict[str,
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.get("/candidates/check-duplicates")
+async def check_candidate_duplicates(
+    phone: Optional[str] = Query(None),
+    email: Optional[str] = Query(None),
+    exclude_candidate_id: Optional[int] = Query(None),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    duplicates = service.check_candidate_duplicates(phone=phone, email=email, exclude_candidate_id=exclude_candidate_id)
+    return {"success": True, "data": duplicates}
 
 
 @recruitment_router.get("/candidates/{candidate_id}")
@@ -465,6 +495,37 @@ async def batch_update_candidates_position(
             target_type="recruitment-candidate",
             target_code="batch",
             details={"position_id": payload.position_id, "candidate_ids": payload.candidate_ids},
+        )
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.post("/candidates/batch-update-status")
+async def batch_update_candidates_status(
+    http_request: Request,
+    payload: CandidateBatchStatusUpdateRequest,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service),
+):
+    try:
+        data = service.batch_update_candidates_status(
+            payload.candidate_ids,
+            payload.status,
+            payload.reason or "",
+            session.get("id") or "unknown",
+        )
+        write_audit_log(
+            db,
+            actor=session,
+            request=http_request,
+            action="recruitment.candidate.batch_update_status",
+            target_type="recruitment-candidate",
+            target_code="batch",
+            details={"status": payload.status, "candidate_ids": payload.candidate_ids, "reason": payload.reason},
         )
         return {"success": True, "data": data}
     except ValueError as exc:
@@ -912,6 +973,105 @@ async def download_interview_question(question_id: int, _session: Dict[str, Any]
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.get("/candidates/{candidate_id}/interview-schedules")
+async def list_interview_schedules(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.list_interview_schedules(candidate_id)
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.post("/interview-schedules")
+async def create_interview_schedule(payload: InterviewScheduleCreateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.create_interview_schedule(payload.model_dump(), _session.get("id") or "unknown")
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.patch("/interview-schedules/{schedule_id}")
+async def update_interview_schedule(schedule_id: int, payload: InterviewScheduleUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.update_interview_schedule(schedule_id, payload.model_dump(exclude_none=True), _session.get("id") or "unknown")
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.delete("/interview-schedules/{schedule_id}")
+async def delete_interview_schedule(schedule_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        service.delete_interview_schedule(schedule_id, _session.get("id") or "unknown")
+        return {"success": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.get("/candidates/{candidate_id}/follow-ups")
+async def list_follow_ups(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.list_follow_ups(candidate_id)
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.post("/follow-ups")
+async def create_follow_up(payload: FollowUpCreateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.create_follow_up(payload.model_dump(), _session.get("id") or "unknown")
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.delete("/follow-ups/{follow_up_id}")
+async def delete_follow_up(follow_up_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        service.delete_follow_up(follow_up_id, _session.get("id") or "unknown")
+        return {"success": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.get("/candidates/{candidate_id}/offers")
+async def list_offers(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.list_offers(candidate_id)
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.post("/offers")
+async def create_offer(payload: OfferCreateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.create_offer(payload.model_dump(), _session.get("id") or "unknown")
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.patch("/offers/{offer_id}")
+async def update_offer(offer_id: int, payload: OfferUpdateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        data = service.update_offer(offer_id, payload.model_dump(exclude_none=True), _session.get("id") or "unknown")
+        return {"success": True, "data": data}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@recruitment_router.delete("/offers/{offer_id}")
+async def delete_offer(offer_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+    try:
+        service.delete_offer(offer_id, _session.get("id") or "unknown")
+        return {"success": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @recruitment_router.get("/resume-files/{resume_file_id}/download")

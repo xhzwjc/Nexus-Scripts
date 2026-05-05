@@ -86,6 +86,9 @@ export type CandidateEditorState = {
     tagsText: string;
     manualOverrideScore: string;
     manualOverrideReason: string;
+    hrFeedback: string;
+    hrFeedbackReason: string;
+    ownerId: string;
     positionId: string;
 };
 
