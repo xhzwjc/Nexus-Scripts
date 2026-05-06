@@ -599,6 +599,13 @@ def ensure_recruitment_schema() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN model_source VARCHAR(120) NULL"))
             logger.info("Added recruitment_ai_task_logs.model_source column")
+        if "batch_email_sent" not in ai_task_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN batch_email_sent BOOLEAN NOT NULL DEFAULT FALSE"))
+            logger.info("Added recruitment_ai_task_logs.batch_email_sent column")
+            with engine.begin() as connection:
+                connection.execute(text("CREATE INDEX ix_recruitment_ai_task_logs_batch_email_sent ON recruitment_ai_task_logs (batch_email_sent)"))
+            logger.info("Created index ix_recruitment_ai_task_logs_batch_email_sent")
         if engine.dialect.name == "mysql":
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN related_skill_snapshots_json LONGTEXT NULL"))

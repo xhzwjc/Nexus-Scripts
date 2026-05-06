@@ -635,6 +635,7 @@ async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optio
         auto_screen_skipped_existing_live_task_count = 0
         auto_screen_failed_count = 0
         auto_screen_tasks: List[Dict[str, Any]] = []
+        batch_id = f"upload-batch-{uuid.uuid4().hex[:12]}" if len(rows) > 1 else None
         for row in rows:
             row["auto_screen_needed"] = bool(row.get("latest_resume_file_id") and row.get("auto_screen_enabled"))
             row["auto_screen_candidate_id"] = row.get("id")
@@ -654,6 +655,7 @@ async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optio
                     use_candidate_memory=True,
                     custom_requirements="",
                     dispatch=False,
+                    batch_id=batch_id,
                 )
                 row["auto_screen_task_id"] = task.get("task_id")
                 row["auto_screen_task_status"] = task.get("status")
@@ -669,7 +671,7 @@ async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optio
                 auto_screen_failed_count += 1
         if auto_screen_tasks:
             service.process_next_screening_task()
-        return {"success": True, "data": {"items": rows, "uploaded_count": len(rows), "auto_screen_queued_count": auto_screen_queued_count, "auto_screen_skipped_existing_live_task_count": auto_screen_skipped_existing_live_task_count, "auto_screen_failed_count": auto_screen_failed_count, "auto_screen_task_ids": [task.get("task_id") for task in auto_screen_tasks if task.get("task_id")], "auto_screen_tasks": auto_screen_tasks}, "request_id": str(uuid.uuid4())}
+        return {"success": True, "data": {"items": rows, "uploaded_count": len(rows), "auto_screen_queued_count": auto_screen_queued_count, "auto_screen_skipped_existing_live_task_count": auto_screen_skipped_existing_live_task_count, "auto_screen_failed_count": auto_screen_failed_count, "auto_screen_task_ids": [task.get("task_id") for task in auto_screen_tasks if task.get("task_id")], "auto_screen_tasks": auto_screen_tasks, "batch_id": batch_id}, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     finally:

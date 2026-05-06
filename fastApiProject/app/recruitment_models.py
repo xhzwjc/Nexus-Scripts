@@ -211,6 +211,7 @@ class RecruitmentAITaskLog(Base):
     org_code = Column(String(100), default="group", nullable=False, index=True)
     screening_run_id = Column(String(80), index=True)
     batch_id = Column(String(80), index=True)
+    batch_email_sent = Column(Boolean, default=False, nullable=False, index=True)
     parent_task_id = Column(Integer, index=True)
     root_task_id = Column(Integer, index=True)
     stage = Column(String(50), index=True)

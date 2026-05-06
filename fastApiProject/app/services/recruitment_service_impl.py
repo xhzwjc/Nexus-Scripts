@@ -4910,16 +4910,328 @@ class RecruitmentService:
             pass
 
     def _emit_batch_summary_if_needed(self):
-        """批量筛选全部完成时发送汇总事件。"""
+        """批量筛选全部完成时发送汇总事件 + 批量自动邮件。"""
+        # 发送 SSE 事件
         try:
             from .task_event_bus import TaskEventBus
-            if not self._session_token:
-                return
-            TaskEventBus.emit(self._session_token, "batch_summary", {
-                "message": "all_tasks_completed",
-            })
+            if self._session_token:
+                TaskEventBus.emit(self._session_token, "batch_summary", {
+                    "message": "all_tasks_completed",
+                })
         except Exception:
             pass
+
+        # 批量自动邮件：找出所有有待发邮件的批次，逐个检查并触发
+        try:
+            pending_batches = (
+                self.db.query(RecruitmentAITaskLog.batch_id)
+                .filter(
+                    RecruitmentAITaskLog.batch_id.isnot(None),
+                    RecruitmentAITaskLog.batch_email_sent.is_(False),
+                    RecruitmentAITaskLog.task_type == 'screening_flow',
+                )
+                .distinct()
+                .all()
+            )
+            for (batch_id,) in pending_batches:
+                try:
+                    self._check_and_trigger_batch_email_on_task_completion(batch_id)
+                except Exception:
+                    logger.exception("Batch email trigger failed in _emit_batch_summary_if_needed batch_id=%s", batch_id)
+        except Exception:
+            logger.exception("Failed to query pending batch emails in _emit_batch_summary_if_needed")
+
+    def _check_and_trigger_batch_email_on_task_completion(self, batch_id: str, *, actor_id: str = "system"):
+        """当一个任务完成时，检查该批次的根任务是否全部完成，如果是，触发该批次的邮件。"""
+        if not batch_id:
+            logger.debug("Batch email check skipped: no batch_id")
+            return
+
+        # 使用数据库锁防止并发触发（原子性操作）
+        try:
+            # 先检查是否已经发送过邮件（快速路径）
+            already_sent = self.db.query(RecruitmentAITaskLog).filter(
+                RecruitmentAITaskLog.batch_id == batch_id,
+                RecruitmentAITaskLog.batch_email_sent.is_(True),
+            ).first()
+            if already_sent:
+                logger.info("Batch email check batch_id=%s already sent (fast path)", batch_id)
+                return
+
+            # 只查询根任务（screening_flow），不包括子任务
+            # 根任务的特征：task_type = 'screening_flow' 或 parent_task_id IS NULL
+            batch_root_tasks = (
+                self.db.query(RecruitmentAITaskLog)
+                .filter(
+                    RecruitmentAITaskLog.batch_id == batch_id,
+                    RecruitmentAITaskLog.task_type == 'screening_flow',  # 只查询根任务
+                )
+                .with_for_update()  # 悲观锁，防止并发修改
+                .all()
+            )
+            if not batch_root_tasks:
+                logger.debug("Batch email check skipped: no root tasks found for batch_id=%s", batch_id)
+                return
+
+            logger.info("Batch email check batch_id=%s root_task_count=%s", batch_id, len(batch_root_tasks))
+
+            # 检查是否所有根任务都已完成（终态）
+            all_completed = all(task.status in TERMINAL_AI_TASK_STATUSES for task in batch_root_tasks)
+            if not all_completed:
+                pending_statuses = [task.status for task in batch_root_tasks if task.status not in TERMINAL_AI_TASK_STATUSES]
+                logger.info("Batch email check batch_id=%s not all completed, pending_statuses=%s", batch_id, pending_statuses)
+                return
+
+            # 再次检查是否已经发送过邮件（防止并发）
+            already_sent = any(task.batch_email_sent for task in batch_root_tasks)
+            if already_sent:
+                logger.info("Batch email check batch_id=%s already sent (double check)", batch_id)
+                return
+
+            # 标记为正在发送（防止其他线程重复触发）
+            for task in batch_root_tasks:
+                task.batch_email_sent = True
+                self.db.add(task)
+            self.db.commit()
+
+            # 触发该批次的邮件
+            logger.info("Batch email trigger batch_id=%s actor_id=%s root_task_count=%s", batch_id, actor_id, len(batch_root_tasks))
+            self._send_batch_auto_resume_mail_for_batch(batch_id, batch_root_tasks)
+
+        except Exception:
+            logger.exception("Failed to send batch auto resume mail batch_id=%s", batch_id)
+            self.db.rollback()
+
+    def _send_batch_auto_resume_mail_for_batch(
+        self,
+        batch_id: str,
+        batch_root_tasks: List[RecruitmentAITaskLog],
+    ):
+        """为一个批次的所有合格候选人发送一封合并的自动邮件。"""
+        logger.info("Sending batch auto resume mail batch_id=%s root_task_count=%s", batch_id, len(batch_root_tasks))
+
+        # 收集批次内所有候选人（从根任务的 related_candidate_id 获取）
+        candidate_ids = []
+        score_rows: Dict[int, RecruitmentCandidateScore] = {}
+        for task in batch_root_tasks:
+            cid = task.related_candidate_id
+            if not cid:
+                continue
+            candidate = self.db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.id == cid,
+                RecruitmentCandidate.deleted.is_(False),
+            ).first()
+            if not candidate:
+                continue
+            # 获取该候选人的最新评分
+            score = (
+                self.db.query(RecruitmentCandidateScore)
+                .filter(RecruitmentCandidateScore.candidate_id == cid)
+                .order_by(RecruitmentCandidateScore.id.desc())
+                .first()
+            )
+            if not score:
+                continue
+            candidate_ids.append(cid)
+            score_rows[cid] = score
+
+        logger.info("Batch auto mail batch_id=%s candidate_count=%s candidate_ids=%s", batch_id, len(candidate_ids), candidate_ids)
+
+        if not candidate_ids:
+            logger.info("Batch auto mail batch_id=%s no qualifying candidates", batch_id)
+            return
+
+        # 按岗位分组
+        from collections import defaultdict
+        position_candidates: Dict[int, List[RecruitmentCandidate]] = defaultdict(list)
+        position_scores: Dict[int, List[RecruitmentCandidateScore]] = defaultdict(list)
+        for cid in candidate_ids:
+            candidate = self.db.query(RecruitmentCandidate).filter(
+                RecruitmentCandidate.id == cid,
+            ).first()
+            if not candidate or not candidate.position_id:
+                continue
+            position_candidates[candidate.position_id].append(candidate)
+            position_scores[candidate.position_id].append(score_rows[cid])
+
+        logger.info("Batch auto mail batch_id=%s position_count=%s positions=%s", batch_id, len(position_candidates), list(position_candidates.keys()))
+
+        # 为每个岗位发送邮件
+        for position_id, candidates in position_candidates.items():
+            try:
+                self._send_batch_auto_mail_for_position(
+                    position_id=position_id,
+                    candidates=candidates,
+                    score_rows=position_scores[position_id],
+                    batch_id=batch_id,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to send batch auto mail position_id=%s batch_id=%s",
+                    position_id, batch_id,
+                )
+
+    def _send_batch_auto_mail_for_position(
+        self,
+        position_id: int,
+        candidates: List[RecruitmentCandidate],
+        score_rows: List[RecruitmentCandidateScore],
+        batch_id: str,
+    ):
+        """为一个岗位的候选人发送批量自动邮件。"""
+        logger.info("Sending batch auto mail for position_id=%s batch_id=%s candidate_count=%s", position_id, batch_id, len(candidates))
+
+        position = self._get_position(position_id)
+        position_config = self._get_position_auto_mail_config(position.id)
+        if not bool(position_config.get("auto_mail_enabled")):
+            logger.info("Batch auto mail skipped position_id=%s batch_id=%s reason=auto_mail_enabled=False", position_id, batch_id)
+            return
+
+        global_config = self._get_global_auto_mail_config()
+
+        # 解析收件人配置
+        use_position_recipients = bool(position_config.get("auto_mail_use_position_recipients")) and bool(
+            position_config.get("auto_mail_position_recipient_ids")
+        )
+        use_global_recipients = bool(position_config.get("auto_mail_use_global_recipients"))
+        if not use_position_recipients and not use_global_recipients:
+            logger.info("Batch auto mail skipped position_id=%s batch_id=%s reason=no_recipient_source", position_id, batch_id)
+            return
+        if not use_position_recipients and use_global_recipients and not bool(global_config.get("global_auto_push_enabled")):
+            logger.info("Batch auto mail skipped position_id=%s batch_id=%s reason=global_disabled", position_id, batch_id)
+            return
+
+        allowed_statuses = list(position_config.get("auto_mail_allowed_candidate_statuses") or [])
+        logger.info("Batch auto mail position_id=%s batch_id=%s allowed_statuses=%s", position_id, batch_id, allowed_statuses)
+
+        # 筛选符合状态的候选人
+        qualifying_candidates: List[RecruitmentCandidate] = []
+        qualifying_scores: List[Optional[RecruitmentCandidateScore]] = []
+        for i, candidate in enumerate(candidates):
+            score = score_rows[i] if i < len(score_rows) else None
+            trigger_status = (
+                _normalize_suggested_status(score.suggested_status)
+                if score
+                else str(candidate.status or "").strip()
+            )
+            logger.info("Batch auto mail candidate_id=%s status=%s suggested_status=%s trigger_status=%s in_allowed=%s",
+                       candidate.id, candidate.status, score.suggested_status if score else None, trigger_status, trigger_status in allowed_statuses)
+            if trigger_status in allowed_statuses:
+                qualifying_candidates.append(candidate)
+                qualifying_scores.append(score)
+
+        logger.info("Batch auto mail position_id=%s batch_id=%s qualifying_count=%s", position_id, batch_id, len(qualifying_candidates))
+
+        if not qualifying_candidates:
+            return
+
+        # 解析收件人
+        position_recipient_ids = _dedupe_ints(
+            position_config.get("auto_mail_position_recipient_ids") or []
+        ) if position_config.get("auto_mail_use_position_recipients") else []
+        global_recipient_ids = _dedupe_ints(
+            global_config.get("global_default_recipient_ids") or []
+        ) if position_config.get("auto_mail_use_global_recipients") else []
+
+        if position_recipient_ids:
+            to_recipient_ids = list(position_recipient_ids)
+        else:
+            to_recipient_ids = list(global_recipient_ids)
+
+        to_rows = self._load_mail_recipient_rows(to_recipient_ids)
+        cc_rows = self._load_mail_recipient_rows(position_config.get("auto_mail_cc_recipient_ids") or [])
+        bcc_rows = self._load_mail_recipient_rows(position_config.get("auto_mail_bcc_recipient_ids") or [])
+        grouped_emails = self._normalize_mail_address_groups(
+            recipient_rows=to_rows,
+            cc_rows=cc_rows,
+            bcc_rows=bcc_rows,
+        )
+
+        if not grouped_emails["all_emails"]:
+            return
+
+        sender_row = self._resolve_mail_sender_row()
+        if not sender_row:
+            return
+
+        # 构建批次级去重 key
+        dedup_key = f"batch_auto_mail:batch:{batch_id}:position:{position_id}"
+
+        # 检查是否已发送（数据库级去重）
+        if self._has_duplicate_auto_mail_dispatch(dedup_key):
+            return
+
+        # 构建邮件主题和正文
+        subject = self._build_batch_auto_mail_subject(qualifying_candidates, position)
+        body_text = self._build_batch_auto_mail_body(qualifying_candidates, position, qualifying_scores)
+
+        self._send_resume_mail_dispatch_internal(
+            sender_row=sender_row,
+            candidates=qualifying_candidates,
+            recipient_ids=[row.id for row in to_rows],
+            recipient_emails=grouped_emails["to_emails"],
+            cc_recipient_ids=[row.id for row in cc_rows],
+            cc_recipient_emails=grouped_emails["cc_emails"],
+            bcc_recipient_ids=[row.id for row in bcc_rows],
+            bcc_recipient_emails=grouped_emails["bcc_emails"],
+            subject=subject,
+            body_text=body_text,
+            body_html=None,
+            created_by="system_batch_auto",
+            position_id=position.id,
+            send_mode="automatic",
+            trigger_type="batch_screening_completed",
+            dedup_key=dedup_key,
+            trigger_rule_payload={
+                "batch_id": batch_id,
+                "candidate_count": len(qualifying_candidates),
+                "trigger_type": "batch_screening_completed",
+            },
+        )
+
+    def _mark_batch_tasks_email_sent(self, tasks: List[RecruitmentAITaskLog]):
+        """标记批次任务为已发送邮件。"""
+        for task in tasks:
+            task.batch_email_sent = True
+            self.db.add(task)
+        self.db.commit()
+
+    def _build_batch_auto_mail_subject(
+        self,
+        candidates: List[RecruitmentCandidate],
+        position: "RecruitmentPosition",
+    ) -> str:
+        """构建批量自动邮件主题。"""
+        count = len(candidates)
+        names = "、".join(c.name for c in candidates[:3])
+        suffix = f"等{count}人" if count > 3 else ""
+        return f"【自动推送】{names}{suffix} - {position.title} - 初筛通过"
+
+    def _build_batch_auto_mail_body(
+        self,
+        candidates: List[RecruitmentCandidate],
+        position: "RecruitmentPosition",
+        score_rows: List[Optional[RecruitmentCandidateScore]],
+    ) -> str:
+        """构建批量自动邮件正文。"""
+        lines = [
+            f"系统已完成「{position.title}」岗位的批量初筛，以下为自动推送摘要：",
+            f"通过人数：{len(candidates)}人",
+            "",
+            "候选人列表：",
+        ]
+        for i, candidate in enumerate(candidates):
+            score = score_rows[i] if i < len(score_rows) else None
+            status_label = SCREENING_STATUS_LABELS.get(candidate.status, candidate.status or "-")
+            line = f"  {i+1}. {candidate.name} - {status_label}"
+            if score and score.match_percent is not None:
+                line += f" (匹配度: {int(score.match_percent)}%)"
+            if score and score.recommendation:
+                line += f" - {score.recommendation}"
+            lines.append(line)
+        lines.append("")
+        lines.append("附件中包含候选人简历，请及时查阅。")
+        return "\n".join(lines)
 
     def _current_org_code(self) -> str:
         if self.permission_context:
@@ -9781,11 +10093,15 @@ class RecruitmentService:
         self.db.refresh(score_row)
         self.db.refresh(candidate)
         save_duration_ms = max(0, int((time.perf_counter() - save_started_at) * 1000))
+        logger.info("Screening result check candidate_id=%s batch_id=%s screening_result_valid=%s", candidate.id, batch_id, screening_result_valid)
         if screening_result_valid:
-            try:
-                self._maybe_send_auto_resume_mail_after_screening(candidate, score_row, actor_id=actor_id)
-            except Exception:
-                logger.exception("Automatic screening mail dispatch failed candidate_id=%s score_id=%s", candidate.id, score_row.id)
+            # 非批量上传时，单个发送邮件
+            has_batch = bool(batch_id)
+            if not has_batch:
+                try:
+                    self._maybe_send_auto_resume_mail_after_screening(candidate, score_row, actor_id=actor_id)
+                except Exception:
+                    logger.exception("Automatic screening mail dispatch failed candidate_id=%s score_id=%s", candidate.id, score_row.id)
         logger.info(
             "Screening completed candidate_id=%s primary_model_call_succeeded=%s final_response_source=%s",
             candidate.id,
@@ -10389,6 +10705,7 @@ class RecruitmentService:
         task_log_row: Optional[RecruitmentAITaskLog] = None,
         reused_existing_parse: bool = True,
         deadline_at: Optional[datetime] = None,
+        batch_id: Optional[str] = None,
     ) -> RecruitmentCandidateScore:
         parsed_payload = self._serialize_parse_result(parse_row)
         parse_quality_warnings = _extract_parse_quality_warnings(parsed_payload)
@@ -10448,6 +10765,7 @@ class RecruitmentService:
             related_resume_file_id=parse_row.resume_file_id,
             memory_source=memory_source,
             request_hash=request_hash,
+            batch_id=batch_id,
             status="running",
             screening_run_id=screening_run_id,
             parent_task_id=parent_task_id,
@@ -10634,10 +10952,13 @@ class RecruitmentService:
             self.db.refresh(candidate)
             save_duration_ms = max(0, int((time.perf_counter() - save_started_at) * 1000))
             if screening_result_valid:
-                try:
-                    self._maybe_send_auto_resume_mail_after_screening(candidate, score_row, actor_id=actor_id)
-                except Exception:
-                    logger.exception("Automatic screening mail dispatch failed candidate_id=%s score_id=%s", candidate.id, score_row.id)
+                # 非批量上传时，单个发送邮件；批量上传由 _emit_batch_summary_if_needed 统一触发
+                has_batch = bool(batch_id or (task_log_row and getattr(task_log_row, 'batch_id', None)) or (log_row and getattr(log_row, 'batch_id', None)))
+                if not has_batch:
+                    try:
+                        self._maybe_send_auto_resume_mail_after_screening(candidate, score_row, actor_id=actor_id)
+                    except Exception:
+                        logger.exception("Automatic screening mail dispatch failed candidate_id=%s score_id=%s", candidate.id, score_row.id)
             logger.info(
                 "Screening completed candidate_id=%s primary_model_call_succeeded=%s final_response_source=%s",
                 candidate.id,
@@ -11034,6 +11355,7 @@ class RecruitmentService:
             cancel_control=cancel_control,
             task_skill_snapshots=task_skill_snapshots,
             task_memory_source=task_memory_source,
+            batch_id=getattr(log_row, 'batch_id', None),
         )
 
     def screen_candidate(
@@ -11054,6 +11376,7 @@ class RecruitmentService:
         cancel_control: Optional[RecruitmentTaskControl] = None,
         task_skill_snapshots: Optional[Sequence[Dict[str, Any]]] = None,
         task_memory_source: Optional[str] = None,
+        batch_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         candidate = self._get_candidate(candidate_id)
         if not candidate.latest_resume_file_id:
@@ -11210,7 +11533,9 @@ class RecruitmentService:
         prompt_rule_dimension_count = len(score_rule_snapshot)
         parse_row = parse_row if had_existing_parse else None
         score_row: Optional[RecruitmentCandidateScore] = None
-        batch_id = getattr(root_log, "batch_id", None)
+        # 优先使用参数中的 batch_id，其次从 root_log 获取
+        if batch_id is None:
+            batch_id = getattr(root_log, "batch_id", None)
 
         flow_state: Dict[str, Any] = {
             "parse_strategy": (
@@ -11740,6 +12065,7 @@ class RecruitmentService:
                                     cancel_control=cancel_control,
                                     reused_existing_parse=True,
                                     deadline_at=screening_deadline_at,
+                                    batch_id=batch_id,
                                 )
                                 flow_state["score_result_id"] = score_row.id
                                 score_log_for_root = self._get_latest_screening_score_run_task(
@@ -11945,6 +12271,7 @@ class RecruitmentService:
                 cancel_control=cancel_control,
                 reused_existing_parse=reused_existing_parse_for_score,
                 deadline_at=screening_deadline_at,
+                batch_id=batch_id,
             )
             flow_state["score_result_id"] = score_row.id
             score_log_for_root = self._get_latest_screening_run_task(
