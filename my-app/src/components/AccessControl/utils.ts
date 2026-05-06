@@ -143,7 +143,7 @@ export function createEmptyRoleForm(): RoleFormState {
         description: '',
         permissionKeys: [],
         isActive: true,
-        landingPage: 'home',
+        landingPage: 'welcome',
     };
 }
 
