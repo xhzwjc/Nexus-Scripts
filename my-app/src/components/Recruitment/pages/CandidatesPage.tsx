@@ -123,6 +123,7 @@ type CandidateRowProps = {
     getResumeMailSummary: (candidateId: number) => string | null;
     getOrganizationLabel: (orgCode: string | null | undefined) => string;
     tr: ReturnType<typeof getCandidatesLocale>;
+    language: string;
     measureRef?: (node: HTMLTableRowElement | null) => void;
     dataIndex?: number;
 };
@@ -138,6 +139,7 @@ const CandidateRow = React.memo(function CandidateRow({
     getResumeMailSummary,
     getOrganizationLabel,
     tr,
+    language,
     measureRef,
     dataIndex,
 }: CandidateRowProps) {
@@ -336,6 +338,7 @@ const CandidateRow = React.memo(function CandidateRow({
         && prev.candidate.source === next.candidate.source
         && prev.candidate.age === next.candidate.age
         && prev.candidate.city === next.candidate.city
+        && prev.language === next.language
         && prev.getResumeMailSummary(prev.candidate.id) === next.getResumeMailSummary(next.candidate.id);
 });
 
@@ -2171,6 +2174,7 @@ export function CandidatesPage({
                                                                 getResumeMailSummary={stableGetResumeMailSummary}
                                                                 getOrganizationLabel={stableGetOrganizationLabel}
                                                                 tr={tr}
+                                                                language={language}
                                                                 measureRef={rowVirtualizer.measureElement}
                                                                 dataIndex={virtualRow.index}
                                                             />
