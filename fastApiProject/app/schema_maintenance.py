@@ -695,6 +695,18 @@ def ensure_recruitment_schema() -> None:
                 connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN owner_id VARCHAR(100) NULL"))
             logger.info("Added recruitment_candidates.owner_id column")
 
+        # Widen phone column to handle encrypted/masked values from resume platforms
+        try:
+            phone_col = next((c for c in inspector.get_columns("recruitment_candidates") if c["name"] == "phone"), None)
+            if phone_col is not None:
+                col_type = str(phone_col.get("type") or "")
+                if "40" in col_type and "128" not in col_type:
+                    with engine.begin() as connection:
+                        connection.execute(text("ALTER TABLE recruitment_candidates MODIFY COLUMN phone VARCHAR(128) NULL"))
+                    logger.info("Widened recruitment_candidates.phone to VARCHAR(128)")
+        except Exception as exc:
+            logger.warning("Failed to check/widen phone column: %s", exc)
+
         score_columns = {col["name"] for col in inspector.get_columns("recruitment_candidate_scores")}
         if "hr_feedback" not in score_columns:
             with engine.begin() as connection:

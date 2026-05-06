@@ -9706,7 +9706,8 @@ class RecruitmentService:
         self.db.flush()
         basic_info = parsed_resume.get("basic_info") or {}
         candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
-        candidate.phone = str(basic_info.get("phone") or "").strip() or None
+        sanitized_phone = _sanitize_basic_info_value("phone", basic_info.get("phone"))
+        candidate.phone = sanitized_phone or None
         candidate.email = str(basic_info.get("email") or "").strip() or None
         candidate.years_of_experience = str(basic_info.get("years_of_experience") or "").strip() or None
         candidate.education = str(basic_info.get("education") or "").strip() or None
@@ -9970,7 +9971,7 @@ class RecruitmentService:
             self.db.flush()
             basic_info = sanitized_resume.get("basic_info") or {}
             candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
-            parsed_phone = str(basic_info.get("phone") or "").strip()
+            parsed_phone = _sanitize_basic_info_value("phone", basic_info.get("phone"))
             parsed_email = str(basic_info.get("email") or "").strip()
             if parsed_phone:
                 candidate.phone = parsed_phone
@@ -10312,7 +10313,7 @@ class RecruitmentService:
 
         # Update candidate basic fields
         candidate.name = str(basic_info.get("name") or candidate.name).strip() or candidate.name
-        parsed_phone = str(basic_info.get("phone") or "").strip()
+        parsed_phone = _sanitize_basic_info_value("phone", basic_info.get("phone"))
         parsed_email = str(basic_info.get("email") or "").strip()
         if parsed_phone:
             candidate.phone = parsed_phone

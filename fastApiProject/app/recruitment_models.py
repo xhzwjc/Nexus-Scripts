@@ -66,7 +66,7 @@ class RecruitmentCandidate(Base):
     org_code = Column(String(100), default="group", nullable=False, index=True)
     position_id = Column(Integer, index=True)
     name = Column(String(120), nullable=False, index=True)
-    phone = Column(String(40), index=True)
+    phone = Column(String(128), index=True)
     email = Column(String(180), index=True)
     current_company = Column(String(180))
     years_of_experience = Column(String(60))
