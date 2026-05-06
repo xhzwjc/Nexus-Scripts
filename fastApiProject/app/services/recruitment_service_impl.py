@@ -67,6 +67,14 @@ from .recruitment_publish_adapters import build_publish_adapter
 from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskControl, recruitment_task_registry
 from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_keywords, extract_resume_structured_data, extract_resume_text, extract_screening_dimension_rules, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text, validate_structured_interview_payload
 
+def _resolve_resume_storage_path(storage_path: str) -> Path:
+    """Resolve resume file path. Supports both absolute and relative (to RECRUITMENT_UPLOAD_ROOT) paths."""
+    p = Path(storage_path)
+    if p.is_absolute():
+        return p
+    return RECRUITMENT_UPLOAD_ROOT / p
+
+
 SCREENING_FLOW_TASK_TYPE = "screening_flow"
 SCREENING_DEBUG_TASK_TYPE = "resume_screening_debug"
 SCREENING_ONE_PASS_TASK_TYPE = "resume_screening_one_pass"
@@ -5700,7 +5708,7 @@ class RecruitmentService:
         )
 
     def _extract_resume_file_raw_text(self, resume_file: RecruitmentResumeFile) -> str:
-        return extract_resume_text(Path(resume_file.storage_path), resume_file.file_ext or "")
+        return extract_resume_text(_resolve_resume_storage_path(resume_file.storage_path), resume_file.file_ext or "")
 
     def _can_reuse_existing_parse_result(
         self,
@@ -6174,7 +6182,7 @@ class RecruitmentService:
                 RecruitmentResumeParseResult.id.in_(parse_ids),
             ).delete(synchronize_session=False)
 
-        storage_path = Path(resume_file.storage_path)
+        storage_path = _resolve_resume_storage_path(resume_file.storage_path)
         storage_dir = storage_path.parent
 
         self.db.delete(resume_file)
@@ -6234,7 +6242,7 @@ class RecruitmentService:
         if active_task:
             raise RecruitmentConflictError("当前候选人仍有进行中的 AI 任务，请等待任务结束后再删除。")
 
-        storage_paths = [Path(row.storage_path) for row in resume_rows if row.storage_path]
+        storage_paths = [_resolve_resume_storage_path(row.storage_path) for row in resume_rows if row.storage_path]
 
         if parse_ids:
             self.db.query(RecruitmentCandidateScore).filter(
@@ -8540,7 +8548,9 @@ class RecruitmentService:
             upload_mime_type = str(item.get("content_type") or "").strip()
             if not upload_mime_type or upload_mime_type in {"application/octet-stream", "binary/octet-stream"}:
                 upload_mime_type = mimetypes.guess_type(file_name)[0] or None
-            resume_file = RecruitmentResumeFile(org_code=candidate_org_code, candidate_id=None, original_name=file_name, stored_name=stored_name, file_ext=ext, mime_type=upload_mime_type or None, file_size=file_size, storage_path=str(storage_path), parse_status="pending", uploaded_by=actor_id)
+            # Store relative path (relative to RECRUITMENT_UPLOAD_ROOT) for cross-environment compatibility
+            relative_storage_path = str(storage_path.relative_to(RECRUITMENT_UPLOAD_ROOT))
+            resume_file = RecruitmentResumeFile(org_code=candidate_org_code, candidate_id=None, original_name=file_name, stored_name=stored_name, file_ext=ext, mime_type=upload_mime_type or None, file_size=file_size, storage_path=relative_storage_path, parse_status="pending", uploaded_by=actor_id)
             # 注意：不在这里 add resume_file，等 flush 拿到 candidate IDs 后再 add
             candidate_resume_pairs.append((candidate, resume_file, position, file_name))
 
@@ -8602,12 +8612,15 @@ class RecruitmentService:
                         RecruitmentResumeFile.candidate_id == c.id,
                     ).order_by(RecruitmentResumeFile.created_at.desc()).all()
                     for rf in resume_files:
-                        storage_path = getattr(rf, "storage_path", None)
-                        if not storage_path or not os.path.isfile(storage_path):
+                        raw_storage = getattr(rf, "storage_path", None)
+                        if not raw_storage:
+                            continue
+                        resolved = str(_resolve_resume_storage_path(raw_storage))
+                        if not os.path.isfile(resolved):
                             continue
                         safe_original_name = re.sub(r'[/\\?%*:|"<>\x00-\x1f]', '_', rf.original_name)
                         arc_name = f"全部简历/{safe_original_name}"
-                        zf.write(storage_path, arc_name)
+                        zf.write(resolved, arc_name)
                 # 按状态分组
                 by_status: Dict[str, List[RecruitmentCandidate]] = {}
                 for c in candidates:
@@ -8627,13 +8640,16 @@ class RecruitmentService:
                                 RecruitmentResumeFile.candidate_id == c.id,
                             ).order_by(RecruitmentResumeFile.created_at.desc()).all()
                             for rf in resume_files:
-                                storage_path = getattr(rf, "storage_path", None)
-                                if not storage_path or not os.path.isfile(storage_path):
+                                raw_storage = getattr(rf, "storage_path", None)
+                                if not raw_storage:
+                                    continue
+                                resolved = str(_resolve_resume_storage_path(raw_storage))
+                                if not os.path.isfile(resolved):
                                     continue
                                 safe_name = re.sub(r'[/\\?%*:|"<>\x00-\x1f]', '_', c.name)
                                 ext = rf.file_ext or os.path.splitext(rf.original_name)[1] or ".pdf"
                                 arc_name = f"{status_folder}/{city_folder}/{safe_name}_{c.id}_{rf.id}_{city}{ext}"
-                                zf.write(storage_path, arc_name)
+                                zf.write(resolved, arc_name)
         os.remove(excel_path)
         return zip_path
 
@@ -9423,7 +9439,7 @@ class RecruitmentService:
 
         shared_flow_log = bool(screening_run_id and parent_task_id)
         task_type = SCREENING_ONE_PASS_TASK_TYPE
-        raw_text = str(raw_text_override or "").strip() or extract_resume_text(Path(resume_file.storage_path), resume_file.file_ext or "")
+        raw_text = str(raw_text_override or "").strip() or extract_resume_text(_resolve_resume_storage_path(resume_file.storage_path), resume_file.file_ext or "")
         status_rules = self._get_rule_config("default_status_rules", DEFAULT_RULE_CONFIGS["default_status_rules"])
         skill_snapshots, related_skill_ids, prepared_custom_requirements = self._prepare_screening_task_context(
             skill_rows=skill_rows,
@@ -9884,7 +9900,7 @@ class RecruitmentService:
         started_at = time.perf_counter()
         try:
             remaining_budget_seconds = _ensure_screening_budget_available(deadline_at) if deadline_at else None
-            raw_text = extract_resume_text(Path(resume_file.storage_path), resume_file.file_ext or "")
+            raw_text = extract_resume_text(_resolve_resume_storage_path(resume_file.storage_path), resume_file.file_ext or "")
             prompt = self._build_resume_parse_prompt(raw_text=raw_text)
             logger.info(
                 "resume_parse prompt prepared candidate_id=%s raw_chars=%s prompt_chars=%s",
@@ -12860,7 +12876,7 @@ class RecruitmentService:
 
     def get_resume_file_download(self, resume_file_id: int) -> Dict[str, Any]:
         resume_file = self._get_resume_file(resume_file_id)
-        path = Path(resume_file.storage_path)
+        path = _resolve_resume_storage_path(resume_file.storage_path)
         if not path.exists():
             raise ValueError(f"简历文件（ID={resume_file_id}）存储路径不存在，可能已被删除")
         media_type = (resume_file.mime_type or "").strip()
@@ -13509,7 +13525,7 @@ class RecruitmentService:
                 resume_file.file_ext,
                 f"resume-{candidate.id}",
             )
-            attachments.append(load_attachment_from_path(resume_file.storage_path, attachment_name, resume_file.mime_type))
+            attachments.append(load_attachment_from_path(str(_resolve_resume_storage_path(resume_file.storage_path)), attachment_name, resume_file.mime_type))
         return attachments
 
     def _build_resume_mail_default_subject(
