@@ -2275,18 +2275,31 @@ export function CandidatesPage({
                     {candidateDetailLoading ? <LoadingPanel label={tr.loadingCandidateDetail}/> : candidateDetail ? (
                         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
                             <div
-    className={cn(
-        "border-b border-slate-200/80 px-4 py-2 dark:border-slate-800 select-none",
-        detailExpanded ? "cursor-zoom-out" : "cursor-zoom-in"
-    )}
-    onDoubleClick={() => setDetailExpanded(v => !v)}
-    onMouseMove={(e) => setZoomHintPos({x: e.clientX, y: e.clientY})}
-    onMouseLeave={() => setZoomHintPos(null)}
+    className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800"
+    onDoubleClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest("button, a, [data-no-zoom]")) return;
+        setDetailExpanded(v => !v);
+    }}
+    onMouseMove={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest("button, a, [data-no-zoom]")) {
+            setZoomHintPos(null);
+            e.currentTarget.style.cursor = "";
+            return;
+        }
+        setZoomHintPos({x: e.clientX, y: e.clientY});
+        e.currentTarget.style.cursor = detailExpanded ? "zoom-out" : "zoom-in";
+    }}
+    onMouseLeave={(e) => {
+        setZoomHintPos(null);
+        e.currentTarget.style.cursor = "";
+    }}
 >
                                 <div className="space-y-1">
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="min-w-0 flex-1 space-y-1">
-                                            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                            <div data-no-zoom className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 cursor-text select-text">
                                                 <span className="text-[1rem] font-semibold text-slate-900 dark:text-slate-100">{candidateDetail.candidate.name}</span>
                                                 <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidateDetailDisplayStatus))}>
                                                     {labelForCandidateStatus(candidateDetailDisplayStatus)}
@@ -2309,11 +2322,11 @@ export function CandidatesPage({
                                                     </Badge>
                                                 ) : null}
                                             </div>
-                                            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                                            <div data-no-zoom className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 cursor-text select-text">
                                                 {candidateDetailIdentityMeta ? <span>{candidateDetailIdentityMeta}</span> : null}
                                             </div>
                                         </div>
-                                        <div className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
+                                        <div data-no-zoom className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
                                             <Button size="sm" variant={candidateDetailPanel === "profile" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("profile")}>
                                                 {tr.profileTab}
                                             </Button>
