@@ -27,6 +27,7 @@ import {
     Sparkles,
     Square,
     Trash2,
+    ZoomIn,
 } from "lucide-react";
 
 import {
@@ -554,6 +555,8 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         continueFilteringDesc: isZh ? "保持当前筛选条件，在左侧列表中选择一位候选人后，右侧会切换到完整档案工作区。" : "Keep the current filters, choose a candidate on the left, and the full workspace will open on the right.",
         batchHandleResults: isZh ? "批量处理当前结果" : "Batch Handle Results",
         batchHandleResultsDesc: isZh ? "可以先在左侧勾选需要处理的候选人，再执行批量初筛或批量发送简历。" : "Select candidates on the left first, then run batch screening or send resumes in batch.",
+        zoomHintExpand: isZh ? "双击放大" : "Double-click to expand",
+        zoomHintCollapse: isZh ? "双击缩小" : "Double-click to collapse",
         unrecorded: isZh ? "未记录" : "Unrecorded",
         interviewSchedules: isZh ? "面试安排" : "Interview Schedules",
         addSchedule: isZh ? "添加面试安排" : "Add Interview Schedule",
@@ -1854,6 +1857,7 @@ export function CandidatesPage({
 
     const [candidateDetailPanel, setCandidateDetailPanel] = React.useState<"profile" | "ai" | "interview">("profile");
     const [detailExpanded, setDetailExpanded] = React.useState(false);
+    const [zoomHintPos, setZoomHintPos] = React.useState<{x: number; y: number} | null>(null);
 
     React.useEffect(() => {
         setCandidateDetailPanel("profile");
@@ -2270,7 +2274,15 @@ export function CandidatesPage({
                 <Card className={cn(panelClass, "min-h-0 min-w-0 gap-0 overflow-hidden py-0")}>
                     {candidateDetailLoading ? <LoadingPanel label={tr.loadingCandidateDetail}/> : candidateDetail ? (
                         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-                            <div className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800 cursor-zoom-in select-none" onDoubleClick={() => setDetailExpanded(v => !v)}>
+                            <div
+    className={cn(
+        "border-b border-slate-200/80 px-4 py-2 dark:border-slate-800 select-none",
+        detailExpanded ? "cursor-zoom-out" : "cursor-zoom-in"
+    )}
+    onDoubleClick={() => setDetailExpanded(v => !v)}
+    onMouseMove={(e) => setZoomHintPos({x: e.clientX, y: e.clientY})}
+    onMouseLeave={() => setZoomHintPos(null)}
+>
                                 <div className="space-y-1">
                                     <div className="flex items-start justify-between gap-3">
                                         <div className="min-w-0 flex-1 space-y-1">
@@ -2314,6 +2326,22 @@ export function CandidatesPage({
                                         </div>
                                     </div>
                                 </div>
+                                {zoomHintPos && ReactDOM.createPortal(
+                                    <div
+                                        style={{
+                                            position: "fixed",
+                                            left: zoomHintPos.x + 14,
+                                            top: zoomHintPos.y + 14,
+                                            pointerEvents: "none",
+                                            zIndex: 9999,
+                                        }}
+                                        className="flex items-center gap-1 rounded-md bg-slate-800/90 px-2 py-1 text-[11px] text-white shadow-lg dark:bg-slate-700/90"
+                                    >
+                                        <ZoomIn className="h-3 w-3 shrink-0" />
+                                        <span>{detailExpanded ? tr.zoomHintCollapse : tr.zoomHintExpand}</span>
+                                    </div>,
+                                    document.body
+                                )}
                             </div>
                             <div className="border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
                                 <div className="min-w-0">
