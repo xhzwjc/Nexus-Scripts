@@ -4458,8 +4458,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setResumeUploadFileList(null);
             setResumeUploadCity("");
             setResumeUploadCitySource("auto");
-            await refreshCoreData();
+            // Optimistic update: immediately add uploaded items to candidate list
+            if (allItems.length > 0) {
+                setAllCandidates((prev) => deduplicateCandidates([...allItems, ...prev]));
+                setCandidateTotal((prev) => prev + allItems.length);
+            }
             setActivePage("candidates");
+            // Background refresh (don't block UI)
+            void refreshCoreData();
         } catch (error) {
             if (error instanceof Error && error.name === "AbortError") {
                 toast.warning(isZh ? "上传已取消" : "Upload cancelled");
