@@ -396,6 +396,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         above40: isZh ? "40% 以上" : "40%+",
         source: isZh ? "来源" : "Source",
         allSources: isZh ? "全部来源" : "All Sources",
+        selectedLabel: (count: number) => (isZh ? `已选 ${count} 项` : `${count} selected`),
         timeFilter: isZh ? "时间" : "Time",
         allTime: isZh ? "全部时间" : "All Time",
         today: isZh ? "今天" : "Today",
@@ -421,6 +422,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         queueBatch: isZh ? "批量入队" : "Queue Batch",
         sendResumesBatch: isZh ? "批量发送简历" : "Send Resumes in Batch",
         exportCandidates: isZh ? "导出" : "Export",
+        exporting: isZh ? "导出中..." : "Exporting...",
         batchDelete: isZh ? "批量删除" : "Batch Delete",
         batchBindPosition: isZh ? "批量设置岗位" : "Batch Set Position",
         batchBindPositionTitle: isZh ? "设置目标岗位" : "Set Target Position",
@@ -739,10 +741,10 @@ function InterviewQuestionCard({
     );
 }
 
-function buildCandidateScoreFallbackMarkdown(score?: CandidateDetail["score"] | null) {
-    const tr = getCandidatesLocale();
+function buildCandidateScoreFallbackMarkdown(score?: CandidateDetail["score"] | null, tr?: ReturnType<typeof getCandidatesLocale>) {
+    const localTr = tr ?? getCandidatesLocale();
     if (!score) {
-        return tr.noAiScoreOutput;
+        return localTr.noAiScoreOutput;
     }
     const displayValues = resolveScoreDisplayValues(score as Record<string, unknown>);
     const recommendation = readScoreText(score.recommendation) || "-";
@@ -750,28 +752,28 @@ function buildCandidateScoreFallbackMarkdown(score?: CandidateDetail["score"] | 
     const advantages = readScoreTextArray(score.advantages);
     const concerns = readScoreTextArray(score.concerns);
     const dimensionLines = readScoreDimensions((score as Record<string, unknown>).dimensions)
-        .map(buildDimensionMarkdownLine)
+        .map((d) => buildDimensionMarkdownLine(d, localTr))
         .filter(Boolean);
     const sections = [
-        tr.aiScreeningResultHeading,
-        tr.totalScoreLine(displayValues.totalScore !== null ? formatScoreValue(displayValues.totalScore, displayValues.totalScoreScale) : "-"),
-        tr.matchLine(displayValues.matchPercent !== null ? formatPercent(displayValues.matchPercent) : "-"),
-        tr.suggestedStatusLine(labelForCandidateStatus(suggestedStatus) || "-"),
+        localTr.aiScreeningResultHeading,
+        localTr.totalScoreLine(displayValues.totalScore !== null ? formatScoreValue(displayValues.totalScore, displayValues.totalScoreScale) : "-"),
+        localTr.matchLine(displayValues.matchPercent !== null ? formatPercent(displayValues.matchPercent) : "-"),
+        localTr.suggestedStatusLine(labelForCandidateStatus(suggestedStatus) || "-"),
         "",
-        tr.aiRecommendationHeading,
+        localTr.aiRecommendationHeading,
         recommendation,
         "",
         ...(dimensionLines.length > 0
             ? [
-                tr.dimensionScoresHeading,
+                localTr.dimensionScoresHeading,
                 ...dimensionLines,
                 "",
             ]
             : []),
-        tr.advantagesHeading,
+        localTr.advantagesHeading,
         ...(advantages.length > 0 ? advantages.map((item, index) => `${index + 1}. ${item}`) : ["-"]),
         "",
-        tr.concernsHeading,
+        localTr.concernsHeading,
         ...(concerns.length > 0 ? concerns.map((item, index) => `${index + 1}. ${item}`) : ["-"]),
     ];
     return sections.join("\n");
@@ -892,15 +894,15 @@ function extractScreeningTaskStage(log?: AITaskLog | null): string {
     }
 }
 
-function buildDimensionMarkdownLine(item: CandidateScoreDimension) {
-    const tr = getCandidatesLocale();
+function buildDimensionMarkdownLine(item: CandidateScoreDimension, tr?: ReturnType<typeof getCandidatesLocale>) {
+    const localTr = tr ?? getCandidatesLocale();
     const label = readScoreText(item.label) || readScoreText(item.key) || "";
     if (!label) {
         return "";
     }
     const reason = readScoreText(item.reason) || "";
     const evidence = readDimensionEvidence(item.evidence);
-    const extra = [reason, evidence ? `${tr.evidenceLabel}: ${evidence}` : ""].filter(Boolean).join(tr.delimiter);
+    const extra = [reason, evidence ? `${localTr.evidenceLabel}: ${evidence}` : ""].filter(Boolean).join(localTr.delimiter);
     const scoreValue = readScoreNumberStrict(item.score);
     const maxScore = readScoreNumberStrict(item.max_score);
     return `- ${label}：${scoreValue !== null ? scoreValue : "-"} / ${maxScore !== null ? maxScore : "-"}${extra ? ` — ${extra}` : ""}`;
@@ -928,8 +930,8 @@ function resolveCandidateSummaryMatchPercent(candidate?: CandidateSummary | null
     return toScoreNumber(candidate.match_percent);
 }
 
-function buildStructuredAiOutputMarkdown(payload: Record<string, unknown>) {
-    const tr = getCandidatesLocale();
+function buildStructuredAiOutputMarkdown(payload: Record<string, unknown>, tr?: ReturnType<typeof getCandidatesLocale>) {
+    const localTr = tr ?? getCandidatesLocale();
     const displayValues = resolveScoreDisplayValues(payload);
     const decisionValues = deriveScoreDecisionValues(payload);
     const recommendation = decisionValues.recommendation;
@@ -937,23 +939,23 @@ function buildStructuredAiOutputMarkdown(payload: Record<string, unknown>) {
     const advantages = readScoreTextArray(payload.advantages);
     const concerns = readScoreTextArray(payload.concerns);
     const dimensionLines = readScoreDimensions(payload.dimensions)
-        .map(buildDimensionMarkdownLine)
+        .map((d) => buildDimensionMarkdownLine(d, localTr))
         .filter(Boolean);
 
     return [
-        tr.aiScreeningResultHeading,
-        tr.totalScoreLine(displayValues.totalScore !== null ? formatScoreValue(displayValues.totalScore, displayValues.totalScoreScale) : "-"),
-        tr.matchLine(displayValues.matchPercent !== null ? `${displayValues.matchPercent}%` : "-"),
-        tr.suggestedStatusLine(labelForCandidateStatus(suggestedStatus) || "-"),
+        localTr.aiScreeningResultHeading,
+        localTr.totalScoreLine(displayValues.totalScore !== null ? formatScoreValue(displayValues.totalScore, displayValues.totalScoreScale) : "-"),
+        localTr.matchLine(displayValues.matchPercent !== null ? `${displayValues.matchPercent}%` : "-"),
+        localTr.suggestedStatusLine(labelForCandidateStatus(suggestedStatus) || "-"),
         "",
-        tr.aiRecommendationHeading,
+        localTr.aiRecommendationHeading,
         recommendation || "-",
         "",
-        ...(dimensionLines.length > 0 ? [tr.dimensionScoresHeading, ...dimensionLines, ""] : []),
-        tr.advantagesHeading,
+        ...(dimensionLines.length > 0 ? [localTr.dimensionScoresHeading, ...dimensionLines, ""] : []),
+        localTr.advantagesHeading,
         ...(advantages.length > 0 ? advantages.map((item, index) => `${index + 1}. ${item}`) : ["-"]),
         "",
-        tr.concernsHeading,
+        localTr.concernsHeading,
         ...(concerns.length > 0 ? concerns.map((item, index) => `${index + 1}. ${item}`) : ["-"]),
     ].join("\n");
 }
@@ -961,6 +963,7 @@ function buildStructuredAiOutputMarkdown(payload: Record<string, unknown>) {
 function resolveCandidateAiOutputPayload(
     log?: AITaskLog | null,
     score?: CandidateDetail["score"] | null,
+    tr?: ReturnType<typeof getCandidatesLocale>,
 ) {
     const parsed = parseStructuredLogOutput(log?.output_snapshot);
     let markdown = "";
@@ -968,7 +971,7 @@ function resolveCandidateAiOutputPayload(
     const scoreRecord = score && typeof score === "object" ? score as Record<string, unknown> : null;
 
     if (score) {
-        markdown = buildCandidateScoreFallbackMarkdown(score);
+        markdown = buildCandidateScoreFallbackMarkdown(score, tr);
     }
 
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -984,7 +987,7 @@ function resolveCandidateAiOutputPayload(
                     : null
             );
         if (!markdown && scorePayload) {
-            markdown = buildStructuredAiOutputMarkdown(scorePayload);
+            markdown = buildStructuredAiOutputMarkdown(scorePayload, tr);
         }
         raw = formatStructuredValue(parsed, log?.output_summary || "");
     } else if (typeof parsed === "string" && parsed.trim()) {
@@ -995,7 +998,7 @@ function resolveCandidateAiOutputPayload(
     }
 
     if (!markdown) {
-        markdown = buildCandidateScoreFallbackMarkdown(score);
+        markdown = buildCandidateScoreFallbackMarkdown(score, tr);
     }
     if (!raw) {
         raw = formatStructuredValue(parsed ?? scoreRecord ?? log?.output_snapshot, log?.output_summary || markdown);
@@ -1038,7 +1041,8 @@ function CandidateAiOutputDialog({
             await navigator.clipboard.writeText(content);
             setCopied(true);
             window.setTimeout(() => setCopied(false), 1500);
-        } catch {
+        } catch (err) {
+            console.error("[CandidatesPage] copyContent failed:", err);
             setCopied(false);
         }
     }, [markdown, raw]);
@@ -1090,21 +1094,25 @@ type MultiSelectProps = {
     selected: string[];
     onChange: (values: string[]) => void;
     placeholder?: string;
+    selectedLabel?: (count: number) => string;
 };
 
-function MultiSelect({ options, selected, onChange, placeholder }: MultiSelectProps) {
+function MultiSelect({ options, selected, onChange, placeholder, selectedLabel }: MultiSelectProps) {
     const [open, setOpen] = useState(false);
     const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
     const triggerRef = useRef<HTMLButtonElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
 
     const openRef = useRef(open);
     openRef.current = open;
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
-            if (openRef.current && triggerRef.current && !triggerRef.current.contains(e.target as Node)) {
-                setOpen(false);
-            }
+            if (!openRef.current) return;
+            const target = e.target as Node;
+            if (triggerRef.current?.contains(target)) return;
+            if (menuRef.current?.contains(target)) return;
+            setOpen(false);
         };
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -1136,10 +1144,11 @@ function MultiSelect({ options, selected, onChange, placeholder }: MultiSelectPr
         ? (placeholder || "")
         : selected.length === 1
             ? options.find((o) => o.value === selected[0])?.label || selected[0]
-            : `${selected.length} selected`;
+            : (selectedLabel ? selectedLabel(selected.length) : `${selected.length} selected`);
 
     const menuContent = open && (
         <div
+            ref={menuRef}
             style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
             className="max-h-60 overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-800 dark:bg-slate-950"
@@ -1346,6 +1355,7 @@ function CandidateFilterBar({
                                 selected={candidatePositionFilter}
                                 onChange={setCandidatePositionFilter}
                                 placeholder={tr.allPositions}
+                                selectedLabel={tr.selectedLabel}
                             />
                         </div>
                         <div className="space-y-1">
@@ -1355,6 +1365,7 @@ function CandidateFilterBar({
                                 selected={candidateStatusFilter}
                                 onChange={setCandidateStatusFilter}
                                 placeholder={tr.allStatuses}
+                                selectedLabel={tr.selectedLabel}
                             />
                         </div>
                         <div className="space-y-1">
@@ -1373,6 +1384,7 @@ function CandidateFilterBar({
                                 selected={candidateSourceFilter}
                                 onChange={setCandidateSourceFilter}
                                 placeholder={tr.allSources}
+                                selectedLabel={tr.selectedLabel}
                             />
                         </div>
                         <div className="space-y-1">
@@ -1724,6 +1736,8 @@ export function CandidatesPage({
     const [dragBox, setDragBox] = React.useState<DragBox | null>(null);
     const dragShiftRef = React.useRef(false);
     const dragContainerRectRef = React.useRef<DOMRect | null>(null);
+    const selectedCandidateIdsRef = React.useRef(selectedCandidateIds);
+    React.useEffect(() => { selectedCandidateIdsRef.current = selectedCandidateIds; }, [selectedCandidateIds]);
 
     const rectsIntersect = (r1: {left: number; right: number; top: number; bottom: number}, r2: DOMRect) =>
         !(r2.left > r1.right || r2.right < r1.left || r2.top > r1.bottom || r2.bottom < r1.top);
@@ -1755,13 +1769,13 @@ export function CandidatesPage({
         if (toSelect.length === 0) return;
         if (dragShiftRef.current) {
             // 追加模式
-            const merged = [...new Set([...selectedCandidateIds, ...toSelect])];
+            const merged = [...new Set([...selectedCandidateIdsRef.current, ...toSelect])];
             setSelectedCandidateIds(merged);
         } else {
             // 替换模式
             setSelectedCandidateIds(toSelect);
         }
-    }, [selectedCandidateIds]);
+    }, []);
 
     const handleMouseDown = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         if (e.button !== 0) return;
@@ -1835,15 +1849,6 @@ export function CandidatesPage({
 
     const selectedCandidateIdSet = React.useMemo(() => new Set(selectedCandidateIds), [selectedCandidateIds]);
 
-    const stableGetResumeMailSummary = React.useCallback(
-        (id: number) => getCandidateResumeMailSummary(id),
-        [getCandidateResumeMailSummary],
-    );
-    const stableGetOrganizationLabel = React.useCallback(
-        (orgCode?: string | null) => getOrganizationLabel(orgCode),
-        [getOrganizationLabel],
-    );
-
     const stableCallbacks = React.useMemo(() => {
         const selectMap = new Map<number, () => void>();
         const toggleMap = new Map<number, (checked: boolean) => void>();
@@ -1856,6 +1861,19 @@ export function CandidatesPage({
 
     const virtualItems = rowVirtualizer.getVirtualItems();
     const topSpacerHeight = virtualItems.length > 0 ? virtualItems[0].start : 0;
+
+    const getColumnHeaderLabel = React.useCallback((columnKey: string) => {
+        switch (columnKey) {
+            case "candidate": return tr.candidate;
+            case "organization": return tr.organization;
+            case "position": return tr.position;
+            case "status": return tr.status;
+            case "match": return tr.matchPercent;
+            case "city": return tr.cityLabel;
+            case "source": return tr.source;
+            default: return tr.timeLabel;
+        }
+    }, [tr]);
     const bottomSpacerHeight = virtualItems.length > 0
         ? rowVirtualizer.getTotalSize() - (virtualItems[virtualItems.length - 1].start + virtualItems[virtualItems.length - 1].size)
         : 0;
@@ -1887,8 +1905,8 @@ export function CandidatesPage({
         return () => observer.disconnect();
     }, [candidateDetail, candidateDetailPanel, updateCandidateDetailToolbarMetrics]);
 
-    const candidateOverviewStats = React.useMemo(() => {
-        const stats = visibleCandidates.reduce((acc, candidate) => {
+    const candidateOverviewCounts = React.useMemo(() => {
+        return visibleCandidates.reduce((acc, candidate) => {
             const status = resolveCandidateDisplayStatus(candidate);
             if (status === "pending_screening") acc.pendingScreening++;
             if (status === "pending_interview") acc.pendingInterview++;
@@ -1896,14 +1914,16 @@ export function CandidatesPage({
             if (getCandidateResumeMailSummary(candidate.id)) acc.sent++;
             return acc;
         }, {pendingScreening: 0, pendingInterview: 0, talentPool: 0, sent: 0});
+    }, [getCandidateResumeMailSummary, visibleCandidates]);
 
+    const candidateOverviewStats = React.useMemo(() => {
         return [
             {label: tr.currentResults, value: `${visibleCandidates.length}${tr.peopleSuffix}`},
-            {label: tr.pendingScreening, value: `${stats.pendingScreening}${tr.peopleSuffix}`},
-            {label: tr.pendingInterview, value: `${stats.pendingInterview}${tr.peopleSuffix}`},
-            {label: tr.talentPoolAndSent, value: `${stats.talentPool} / ${stats.sent}`},
+            {label: tr.pendingScreening, value: `${candidateOverviewCounts.pendingScreening}${tr.peopleSuffix}`},
+            {label: tr.pendingInterview, value: `${candidateOverviewCounts.pendingInterview}${tr.peopleSuffix}`},
+            {label: tr.talentPoolAndSent, value: `${candidateOverviewCounts.talentPool} / ${candidateOverviewCounts.sent}`},
         ];
-    }, [getCandidateResumeMailSummary, tr, visibleCandidates]);
+    }, [candidateOverviewCounts, tr, visibleCandidates]);
 
     const recentVisibleCandidates = React.useMemo(() => {
         const toTimestamp = (value?: string | null) => (value ? new Date(value).getTime() : 0);
@@ -1959,7 +1979,7 @@ export function CandidatesPage({
         || candidateDetail?.candidate.display_status_reason,
     );
     const candidateAiOutputPayload = React.useMemo(
-        () => resolveCandidateAiOutputPayload(latestResumeScoreLog, candidateDetail?.score),
+        () => resolveCandidateAiOutputPayload(latestResumeScoreLog, candidateDetail?.score, tr),
         [candidateDetail?.score, latestResumeScoreLog],
     );
     const candidateAiOutputAvailable = Boolean(
@@ -2072,7 +2092,7 @@ export function CandidatesPage({
                                 </Button>
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => void exportCandidates(selectedCandidateIds)} disabled={!selectedCandidateIds.length || exporting}>
                                     <Download className="h-4 w-4"/>
-                                    {exporting ? (language !== "en-US" ? "导出中..." : "Exporting...") : tr.exportCandidates}
+                                    {exporting ? tr.exporting : tr.exportCandidates}
                                 </Button>
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:text-rose-300 dark:hover:bg-rose-950/30" onClick={() => requestBatchDelete(selectedCandidateIds)} disabled={!selectedCandidateIds.length}>
                                     <Trash2 className="h-4 w-4"/>
@@ -2111,21 +2131,7 @@ export function CandidatesPage({
                                                     />
                                                 </th>
                                                 {candidateListVisibleColumns.map((columnKey) => {
-                                                    const label = columnKey === "candidate"
-                                                        ? tr.candidate
-                                                        : columnKey === "organization"
-                                                            ? tr.organization
-                                                            : columnKey === "position"
-                                                                ? tr.position
-                                                                : columnKey === "status"
-                                                                    ? tr.status
-                                                                    : columnKey === "match"
-                                                                        ? tr.matchPercent
-                                                                        : columnKey === "city"
-                                                                            ? tr.cityLabel
-                                                                            : columnKey === "source"
-                                                                                ? tr.source
-                                                                                : tr.timeLabel;
+                                                    const label = getColumnHeaderLabel(columnKey);
 
                                                     if (!candidateListCompactMode) {
                                                         return renderCandidateListHeaderCell(columnKey, label);
@@ -2171,8 +2177,8 @@ export function CandidatesPage({
                                                                 columnWidths={candidateListEffectiveColumnWidths}
                                                                 onSelect={stableCallbacks.selectMap.get(candidate.id)!}
                                                                 onToggleCheck={stableCallbacks.toggleMap.get(candidate.id)!}
-                                                                getResumeMailSummary={stableGetResumeMailSummary}
-                                                                getOrganizationLabel={stableGetOrganizationLabel}
+                                                                getResumeMailSummary={getCandidateResumeMailSummary}
+                                                                getOrganizationLabel={getOrganizationLabel}
                                                                 tr={tr}
                                                                 language={language}
                                                                 measureRef={rowVirtualizer.measureElement}
@@ -2218,7 +2224,9 @@ export function CandidatesPage({
                                                 <Badge variant="outline" className="rounded-full">{group.items.length}</Badge>
                                             </div>
                                             <div className="space-y-3">
-                                                {group.items.length ? group.items.map((candidate) => (
+                                                {group.items.length ? (group.items.map((candidate) => {
+                                                    const mailSummary = getCandidateResumeMailSummary(candidate.id);
+                                                    return (
                                                     <div
                                                         key={candidate.id}
                                                         className={cn(
@@ -2238,7 +2246,7 @@ export function CandidatesPage({
                                                                     <p className="line-clamp-2 break-words text-sm font-medium leading-6">
                                                                         {candidate.name}
                                                                     </p>
-                                                                    {getCandidateResumeMailSummary(candidate.id) ? (
+                                                                    {mailSummary ? (
                                                                         <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
                                                                             {tr.resumeSent}
                                                                         </Badge>
@@ -2247,8 +2255,8 @@ export function CandidatesPage({
                                                                 <p className="mt-1 line-clamp-2 break-words text-xs leading-5 opacity-80">
                                                                     {candidate.position_title || tr.unassignedPosition}
                                                                 </p>
-                                                                {getCandidateResumeMailSummary(candidate.id) ? (
-                                                                    <p className="mt-2 text-[11px] opacity-80">{getCandidateResumeMailSummary(candidate.id)}</p>
+                                                                {mailSummary ? (
+                                                                    <p className="mt-2 text-[11px] opacity-80">{mailSummary}</p>
                                                                 ) : null}
                                                                 <div className="mt-3 flex items-center justify-between text-xs opacity-80">
                                                                     <span>{tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}</span>
@@ -2263,7 +2271,8 @@ export function CandidatesPage({
                                                             />
                                                         </div>
                                                     </div>
-                                                )) : (
+                                                    );
+                                                })) : (
                                                     <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                                                         {tr.noCandidatesInStatus}
                                                     </p>
