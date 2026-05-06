@@ -68,11 +68,24 @@ from .recruitment_task_control import RecruitmentTaskCancelled, RecruitmentTaskC
 from .recruitment_utils import CANDIDATE_STATUS_OPTIONS, DEFAULT_RULE_CONFIGS, POSITION_STATUS_OPTIONS, RECRUITMENT_UPLOAD_ROOT, build_jd_structured_fallback, detect_interview_rule_leakage, ensure_interview_html_document, extract_keywords, extract_resume_structured_data, extract_resume_text, extract_screening_dimension_rules, isoformat_or_none, json_dumps_safe, json_loads_safe, markdown_to_html, normalize_resume_fallback_name, normalize_structured_interview, normalize_structured_jd, render_interview_html, render_interview_markdown, render_jd_markdown_source, render_publish_ready_jd, safe_file_stem, score_candidate_fallback, strip_markdown, truncate_text, validate_structured_interview_payload
 
 def _resolve_resume_storage_path(storage_path: str) -> Path:
-    """Resolve resume file path. Supports both absolute and relative (to RECRUITMENT_UPLOAD_ROOT) paths."""
+    """Resolve resume file path. Supports absolute, relative, and cross-environment paths."""
     p = Path(storage_path)
-    if p.is_absolute():
+    if not p.is_absolute():
+        return RECRUITMENT_UPLOAD_ROOT / p
+    # Absolute path under current root — use as-is
+    try:
+        p.relative_to(RECRUITMENT_UPLOAD_ROOT)
         return p
-    return RECRUITMENT_UPLOAD_ROOT / p
+    except ValueError:
+        pass
+    # Cross-environment: extract the part after "resumes/" and resolve against current root
+    parts = p.parts
+    for i, part in enumerate(parts):
+        if part == "resumes" and i < len(parts) - 1:
+            relative = Path(*parts[i + 1:])
+            return RECRUITMENT_UPLOAD_ROOT / relative
+    # Fallback: use as-is
+    return p
 
 
 SCREENING_FLOW_TASK_TYPE = "screening_flow"
@@ -8607,20 +8620,29 @@ class RecruitmentService:
             zf.write(excel_path, f"candidates_{date_str}.xlsx")
             if include_resumes:
                 # 全部简历文件夹：使用原始文件名，扁平结构，不做重命名
+                resume_total = 0
+                resume_skipped = 0
+                resume_added = 0
                 for c in candidates:
                     resume_files = self.db.query(RecruitmentResumeFile).filter(
                         RecruitmentResumeFile.candidate_id == c.id,
                     ).order_by(RecruitmentResumeFile.created_at.desc()).all()
                     for rf in resume_files:
+                        resume_total += 1
                         raw_storage = getattr(rf, "storage_path", None)
                         if not raw_storage:
+                            resume_skipped += 1
                             continue
                         resolved = str(_resolve_resume_storage_path(raw_storage))
                         if not os.path.isfile(resolved):
+                            logger.warning("Export resume not found: id=%s raw=%s resolved=%s", rf.id, raw_storage, resolved)
+                            resume_skipped += 1
                             continue
+                        resume_added += 1
                         safe_original_name = re.sub(r'[/\\?%*:|"<>\x00-\x1f]', '_', rf.original_name)
                         arc_name = f"全部简历/{safe_original_name}"
                         zf.write(resolved, arc_name)
+                logger.info("Export resume stats: total=%d added=%d skipped=%d", resume_total, resume_added, resume_skipped)
                 # 按状态分组
                 by_status: Dict[str, List[RecruitmentCandidate]] = {}
                 for c in candidates:
