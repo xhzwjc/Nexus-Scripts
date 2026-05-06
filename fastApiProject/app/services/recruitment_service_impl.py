@@ -14068,6 +14068,8 @@ class RecruitmentService:
         subject = str(payload.get("subject") or "").strip() or self._build_resume_mail_default_subject(candidates, send_mode="manual")
         body_text = str(payload.get("body_text") or "").strip() or self._build_resume_mail_default_body(candidates, send_mode="manual")
         body_html = payload.get("body_html") or None
+        # 从候选人获取 position_id
+        position_id = candidates[0].position_id if candidates else None
         dispatch = self._send_resume_mail_dispatch_internal(
             sender_row=sender_row,
             candidates=candidates,
@@ -14081,6 +14083,7 @@ class RecruitmentService:
             body_text=body_text,
             body_html=body_html,
             created_by=actor_id,
+            position_id=position_id,
             send_mode="manual",
             trigger_type="manual_send",
             candidate_status=candidates[0].status if len(candidates) == 1 else None,
