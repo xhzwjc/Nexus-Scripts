@@ -492,6 +492,14 @@ def ensure_recruitment_schema() -> None:
             with engine.begin() as connection:
                 connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN version VARCHAR(40) NULL"))
             logger.info("Added recruitment_skills.version column")
+        if "tags_json" not in skill_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN tags_json TEXT NULL"))
+            logger.info("Added recruitment_skills.tags_json column")
+        if "task_types_json" not in skill_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN task_types_json TEXT NULL"))
+            logger.info("Added recruitment_skills.task_types_json column")
 
         ai_task_columns = {column["name"] for column in inspector.get_columns("recruitment_ai_task_logs")}
         if "screening_run_id" not in ai_task_columns:
