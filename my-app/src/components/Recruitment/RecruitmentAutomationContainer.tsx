@@ -767,6 +767,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [positionsLoading, setPositionsLoading] = useState(false);
     const [positionDetailLoading, setPositionDetailLoading] = useState(false);
     const [candidatesLoading, setCandidatesLoading] = useState(false);
+    const [candidatesInitialLoaded, setCandidatesInitialLoaded] = useState(false);
     const [candidateDetailLoading, setCandidateDetailLoading] = useState(false);
     const [duplicateCandidates, setDuplicateCandidates] = useState<Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>>([]);
     const [logsLoading, setLogsLoading] = useState(false);
@@ -1822,8 +1823,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 if (!cancelled) {
                     setAllCandidates(deduplicateCandidates(data?.items || []));
                     setCandidateTotal(data?.total || 0);
+                    setCandidatesInitialLoaded(true);
                 }
             } catch (error) {
+                if (!cancelled) {
+                    setCandidatesInitialLoaded(true);
+                }
                 toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidates, formatActionError(error)));
             }
         }
@@ -2523,6 +2528,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             setAllCandidates(deduplicateCandidates(result?.items || []));
             setCandidateTotal(result?.total || 0);
+            setCandidatesInitialLoaded(true);
             return result?.items || [];
         } catch (error) {
             if (!options?.silent) {
@@ -7377,6 +7383,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 isBatchScreeningRunning={isBatchScreeningRunning}
                 openResumeMailDialog={openResumeMailDialog}
                 candidatesLoading={candidatesLoading}
+                candidatesInitialLoaded={candidatesInitialLoaded}
                 candidateListScrollRef={candidateListScrollRef}
                 candidateListHorizontalRailRef={candidateListHorizontalRailRef}
                 renderCandidateListHeaderCell={renderCandidateListHeaderCell}

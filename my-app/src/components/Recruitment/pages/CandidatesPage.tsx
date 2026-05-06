@@ -1433,6 +1433,7 @@ type CandidatesPageProps = {
     isBatchScreeningRunning: boolean;
     openResumeMailDialog: (candidateIds?: number[]) => void;
     candidatesLoading: boolean;
+    candidatesInitialLoaded: boolean;
     candidateListScrollRef: (node: HTMLDivElement | null) => void;
     candidateListHorizontalRailRef: (node: HTMLDivElement | null) => void;
     renderCandidateListHeaderCell: (key: CandidateListColumnKey, label: string) => React.ReactNode;
@@ -1531,6 +1532,7 @@ export function CandidatesPage({
     isBatchScreeningRunning,
     openResumeMailDialog,
     candidatesLoading,
+    candidatesInitialLoaded,
     candidateListScrollRef,
     candidateListHorizontalRailRef,
     renderCandidateListHeaderCell,
@@ -2074,7 +2076,7 @@ export function CandidatesPage({
                                 </Button>
                             </div>
                         </div>
-                        {candidatesLoading ? (
+                        {candidatesLoading || !candidatesInitialLoaded ? (
                             <LoadingCard label={tr.loadingCandidateList}/>
                         ) : candidateViewMode === "list" ? (
                             <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
