@@ -688,7 +688,7 @@ export function AuditPage({
 
     React.useEffect(() => {
         setAuditListMeasuredRowHeights({});
-    }, [firstVisibleAuditLogId, visibleAuditLogs.length, auditListTableWidth]);
+    }, [visibleAuditLogs.length, auditListTableWidth]);
 
     React.useEffect(() => {
         if (firstVisibleAuditLogId == null) {
@@ -707,6 +707,10 @@ export function AuditPage({
         return () => {
             rowObservers.forEach((observer) => observer.disconnect());
             rowObservers.clear();
+            if (measureFlushFrameRef.current != null) {
+                cancelAnimationFrame(measureFlushFrameRef.current);
+                measureFlushFrameRef.current = null;
+            }
         };
     }, []);
 
@@ -765,6 +769,27 @@ export function AuditPage({
         return visibleAuditLogs.slice(auditListVirtualMetrics.startIndex, auditListVirtualMetrics.endIndex + 1);
     }, [visibleAuditLogs, auditListVirtualMetrics.endIndex, auditListVirtualMetrics.startIndex]);
 
+    const pendingMeasureHeightsRef = React.useRef<Record<number, number>>({});
+    const measureFlushFrameRef = React.useRef<number | null>(null);
+
+    const flushPendingMeasurements = React.useCallback(() => {
+        measureFlushFrameRef.current = null;
+        const pending = pendingMeasureHeightsRef.current;
+        pendingMeasureHeightsRef.current = {};
+        setAuditListMeasuredRowHeights((current) => {
+            let hasChange = false;
+            const next: Record<number, number> = { ...current };
+            for (const key of Object.keys(pending)) {
+                const id = Number(key);
+                if (current[id] !== pending[id]) {
+                    next[id] = pending[id];
+                    hasChange = true;
+                }
+            }
+            return hasChange ? next : current;
+        });
+    }, []);
+
     const createAuditRowMeasureRef = React.useCallback((logId: number) => {
         return (node: HTMLTableRowElement | null) => {
             const existingObserver = auditListRowObserversRef.current.get(logId);
@@ -779,14 +804,10 @@ export function AuditPage({
 
             const measureRow = () => {
                 const nextHeight = Math.ceil(node.getBoundingClientRect().height);
-                setAuditListMeasuredRowHeights((current) => (
-                    current[logId] === nextHeight
-                        ? current
-                        : {
-                            ...current,
-                            [logId]: nextHeight,
-                        }
-                ));
+                pendingMeasureHeightsRef.current[logId] = nextHeight;
+                if (measureFlushFrameRef.current == null) {
+                    measureFlushFrameRef.current = requestAnimationFrame(flushPendingMeasurements);
+                }
             };
 
             measureRow();
@@ -799,7 +820,7 @@ export function AuditPage({
             observer.observe(node);
             auditListRowObserversRef.current.set(logId, observer);
         };
-    }, []);
+    }, [flushPendingMeasurements]);
 
     return (
         <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-6 overflow-hidden">
