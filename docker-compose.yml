@@ -42,7 +42,7 @@ services:
   # 后端FastAPI服务
   fastapi:
     build:
-      context: ./fastapiProject
+      context: ./fastApiProject
     image: project-root-fastapi:v1.0.0
     restart: always
     extra_hosts:
