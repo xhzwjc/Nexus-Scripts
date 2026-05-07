@@ -7861,19 +7861,45 @@ class RecruitmentService:
         self.db.refresh(row)
         return self._serialize_skill(row)
 
-    def generate_skill_content_stream(self, role_name: str, extra_requirements: str, position_jd: str, on_delta: Callable[[str], None]) -> Dict[str, Any]:
+    def generate_skill_content_stream(self, role_name: str, extra_requirements: str, position_jd: str, on_delta: Callable[[str], None], actor_id: str = "unknown", on_task_created: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
         user_prompt = f"岗位名称：{role_name}"
         if position_jd:
             user_prompt += f"\n\n岗位 JD 原文如下：\n{position_jd}"
         if extra_requirements:
             user_prompt += f"\n\n补充评估条件：{extra_requirements}"
         user_prompt += "\n\n请根据以上信息生成完整的初筛评分 Skill，维度总分必须恰好 10.0 分。"
-        return self.ai_gateway.stream_text(
-            task_type="skill_content_generation",
-            system_prompt=SKILL_GENERATION_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            on_delta=on_delta,
-        )
+        request_hash = self._build_request_hash("skill_content_generation", 0, user_prompt, [])
+        log_row = self._create_ai_task_log("skill_content_generation", created_by=actor_id, request_hash=request_hash)
+        if on_task_created:
+            on_task_created(log_row.id)
+        control = RecruitmentTaskControl(log_row.id)
+        recruitment_task_registry.register(log_row.id, control)
+        resolved_runtime = None
+        try:
+            resolved_runtime = self.ai_gateway.resolve_config("skill_content_generation")
+            if not resolved_runtime.api_key:
+                raise ValueError("未配置 AI 模型，请先在「模型配置」中添加可用的 LLM 配置。")
+            self._update_ai_task_log(log_row, status="running", provider=resolved_runtime.provider, model_name=resolved_runtime.model_name, prompt_snapshot=f"SYSTEM:\n{SKILL_GENERATION_SYSTEM_PROMPT}\n\nUSER:\n{user_prompt}", input_summary=truncate_text(user_prompt, 600), output_summary="正在生成 Skill 内容")
+            result = self.ai_gateway.stream_text(
+                task_type="skill_content_generation",
+                system_prompt=SKILL_GENERATION_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                on_delta=on_delta,
+                cancel_control=control,
+            )
+            self._finish_ai_task_log(log_row, status="success", provider=result.get("provider"), model_name=result.get("model_name"), model_source=result.get("source"), prompt_snapshot=result.get("prompt_snapshot"), full_request_snapshot=result.get("full_request_snapshot"), input_summary=result.get("input_summary"), output_summary=truncate_text(result.get("content", ""), 600), output_snapshot={"content": result.get("content")}, token_usage=result.get("token_usage"))
+            return result
+        except RecruitmentTaskCancelled:
+            self._finish_ai_task_log(log_row, status="cancelled", error_message="用户已停止生成", output_summary="已停止生成")
+            raise
+        except ValueError:
+            self._finish_ai_task_log(log_row, status="failed", error_message="未配置 AI 模型")
+            raise
+        except Exception as exc:
+            self._finish_ai_task_log(log_row, status="failed", provider=getattr(resolved_runtime, "provider", None) if resolved_runtime else None, model_name=getattr(resolved_runtime, "model_name", None) if resolved_runtime else None, error_message=str(exc), output_summary="生成失败")
+            raise
+        finally:
+            recruitment_task_registry.pop(log_row.id)
 
     def update_skill(self, skill_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         row = self._get_skill(skill_id)
@@ -13394,13 +13420,17 @@ class RecruitmentService:
             "related_position_id": position.id,
         }
 
-    def generate_jd_stream(self, position_id: int, extra_prompt: str, actor_id: str, on_delta: Callable[[str], None], auto_activate: bool = True) -> Dict[str, Any]:
+    def generate_jd_stream(self, position_id: int, extra_prompt: str, actor_id: str, on_delta: Callable[[str], None], auto_activate: bool = True, on_task_created: Optional[Callable[[int], None]] = None) -> Dict[str, Any]:
         position = self._get_position(position_id)
         skill_rows, memory_source = self._resolve_jd_skills(position, [], use_position_skills=True, use_global_skills=False)
         skill_snapshots = self._build_skill_snapshots(skill_rows)
         related_skill_ids = self._extract_related_skill_ids(skill_snapshots)
         request_hash = self._build_request_hash("jd_generation", position.id, extra_prompt, related_skill_ids)
         log_row = self._create_ai_task_log("jd_generation", created_by=actor_id, related_position_id=position.id, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots, memory_source=memory_source, request_hash=request_hash)
+        if on_task_created:
+            on_task_created(log_row.id)
+        control = RecruitmentTaskControl(log_row.id)
+        recruitment_task_registry.register(log_row.id, control)
         position_payload = self._serialize_position_for_jd_prompt(position)
         prompt = self._build_jd_preview_prompt(position_payload, skill_snapshots, extra_prompt)
         preview_chunks: List[str] = []
@@ -13409,6 +13439,7 @@ class RecruitmentService:
             preview_chunks.append(chunk)
             on_delta(chunk)
 
+        resolved_runtime = None
         try:
             resolved_runtime = self.ai_gateway.resolve_config("jd_generation")
             if not resolved_runtime.api_key:
@@ -13420,8 +13451,8 @@ class RecruitmentService:
                 else f"正在为\u201C{position.title}\u201D起草岗位 JD，请稍候...\n\n"
             )
             on_delta(prefix)
-            self.ai_gateway.stream_text(task_type="jd_generation", system_prompt=JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, user_prompt=prompt, on_delta=_handle_delta)
-            task = self.ai_gateway.generate_json(task_type="jd_generation", system_prompt=JD_GENERATION_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: build_jd_structured_fallback(position))
+            self.ai_gateway.stream_text(task_type="jd_generation", system_prompt=JD_GENERATION_STREAM_PREVIEW_SYSTEM_PROMPT, user_prompt=prompt, on_delta=_handle_delta, cancel_control=control)
+            task = self.ai_gateway.generate_json(task_type="jd_generation", system_prompt=JD_GENERATION_SYSTEM_PROMPT, user_prompt=prompt, fallback_builder=lambda: build_jd_structured_fallback(position), cancel_control=control)
             content = task.get("content") or {}
             structured = normalize_structured_jd(content if isinstance(content, dict) else {}, position)
             markdown = render_jd_markdown_source(structured)
@@ -13441,30 +13472,46 @@ class RecruitmentService:
             self.db.commit()
             self.db.refresh(row)
             return {"reply": reply, "log_id": finished_log.id, "structured": structured, "markdown": markdown, "html": html, "publish_text": publish_text, "used_fallback": bool(task.get("used_fallback")), "model_provider": task.get("provider"), "model_name": task.get("model_name")}
+        except RecruitmentTaskCancelled:
+            self._finish_ai_task_log(log_row, status="cancelled", error_message="用户已停止生成", output_summary="已停止生成")
+            raise
         except ValueError:
             raise
         except Exception as exc:
             self.db.rollback()
-            fallback_structured = build_jd_structured_fallback(position)
-            fallback_markdown = render_jd_markdown_source(fallback_structured)
-            reply = f"已为\u201C{position.title}\u201D生成岗位 JD 草稿。\n\n{fallback_markdown}".strip()
-            on_delta(reply)
-            finished_log = self._finish_ai_task_log(log_row, status="fallback", provider=resolved_runtime.provider, model_name=resolved_runtime.model_name, model_source=resolved_runtime.source, prompt_snapshot=f"SYSTEM:\n{JD_GENERATION_SYSTEM_PROMPT}\n\nUSER:\n{prompt}", full_request_snapshot=None, input_summary=truncate_text(prompt, 600), output_summary=truncate_text(reply, 600), output_snapshot={"normalized": fallback_structured, "reply": reply, "preview_markdown": "".join(preview_chunks).strip()}, error_message=str(exc), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
-            position = self._get_position(position_id)
-            fallback_html = markdown_to_html(fallback_markdown)
-            fallback_publish_text = render_publish_ready_jd(fallback_structured)
-            version_no = (self.db.query(func.max(RecruitmentJDVersion.version_no)).filter(RecruitmentJDVersion.position_id == position.id).scalar() or 0) + 1
-            row = RecruitmentJDVersion(org_code=normalize_org_code(getattr(position, "org_code", None)), position_id=position.id, version_no=version_no, title=f"{position.title} V{version_no}", prompt_snapshot=None, jd_markdown=fallback_markdown, jd_html=fallback_html, publish_text=fallback_publish_text, notes=extra_prompt or None, is_active=bool(auto_activate), created_by=actor_id)
-            self.db.add(row)
-            self.db.flush()
-            if auto_activate:
-                self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.position_id == position.id, RecruitmentJDVersion.id != row.id).update({RecruitmentJDVersion.is_active: False}, synchronize_session=False)
-                position.current_jd_version_id = row.id
-                position.updated_by = actor_id
-                self.db.add(position)
-            self.db.commit()
-            self.db.refresh(row)
-            return {"reply": reply, "log_id": finished_log.id, "structured": fallback_structured, "markdown": fallback_markdown, "html": fallback_html, "publish_text": fallback_publish_text, "used_fallback": True, "model_provider": resolved_runtime.provider, "model_name": resolved_runtime.model_name}
+            fallback_provider = getattr(resolved_runtime, "provider", None)
+            fallback_model = getattr(resolved_runtime, "model_name", None)
+            fallback_source = getattr(resolved_runtime, "source", None)
+            try:
+                fallback_structured = build_jd_structured_fallback(position)
+                fallback_markdown = render_jd_markdown_source(fallback_structured)
+                reply = f"已为\u201C{position.title}\u201D生成岗位 JD 草稿。\n\n{fallback_markdown}".strip()
+                on_delta(reply)
+                finished_log = self._finish_ai_task_log(log_row, status="fallback", provider=fallback_provider, model_name=fallback_model, model_source=fallback_source, prompt_snapshot=f"SYSTEM:\n{JD_GENERATION_SYSTEM_PROMPT}\n\nUSER:\n{prompt}", full_request_snapshot=None, input_summary=truncate_text(prompt, 600), output_summary=truncate_text(reply, 600), output_snapshot={"normalized": fallback_structured, "reply": reply, "preview_markdown": "".join(preview_chunks).strip()}, error_message=str(exc), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+                position = self._get_position(position_id)
+                fallback_html = markdown_to_html(fallback_markdown)
+                fallback_publish_text = render_publish_ready_jd(fallback_structured)
+                version_no = (self.db.query(func.max(RecruitmentJDVersion.version_no)).filter(RecruitmentJDVersion.position_id == position.id).scalar() or 0) + 1
+                row = RecruitmentJDVersion(org_code=normalize_org_code(getattr(position, "org_code", None)), position_id=position.id, version_no=version_no, title=f"{position.title} V{version_no}", prompt_snapshot=None, jd_markdown=fallback_markdown, jd_html=fallback_html, publish_text=fallback_publish_text, notes=extra_prompt or None, is_active=bool(auto_activate), created_by=actor_id)
+                self.db.add(row)
+                self.db.flush()
+                if auto_activate:
+                    self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.position_id == position.id, RecruitmentJDVersion.id != row.id).update({RecruitmentJDVersion.is_active: False}, synchronize_session=False)
+                    position.current_jd_version_id = row.id
+                    position.updated_by = actor_id
+                    self.db.add(position)
+                self.db.commit()
+                self.db.refresh(row)
+                return {"reply": reply, "log_id": finished_log.id, "structured": fallback_structured, "markdown": fallback_markdown, "html": fallback_html, "publish_text": fallback_publish_text, "used_fallback": True, "model_provider": fallback_provider, "model_name": fallback_model}
+            except Exception as fallback_exc:
+                self.db.rollback()
+                try:
+                    self._finish_ai_task_log(log_row, status="failed", provider=fallback_provider, model_name=fallback_model, error_message=f"主异常: {exc}; fallback 异常: {fallback_exc}", output_summary="生成失败（fallback 也失败）")
+                except Exception:
+                    pass
+                raise exc
+        finally:
+            recruitment_task_registry.pop(log_row.id)
 
     def generate_jd(self, position_id: int, extra_prompt: str, actor_id: str, auto_activate: bool = True) -> Dict[str, Any]:
         position = self._get_position(position_id)

@@ -343,8 +343,12 @@ async def stream_generate_jd(position_id: int, payload: JDGenerateRequest, _sess
         try:
             def on_delta(delta: str) -> None:
                 push("delta", {"delta": delta})
-            result = service.generate_jd_stream(position_id, payload.extra_prompt or "", _session.get("id") or "unknown", on_delta, auto_activate=payload.auto_activate)
+            def on_task_created(task_id: int) -> None:
+                push("task_created", {"task_id": task_id})
+            result = service.generate_jd_stream(position_id, payload.extra_prompt or "", _session.get("id") or "unknown", on_delta, auto_activate=payload.auto_activate, on_task_created=on_task_created)
             push("completed", result)
+        except RecruitmentTaskCancelled:
+            push("cancelled", {"message": "已停止生成"})
         except Exception as exc:
             push("error", {"message": str(exc)})
         finally:
@@ -1220,8 +1224,12 @@ async def generate_skill_content_stream(payload: SkillContentGenerateRequest, _s
             def on_delta(delta: str) -> None:
                 chunks.append(delta)
                 push("delta", {"delta": delta})
-            service.generate_skill_content_stream(payload.role_name, payload.extra_requirements or "", payload.position_jd or "", on_delta)
+            def on_task_created(task_id: int) -> None:
+                push("task_created", {"task_id": task_id})
+            service.generate_skill_content_stream(payload.role_name, payload.extra_requirements or "", payload.position_jd or "", on_delta, actor_id=_session.get("id") or "unknown", on_task_created=on_task_created)
             push("completed", {"content": "".join(chunks)})
+        except RecruitmentTaskCancelled:
+            push("cancelled", {"message": "已停止生成"})
         except Exception as exc:
             push("error", {"message": str(exc)})
         finally:

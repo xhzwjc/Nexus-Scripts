@@ -426,6 +426,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const recruitmentToast = useMemo(() => getRecruitmentToastLocale(language), [language]);
     const recruitmentToastEntities = recruitmentToast.entities;
     const jdGenerationInFlightRef = useRef(false);
+    const jdAbortControllerRef = useRef<AbortController | null>(null);
+    const jdActiveTaskIdRef = useRef<number | null>(null);
+    const skillAbortControllerRef = useRef<AbortController | null>(null);
+    const skillActiveTaskIdRef = useRef<number | null>(null);
     const screeningLaunchInFlightRef = useRef(false);
     const taskMonitorTimersRef = useRef<Map<number, number>>(new Map());
     const taskMonitorTokensRef = useRef<Map<number, symbol>>(new Map());
@@ -1876,6 +1880,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     useEffect(() => {
         jdGenerationInFlightRef.current = false;
+        jdAbortControllerRef.current?.abort();
+        jdAbortControllerRef.current = null;
+        jdActiveTaskIdRef.current = null;
         setJdGenerationStatus("idle");
         setJdGenerationError("");
     }, [selectedPositionId]);
@@ -4259,6 +4266,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         if (isJDGenerating || jdGenerationInFlightRef.current) {
             return;
         }
+        const abortController = new AbortController();
+        jdAbortControllerRef.current = abortController;
+        jdActiveTaskIdRef.current = null;
         jdGenerationInFlightRef.current = true;
         setJdGenerationStatus("running");
         setJdGenerationError("");
@@ -4271,6 +4281,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     extra_prompt: jdExtraPrompt.trim() || null,
                     auto_activate: jdDraft.autoActivate,
                 }),
+                signal: abortController.signal,
             });
             if (!response.body) throw new Error("No response body");
             const reader = response.body.getReader();
@@ -4279,6 +4290,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             let fullContent = "";
             let completedData: Record<string, unknown> | null = null;
             let errorData: Record<string, unknown> | null = null;
+            let cancelledData: Record<string, unknown> | null = null;
             while (true) {
                 const {done, value} = await reader.read();
                 if (done) break;
@@ -4288,15 +4300,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     const rawEvent = buffer.slice(0, sep);
                     buffer = buffer.slice(sep + 2);
                     sep = buffer.indexOf("\n\n");
-                    // 解析 event 类型
                     const eventMatch = rawEvent.match(/^event: (.+)$/m);
                     const eventType = eventMatch ? eventMatch[1].trim() : "message";
                     const dataMatch = rawEvent.match(/data: (.+)/);
                     if (dataMatch) {
                         try {
                             const data = JSON.parse(dataMatch[1]);
-                            if (eventType === "completed") {
+                            if (eventType === "task_created") {
+                                jdActiveTaskIdRef.current = data.task_id;
+                            } else if (eventType === "completed") {
                                 completedData = data;
+                            } else if (eventType === "cancelled") {
+                                cancelledData = data;
                             } else if (eventType === "error") {
                                 errorData = data;
                             } else if (data.delta) {
@@ -4308,7 +4323,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }
             }
             if (!mountedRef.current) return;
-            // 后端明确返回了错误
+            if (cancelledData) {
+                setJdGenerationStatus("idle");
+                setJdStreamingContent("");
+                return;
+            }
             if (errorData) {
                 throw new Error(String(errorData.message || (isZh ? "JD 生成失败" : "JD generation failed")));
             }
@@ -4325,7 +4344,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setJdStreamingContent("");
             setJdViewMode("publish");
             setJdGenerationStatus("idle");
-            // 检查是否使用了兜底结果
             if (completedData?.used_fallback) {
                 toast.warning(isZh ? "岗位 JD 已生成（AI 超时，已使用兜底结果）" : "JD generated (AI timed out, fallback result used)");
             } else {
@@ -4333,11 +4351,28 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
         } catch (error) {
             if (!mountedRef.current) return;
+            if (abortController.signal.aborted) {
+                setJdGenerationStatus("idle");
+                setJdStreamingContent("");
+                return;
+            }
             setJdGenerationStatus("failed");
             setJdGenerationError(error instanceof Error ? error.message : (isZh ? "未知错误" : "Unknown error"));
             toast.error(isZh ? `生成 JD 失败：${error instanceof Error ? error.message : "未知错误"}` : `JD generation failed: ${error instanceof Error ? error.message : "Unknown error"}`);
         } finally {
             jdGenerationInFlightRef.current = false;
+            jdAbortControllerRef.current = null;
+            jdActiveTaskIdRef.current = null;
+        }
+    }
+
+    async function stopJDGeneration() {
+        jdAbortControllerRef.current?.abort();
+        const taskId = jdActiveTaskIdRef.current;
+        if (taskId) {
+            try {
+                await cancelTaskGeneration(taskId, isZh ? "JD 生成" : "JD generation", {silent: true});
+            } catch { /* ignore */ }
         }
     }
 
@@ -6031,6 +6066,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     async function generateSkillWithAI(roleName: string, extraRequirements: string, positionJd: string | null, onDelta?: (delta: string) => void): Promise<string> {
+        const abortController = new AbortController();
+        skillAbortControllerRef.current = abortController;
+        skillActiveTaskIdRef.current = null;
         setSkillGenerating(true);
         let fullContent = "";
         try {
@@ -6038,6 +6076,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 method: "POST",
                 headers: {"Content-Type": "application/json", Accept: "text/event-stream"},
                 body: JSON.stringify({role_name: roleName, extra_requirements: extraRequirements || null, position_jd: positionJd || null}),
+                signal: abortController.signal,
             });
             if (!response.body) throw new Error("No response body");
             const reader = response.body.getReader();
@@ -6052,11 +6091,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     const rawEvent = buffer.slice(0, sep);
                     buffer = buffer.slice(sep + 2);
                     sep = buffer.indexOf("\n\n");
+                    const eventMatch = rawEvent.match(/^event: (.+)$/m);
+                    const eventType = eventMatch ? eventMatch[1].trim() : "message";
                     const dataMatch = rawEvent.match(/data: (.+)/);
                     if (dataMatch) {
                         try {
                             const data = JSON.parse(dataMatch[1]);
-                            if (data.delta) {
+                            if (eventType === "task_created") {
+                                skillActiveTaskIdRef.current = data.task_id;
+                            } else if (eventType === "cancelled" || eventType === "error") {
+                                break;
+                            } else if (data.delta) {
                                 fullContent += data.delta;
                                 onDelta?.(data.delta);
                             }
@@ -6065,10 +6110,25 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }
             }
         } catch (error) {
-            toast.error(formatActionError(error));
+            if (!abortController.signal.aborted) {
+                toast.error(formatActionError(error));
+            }
+        } finally {
+            setSkillGenerating(false);
+            skillAbortControllerRef.current = null;
+            skillActiveTaskIdRef.current = null;
         }
-        setSkillGenerating(false);
         return fullContent;
+    }
+
+    async function stopSkillGeneration() {
+        skillAbortControllerRef.current?.abort();
+        const taskId = skillActiveTaskIdRef.current;
+        if (taskId) {
+            try {
+                await cancelTaskGeneration(taskId, isZh ? "Skill 生成" : "Skill generation", {silent: true});
+            } catch { /* ignore */ }
+        }
     }
 
     async function submitSkill() {
@@ -7110,16 +7170,24 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         </div>
                                                     </div>
                                                     <div className="flex flex-wrap gap-2">
-                                                        <Button
-                                                            size="sm"
-                                                            onClick={() => void generateJD()}
-                                                            disabled={isJDGenerating}
-                                                        >
-                                                            <Wand2 className="h-4 w-4"/>
-                                                            {isJDGenerating
-                                                                ? (isZh ? "生成中..." : "Generating...")
-                                                                : (isZh ? "AI 生成 JD" : "Generate JD")}
-                                                        </Button>
+                                                        {isJDGenerating ? (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                onClick={() => void stopJDGeneration()}
+                                                            >
+                                                                <Square className="h-4 w-4"/>
+                                                                {isZh ? "停止生成" : "Stop"}
+                                                            </Button>
+                                                        ) : (
+                                                            <Button
+                                                                size="sm"
+                                                                onClick={() => void generateJD()}
+                                                            >
+                                                                <Wand2 className="h-4 w-4"/>
+                                                                {isZh ? "AI 生成 JD" : "Generate JD"}
+                                                            </Button>
+                                                        )}
                                                         <Button
                                                             size="sm"
                                                             variant="outline"
@@ -7273,12 +7341,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         {isZh ? "保存后设为生效版本" : "Set as Active Version After Saving"}
                                                     </label>
                                                     <div className="flex flex-wrap gap-2">
-                                                        <Button variant="outline" onClick={() => void generateJD()} disabled={isJDGenerating}>
-                                                            <Sparkles className="h-4 w-4"/>
-                                                            {isJDGenerating
-                                                                ? (isZh ? "生成中..." : "Generating...")
-                                                                : (isZh ? "重新生成" : "Regenerate")}
-                                                        </Button>
+                                                        {isJDGenerating ? (
+                                                            <Button variant="outline" onClick={() => void stopJDGeneration()}>
+                                                                <Square className="h-4 w-4"/>
+                                                                {isZh ? "停止生成" : "Stop"}
+                                                            </Button>
+                                                        ) : (
+                                                            <Button variant="outline" onClick={() => void generateJD()}>
+                                                                <Sparkles className="h-4 w-4"/>
+                                                                {isZh ? "重新生成" : "Regenerate"}
+                                                            </Button>
+                                                        )}
                                                         <Button onClick={() => void saveJDVersion()} disabled={jdVersionSaving}>
                                                             <Save className="h-4 w-4"/>
                                                             {jdVersionSaving ? (isZh ? "保存中..." : "Saving...") : (isZh ? "保存新版本" : "Save New Version")}
@@ -8753,6 +8826,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     setSkillFormErrors({});
                     setSkillFormSubmitError(null);
                     setSkillSubmitting(false);
+                    skillAbortControllerRef.current?.abort();
+                    skillAbortControllerRef.current = null;
+                    skillActiveTaskIdRef.current = null;
                 }
             }}>
                 <DialogContent className="flex h-[min(88vh,840px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-4xl">
@@ -8768,6 +8844,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         submitting={skillSubmitting}
                         submitError={skillFormSubmitError}
                         onGenerateAI={generateSkillWithAI}
+                        onStopGeneration={stopSkillGeneration}
                         aiGenerating={skillGenerating}
                         defaultTab={skillEditorDefaultTab}
                         positionId={skillEditorPositionId}

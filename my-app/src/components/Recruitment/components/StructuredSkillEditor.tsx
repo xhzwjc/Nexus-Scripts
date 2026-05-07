@@ -1,7 +1,7 @@
 "use client";
 
 import React, {useCallback, useEffect, useDeferredValue, useMemo, useRef, useState} from "react";
-import {GripVertical, Pencil, Plus, Sparkles, Trash2, X} from "lucide-react";
+import {GripVertical, Pencil, Plus, Sparkles, Square, Trash2, X} from "lucide-react";
 
 import type {ScreeningSkillDimension, ScreeningSkillFormData, SkillTaskKind} from "../types";
 import {
@@ -31,6 +31,7 @@ type StructuredSkillEditorProps = {
     submitting: boolean;
     submitError: string | null;
     onGenerateAI?: (roleName: string, extraRequirements: string, positionJd: string | null, onDelta?: (delta: string) => void) => Promise<string>;
+    onStopGeneration?: () => void;
     aiGenerating?: boolean;
     defaultTab?: "structured" | "advanced" | "ai";
     positionId?: number | null;
@@ -215,6 +216,7 @@ export function StructuredSkillEditor({
     submitting,
     submitError,
     onGenerateAI,
+    onStopGeneration,
     aiGenerating,
     defaultTab = "structured",
     positionId,
@@ -557,10 +559,17 @@ export function StructuredSkillEditor({
                         />
                     </div>
                     <div className="flex gap-2">
-                        <Button onClick={() => void handleGenerate()} disabled={!aiRoleName.trim() || aiGenerating}>
-                            {aiGenerating ? "生成中..." : "开始生成"}
-                            <Sparkles className="h-4 w-4 ml-1" />
-                        </Button>
+                        {aiGenerating ? (
+                            <Button variant="outline" onClick={() => onStopGeneration?.()}>
+                                <Square className="h-4 w-4 mr-1" />
+                                停止生成
+                            </Button>
+                        ) : (
+                            <Button onClick={() => void handleGenerate()} disabled={!aiRoleName.trim()}>
+                                <Sparkles className="h-4 w-4 ml-1" />
+                                开始生成
+                            </Button>
+                        )}
                         {aiGeneratedContent && (
                             <Button variant="outline" onClick={handleUseAIResult}>
                                 使用此结果并编辑
