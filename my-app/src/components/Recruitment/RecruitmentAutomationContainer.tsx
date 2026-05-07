@@ -5488,20 +5488,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             await recruitmentApi(`/candidates/${deletedCandidateId}`, {
                 method: "DELETE",
             });
-            toast.success(isZh ? "候选人已删除" : "Candidate deleted");
             setCandidateDeleteTarget(null);
             setSelectedCandidateIds((current) => current.filter((item) => item !== deletedCandidateId));
             setCandidateDetail(null);
+            toast.success(isZh ? "候选人已删除" : "Candidate deleted");
             const nextCandidates = await loadCandidates({silent: true});
-            await Promise.all([loadDashboard(), loadLogs({silent: true}), refreshCandidateStats()]);
             const nextCandidateId = nextCandidates[0]?.id ?? null;
             setSelectedCandidateId(nextCandidateId);
             selectedCandidateIdRef.current = nextCandidateId;
             if (nextCandidateId) {
-                await loadCandidateDetail(nextCandidateId, {silent: true});
-            } else {
-                setCandidateDetail(null);
+                void loadCandidateDetail(nextCandidateId, {silent: true});
             }
+            void Promise.all([loadDashboard(), loadLogs({silent: true}), refreshCandidateStats()]);
             if ((chatContextRef.current.candidate_id ?? null) === deletedCandidateId) {
                 void saveChatContext(chatContextRef.current.position_id ?? null, chatContextRef.current.skill_ids, nextCandidateId, {quiet: true});
             }
@@ -5523,13 +5521,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         setBatchDeleteError(null);
         setBatchDeleting(true);
+        const deletedIds = batchDeleteTargetIds;
         try {
             const result = await recruitmentApi<{ deleted_count: number; skipped: { candidate_id: number; reason: string }[] }>("/candidates/batch-delete", {
                 method: "POST",
-                body: JSON.stringify({ candidate_ids: batchDeleteTargetIds }),
+                body: JSON.stringify({ candidate_ids: deletedIds }),
             });
             const deletedCount = result.deleted_count ?? 0;
             const skipped = result.skipped ?? [];
+            setBatchDeleteTargetIds(null);
+            setSelectedCandidateIds((current) => current.filter((id) => !deletedIds.includes(id)));
+            if (deletedIds.includes(selectedCandidateIdRef.current ?? -1)) {
+                setCandidateDetail(null);
+            }
             if (skipped.length > 0) {
                 const names = skipped.map((s) => `ID:${s.candidate_id}`).join(", ");
                 toast.warning(
@@ -5541,23 +5545,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 toast.success(isZh ? `已删除 ${deletedCount} 位候选人` : `Deleted ${deletedCount} candidate(s)`);
             }
             const nextCandidates = await loadCandidates({silent: true});
-            await Promise.all([loadDashboard(), loadLogs({silent: true}), refreshCandidateStats()]);
             const nextCandidateId = nextCandidates[0]?.id ?? null;
             setSelectedCandidateId(nextCandidateId);
             selectedCandidateIdRef.current = nextCandidateId;
-            setSelectedCandidateIds((current) => current.filter((id) => !batchDeleteTargetIds!.includes(id)));
-            if (batchDeleteTargetIds.includes(selectedCandidateIdRef.current ?? -1)) {
-                setCandidateDetail(null);
-            }
             if (nextCandidateId) {
-                await loadCandidateDetail(nextCandidateId, {silent: true});
-            } else {
-                setCandidateDetail(null);
+                void loadCandidateDetail(nextCandidateId, {silent: true});
             }
+            void Promise.all([loadDashboard(), loadLogs({silent: true}), refreshCandidateStats()]);
         } catch (error) {
             setBatchDeleteError(formatActionError(error) || (isZh ? "批量删除候选人失败，请稍后重试" : "Failed to batch delete candidates. Please try again later."));
         } finally {
-            setBatchDeleteTargetIds(null);
             setBatchDeleting(false);
         }
     }
