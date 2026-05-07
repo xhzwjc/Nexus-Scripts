@@ -6546,6 +6546,25 @@ class RecruitmentService:
         ).all()
         parse_ids = [row.id for row in parse_rows]
 
+        # 先尝试 settle 孤儿任务（幂等），避免异常中断的任务阻塞删除
+        live_task_query = self.db.query(RecruitmentAITaskLog).filter(
+            RecruitmentAITaskLog.status.in_(["pending", "queued", "running", "cancelling"]),
+        )
+        if resume_file_ids:
+            live_task_query = live_task_query.filter(
+                or_(
+                    RecruitmentAITaskLog.related_candidate_id == candidate.id,
+                    RecruitmentAITaskLog.related_resume_file_id.in_(resume_file_ids),
+                )
+            )
+        else:
+            live_task_query = live_task_query.filter(
+                RecruitmentAITaskLog.related_candidate_id == candidate.id,
+            )
+        for live_task in live_task_query.all():
+            self._settle_orphaned_live_task(live_task)
+        self.db.commit()
+
         active_task_query = self.db.query(RecruitmentAITaskLog).filter(
             RecruitmentAITaskLog.status.in_(["pending", "queued", "running", "cancelling"]),
         )
