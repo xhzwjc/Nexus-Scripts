@@ -1,0 +1,280 @@
+import React, { useState, useMemo } from 'react';
+import { SystemResource, Environment } from '@/lib/team-resources-data';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Globe, Database, ExternalLink, Eye, EyeOff, Copy, User } from 'lucide-react';
+import { toast } from '@/lib/toast';
+import { useI18n } from '@/lib/i18n';
+
+interface SystemCardProps {
+    system: SystemResource;
+    groupLogo?: string; // 集团logo，作为favicon加载失败时的回退
+}
+
+export function SystemCard({ system, groupLogo }: SystemCardProps) {
+    const { t } = useI18n();
+    const tr = t.teamResources;
+    // 判断环境是否有有效数据（url不为空且不是占位符）
+    const hasValidEnv = (envKey: Environment): boolean => {
+        const envData = system.environments[envKey];
+        if (!envData) return false;
+        const url = envData.url?.trim() || '';
+        return url.length > 0 && url !== 'https://' && url !== 'example.com';
+    };
+
+    // 智能选择默认环境：生产 > 测试 > 开发
+    const getDefaultEnv = React.useCallback((): Environment => {
+        if (hasValidEnv('prod')) return 'prod';
+        if (hasValidEnv('test')) return 'test';
+        if (hasValidEnv('dev')) return 'dev';
+        // 如果都没有有效数据，返回第一个存在的环境
+        if (system.environments.prod) return 'prod';
+        if (system.environments.test) return 'test';
+        if (system.environments.dev) return 'dev';
+        return 'prod';
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [system.id, system.environments]);
+
+    const [env, setEnv] = useState<Environment>(getDefaultEnv());
+    const [revealedCreds, setRevealedCreds] = useState<Record<string, boolean>>({});
+    const [faviconError, setFaviconError] = useState(false);
+
+    const currentEnv = system.environments[env];
+
+    // 当系统数据变化时重新计算默认环境
+    React.useEffect(() => {
+        setEnv(getDefaultEnv());
+        // 重置时先不重置 faviconError，由下方的 cache check 决定
+        // setFaviconError(false); 
+    }, [getDefaultEnv]);
+
+    // 从URL中提取favicon地址
+    const faviconUrl = useMemo(() => {
+        // ... logic unchanged ...
+        // 优先使用生产环境，然后测试，最后开发
+        const envOrder: Environment[] = ['prod', 'test', 'dev'];
+        for (const envKey of envOrder) {
+            const envData = system.environments[envKey];
+            if (envData?.url) {
+                const url = envData.url.trim();
+                if (url && url !== 'https://' && url !== 'example.com') {
+                    try {
+                        // 确保URL有协议
+                        const fullUrl = url.startsWith('http') ? url : `https://${url}`;
+                        const urlObj = new URL(fullUrl);
+                        // 直接从网站根目录获取favicon
+                        return `${urlObj.protocol}//${urlObj.hostname}/favicon.ico`;
+                    } catch {
+                        // URL解析失败，继续尝试下一个环境
+                    }
+                }
+            }
+        }
+        return null;
+    }, [system.environments]);
+
+    // 缓存检查 effect
+    React.useEffect(() => {
+        if (!faviconUrl) {
+            setFaviconError(true);
+            return;
+        }
+        // 检查缓存
+        const cacheKey = `fav_status_${faviconUrl}`;
+        const status = sessionStorage.getItem(cacheKey);
+        if (status === 'error') {
+            setFaviconError(true);
+        } else {
+            setFaviconError(false);
+        }
+    }, [faviconUrl]);
+
+    const toggleReveal = (id: string) => {
+        setRevealedCreds(prev => ({
+            ...prev,
+            [id]: !prev[id]
+        }));
+    };
+
+    const handlePasswordToggle = (id: string, password?: string) => {
+        if (!password) {
+            toast.error(tr.passwordLoadFailed);
+        }
+        toggleReveal(id);
+    };
+
+    const copyToClipboard = (text: string, label: string) => {
+        if (!text) {
+            toast.error(tr.contentEmpty);
+            return;
+        }
+        navigator.clipboard.writeText(text);
+        toast.success(tr.copiedLabel.replace('{label}', label));
+    };
+
+    const envLabels: Record<Environment, string> = {
+        dev: tr.envDev,
+        test: tr.envTest,
+        prod: tr.envProd
+    };
+
+    return (
+        <Card className="flex flex-col overflow-hidden border-[var(--border-subtle)] shadow-sm hover:shadow-md transition-shadow bg-[var(--card-bg)]">
+            {/* Header */}
+            <div className="p-5 border-b border-[var(--border-subtle)] flex items-start justify-between bg-[var(--card-bg-muted)]">
+                <div className="flex gap-3">
+                    <div className="p-2 bg-white rounded-lg border border-[var(--border-subtle)] shadow-sm flex items-center justify-center w-10 h-10 relative">
+                        {/* 默认显示集团logo或Database图标 */}
+                        {groupLogo && faviconError ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={groupLogo} alt="" className="w-5 h-5 object-contain" />
+                        ) : (
+                            <Database className={`w-5 h-5 text-primary transition-opacity duration-300 ${faviconUrl && !faviconError ? 'opacity-0' : 'opacity-100'}`} />
+                        )}
+                        {/* Favicon 加载成功后覆盖显示 */}
+                        {faviconUrl && !faviconError && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                                src={faviconUrl}
+                                alt=""
+                                loading="lazy"
+                                onError={() => {
+                                    setFaviconError(true);
+                                    if (faviconUrl) sessionStorage.setItem(`fav_status_${faviconUrl}`, 'error');
+                                }}
+                                onLoad={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.classList.remove('opacity-0');
+                                    target.classList.add('opacity-100');
+                                    if (faviconUrl) sessionStorage.setItem(`fav_status_${faviconUrl}`, 'ok');
+                                }}
+                            />
+                        )}
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-[var(--text-primary)] text-base">{system.name}</h3>
+                        <p className="text-xs text-[var(--text-secondary)] mt-0.5">{system.description || tr.noDescription}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 flex-1 flex flex-col gap-4">
+
+                {/* Environment Tabs */}
+                <Tabs value={env} onValueChange={(v) => setEnv(v as Environment)} className="w-full">
+                    <TabsList className="w-full grid grid-cols-3 mb-4 bg-[var(--bg-muted)]">
+                        <TabsTrigger value="dev" disabled={!system.environments.dev}>
+                            {envLabels.dev}
+                        </TabsTrigger>
+                        <TabsTrigger value="test" disabled={!system.environments.test}>
+                            {envLabels.test}
+                        </TabsTrigger>
+                        <TabsTrigger value="prod" disabled={!system.environments.prod}>
+                            {envLabels.prod}
+                        </TabsTrigger>
+                    </TabsList>
+                </Tabs>
+
+                {currentEnv ? (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        {/* URL Link */}
+                        <div className="flex items-center gap-2 p-3 bg-background border border-[var(--border-subtle)] rounded-lg text-sm text-[var(--text-primary)] hover:border-primary/50 transition-colors group shadow-sm">
+                            <Globe className="w-4 h-4 shrink-0 text-[var(--text-tertiary)] group-hover:text-primary transition-colors" />
+                            <a href={currentEnv.url} target="_blank" rel="noopener noreferrer" className="flex-1 truncate font-medium hover:underline decoration-primary/30 underline-offset-4">
+                                {currentEnv.url}
+                            </a>
+                            <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 opacity-0 group-hover:opacity-100 text-[var(--text-secondary)] hover:text-primary hover:bg-primary/10"
+                                onClick={() => copyToClipboard(currentEnv.url, 'URL')}
+                            >
+                                <Copy className="w-3 h-3" />
+                            </Button>
+                            <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-50 text-[var(--text-tertiary)]" />
+                        </div>
+
+                        {/* Credentials */}
+                        <div className="space-y-2">
+                            {currentEnv.creds.length > 0 ? (
+                                currentEnv.creds.map(cred => {
+                                    const hasStoredPassword = !!(cred.hasPassword || cred.password);
+                                    const hasRevealablePassword = !!cred.password;
+                                    const revealedPassword = hasRevealablePassword ? cred.password : tr.passwordLoadFailed;
+
+                                    return (
+                                        <div key={cred.id} className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-muted)] border border-[var(--border-subtle)] group">
+                                            <div className="w-16 shrink-0 text-xs font-medium text-[var(--text-secondary)]">{cred.label}</div>
+
+                                            <div className="flex-1 flex items-center gap-2 min-w-0">
+                                                {/* Username */}
+                                                <div className="flex items-center gap-1 bg-[var(--card-bg)] px-2 py-1 rounded border border-[var(--border-subtle)]">
+                                                    <User className="w-3 h-3 text-muted-foreground" />
+                                                    <span className="text-sm font-mono text-foreground truncate max-w-[100px]">
+                                                        {cred.username}
+                                                    </span>
+                                                    <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        className="h-5 w-5 ml-1 text-muted-foreground hover:text-foreground"
+                                                        onClick={() => copyToClipboard(cred.username, tr.username)}
+                                                    >
+                                                        <Copy className="w-3 h-3" />
+                                                    </Button>
+                                                </div>
+
+                                                <span className="text-muted-foreground/30">/</span>
+
+                                                {/* Password */}
+                                                <div className="flex items-center gap-1 bg-[var(--card-bg)] px-2 py-1 rounded border border-[var(--border-subtle)] flex-1 min-w-0">
+                                                    <span className="text-sm font-mono text-foreground truncate">
+                                                        {hasStoredPassword
+                                                            ? (revealedCreds[cred.id]
+                                                                ? revealedPassword
+                                                                : tr.passwordProtected)
+                                                            : tr.notSet}
+                                                    </span>
+                                                    {hasStoredPassword && (
+                                                        <>
+                                                            <Button
+                                                                size="icon"
+                                                                variant="ghost"
+                                                                className="h-5 w-5 ml-auto text-muted-foreground hover:text-foreground"
+                                                                onClick={() => handlePasswordToggle(cred.id, cred.password)}
+                                                            >
+                                                                {revealedCreds[cred.id] ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                                                            </Button>
+                                                            <Button
+                                                                size="icon"
+                                                                variant="ghost"
+                                                                className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                                                                disabled={!hasRevealablePassword}
+                                                                onClick={() => copyToClipboard(cred.password || '', tr.password)}
+                                                            >
+                                                                <Copy className="w-3 h-3" />
+                                                            </Button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="text-center py-4 text-sm text-muted-foreground italic">
+                                    {tr.noCredentials}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="py-8 text-center text-[var(--text-tertiary)] text-sm">
+                        {tr.envNotConfigured}
+                    </div>
+                )}
+            </div>
+        </Card>
+    );
+}

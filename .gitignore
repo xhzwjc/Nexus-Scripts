@@ -1,0 +1,39 @@
+# 必须提交的核心文件（保留这些文件，不要忽略）
+!Dockerfile
+!docker-compose.yml
+!.dockerignore
+
+# 忽略本地覆盖配置（这些文件每个开发者不同）
+docker-compose.override.yml
+docker-compose.local.yml
+
+# 敏感文件（绝对不要提交）
+.env
+.env.*
+
+.idea
+*.iml
+
+# Python cache files
+__pycache__/
+*.py[cod]
+
+**/ven/
+
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+tmp/recruitment-debug/
+*.err.log
+
+# 招聘测试上传数据（本地调试文件，不提交）
+fastApiProject/data/recruitment_uploads/resumes/
+
+# 本地 bootstrap 生成的 access key 文件（含明文密钥，不提交）
+fastApiProject/data/bootstrap_users.local.json
+
+.claude/settings.local.json
+.claude/launch.json

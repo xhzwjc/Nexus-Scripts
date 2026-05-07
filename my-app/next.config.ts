@@ -1,0 +1,41 @@
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  output: "standalone",
+  compress: true, // 明确启用 Gzip 压缩
+
+  // 性能优化：优化包导入
+  serverExternalPackages: ['pdf-parse'],
+  experimental: {
+    optimizePackageImports: ['lucide-react', '@radix-ui/react-icons', 'framer-motion'],
+  },
+
+  // Webpack 优化
+  webpack: (config, { dev }) => {
+    // 解决 pdf-parse / canvas 在服务端打包时的 DOMMatrix 缺失报错
+    config.resolve.alias.canvas = false;
+    config.resolve.alias.encoding = false;
+    
+    if (!dev) {
+      // 使用确定性模块 ID（更好的缓存）
+      config.optimization.moduleIds = 'deterministic';
+    }
+    return config;
+  },
+};
+
+// Bundle analyzer - 仅在 ANALYZE=true 时启用
+// 使用方式: set ANALYZE=true && npm run build (Windows)
+// 或: ANALYZE=true npm run build (Mac/Linux)
+let exportedConfig = nextConfig;
+
+if (process.env.ANALYZE === 'true') {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const withBundleAnalyzer = require('@next/bundle-analyzer')({ enabled: true });
+  exportedConfig = withBundleAnalyzer(nextConfig);
+}
+
+export default exportedConfig;

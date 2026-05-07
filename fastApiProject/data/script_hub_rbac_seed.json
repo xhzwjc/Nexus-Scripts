@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "roles": [],
+  "users": [
+    {
+      "user_code": "admin",
+      "display_name": "System Administrator",
+      "role_codes": [
+        "admin"
+      ],
+      "granted_permissions": [],
+      "revoked_permissions": [],
+      "team_resources_login_key_enabled": true,
+      "is_active": true,
+      "is_super_admin": true,
+      "notes": null
+    },
+    {
+      "user_code": "opt",
+      "display_name": "运营人员",
+      "role_codes": [
+        "operator"
+      ],
+      "granted_permissions": [],
+      "revoked_permissions": [],
+      "team_resources_login_key_enabled": true,
+      "is_active": true,
+      "is_super_admin": false,
+      "notes": null
+    },
+    {
+      "user_code": "admin_jc",
+      "display_name": "jc",
+      "role_codes": [
+        "admin"
+      ],
+      "granted_permissions": [],
+      "revoked_permissions": [],
+      "team_resources_login_key_enabled": true,
+      "is_active": true,
+      "is_super_admin": false,
+      "notes": null
+    },
+    {
+      "user_code": "user_leader",
+      "display_name": "leader",
+      "role_codes": [
+        "admin"
+      ],
+      "granted_permissions": [],
+      "revoked_permissions": [],
+      "team_resources_login_key_enabled": true,
+      "is_active": true,
+      "is_super_admin": false,
+      "notes": null
+    }
+  ]
+}

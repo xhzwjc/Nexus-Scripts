@@ -1,0 +1,236 @@
+'use client';
+
+import { Loader2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Textarea } from '@/components/ui/textarea';
+import type { ScriptHubPermissionDefinition, ScriptHubRoleDefinition } from '@/lib/types';
+import type { RoleFormErrors, RoleFormState } from './types';
+import type { AccessControlLabels } from './utils';
+import { categoryLabel, groupPermissionsByCategory, toggleItem } from './utils';
+
+interface RoleFormProps {
+    open: boolean;
+    mode: 'create' | 'edit';
+    role?: ScriptHubRoleDefinition | null;
+    form: RoleFormState;
+    permissions: ScriptHubPermissionDefinition[];
+    labels: AccessControlLabels;
+    showErrors: boolean;
+    errors: RoleFormErrors;
+    dialogError?: string | null;
+    saving: boolean;
+    onChange: (form: RoleFormState) => void;
+    onFieldChange: (field: keyof RoleFormErrors) => void;
+    onCancel: () => void;
+    onSubmit: () => void;
+}
+
+export function RoleForm({
+    open,
+    mode,
+    role,
+    form,
+    permissions,
+    labels,
+    showErrors,
+    errors,
+    dialogError,
+    saving,
+    onChange,
+    onFieldChange,
+    onCancel,
+    onSubmit,
+}: RoleFormProps) {
+    const permissionGroups = groupPermissionsByCategory(permissions);
+
+    return (
+        <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
+            <DialogContent className="sm:max-w-5xl">
+                <DialogHeader>
+                    <DialogTitle>{mode === 'create' ? labels.createRole : labels.editRole}</DialogTitle>
+                    <DialogDescription>{labels.roleFormDescription}</DialogDescription>
+                </DialogHeader>
+
+                <div className="max-h-[70vh] overflow-y-auto pr-2">
+                    <div className="space-y-6 pb-1">
+                        {dialogError && (
+                            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                                {dialogError}
+                            </div>
+                        )}
+
+                        <section className="rounded-lg border bg-muted/10 p-4">
+                            <div className="mb-4">
+                                <h3 className="text-sm font-semibold">{labels.roleFormBasicInfo}</h3>
+                                <p className="text-xs text-muted-foreground">{labels.roleFormBoundaryHint}</p>
+                            </div>
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label htmlFor="rbac-role-code">{labels.roleCode}</Label>
+                                    <Input
+                                        id="rbac-role-code"
+                                        value={form.code}
+                                        onChange={(event) => {
+                                            onFieldChange('code');
+                                            onChange({ ...form, code: event.target.value });
+                                        }}
+                                        disabled={mode === 'edit' || saving}
+                                    />
+                                    {showErrors && errors.code && (
+                                        <p className="text-xs text-destructive">{errors.code}</p>
+                                    )}
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="rbac-role-name">{labels.roleName}</Label>
+                                    <Input
+                                        id="rbac-role-name"
+                                        value={form.name}
+                                        onChange={(event) => {
+                                            onFieldChange('name');
+                                            onChange({ ...form, name: event.target.value });
+                                        }}
+                                        disabled={saving}
+                                    />
+                                    {showErrors && errors.name && (
+                                        <p className="text-xs text-destructive">{errors.name}</p>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="mt-4 space-y-2">
+                                <Label htmlFor="rbac-role-description">{labels.roleDescription}</Label>
+                                <Textarea
+                                    id="rbac-role-description"
+                                    value={form.description}
+                                    onChange={(event) => onChange({ ...form, description: event.target.value })}
+                                    rows={3}
+                                    disabled={saving}
+                                />
+                            </div>
+
+                            <div className="mt-4 grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label>{labels.landingPageLabel}</Label>
+                                    <Select
+                                        value={form.landingPage}
+                                        onValueChange={(value) => onChange({ ...form, landingPage: value as 'home' | 'welcome' })}
+                                        disabled={saving}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="home">{labels.landingPageHome}</SelectItem>
+                                            <SelectItem value="welcome">{labels.landingPageWelcome}</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">{labels.landingPageHint}</p>
+                                </div>
+                            </div>
+
+                            {role && (
+                                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                                    <div className="rounded-md border bg-background p-3">
+                                        <p className="text-xs text-muted-foreground">{labels.roleType}</p>
+                                        <p className="mt-1 text-sm font-medium">
+                                            {role.is_system ? labels.systemRole : labels.customRole}
+                                        </p>
+                                    </div>
+                                    <div className="rounded-md border bg-background p-3">
+                                        <p className="text-xs text-muted-foreground">{labels.assignedUsers}</p>
+                                        <p className="mt-1 text-sm font-medium">{role.assigned_user_count}</p>
+                                    </div>
+                                    {!role.is_system && (
+                                        <label className="flex items-center gap-3 rounded-md border bg-background p-3">
+                                            <Checkbox
+                                                checked={form.isActive}
+                                                onCheckedChange={(checked) => onChange({ ...form, isActive: checked === true })}
+                                                disabled={saving}
+                                            />
+                                            <span className="text-sm font-medium">
+                                                {form.isActive ? labels.active : labels.disableRole}
+                                            </span>
+                                        </label>
+                                    )}
+                                </div>
+                            )}
+                        </section>
+
+                        <section className="rounded-lg border bg-muted/10 p-4">
+                            <div className="mb-4">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <h3 className="text-sm font-semibold">{labels.permissionsTitle}</h3>
+                                        <p className="text-xs text-muted-foreground">{labels.rolePermissionOnlyHint}</p>
+                                    </div>
+                                    <Badge variant="outline">{form.permissionKeys.length}</Badge>
+                                </div>
+                                {showErrors && errors.permissionKeys && (
+                                    <p className="mt-2 text-xs text-destructive">{errors.permissionKeys}</p>
+                                )}
+                            </div>
+
+                            <ScrollArea className="h-[420px] pr-3">
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    {Object.entries(permissionGroups).map(([category, categoryPermissions]) => (
+                                        <div key={category} className="rounded-md border bg-background p-4">
+                                            <div className="mb-3 flex items-center justify-between">
+                                                <p className="text-sm font-medium">{categoryLabel(category, labels)}</p>
+                                                <Badge variant="outline">{categoryPermissions.length}</Badge>
+                                            </div>
+                                            <div className="space-y-3">
+                                                {categoryPermissions.map((permission) => (
+                                                    <label key={permission.key} className="flex items-start gap-3">
+                                                        <Checkbox
+                                                            checked={form.permissionKeys.includes(permission.key)}
+                                                            onCheckedChange={(checked) => {
+                                                                onFieldChange('permissionKeys');
+                                                                onChange({
+                                                                    ...form,
+                                                                    permissionKeys: toggleItem(form.permissionKeys, permission.key, checked === true),
+                                                                });
+                                                            }}
+                                                            disabled={saving}
+                                                        />
+                                                        <span>
+                                                            <span className="block text-sm font-medium">{permission.name}</span>
+                                                            <span className="block text-xs text-muted-foreground">{permission.description}</span>
+                                                        </span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
+                        </section>
+                    </div>
+                </div>
+
+                <DialogFooter>
+                    <Button variant="outline" onClick={onCancel} disabled={saving}>
+                        {labels.cancelLabel}
+                    </Button>
+                    <Button onClick={onSubmit} disabled={saving || !!role?.is_system}>
+                        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {mode === 'create' ? labels.createRole : labels.saveChanges}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
