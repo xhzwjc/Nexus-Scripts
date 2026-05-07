@@ -7861,11 +7861,13 @@ class RecruitmentService:
         self.db.refresh(row)
         return self._serialize_skill(row)
 
-    def generate_skill_content_stream(self, role_name: str, role_background: str, on_delta: Callable[[str], None]) -> Dict[str, Any]:
+    def generate_skill_content_stream(self, role_name: str, extra_requirements: str, position_jd: str, on_delta: Callable[[str], None]) -> Dict[str, Any]:
         user_prompt = f"岗位名称：{role_name}"
-        if role_background:
-            user_prompt += f"\n岗位背景/行业：{role_background}"
-        user_prompt += "\n\n请生成完整的初筛评分 Skill，维度总分必须恰好 10.0 分。"
+        if position_jd:
+            user_prompt += f"\n\n岗位 JD 原文如下：\n{position_jd}"
+        if extra_requirements:
+            user_prompt += f"\n\n补充评估条件：{extra_requirements}"
+        user_prompt += "\n\n请根据以上信息生成完整的初筛评分 Skill，维度总分必须恰好 10.0 分。"
         return self.ai_gateway.stream_text(
             task_type="skill_content_generation",
             system_prompt=SKILL_GENERATION_SYSTEM_PROMPT,

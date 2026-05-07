@@ -176,7 +176,8 @@ class SkillUpsertRequest(BaseModel):
 
 class SkillContentGenerateRequest(BaseModel):
     role_name: str = Field(..., min_length=1, max_length=120)
-    role_background: Optional[str] = Field(None, max_length=500)
+    extra_requirements: Optional[str] = None
+    position_jd: Optional[str] = None
 
 
 class PublishTaskCreateRequest(BaseModel):

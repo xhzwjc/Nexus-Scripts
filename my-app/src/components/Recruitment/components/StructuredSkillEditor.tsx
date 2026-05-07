@@ -30,9 +30,11 @@ type StructuredSkillEditorProps = {
     onCancel: () => void;
     submitting: boolean;
     submitError: string | null;
-    onGenerateAI?: (roleName: string, roleBackground: string, onDelta?: (delta: string) => void) => Promise<string>;
+    onGenerateAI?: (roleName: string, extraRequirements: string, positionJd: string | null, onDelta?: (delta: string) => void) => Promise<string>;
     aiGenerating?: boolean;
     defaultTab?: "structured" | "advanced" | "ai";
+    positionId?: number | null;
+    positionJdContent?: string | null;
 };
 
 const PRIORITY_OPTIONS = [
@@ -215,13 +217,15 @@ export function StructuredSkillEditor({
     onGenerateAI,
     aiGenerating,
     defaultTab = "structured",
+    positionId,
+    positionJdContent,
 }: StructuredSkillEditorProps) {
     const [tab, setTab] = useState<string>(defaultTab);
     const [form, setForm] = useState<ScreeningSkillFormData>(initialData || emptyScreeningSkillForm());
     const [advancedContent, setAdvancedContent] = useState("");
     const [editingDimId, setEditingDimId] = useState<string | null>(null);
     const [aiRoleName, setAiRoleName] = useState("");
-    const [aiRoleBackground, setAiRoleBackground] = useState("");
+    const [aiExtraRequirements, setAiExtraRequirements] = useState("");
     const [aiGeneratedContent, setAiGeneratedContent] = useState("");
 
     useEffect(() => {
@@ -313,11 +317,12 @@ export function StructuredSkillEditor({
         setAiGeneratedContent("");
         const content = await onGenerateAI(
             aiRoleName.trim(),
-            aiRoleBackground.trim(),
+            aiExtraRequirements.trim(),
+            positionJdContent || null,
             (delta) => setAiGeneratedContent((prev) => prev + delta),
         );
         setAiGeneratedContent(content);
-    }, [onGenerateAI, aiRoleName, aiRoleBackground]);
+    }, [onGenerateAI, aiRoleName, aiExtraRequirements, positionJdContent]);
 
     const handleSubmit = useCallback(async () => {
         if (tab === "advanced") {
@@ -532,15 +537,24 @@ export function StructuredSkillEditor({
                 </TabsContent>
 
                 <TabsContent value="ai" className="flex-1 min-h-0 overflow-y-auto pr-1 mt-3 space-y-4">
-                    <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-1.5">
-                            <Label>岗位名称 *</Label>
-                            <Input value={aiRoleName} onChange={(e) => setAiRoleName(e.target.value)} placeholder="如：智能家居技术工程师（兼职）" />
-                        </div>
-                        <div className="space-y-1.5">
-                            <Label>岗位背景 / 行业（可选）</Label>
-                            <Input value={aiRoleBackground} onChange={(e) => setAiRoleBackground(e.target.value)} placeholder="如：全屋智能家居现场落地交付" />
-                        </div>
+                    <div className="space-y-1.5">
+                        <Label>岗位名称 *</Label>
+                        <Input value={aiRoleName} onChange={(e) => setAiRoleName(e.target.value)} placeholder="如：智能家居技术工程师（兼职）" />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label>补充评估条件（可选）</Label>
+                        <Textarea
+                            rows={4}
+                            value={aiExtraRequirements}
+                            onChange={(e) => setAiExtraRequirements(e.target.value)}
+                            placeholder={
+                                positionId && positionJdContent
+                                    ? "当前岗位 JD 已自动带入，此处可填写额外评估要求（如：侧重硬件测试经验）"
+                                    : positionId
+                                        ? "当前岗位未配置 JD，可在此粘贴 JD 内容或填写评估要求"
+                                        : "可粘贴岗位 JD 或填写补充评估要求（如：侧重硬件测试能力、有大厂经验优先）"
+                            }
+                        />
                     </div>
                     <div className="flex gap-2">
                         <Button onClick={() => void handleGenerate()} disabled={!aiRoleName.trim() || aiGenerating}>

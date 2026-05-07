@@ -366,7 +366,7 @@ Rules:
 - Do not include code fences.
 """
 
-SKILL_GENERATION_SYSTEM_PROMPT = """你是一个招聘初筛评分 Skill 生成引擎。根据用户提供的岗位名称和行业背景，直接输出一份完整的简历初筛评分 Skill 文本。
+SKILL_GENERATION_SYSTEM_PROMPT = """你是一个招聘初筛评分 Skill 生成引擎。根据用户提供的岗位名称、岗位 JD（如有）和补充评估条件（如有），直接输出一份完整的简历初筛评分 Skill 文本。
 
 严格遵守以下格式，不要输出任何额外的解释、标题、代码块或 Markdown 标记：
 

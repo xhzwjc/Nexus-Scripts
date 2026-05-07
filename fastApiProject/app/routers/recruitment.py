@@ -1220,7 +1220,7 @@ async def generate_skill_content_stream(payload: SkillContentGenerateRequest, _s
             def on_delta(delta: str) -> None:
                 chunks.append(delta)
                 push("delta", {"delta": delta})
-            service.generate_skill_content_stream(payload.role_name, payload.role_background or "", on_delta)
+            service.generate_skill_content_stream(payload.role_name, payload.extra_requirements or "", payload.position_jd or "", on_delta)
             push("completed", {"content": "".join(chunks)})
         except Exception as exc:
             push("error", {"message": str(exc)})

@@ -925,6 +925,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [skillFormSubmitError, setSkillFormSubmitError] = useState<string | null>(null);
     const [skillEditorData, setSkillEditorData] = useState<ScreeningSkillFormData>(emptyScreeningSkillForm());
     const [skillEditorDefaultTab, setSkillEditorDefaultTab] = useState<"structured" | "advanced" | "ai">("structured");
+    const [skillEditorPositionId, setSkillEditorPositionId] = useState<number | null>(null);
     const [skillGenerating, setSkillGenerating] = useState(false);
     const [skillAutoBindCategory, setSkillAutoBindCategory] = useState<"jdSkillIds" | "screeningSkillIds" | "interviewSkillIds" | null>(null);
 
@@ -5933,6 +5934,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setSkillEditorData(emptyScreeningSkillForm());
         }
         setSkillEditorDefaultTab("structured");
+        setSkillEditorPositionId(null);
         setSkillAutoBindCategory(null);
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
@@ -5944,6 +5946,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setSkillForm(emptySkillForm());
         setSkillEditorData(emptyScreeningSkillForm());
         setSkillEditorDefaultTab("ai");
+        setSkillEditorPositionId(null);
         setSkillAutoBindCategory(null);
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
@@ -5967,6 +5970,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setSkillForm(skillFormState);
         setSkillEditorData(empty);
         setSkillEditorDefaultTab("structured");
+        setSkillEditorPositionId(selectedPositionId);
         setSkillAutoBindCategory(bindCategory);
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
@@ -6026,14 +6030,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setSkillSubmitting(false);
     }
 
-    async function generateSkillWithAI(roleName: string, roleBackground: string, onDelta?: (delta: string) => void): Promise<string> {
+    async function generateSkillWithAI(roleName: string, extraRequirements: string, positionJd: string | null, onDelta?: (delta: string) => void): Promise<string> {
         setSkillGenerating(true);
         let fullContent = "";
         try {
             const response = await authenticatedFetch("/api/recruitment/skills/generate-content", {
                 method: "POST",
                 headers: {"Content-Type": "application/json", Accept: "text/event-stream"},
-                body: JSON.stringify({role_name: roleName, role_background: roleBackground || null}),
+                body: JSON.stringify({role_name: roleName, extra_requirements: extraRequirements || null, position_jd: positionJd || null}),
             });
             if (!response.body) throw new Error("No response body");
             const reader = response.body.getReader();
@@ -8766,6 +8770,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         onGenerateAI={generateSkillWithAI}
                         aiGenerating={skillGenerating}
                         defaultTab={skillEditorDefaultTab}
+                        positionId={skillEditorPositionId}
+                        positionJdContent={skillEditorPositionId ? (positionDetail?.current_jd_version?.jd_markdown || null) : null}
                     />
                 </DialogContent>
             </Dialog>
