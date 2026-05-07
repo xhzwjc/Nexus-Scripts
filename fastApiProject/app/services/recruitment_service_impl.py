@@ -13427,6 +13427,17 @@ class RecruitmentService:
             publish_text = render_publish_ready_jd(structured)
             reply = f"已为\u201C{position.title}\u201D生成岗位 JD 草稿。\n\n{markdown}".strip()
             finished_log = self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), model_source=task.get("source"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured, "preview_markdown": "".join(preview_chunks).strip(), "reply": reply, "html": html, "publish_text": publish_text}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
+            version_no = (self.db.query(func.max(RecruitmentJDVersion.version_no)).filter(RecruitmentJDVersion.position_id == position.id).scalar() or 0) + 1
+            row = RecruitmentJDVersion(org_code=normalize_org_code(getattr(position, "org_code", None)), position_id=position.id, version_no=version_no, title=f"{position.title} V{version_no}", prompt_snapshot=task.get("prompt_snapshot"), jd_markdown=markdown, jd_html=html, publish_text=publish_text, notes=extra_prompt or None, is_active=bool(auto_activate), created_by=actor_id)
+            self.db.add(row)
+            self.db.flush()
+            if auto_activate:
+                self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.position_id == position.id, RecruitmentJDVersion.id != row.id).update({RecruitmentJDVersion.is_active: False}, synchronize_session=False)
+                position.current_jd_version_id = row.id
+                position.updated_by = actor_id
+                self.db.add(position)
+            self.db.commit()
+            self.db.refresh(row)
             return {"reply": reply, "log_id": finished_log.id, "structured": structured, "markdown": markdown, "html": html, "publish_text": publish_text, "used_fallback": bool(task.get("used_fallback")), "model_provider": task.get("provider"), "model_name": task.get("model_name")}
         except ValueError:
             raise
@@ -13437,7 +13448,21 @@ class RecruitmentService:
             reply = f"已为\u201C{position.title}\u201D生成岗位 JD 草稿。\n\n{fallback_markdown}".strip()
             on_delta(reply)
             finished_log = self._finish_ai_task_log(log_row, status="fallback", provider=resolved_runtime.provider, model_name=resolved_runtime.model_name, model_source=resolved_runtime.source, prompt_snapshot=f"SYSTEM:\n{JD_GENERATION_SYSTEM_PROMPT}\n\nUSER:\n{prompt}", full_request_snapshot=None, input_summary=truncate_text(prompt, 600), output_summary=truncate_text(reply, 600), output_snapshot={"normalized": fallback_structured, "reply": reply, "preview_markdown": "".join(preview_chunks).strip()}, error_message=str(exc), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
-            return {"reply": reply, "log_id": finished_log.id, "structured": fallback_structured, "markdown": fallback_markdown, "html": markdown_to_html(fallback_markdown), "publish_text": render_publish_ready_jd(fallback_structured), "used_fallback": True, "model_provider": resolved_runtime.provider, "model_name": resolved_runtime.model_name}
+            position = self._get_position(position_id)
+            fallback_html = markdown_to_html(fallback_markdown)
+            fallback_publish_text = render_publish_ready_jd(fallback_structured)
+            version_no = (self.db.query(func.max(RecruitmentJDVersion.version_no)).filter(RecruitmentJDVersion.position_id == position.id).scalar() or 0) + 1
+            row = RecruitmentJDVersion(org_code=normalize_org_code(getattr(position, "org_code", None)), position_id=position.id, version_no=version_no, title=f"{position.title} V{version_no}", prompt_snapshot=None, jd_markdown=fallback_markdown, jd_html=fallback_html, publish_text=fallback_publish_text, notes=extra_prompt or None, is_active=bool(auto_activate), created_by=actor_id)
+            self.db.add(row)
+            self.db.flush()
+            if auto_activate:
+                self.db.query(RecruitmentJDVersion).filter(RecruitmentJDVersion.position_id == position.id, RecruitmentJDVersion.id != row.id).update({RecruitmentJDVersion.is_active: False}, synchronize_session=False)
+                position.current_jd_version_id = row.id
+                position.updated_by = actor_id
+                self.db.add(position)
+            self.db.commit()
+            self.db.refresh(row)
+            return {"reply": reply, "log_id": finished_log.id, "structured": fallback_structured, "markdown": fallback_markdown, "html": fallback_html, "publish_text": fallback_publish_text, "used_fallback": True, "model_provider": resolved_runtime.provider, "model_name": resolved_runtime.model_name}
 
     def generate_jd(self, position_id: int, extra_prompt: str, actor_id: str, auto_activate: bool = True) -> Dict[str, Any]:
         position = self._get_position(position_id)

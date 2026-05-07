@@ -131,6 +131,7 @@ async function proxyRecruitmentRequest(
         "content-disposition",
         "cache-control",
         "content-length",
+        "x-accel-buffering",
       ]) {
         const value = response.headers.get(headerName);
         if (value) {
