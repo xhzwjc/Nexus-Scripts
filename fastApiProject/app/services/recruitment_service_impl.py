@@ -13310,6 +13310,8 @@ class RecruitmentService:
             })
             self._raise_if_cancelled(cancel_control)
             resolved_runtime = self.ai_gateway.resolve_config("jd_generation")
+            if not resolved_runtime.api_key:
+                raise ValueError("未配置 AI 模型，请先在「模型配置」中添加可用的 LLM 配置。")
             self._update_ai_task_log(
                 log_row,
                 provider=resolved_runtime.provider,
@@ -13407,6 +13409,8 @@ class RecruitmentService:
 
         try:
             resolved_runtime = self.ai_gateway.resolve_config("jd_generation")
+            if not resolved_runtime.api_key:
+                raise ValueError("未配置 AI 模型，请先在「模型配置」中添加可用的 LLM 配置。")
             self._update_ai_task_log(log_row, status="running", provider=resolved_runtime.provider, model_name=resolved_runtime.model_name, prompt_snapshot=prompt, input_summary=truncate_text(prompt, 600), output_summary="正在生成 JD 草稿")
             prefix = (
                 f"已定位当前岗位：{position.title}\n正在生成 JD 草稿，请稍候...\n\n"
@@ -13424,6 +13428,8 @@ class RecruitmentService:
             reply = f"已为\u201C{position.title}\u201D生成岗位 JD 草稿。\n\n{markdown}".strip()
             finished_log = self._finish_ai_task_log(log_row, status="fallback" if task.get("used_fallback") else "success", provider=task.get("provider"), model_name=task.get("model_name"), model_source=task.get("source"), prompt_snapshot=task.get("prompt_snapshot"), full_request_snapshot=task.get("full_request_snapshot"), input_summary=task.get("input_summary"), output_summary=task.get("output_summary"), output_snapshot={"raw": content, "normalized": structured, "preview_markdown": "".join(preview_chunks).strip(), "reply": reply, "html": html, "publish_text": publish_text}, error_message=task.get("error_message"), token_usage=task.get("token_usage"), memory_source=memory_source, related_skill_ids=related_skill_ids, related_skill_snapshots=skill_snapshots)
             return {"reply": reply, "log_id": finished_log.id, "structured": structured, "markdown": markdown, "html": html, "publish_text": publish_text, "used_fallback": bool(task.get("used_fallback")), "model_provider": task.get("provider"), "model_name": task.get("model_name")}
+        except ValueError:
+            raise
         except Exception as exc:
             self.db.rollback()
             fallback_structured = build_jd_structured_fallback(position)
