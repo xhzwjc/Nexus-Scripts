@@ -1112,10 +1112,11 @@ class RecruitmentAIGateway:
     def _config_visible(self, config: RecruitmentLLMConfig) -> bool:
         if not self.permission_context:
             return True
+        from ..permission_governance import ROOT_ORG_CODE
         return resource_is_visible_to_context(
             self.db,
             self.permission_context,
-            resource_org_code=getattr(config, "org_code", None),
+            resource_org_code=getattr(config, "org_code", None) or ROOT_ORG_CODE,
             share_policy=getattr(config, "share_policy", "PRIVATE"),
             allow_sub_org_use=getattr(config, "allow_sub_org_use", False),
         )
@@ -1185,6 +1186,13 @@ class RecruitmentAIGateway:
         if forced_provider:
             definition = get_provider_definition(forced_provider)
             return self._build_runtime_config(definition, model_name=os.getenv("RECRUITMENT_LLM_MODEL") or None, base_url=os.getenv("RECRUITMENT_LLM_BASE_URL") or None, api_key=os.getenv("RECRUITMENT_LLM_API_KEY") or None, source="env:forced")
+
+        # 数据库没有任何当前用户可见的 LLM 配置时，直接报错
+        # 避免用户未配置模型时静默调用外部模型
+        all_active_configs = self.db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.is_active.is_(True)).all()
+        has_visible_config = any(self._config_visible(c) for c in all_active_configs)
+        if not has_visible_config:
+            raise ValueError("未配置 AI 模型，请先在「模型配置」中添加可用的 LLM 配置。")
 
         for provider_name in PROVIDER_PRIORITY:
             definition = get_provider_definition(provider_name)

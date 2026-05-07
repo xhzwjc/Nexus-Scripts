@@ -80,45 +80,6 @@ def _sync_default_organization(db) -> None:
         root.is_active = True
 
 
-def _build_default_recruitment_llm_seed() -> dict:
-    if (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_AI_STUDIO_API_KEY")):
-        return {
-            "config_key": "default-gemini",
-            "provider": "gemini",
-            "model_name": (os.getenv("GEMINI_MODEL") or "gemini-2.5-flash").strip(),
-            "base_url": (os.getenv("GEMINI_API_BASE") or "https://generativelanguage.googleapis.com").strip(),
-            "api_key_env": "GEMINI_API_KEY",
-        }
-
-    return {
-        "config_key": "default-openai-compatible",
-        "provider": "openai-compatible",
-        "model_name": (os.getenv("RECRUITMENT_LLM_MODEL") or "gpt-4o-mini").strip(),
-        "base_url": (os.getenv("RECRUITMENT_LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or None),
-        "api_key_env": "AI_API_KEY",
-    }
-
-
-def _build_glm_template_seed() -> dict:
-    placeholder_key = "1021021902920901"
-    ciphertext = None
-    try:
-        ciphertext = encrypt_secret(placeholder_key)
-    except Exception as exc:
-        logger.warning("Failed to seed stored GLM placeholder key: %s", exc)
-
-    return {
-        "config_key": "glm-flash-template",
-        "task_type": "default",
-        "provider": "glm",
-        "model_name": (os.getenv("GLM_MODEL") or os.getenv("ZHIPUAI_MODEL") or "glm-4-flash").strip(),
-        "base_url": (os.getenv("GLM_BASE_URL") or os.getenv("ZHIPUAI_BASE_URL") or "https://open.bigmodel.cn/api/paas/v4").strip(),
-        "api_key_env": "GLM_API_KEY",
-        "api_key_ciphertext": ciphertext,
-        "extra_config_json": json.dumps({}, ensure_ascii=False),
-        "is_active": True,
-        "priority": 99,
-    }
 
 
 def _needs_legacy_default_skill_refresh(row: RecruitmentSkill) -> bool:
@@ -764,70 +725,13 @@ def ensure_recruitment_schema() -> None:
                 legacy_combined_skill.is_enabled = False
                 legacy_combined_skill.updated_by = "system"
 
-            default_seed = _build_default_recruitment_llm_seed()
-            llm_exists = db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.config_key == default_seed["config_key"]).first()
-            if not llm_exists:
-                legacy_default = db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.config_key == "default-openai-compatible").first()
-                if legacy_default and default_seed["provider"] == "gemini":
-                    legacy_default.config_key = default_seed["config_key"]
-                    legacy_default.provider = default_seed["provider"]
-                    legacy_default.model_name = default_seed["model_name"]
-                    legacy_default.base_url = default_seed["base_url"]
-                    legacy_default.api_key_env = default_seed["api_key_env"]
-                    legacy_default.priority = 1
-                    legacy_default.is_active = True
-                    legacy_default.org_code = getattr(legacy_default, "org_code", None) or ROOT_ORG_CODE
-                    legacy_default.scope_level = "GLOBAL"
-                    legacy_default.share_policy = "SHARED_READONLY"
-                    legacy_default.allow_sub_org_use = True
-                    legacy_default.allow_copy = False
-                    legacy_default.updated_by = "system"
-                else:
-                    db.add(
-                        RecruitmentLLMConfig(
-                            config_key=default_seed["config_key"],
-                            org_code=ROOT_ORG_CODE,
-                            scope_level="GLOBAL",
-                            share_policy="SHARED_READONLY",
-                            allow_sub_org_use=True,
-                            allow_copy=False,
-                            task_type="default",
-                            provider=default_seed["provider"],
-                            model_name=default_seed["model_name"],
-                            base_url=default_seed["base_url"],
-                            api_key_env=default_seed["api_key_env"],
-                            extra_config_json=None,
-                            is_active=True,
-                            priority=1,
-                            created_by="system",
-                            updated_by="system",
-                        ),
-                    )
-
-            glm_seed = _build_glm_template_seed()
-            glm_exists = db.query(RecruitmentLLMConfig).filter(RecruitmentLLMConfig.config_key == glm_seed["config_key"]).first()
-            if not glm_exists:
-                db.add(
-                    RecruitmentLLMConfig(
-                        config_key=glm_seed["config_key"],
-                        org_code=ROOT_ORG_CODE,
-                        scope_level="GLOBAL",
-                        share_policy="SHARED_COPYABLE",
-                        allow_sub_org_use=True,
-                        allow_copy=True,
-                        task_type=glm_seed["task_type"],
-                        provider=glm_seed["provider"],
-                        model_name=glm_seed["model_name"],
-                        base_url=glm_seed["base_url"],
-                        api_key_env=glm_seed["api_key_env"],
-                        api_key_ciphertext=glm_seed["api_key_ciphertext"],
-                        extra_config_json=glm_seed["extra_config_json"],
-                        is_active=glm_seed["is_active"],
-                        priority=glm_seed["priority"],
-                        created_by="system",
-                        updated_by="system",
-                    ),
-                )
+            # 停用旧的系统自动 seed 的 LLM 配置（gemini、glm 模板等）
+            for seeded_config in db.query(RecruitmentLLMConfig).filter(
+                RecruitmentLLMConfig.created_by == "system",
+                RecruitmentLLMConfig.is_active.is_(True),
+            ).all():
+                seeded_config.is_active = False
+                seeded_config.updated_by = "system"
 
             db.commit()
 
