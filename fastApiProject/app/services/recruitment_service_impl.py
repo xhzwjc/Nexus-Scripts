@@ -4910,16 +4910,11 @@ class RecruitmentService:
             pass
 
     def _emit_batch_summary_if_needed(self):
-        """批量筛选全部完成时发送汇总事件 + 批量自动邮件。"""
-        # 发送 SSE 事件
+        """批量筛选全部完成时发送汇总事件 + 批量自动邮件 + 前端刷新事件。"""
         try:
             from .task_event_bus import TaskEventBus
-            if self._session_token:
-                TaskEventBus.emit(self._session_token, "batch_summary", {
-                    "message": "all_tasks_completed",
-                })
         except Exception:
-            pass
+            TaskEventBus = None  # type: ignore[assignment]
 
         # 批量自动邮件：找出所有有待发邮件的批次，逐个检查并触发
         try:
@@ -4940,6 +4935,45 @@ class RecruitmentService:
                     logger.exception("Batch email trigger failed in _emit_batch_summary_if_needed batch_id=%s", batch_id)
         except Exception:
             logger.exception("Failed to query pending batch emails in _emit_batch_summary_if_needed")
+
+        # 为所有批次中的每个候选人发送 candidate_updated 事件，触发前端刷新
+        if TaskEventBus and self._session_token:
+            try:
+                batch_tasks = (
+                    self.db.query(RecruitmentAITaskLog)
+                    .filter(
+                        RecruitmentAITaskLog.batch_id.isnot(None),
+                        RecruitmentAITaskLog.task_type == 'screening_flow',
+                        RecruitmentAITaskLog.status.in_(TERMINAL_AI_TASK_STATUSES),
+                    )
+                    .order_by(RecruitmentAITaskLog.id.desc())
+                    .limit(200)
+                    .all()
+                )
+                notified_ids: set = set()
+                for task in batch_tasks:
+                    cid = task.related_candidate_id
+                    if cid and cid not in notified_ids:
+                        notified_ids.add(cid)
+                        TaskEventBus.emit(self._session_token, "task_completed", {
+                            "task_id": task.id,
+                            "status": task.status,
+                            "related_candidate_id": cid,
+                            "task_type": task.task_type,
+                        })
+                        TaskEventBus.emit(self._session_token, "candidate_updated", {
+                            "candidate_id": cid,
+                        })
+            except Exception:
+                logger.exception("Failed to emit candidate_updated events in _emit_batch_summary_if_needed")
+
+            # 所有邮件发送完毕后，发送 batch_summary 事件触发前端完整刷新
+            try:
+                TaskEventBus.emit(self._session_token, "batch_summary", {
+                    "message": "all_tasks_completed",
+                })
+            except Exception:
+                pass
 
     def _check_and_trigger_batch_email_on_task_completion(self, batch_id: str, *, actor_id: str = "system"):
         """当一个任务完成时，检查该批次的根任务是否全部完成，如果是，触发该批次的邮件。"""
@@ -6083,6 +6117,7 @@ class RecruitmentService:
 
     def _build_screening_queue_runner(self, task_id: int, actor_id: str) -> Callable[[RecruitmentTaskControl], None]:
         captured_permission_context = self.permission_context
+        captured_session_token = self._session_token
 
         def _runner(control: RecruitmentTaskControl) -> None:
             db = SessionLocal()
@@ -6090,6 +6125,7 @@ class RecruitmentService:
             if captured_permission_context is not None:
                 service.permission_context = captured_permission_context
                 service.ai_gateway.set_permission_context(captured_permission_context)
+            service._session_token = captured_session_token
             try:
                 service._run_queued_screening_task(task_id, actor_id, cancel_control=control)
             except RecruitmentTaskCancelled:

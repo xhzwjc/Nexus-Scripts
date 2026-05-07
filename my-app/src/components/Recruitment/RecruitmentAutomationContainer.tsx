@@ -32,7 +32,7 @@ import {
 import {toast} from "@/lib/toast";
 import type {ScriptHubOrganizationDefinition} from "@/lib/types";
 
-import {authenticatedFetch, getStoredScriptHubSession} from "@/lib/auth";
+import {authenticatedFetch, getScriptHubAuthHeaderRecord, getStoredScriptHubSession} from "@/lib/auth";
 import {
     DEFAULT_QUERY_CANDIDATES_LIMIT,
     type RecruitmentAssistantClarificationOption,
@@ -1938,6 +1938,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         .then((log) => { mergeAiTaskLog(log); })
                         .catch(() => {});
                 }
+            },
+            onBatchSummary: () => {
+                // 所有批次邮件发送完毕，触发完整刷新
+                void loadCandidates({ silent: true, force: true });
+                void loadDashboard();
+                void refreshCandidateStats();
             },
         },
     );
@@ -4270,6 +4276,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             const decoder = new TextDecoder();
             let buffer = "";
             let fullContent = "";
+            let completedData: Record<string, unknown> | null = null;
+            let errorData: Record<string, unknown> | null = null;
             while (true) {
                 const {done, value} = await reader.read();
                 if (done) break;
@@ -4279,11 +4287,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     const rawEvent = buffer.slice(0, sep);
                     buffer = buffer.slice(sep + 2);
                     sep = buffer.indexOf("\n\n");
+                    // 解析 event 类型
+                    const eventMatch = rawEvent.match(/^event: (.+)$/m);
+                    const eventType = eventMatch ? eventMatch[1].trim() : "message";
                     const dataMatch = rawEvent.match(/data: (.+)/);
                     if (dataMatch) {
                         try {
                             const data = JSON.parse(dataMatch[1]);
-                            if (data.delta) {
+                            if (eventType === "completed") {
+                                completedData = data;
+                            } else if (eventType === "error") {
+                                errorData = data;
+                            } else if (data.delta) {
                                 fullContent += data.delta;
                                 setJdStreamingContent(fullContent);
                             }
@@ -4292,6 +4307,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }
             }
             if (!mountedRef.current) return;
+            // 后端明确返回了错误
+            if (errorData) {
+                throw new Error(String(errorData.message || (isZh ? "JD 生成失败" : "JD generation failed")));
+            }
             setJdGenerationStatus("syncing");
             await Promise.all([
                 loadDashboard(),
@@ -4305,7 +4324,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setJdStreamingContent("");
             setJdViewMode("publish");
             setJdGenerationStatus("idle");
-            toast.success(isZh ? "岗位 JD 已生成" : "JD generated");
+            // 检查是否使用了兜底结果
+            if (completedData?.used_fallback) {
+                toast.warning(isZh ? "岗位 JD 已生成（AI 超时，已使用兜底结果）" : "JD generated (AI timed out, fallback result used)");
+            } else {
+                toast.success(isZh ? "岗位 JD 已生成" : "JD generated");
+            }
         } catch (error) {
             if (!mountedRef.current) return;
             setJdGenerationStatus("failed");
@@ -4414,13 +4438,79 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
 
         setUploadingResume(true);
-        setUploadProgress(0);
+        setUploadProgress(1);
         setUploadCompletedCount(0);
         abortControllerRef.current = new AbortController();
 
         let uploadedCount = 0, autoScreenQueued = 0, autoScreenSkipped = 0, autoScreenFailed = 0;
         const allItems: ResumeUploadResponse["items"] = [];
         let batchIndex = 0;
+        let completedFiles = 0;
+
+        // 使用 XMLHttpRequest 获取真实的上传进度（字节级）
+        function uploadBatchWithProgress(formData: FormData, signal: AbortSignal): Promise<ResumeUploadResponse> {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                const authHeaders = getScriptHubAuthHeaderRecord();
+
+                // 关联 AbortController
+                const onAbort = () => xhr.abort();
+                signal.addEventListener("abort", onAbort, { once: true });
+
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable && batches.length > 0) {
+                        // 计算全局进度：已完成批次 + 当批次上传比例
+                        const batchProgress = e.loaded / e.total; // 0~1
+                        const currentBatchSize = batches[batchIndex - 1]?.length ?? 0;
+                        const globalCompleted = completedFiles + batchProgress * currentBatchSize;
+                        const pct = Math.max(1, Math.min(99, Math.round(globalCompleted / total * 100)));
+                        setUploadProgress(pct);
+                        setUploadCompletedCount(Math.floor(globalCompleted));
+                    }
+                };
+
+                xhr.onload = () => {
+                    signal.removeEventListener("abort", onAbort);
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            const json = JSON.parse(xhr.responseText);
+                            if (json.success === false) {
+                                reject(new Error(json.message || json.error || "Request failed"));
+                            } else {
+                                resolve(json.data ?? json);
+                            }
+                        } catch {
+                            reject(new Error("Invalid JSON response"));
+                        }
+                    } else if (xhr.status === 401 || xhr.status === 403) {
+                        reject(new Error(isZh ? "登录已过期，请刷新页面后重试" : "Session expired, please refresh the page"));
+                    } else {
+                        try {
+                            const json = JSON.parse(xhr.responseText);
+                            reject(new Error(json.detail || json.message || `HTTP ${xhr.status}`));
+                        } catch {
+                            reject(new Error(`HTTP ${xhr.status}`));
+                        }
+                    }
+                };
+
+                xhr.onerror = () => {
+                    signal.removeEventListener("abort", onAbort);
+                    reject(new Error(isZh ? "网络错误，请检查网络连接" : "Network error"));
+                };
+
+                xhr.onabort = () => {
+                    signal.removeEventListener("abort", onAbort);
+                    reject(new DOMException("Aborted", "AbortError"));
+                };
+
+                xhr.open("POST", `/api/recruitment/candidates/upload-resumes${query}`);
+                for (const [key, value] of Object.entries(authHeaders)) {
+                    xhr.setRequestHeader(key, value);
+                }
+                xhr.send(formData);
+            });
+        }
 
         async function runOneBatch() {
             while (batchIndex < batches.length) {
@@ -4429,18 +4519,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 const batch = batches[idx];
                 const formData = new FormData();
                 batch.forEach((f) => formData.append("files", f));
-                const uploaded = await recruitmentApi<ResumeUploadResponse>(
-                    `/candidates/upload-resumes${query}`,
-                    { method: "POST", body: formData, signal: abortControllerRef.current?.signal }
-                );
+                const uploaded = await uploadBatchWithProgress(formData, abortControllerRef.current!.signal);
                 uploadedCount += uploaded.uploaded_count;
                 autoScreenQueued += uploaded.auto_screen_queued_count;
                 autoScreenSkipped += uploaded.auto_screen_skipped_existing_live_task_count;
                 autoScreenFailed += uploaded.auto_screen_failed_count;
                 allItems.push(...uploaded.items);
-                const completed = Math.min((idx + 1) * BATCH_SIZE, total);
-                setUploadCompletedCount(completed);
-                setUploadProgress(Math.round(completed / total * 100));
+                completedFiles += batch.length;
+                setUploadCompletedCount(completedFiles);
+                setUploadProgress(Math.max(1, Math.round(completedFiles / total * 100)));
             }
         }
 
@@ -4466,8 +4553,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setResumeUploadCitySource("auto");
             // Optimistic update: immediately add uploaded items to candidate list
             if (allItems.length > 0) {
-                setAllCandidates((prev) => deduplicateCandidates([...allItems, ...prev]));
-                setCandidateTotal((prev) => prev + allItems.length);
+                const optimisticItems = allItems.map((item) =>
+                    item.auto_screen_queued
+                        ? {
+                            ...item,
+                            display_status: "screening_running",
+                            active_screening_task_status: "queued",
+                        }
+                        : item,
+                );
+                setAllCandidates((prev) => deduplicateCandidates([...optimisticItems, ...prev]));
+                setCandidateTotal((prev) => prev + optimisticItems.length);
             }
             setActivePage("candidates");
             // Background refresh (don't block UI)
