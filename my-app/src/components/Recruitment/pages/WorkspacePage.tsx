@@ -359,48 +359,70 @@ export function WorkspacePage({
                             <CardTitle className="text-lg">{tr.recruitmentFunnel}</CardTitle>
                             <CardDescription>{tr.recruitmentFunnelDesc}</CardDescription>
                         </CardHeader>
-                        <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 space-y-2">
+                        <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
                             {funnelData?.stages?.length ? (
-                                <div className="space-y-2">
+                                <div className="space-y-1">
                                     {funnelData.stages.map((stage, index) => {
                                         const maxCount = funnelData.stages[0]?.count || 1;
-                                        const widthPercent = maxCount > 0 ? Math.max(8, (stage.count / maxCount) * 100) : 8;
+                                        const widthPercent = maxCount > 0 && stage.count > 0 ? (stage.count / maxCount) * 100 : 0;
                                         const label = isZh ? stage.label_zh : stage.label_en;
                                         const conversionRate = index > 0 && funnelData.stages[index - 1].count > 0
                                             ? ((stage.count / funnelData.stages[index - 1].count) * 100).toFixed(1)
                                             : null;
+                                        const stageColors = [
+                                            "from-blue-500 to-cyan-500",
+                                            "from-cyan-500 to-teal-500",
+                                            "from-teal-500 to-emerald-500",
+                                            "from-emerald-500 to-green-500",
+                                            "from-green-500 to-lime-500",
+                                            "from-lime-500 to-yellow-500",
+                                            "from-yellow-500 to-amber-500",
+                                        ];
+                                        const barGradient = stageColors[index % stageColors.length];
                                         return (
-                                            <div key={stage.key} className="space-y-1">
-                                                <div className="flex items-center justify-between text-sm">
-                                                    <span className="font-medium text-slate-900 dark:text-slate-100">{label}</span>
-                                                    <div className="flex items-center gap-2">
-                                                        {conversionRate && (
-                                                            <span className="text-xs text-slate-400 dark:text-slate-500">{conversionRate}%</span>
+                                            <React.Fragment key={stage.key}>
+                                                {index > 0 && (
+                                                    <div className="flex items-center justify-center py-0.5">
+                                                        {conversionRate ? (
+                                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                                                ↓ {conversionRate}%
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-slate-300 dark:text-slate-600">↓</span>
                                                         )}
-                                                        <span className="font-semibold text-slate-900 dark:text-slate-100">{stage.count}</span>
                                                     </div>
+                                                )}
+                                                <div className="rounded-xl border border-slate-200/80 bg-white/60 px-3.5 py-2.5 dark:border-slate-800 dark:bg-slate-900/40">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{label}</span>
+                                                        <span className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-50">{stage.count}</span>
+                                                    </div>
+                                                    {stage.count > 0 && (
+                                                        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                            <div
+                                                                className={`h-full rounded-full bg-gradient-to-r ${barGradient} transition-all duration-500`}
+                                                                style={{width: `${widthPercent}%`}}
+                                                            />
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                    <div
-                                                        className="h-full rounded-full bg-gradient-to-r from-sky-500 to-blue-600 transition-all duration-500"
-                                                        style={{width: `${widthPercent}%`}}
-                                                    />
-                                                </div>
-                                            </div>
+                                            </React.Fragment>
                                         );
                                     })}
                                     {(funnelData.rejected_count > 0 || funnelData.talent_pool_count > 0) && (
-                                        <div className="mt-3 flex flex-wrap gap-3 border-t border-slate-200/80 pt-3 dark:border-slate-800">
+                                        <div className="mt-2 flex flex-wrap gap-3 border-t border-slate-200/80 pt-2.5 dark:border-slate-800">
                                             {funnelData.rejected_count > 0 && (
-                                                <div className="flex items-center gap-2 text-sm">
-                                                    <span className="text-slate-500 dark:text-slate-400">{tr.rejected}:</span>
-                                                    <span className="font-medium text-rose-600 dark:text-rose-400">{funnelData.rejected_count}</span>
+                                                <div className="flex items-center gap-1.5 text-sm">
+                                                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-rose-400"/>
+                                                    <span className="text-slate-500 dark:text-slate-400">{tr.rejected}</span>
+                                                    <span className="font-medium tabular-nums text-rose-600 dark:text-rose-400">{funnelData.rejected_count}</span>
                                                 </div>
                                             )}
                                             {funnelData.talent_pool_count > 0 && (
-                                                <div className="flex items-center gap-2 text-sm">
-                                                    <span className="text-slate-500 dark:text-slate-400">{tr.talentPool}:</span>
-                                                    <span className="font-medium text-amber-600 dark:text-amber-400">{funnelData.talent_pool_count}</span>
+                                                <div className="flex items-center gap-1.5 text-sm">
+                                                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"/>
+                                                    <span className="text-slate-500 dark:text-slate-400">{tr.talentPool}</span>
+                                                    <span className="font-medium tabular-nums text-amber-600 dark:text-amber-400">{funnelData.talent_pool_count}</span>
                                                 </div>
                                             )}
                                         </div>
@@ -417,34 +439,36 @@ export function WorkspacePage({
                             <CardTitle className="text-lg">{tr.sourceDistribution}</CardTitle>
                             <CardDescription>{tr.sourceDistributionDesc}</CardDescription>
                         </CardHeader>
-                        <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 space-y-3">
+                        <CardContent className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
                             {sourceStatsData?.sources?.length ? (
-                                <div className="space-y-2">
+                                <div className="space-y-1.5">
                                     {sourceStatsData.sources.map((item) => {
                                         const maxCount = sourceStatsData.sources[0]?.count || 1;
-                                        const widthPercent = maxCount > 0 ? Math.max(8, (item.count / maxCount) * 100) : 8;
+                                        const widthPercent = maxCount > 0 && item.count > 0 ? (item.count / maxCount) * 100 : 0;
                                         const label = item.source === "manual_upload" ? tr.sourceManualUpload
                                             : item.source === "unknown" ? tr.sourceUnknown
                                             : item.source;
                                         return (
-                                            <div key={item.source} className="space-y-1">
-                                                <div className="flex items-center justify-between text-sm">
-                                                    <span className="font-medium text-slate-900 dark:text-slate-100">{label}</span>
-                                                    <span className="font-semibold text-slate-900 dark:text-slate-100">{item.count}</span>
+                                            <div key={item.source} className="rounded-xl border border-slate-200/80 bg-white/60 px-3.5 py-2.5 dark:border-slate-800 dark:bg-slate-900/40">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{label}</span>
+                                                    <span className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-50">{item.count}</span>
                                                 </div>
-                                                <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                    <div
-                                                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 transition-all duration-500"
-                                                        style={{width: `${widthPercent}%`}}
-                                                    />
-                                                </div>
+                                                {item.count > 0 && (
+                                                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                        <div
+                                                            className="h-full rounded-full bg-gradient-to-r from-violet-500 to-purple-500 transition-all duration-500"
+                                                            style={{width: `${widthPercent}%`}}
+                                                        />
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}
-                                    <div className="mt-2 border-t border-slate-200/80 pt-2 dark:border-slate-800">
+                                    <div className="mt-1 border-t border-slate-200/80 pt-2.5 dark:border-slate-800">
                                         <div className="flex items-center justify-between text-sm">
                                             <span className="text-slate-500 dark:text-slate-400">{isZh ? "总计" : "Total"}</span>
-                                            <span className="font-semibold text-slate-900 dark:text-slate-100">{sourceStatsData.total}</span>
+                                            <span className="font-semibold tabular-nums text-slate-900 dark:text-slate-100">{sourceStatsData.total}</span>
                                         </div>
                                     </div>
                                 </div>
