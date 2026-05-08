@@ -2102,118 +2102,118 @@ export function CandidatesPage({
                         {candidatesLoading || !candidatesInitialLoaded ? (
                             <LoadingCard label={tr.loadingCandidateList}/>
                         ) : candidateViewMode === "list" ? (
-                            <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
-                                <div
-                                    ref={mergedCandidateListScrollRef}
-                                    onMouseDown={handleMouseDown}
-                                    className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
-                                >
-                                    {dragBox && dragContainerRectRef.current && (
-                                        <div
-                                            className="pointer-events-none absolute z-50 rounded border border-blue-400 bg-blue-400/10"
-                                            style={{
-                                                left: Math.min(dragBox.startX, dragBox.currentX) - dragContainerRectRef.current.left,
-                                                top: Math.min(dragBox.startY, dragBox.currentY) - dragContainerRectRef.current.top,
-                                                width: Math.abs(dragBox.currentX - dragBox.startX),
-                                                height: Math.abs(dragBox.currentY - dragBox.startY),
-                                            }}
-                                        />
-                                    )}
-                                    <table style={{width: candidateListEffectiveTableWidth, minWidth: candidateListEffectiveTableWidth}} className="caption-bottom table-fixed text-sm">
-                                        <thead className="[&_tr]:border-b">
-                                            <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">
-                                                <th className="text-foreground sticky top-0 z-10 h-10 w-14 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={visibleCandidates.length > 0 && visibleCandidates.every((candidate) => selectedCandidateIdSet.has(candidate.id))}
-                                                        onChange={(event) => setSelectedCandidateIds(event.target.checked ? visibleCandidates.map((candidate) => candidate.id) : [])}
-                                                        aria-label={tr.selectAllCandidates}
-                                                    />
-                                                </th>
-                                                {candidateListVisibleColumns.map((columnKey) => {
-                                                    const label = getColumnHeaderLabel(columnKey);
-
-                                                    if (!candidateListCompactMode) {
-                                                        return renderCandidateListHeaderCell(columnKey, label);
-                                                    }
-
-                                                    return (
-                                                        <th
-                                                            key={columnKey}
-                                                            style={{
-                                                                width: candidateListEffectiveColumnWidths[columnKey],
-                                                                minWidth: candidateListEffectiveColumnWidths[columnKey],
-                                                                maxWidth: candidateListEffectiveColumnWidths[columnKey],
-                                                            }}
-                                                            className="text-foreground sticky top-0 z-10 h-10 bg-inherit px-2 text-left align-middle text-xs font-medium whitespace-nowrap"
-                                                        >
-                                                            {label}
-                                                        </th>
-                                                    );
-                                                })}
-                                            </tr>
-                                        </thead>
-                                        <tbody className="[&_tr:last-child]:border-0">
-                                            {visibleCandidates.length ? (
-                                                <>
-                                                    {topSpacerHeight > 0 ? (
-                                                        <tr aria-hidden="true" className="border-0">
-                                                            <td
-                                                                colSpan={candidateListVisibleColumns.length + 1}
-                                                                className="h-0 p-0"
-                                                                style={{height: topSpacerHeight, border: 0}}
-                                                            />
-                                                        </tr>
-                                                    ) : null}
-                                                    {virtualItems.map((virtualRow) => {
-                                                        const candidate = visibleCandidates[virtualRow.index];
-                                                        return (
-                                                            <CandidateRow
-                                                                key={candidate.id}
-                                                                candidate={candidate}
-                                                                isSelected={selectedCandidateId === candidate.id}
-                                                                selectedCandidateIdSet={selectedCandidateIdSet}
-                                                                columns={candidateListVisibleColumns}
-                                                                columnWidths={candidateListEffectiveColumnWidths}
-                                                                onSelect={stableCallbacks.selectMap.get(candidate.id)!}
-                                                                onToggleCheck={stableCallbacks.toggleMap.get(candidate.id)!}
-                                                                getResumeMailSummary={getCandidateResumeMailSummary}
-                                                                getOrganizationLabel={getOrganizationLabel}
-                                                                tr={tr}
-                                                                language={language}
-                                                                measureRef={rowVirtualizer.measureElement}
-                                                                dataIndex={virtualRow.index}
-                                                            />
-                                                    )})}
-                                                    {bottomSpacerHeight > 0 ? (
-                                                        <tr aria-hidden="true" className="border-0">
-                                                            <td
-                                                                colSpan={candidateListVisibleColumns.length + 1}
-                                                                className="h-0 p-0"
-                                                                style={{height: bottomSpacerHeight, border: 0}}
-                                                            />
-                                                        </tr>
-                                                    ) : null}
-                                                </>
-                                            ) : (
-                                                <tr>
-                                                    <td colSpan={candidateListVisibleColumns.length + 1} className="p-2 align-middle">
-                                                        <EmptyState title={tr.noCandidatesMatched} description={tr.noCandidatesMatchedDesc}/>
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
+                            visibleCandidates.length === 0 ? (
+                                <div className="flex min-h-0 flex-1 items-center justify-center">
+                                    <EmptyState title={tr.noCandidatesMatched} description={tr.noCandidatesMatchedDesc}/>
                                 </div>
-                                <div className="shrink-0 border-t border-slate-200/80 pt-2 dark:border-slate-800">
+                            ) : (
+                                <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
                                     <div
-                                        ref={candidateListHorizontalRailRef}
-                                        className="overflow-x-auto overflow-y-hidden [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.95)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100/80 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.98)_transparent] dark:[&::-webkit-scrollbar-track]:bg-slate-900/80 dark:[&::-webkit-scrollbar-thumb]:border-slate-900 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700"
+                                        ref={mergedCandidateListScrollRef}
+                                        onMouseDown={handleMouseDown}
+                                        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
                                     >
-                                        <div style={{width: candidateListEffectiveTableWidth, height: 1}}/>
+                                        {dragBox && dragContainerRectRef.current && (
+                                            <div
+                                                className="pointer-events-none absolute z-50 rounded border border-blue-400 bg-blue-400/10"
+                                                style={{
+                                                    left: Math.min(dragBox.startX, dragBox.currentX) - dragContainerRectRef.current.left,
+                                                    top: Math.min(dragBox.startY, dragBox.currentY) - dragContainerRectRef.current.top,
+                                                    width: Math.abs(dragBox.currentX - dragBox.startX),
+                                                    height: Math.abs(dragBox.currentY - dragBox.startY),
+                                                }}
+                                            />
+                                        )}
+                                        <table style={{width: candidateListEffectiveTableWidth, minWidth: candidateListEffectiveTableWidth}} className="caption-bottom table-fixed text-sm">
+                                            <thead className="[&_tr]:border-b">
+                                                <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">
+                                                    <th className="text-foreground sticky top-0 z-10 h-10 w-14 bg-inherit px-2 text-left align-middle font-medium whitespace-nowrap">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={visibleCandidates.length > 0 && visibleCandidates.every((candidate) => selectedCandidateIdSet.has(candidate.id))}
+                                                            onChange={(event) => setSelectedCandidateIds(event.target.checked ? visibleCandidates.map((candidate) => candidate.id) : [])}
+                                                            aria-label={tr.selectAllCandidates}
+                                                        />
+                                                    </th>
+                                                    {candidateListVisibleColumns.map((columnKey) => {
+                                                        const label = getColumnHeaderLabel(columnKey);
+
+                                                        if (!candidateListCompactMode) {
+                                                            return renderCandidateListHeaderCell(columnKey, label);
+                                                        }
+
+                                                        return (
+                                                            <th
+                                                                key={columnKey}
+                                                                style={{
+                                                                    width: candidateListEffectiveColumnWidths[columnKey],
+                                                                    minWidth: candidateListEffectiveColumnWidths[columnKey],
+                                                                    maxWidth: candidateListEffectiveColumnWidths[columnKey],
+                                                                }}
+                                                                className="text-foreground sticky top-0 z-10 h-10 bg-inherit px-2 text-left align-middle text-xs font-medium whitespace-nowrap"
+                                                            >
+                                                                {label}
+                                                            </th>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            </thead>
+                                            <tbody className="[&_tr:last-child]:border-0">
+                                                {visibleCandidates.length ? (
+                                                    <>
+                                                        {topSpacerHeight > 0 ? (
+                                                            <tr aria-hidden="true" className="border-0">
+                                                                <td
+                                                                    colSpan={candidateListVisibleColumns.length + 1}
+                                                                    className="h-0 p-0"
+                                                                    style={{height: topSpacerHeight, border: 0}}
+                                                                />
+                                                            </tr>
+                                                        ) : null}
+                                                        {virtualItems.map((virtualRow) => {
+                                                            const candidate = visibleCandidates[virtualRow.index];
+                                                            return (
+                                                                <CandidateRow
+                                                                    key={candidate.id}
+                                                                    candidate={candidate}
+                                                                    isSelected={selectedCandidateId === candidate.id}
+                                                                    selectedCandidateIdSet={selectedCandidateIdSet}
+                                                                    columns={candidateListVisibleColumns}
+                                                                    columnWidths={candidateListEffectiveColumnWidths}
+                                                                    onSelect={stableCallbacks.selectMap.get(candidate.id)!}
+                                                                    onToggleCheck={stableCallbacks.toggleMap.get(candidate.id)!}
+                                                                    getResumeMailSummary={getCandidateResumeMailSummary}
+                                                                    getOrganizationLabel={getOrganizationLabel}
+                                                                    tr={tr}
+                                                                    language={language}
+                                                                    measureRef={rowVirtualizer.measureElement}
+                                                                    dataIndex={virtualRow.index}
+                                                                />
+                                                            )})}
+                                                        {bottomSpacerHeight > 0 ? (
+                                                            <tr aria-hidden="true" className="border-0">
+                                                                <td
+                                                                    colSpan={candidateListVisibleColumns.length + 1}
+                                                                    className="h-0 p-0"
+                                                                    style={{height: bottomSpacerHeight, border: 0}}
+                                                                />
+                                                            </tr>
+                                                        ) : null}
+                                                    </>
+                                                ) : null}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div className="shrink-0 border-t border-slate-200/80 pt-2 dark:border-slate-800">
+                                        <div
+                                            ref={candidateListHorizontalRailRef}
+                                            className="overflow-x-auto overflow-y-hidden [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.95)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-100/80 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border [&::-webkit-scrollbar-thumb]:border-slate-100 [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[scrollbar-color:rgba(71,85,105,0.98)_transparent] dark:[&::-webkit-scrollbar-track]:bg-slate-900/80 dark:[&::-webkit-scrollbar-thumb]:border-slate-900 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700"
+                                        >
+                                            <div style={{width: candidateListEffectiveTableWidth, height: 1}}/>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
+                            )
                         ) : (
                             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
                                 <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
