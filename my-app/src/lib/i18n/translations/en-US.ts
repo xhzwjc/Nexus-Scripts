@@ -434,6 +434,7 @@ export const enUS: Translations = {
         lastLogin: 'Last Login',
         neverLoggedIn: 'Never',
         actions: 'Actions',
+        adminOnlyTooltip: 'Admin only, please contact your administrator',
         editUser: 'Edit',
         deleteUser: 'Delete',
         deleteRole: 'Delete Role',

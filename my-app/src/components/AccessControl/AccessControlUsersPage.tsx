@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Loader2, Plus, Search, SlidersHorizontal } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { authenticatedFetch, clearScriptHubSession, getStoredScriptHubSession, validateStoredScriptHubSession } from '@/lib/auth';
+import type { ScriptHubManagedUser } from '@/lib/types';
 import { useI18n } from '@/lib/i18n';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -154,6 +155,14 @@ export function AccessControlUsersPage({
         const allowedCodes = new Set(filteredViewModels.map((user) => user.userCode));
         return users.filter((user) => allowedCodes.has(user.user_code));
     }, [filteredViewModels, users]);
+
+    // 当前登录用户是否为超管，只有超管才能编辑/重置密钥/删除用户
+    const currentUserIsSuperAdmin = useMemo(() => {
+        const currentUserId = getStoredScriptHubSession()?.user.id;
+        if (!currentUserId || !users.length) return false;
+        const currentUser = users.find((u) => u.user_code === currentUserId);
+        return currentUser?.is_super_admin ?? false;
+    }, [users]);
 
     const selectedRolePermissionKeys = useMemo(() => {
         const keys = new Set<string>();
@@ -470,6 +479,7 @@ export function AccessControlUsersPage({
                             viewModels={filteredViewModels}
                             permissionMap={permissionMap}
                             labels={labels}
+                            currentUserIsSuperAdmin={currentUserIsSuperAdmin}
                             onEdit={openEditDialog}
                             onRotateKey={(user) => {
                                 setRotateDialogError(null);

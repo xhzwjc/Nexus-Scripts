@@ -624,6 +624,7 @@ export interface Translations {
     lastLogin: string;
     neverLoggedIn: string;
     actions: string;
+    adminOnlyTooltip: string;
     editUser: string;
     deleteUser: string;
     deleteRole: string;

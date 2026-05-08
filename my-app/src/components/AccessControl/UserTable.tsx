@@ -1,6 +1,7 @@
 'use client';
 
 import { KeyRound, Pencil, Trash2 } from 'lucide-react';
+import { toast } from '@/lib/toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,6 +26,7 @@ interface UserTableProps {
     viewModels: AccessControlUserViewModel[];
     permissionMap: Map<string, ScriptHubPermissionDefinition>;
     labels: AccessControlLabels;
+    currentUserIsSuperAdmin: boolean;
     onEdit: (user: ScriptHubManagedUser) => void;
     onRotateKey: (user: ScriptHubManagedUser) => void;
     onDelete: (user: ScriptHubManagedUser) => void;
@@ -35,6 +37,7 @@ export function UserTable({
     viewModels,
     permissionMap,
     labels,
+    currentUserIsSuperAdmin,
     onEdit,
     onRotateKey,
     onDelete,
@@ -113,11 +116,17 @@ export function UserTable({
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex justify-end gap-2">
-                                        <Button variant="outline" size="sm" onClick={() => onEdit(rawUser)}>
+                                        <Button variant="outline" size="sm" onClick={() => {
+                                            if (!currentUserIsSuperAdmin) { toast.warning(labels.adminOnlyTooltip); return; }
+                                            onEdit(rawUser);
+                                        }}>
                                             <Pencil className="h-4 w-4" />
                                             {labels.editUser}
                                         </Button>
-                                        <Button variant="ghost" size="sm" onClick={() => onRotateKey(rawUser)}>
+                                        <Button variant="ghost" size="sm" onClick={() => {
+                                            if (!currentUserIsSuperAdmin) { toast.warning(labels.adminOnlyTooltip); return; }
+                                            onRotateKey(rawUser);
+                                        }}>
                                             <KeyRound className="h-4 w-4" />
                                             {labels.rotateUserKey}
                                         </Button>
@@ -125,7 +134,10 @@ export function UserTable({
                                             variant="ghost"
                                             size="sm"
                                             className="text-destructive hover:text-destructive"
-                                            onClick={() => onDelete(rawUser)}
+                                            onClick={() => {
+                                                if (!currentUserIsSuperAdmin) { toast.warning(labels.adminOnlyTooltip); return; }
+                                                onDelete(rawUser);
+                                            }}
                                         >
                                             <Trash2 className="h-4 w-4" />
                                             {labels.deleteUser}

@@ -433,6 +433,7 @@ export const zhCN: Translations = {
         lastLogin: '最近登录',
         neverLoggedIn: '从未登录',
         actions: '操作',
+        adminOnlyTooltip: '仅管理员可操作，请联系管理员',
         editUser: '编辑',
         deleteUser: '删除',
         deleteRole: '删除角色',
