@@ -131,9 +131,12 @@ class BizSceneTaskService:
         db = self._get_session()
 
         try:
-            # 获取当前最大id
-            max_id_row = db.execute(text("SELECT COALESCE(MAX(id), 0) as max_id FROM biz_scene")).fetchone()
-            next_id = (max_id_row[0] if max_id_row and max_id_row[0] else 0) + 1
+            # 获取当前最大id（需同时考虑 biz_scene 和 biz_scene_template 两张表）
+            max_scene_row = db.execute(text("SELECT COALESCE(MAX(id), 0) as max_id FROM biz_scene")).fetchone()
+            max_template_row = db.execute(text("SELECT COALESCE(MAX(id), 0) as max_id FROM biz_scene_template")).fetchone()
+            max_scene_id = max_scene_row[0] if max_scene_row and max_scene_row[0] else 0
+            max_template_id = max_template_row[0] if max_template_row and max_template_row[0] else 0
+            next_id = max(max_scene_id, max_template_id) + 1
 
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             created_scenes = []
