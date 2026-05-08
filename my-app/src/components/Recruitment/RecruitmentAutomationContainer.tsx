@@ -1823,7 +1823,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         async function loadCandidatesFirstPage(): Promise<void> {
             try {
                 const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
-                const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
+                const url = orgCodeParam ? `/candidates?limit=25&offset=0&${orgCodeParam}` : "/candidates?limit=25&offset=0";
                 const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
                 if (!cancelled) {
                     setAllCandidates(deduplicateCandidates(data?.items || []));
@@ -2529,7 +2529,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
         try {
             const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
-            const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
+            const url = orgCodeParam ? `/candidates?limit=25&offset=0&${orgCodeParam}` : "/candidates?limit=25&offset=0";
             const request = () => recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
             const result = options?.force
                 ? await request()
@@ -2563,7 +2563,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         try {
             const offset = allCandidates.length;
             const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
-            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(`/candidates?limit=50&offset=${offset}${orgCodeParam}`);
+            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(`/candidates?limit=25&offset=${offset}${orgCodeParam}`);
             if (mountedRef.current) {
                 setAllCandidates(prev => deduplicateCandidates([...prev, ...(data?.items || [])]));
                 setCandidateTotal(data?.total || 0);
@@ -2887,7 +2887,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 : companyScope
                     ? `org_code=${encodeURIComponent(companyScope)}`
                     : "";
-            const url = orgCodeParam ? `/candidates?limit=50&offset=0&${orgCodeParam}` : "/candidates?limit=50&offset=0";
+            const url = orgCodeParam ? `/candidates?limit=25&offset=0&${orgCodeParam}` : "/candidates?limit=25&offset=0";
             const d = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
             setAllCandidates(deduplicateCandidates(d?.items || []));
             setCandidateTotal(d?.total || 0);
