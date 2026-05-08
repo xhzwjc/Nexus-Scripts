@@ -102,12 +102,20 @@ async function proxyRecruitmentRequest(
 
   const isSSEStream = path === "task-events";
 
+  // 当客户端断开连接时（如热更新），也取消对后端的请求，避免后端连接被挂起
+  const clientSignal = request.signal;
+  const timeoutSignal = isSSEStream ? undefined : AbortSignal.timeout(isLongRunningRequest ? 900000 : 180000);
+  const proxySignal = clientSignal && timeoutSignal
+    ? (typeof AbortSignal.any === "function"
+        ? AbortSignal.any([clientSignal, timeoutSignal])
+        : timeoutSignal)
+    : clientSignal || timeoutSignal;
+
   const init: RequestInit = {
     method: request.method,
     headers,
     cache: "no-store",
-    // SSE streams use heartbeats to stay alive — no abort timeout.
-    signal: isSSEStream ? undefined : AbortSignal.timeout(isLongRunningRequest ? 900000 : 180000),
+    signal: proxySignal,
   };
 
   if (!["GET", "HEAD"].includes(request.method)) {
