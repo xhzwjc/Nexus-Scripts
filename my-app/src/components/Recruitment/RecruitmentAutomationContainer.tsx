@@ -2937,7 +2937,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     : companyScope
                         ? `?org_code=${encodeURIComponent(companyScope)}`
                         : "";
-                const f = await recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam ? `?${orgCodeParam}` : ""}`);
+                const f = await recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam}`);
                 setFunnelData(f);
             })(),
             (async () => {
@@ -2946,7 +2946,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     : companyScope
                         ? `?org_code=${encodeURIComponent(companyScope)}`
                         : "";
-                const s = await recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam ? `?${orgCodeParam}` : ""}`);
+                const s = await recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam}`);
                 setSourceStatsData(s);
             })(),
         ];
