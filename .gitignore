@@ -8,8 +8,8 @@ docker-compose.override.yml
 docker-compose.local.yml
 
 # 敏感文件（绝对不要提交）
-.env
-.env.*
+!.env
+!.env.product
 
 .idea
 *.iml
