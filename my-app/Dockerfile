@@ -34,10 +34,10 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
 # 关键：复制 public 目录 (包含 logo)
-COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 # 关键：复制 data 目录 (包含 json 数据文件)
-COPY --from=builder /app/data ./data
+COPY --from=builder --chown=nextjs:nodejs /app/data ./data
 
 # 设置 .next 目录权限
 RUN mkdir .next
