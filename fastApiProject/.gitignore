@@ -22,7 +22,6 @@ Thumbs.db
 # Logs and output
 *.log
 *.csv
-*.xlsx
 results/log/
 
 # Local virtual environments
