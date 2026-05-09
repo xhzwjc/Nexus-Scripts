@@ -128,6 +128,7 @@ function getAuditPageLocale(language = getCurrentLanguage()) {
         skillResolution: isZh ? "Skills 解析结果" : "Skill Resolution",
         sourceLine: (skillSource: string, memorySource: string) => (isZh ? `来源：${skillSource} · 记忆源：${memorySource}` : `Source: ${skillSource} · Memory: ${memorySource}`),
         dimensionCount: isZh ? "提炼维度数" : "Derived Dimensions",
+        dimensionCountSuffix: isZh ? "个" : "",
         notApplicable: isZh ? "不适用" : "N/A",
         injectedPrompt: isZh ? "已注入评分 Prompt" : "Injected into Score Prompt",
         yes: isZh ? "是" : "Yes",
@@ -1120,7 +1121,7 @@ export function AuditPage({
                                             <div className="grid gap-3 md:grid-cols-3">
                                                 <InfoTile
                                                     label={tr.dimensionCount}
-                                                    value={selectedLogDetail.task_type === "resume_parse" ? tr.notApplicable : `${selectedPromptRuleDimensionCount}${language === "en-US" ? "" : " 个"}`}
+                                                    value={selectedLogDetail.task_type === "resume_parse" ? tr.notApplicable : `${selectedPromptRuleDimensionCount}${tr.dimensionCountSuffix}`}
                                                 />
                                                 <InfoTile
                                                     label={tr.injectedPrompt}

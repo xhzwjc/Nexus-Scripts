@@ -575,7 +575,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         llmConfigKeyRequired: isZh ? "请输入配置键" : "Please enter a config key",
         llmConfigKeyTooLong: isZh ? "配置键不能超过 120 个字符" : "Config key cannot exceed 120 characters",
         llmConfigKeyDuplicate: (value: string) => (
-            isZh ? `配置键“${value}”已存在，请换一个` : `The config key "${value}" already exists. Please use another one.`
+            isZh ? `配置键"${value}"已存在，请换一个` : `The config key "${value}" already exists. Please use another one.`
         ),
         llmTaskTypeRequired: isZh ? "请输入任务类型" : "Please enter a task type",
         llmTaskTypeTooLong: isZh ? "任务类型不能超过 80 个字符" : "Task type cannot exceed 80 characters",
@@ -633,6 +633,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         sendResumeMailDescription: isZh
             ? "支持单个或批量发送给一个或多个收件人。上方可直接填写收件人邮箱，下方可快捷勾选内部收件人。邮件标题和正文都允许留空，留空时由系统按默认模板生成。"
             : "Send one or many resumes to one or more recipients. You can enter email addresses directly or choose internal recipients below. Subject and body may be left blank to use the default template.",
+        mailSentMessage: (dispatchId: number, recipientEmails: string[], attachmentCount: number, isResend: boolean) => {
+            const title = isResend
+                ? (isZh ? "已再次发送简历邮件。" : "Resume email resent.")
+                : (isZh ? "已发送简历邮件。" : "Resume email sent.");
+            const sep = isZh ? "、" : ", ";
+            const dispatchLabel = isZh ? "发送记录" : "Dispatch";
+            const recipientsLabel = isZh ? "收件人" : "Recipients";
+            const attachmentsLabel = isZh ? "附件" : "Attachments";
+            const attachmentText = isZh ? `${attachmentCount} 份简历` : `${attachmentCount} resume(s)`;
+            return `${title}\n- ${dispatchLabel}：#${dispatchId}\n- ${recipientsLabel}：${recipientEmails.join(sep)}\n- ${attachmentsLabel}：${attachmentText}`;
+        },
         sending: isZh ? "发送中..." : "Sending...",
         resend: isZh ? "再次发送" : "Send Again",
         sendResume: isZh ? "发送简历" : "Send Resume",
@@ -675,6 +686,48 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         dedupMode: isZh ? "重复发送策略" : "Duplicate-send strategy",
         dedupOncePerCandidatePerStatus: isZh ? "同候选人同状态仅一次" : "Once per candidate per status",
         dedupOncePerCandidate: isZh ? "同候选人仅一次" : "Once per candidate",
+        autoAdvanceOnScreeningLabel: isZh ? "初筛通过后自动推进候选人状态" : "Auto-advance candidate status after screening",
+        autoMailPushTitle: isZh ? "初筛完成后自动推送邮件" : "Auto-send email after screening",
+        autoMailPushDescription: isZh ? "启用后仅在候选人状态命中允许列表且解析出有效收件人时触发。岗位专属收件人优先，不受全局开关限制；使用全局收件人时需全局能力也开启。手动发送入口始终保留。" : "Triggers only when candidate status matches allowed list and valid recipient is parsed. Position-specific recipients take priority, unrestricted by global toggle; global recipients require global capability to be enabled. Manual send entry is always available.",
+        autoMailEnableToggle: isZh ? "启用自动推送" : "Enable auto-push",
+        positionSpecificRecipient: isZh ? "使用岗位专属收件人" : "Use position-specific recipients",
+        globalDefaultRecipient: isZh ? "叠加全局默认收件人" : "Stack global default recipients",
+        globalDefaultRecipientHint: isZh ? "（需全局能力也开启）" : "(requires global capability to be enabled)",
+        noRecipientsInMailCenter: isZh ? "请先在邮件中心维护收件人" : "Maintain recipients in Mail Center first",
+        noCCRecipients: isZh ? "暂无可选抄送人" : "No CC recipients available",
+        noBCCRecipients: isZh ? "暂无可选密送人" : "No BCC recipients available",
+        positionSpecificRecipients: isZh ? "岗位专属收件人" : "Position-specific recipients",
+        ccRecipients: isZh ? "抄送人（CC）" : "CC Recipients",
+        bccRecipients: isZh ? "密送人（BCC）" : "BCC Recipients",
+        autoMailSkillBindingHint: isZh ? "每个岗位可以分别绑定 1 条 JD Skill、1 条初筛 Skill、1 条面试题 Skill。若某一类不选择，系统会自动使用该任务的内置通用基座约束。如果没有合适的 Skill，可以点击下方「+」直接新建，创建后会自动绑定到当前岗位。" : "Each position can bind 1 JD Skill, 1 screening Skill, and 1 interview skill. If none is selected, the system uses the built-in general constraint for that task. If no suitable Skill exists, click '+' below to create one, which will be automatically bound to the current position.",
+        jdSkillLabel: isZh ? "JD Skill" : "JD Skill",
+        screeningSkillLabel: isZh ? "初筛 Skill" : "Screening Skill",
+        interviewSkillLabel: isZh ? "面试题 Skill" : "Interview Skill",
+        noSkillsAvailable: isZh ? "暂无可选 Skill，点击上方「+」新建" : "No available Skills, click '+' above to create",
+        newSkillTitle: (skillType: string) => (isZh ? `新建 ${skillType} Skill` : `New ${skillType} Skill`),
+        positionBasicsDialogHint: isZh ? "岗位基础信息放在弹窗中维护，详情操作回到岗位工作区完成。" : "Maintain position basics in this dialog. For details and operations, go back to the position workspace.",
+        cancelButton: isZh ? "取消" : "Cancel",
+        savingPosition: isZh ? "保存中..." : "Saving...",
+        savePosition: isZh ? "保存岗位" : "Save Position",
+        noLinkedPosition: isZh ? "暂不关联岗位" : "Not linked to any position",
+        filesSelected: (count: number) => (isZh ? `已选择 ${count} 个文件` : `${count} file(s) selected`),
+        cancelUpload: isZh ? "取消上传" : "Cancel Upload",
+        uploading: isZh ? "上传中..." : "Uploading...",
+        startUpload: isZh ? "开始上传" : "Start Upload",
+        confirmDeletePosition: isZh ? "确认删除岗位" : "Confirm Delete Position",
+        positionDeleteHint: isZh ? "删除后岗位会从工作台隐藏，已关联的候选人与日志仍会保留。请再确认一次。" : "After deletion, the position will be hidden from workspace. Associated candidates and logs will be retained. Please confirm again.",
+        deletingPosition: isZh ? "删除中..." : "Deleting...",
+        confirmDeletePositionAction: isZh ? "确认删除" : "Confirm Delete",
+        confirmDeleteCandidate: isZh ? "确认删除候选人" : "Confirm Delete Candidate",
+        candidateDeleteHint: isZh ? "删除后会同步清理该候选人的简历文件、解析结果、初筛评分、面试题、状态流转记录和工作记忆。正在执行中的候选人任务需要先结束后才能删除。" : "Deletion will clean up resume files, parsing results, screening scores, interview questions, status history, and workflow memory. Tasks in progress need to be ended before deletion.",
+        saved: isZh ? "已保存" : "Saved",
+        savedCandidate: isZh ? "已保存候选人" : "Candidate saved",
+        autoAdvanceOnScreeningHint: isZh ? "（需开启岗位初筛配置）" : "(requires position screening config)",
+        positionBasics: isZh ? "岗位基础信息" : "Position Basics",
+        skillsAutomation: isZh ? "Skill 与自动化配置" : "Skills & Automation",
+        noPublishText: isZh ? "当前还没有可直接发布的 JD 文案，点击\"AI 生成 JD\"后会在这里展示。" : "There is no publish-ready JD copy yet. Click Generate JD and it will appear here.",
+        allowRepeatSending: isZh ? "允许重复发送" : "Allow repeat sending",
+        // JD dialog fields
         assistantLabel: isZh ? "招聘助手" : "Recruiting Assistant",
         assistantWorkspaceHint: isZh ? "在工作台里快速切上下文、带着推荐问题打开完整助手。" : "Switch context quickly from the workspace and jump into the full assistant with suggested prompts.",
         open: isZh ? "打开" : "Open",
@@ -694,6 +747,111 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         stopBatchScreeningRequested: isZh ? "批量初筛停止请求已发送" : "Batch screening stop request sent",
         noScreeningTarget: recruitmentToast.noCandidatesSelected,
         noScreeningQueued: recruitmentToast.noScreeningQueued,
+        noCandidates: isZh ? "暂无候选人" : "No Candidates",
+        noCandidatesDesc: isZh ? "上传简历并关联到这个岗位后，这里会出现最新候选人列表。" : "Upload resumes and link them to this position to see candidates here.",
+        positionDialogNew: isZh ? "新建岗位" : "New Position",
+        positionDialogEdit: isZh ? "编辑岗位" : "Edit Position",
+        uploadResumeAutoScreenHint: isZh ? "上传简历后自动进入初筛" : "Auto-enter screening after upload",
+        uploadResumeAutoScreenHintNoSkill: isZh ? "请先在下方「初筛Skills」中绑定至少一个初筛Skill，再开启此功能" : "Bind at least one screening Skill below before enabling this",
+        uploadResumeTitle: isZh ? "上传简历" : "Upload Resume",
+        uploadResumeDesc: isZh ? "支持批量上传 PDF / DOC / DOCX / TXT。若岗位开启自动初筛，系统会自动进入新的初筛流程；否则可在候选人页手动触发。" : "Supports batch upload of PDF/DOC/DOCX/TXT. If auto-screening is enabled, system will auto-start new screening; otherwise trigger manually from candidates page.",
+        // Position form fields
+        positionName: isZh ? "岗位名称" : "Position Name",
+        department: isZh ? "部门" : "Department",
+        location: isZh ? "地点" : "Location",
+        employmentType: isZh ? "用工类型" : "Employment Type",
+        salaryRange: isZh ? "薪资范围" : "Salary Range",
+        headcount: isZh ? "招聘人数" : "Headcount",
+        positionStatus: isZh ? "岗位状态" : "Position Status",
+        tags: isZh ? "标签" : "Tags",
+        keyRequirements: isZh ? "关键要求" : "Key Requirements",
+        bonusPoints: isZh ? "加分项" : "Bonus Points",
+        screeningConfig: isZh ? "初筛配置" : "Screening Config",
+        positionSummary: isZh ? "岗位摘要" : "Position Summary",
+        linkPosition: isZh ? "关联岗位" : "Link Position",
+        selectFiles: isZh ? "选择文件" : "Select Files",
+        city: isZh ? "所在城市" : "City",
+        manualCityEntry: isZh ? "手动指定" : "Manual",
+        autoDetectCity: isZh ? "自动识别" : "Auto Detect",
+        cityPlaceholder: isZh ? "输入或选择城市" : "Enter or select city",
+        cityAutoHint: isZh ? "系统将从文件名中自动提取城市，未识别到的由AI解析兜底" : "System extracts city from filename; AI parsing as fallback if not detected",
+        uploadedProgress: (uploaded: number, total: number) => (isZh ? `已上传 ${uploaded} / ${total} 份` : `Uploaded ${uploaded} / ${total}`),
+        currentCandidate: isZh ? "当前候选人" : "Current Candidate",
+        candidateDeleteWarning: isZh ? "删除后不可恢复；历史删除审计会保留，但该候选人不会再出现在候选人列表和详情区中。" : "Deletion is irreversible; history will be kept in audit logs, but the candidate will no longer appear in the candidate list or details.",
+        // JD dialog fields
+        aiGenerationNotes: isZh ? "AI 生成附加要求" : "AI Generation Notes",
+        versionTitle: isZh ? "版本标题" : "Version Title",
+        versionNotes: isZh ? "版本备注" : "Version Notes",
+        jdMarkdownSource: isZh ? "JD Markdown 源文本" : "JD Markdown Source",
+        preview: isZh ? "预览版" : "Preview",
+        expandMenu: isZh ? "展开左侧菜单" : "Expand left menu",
+        collapseMenu: isZh ? "收起左侧菜单" : "Collapse left menu",
+        assistantPanelTitle: isZh ? "AI 助手" : "AI Assistant",
+        assistantPanelDescription: isZh ? "用于生成 JD、查看岗位候选人、筛选简历和生成面试题的招聘助手对话面板。" : "Assistant panel for generating JDs, viewing candidates, screening resumes, and creating interview questions.",
+        resumeUploadDescription: isZh ? '支持批量上传 PDF / DOC / DOCX / TXT。若岗位开启"上传自动初筛"，系统会自动进入新的初筛流程；否则可在候选人页手动触发。' : "Supports batch upload of PDF/DOC/DOCX/TXT. If auto-screening is enabled, system will auto-start new screening; otherwise trigger manually from candidates page.",
+        confirmDeleteCandidates: isZh ? "确认批量删除候选人" : "Confirm Batch Delete Candidates",
+        batchDeleteDescription: (count: number) => isZh ? `将删除选中的 ${count} 位候选人及其简历文件、解析结果、初筛评分、面试题、状态流转记录和工作记忆。有活动AI任务（解析或初筛中）的候选人将自动跳过。` : `Will delete ${count} selected candidates and their resume files, parsing results, screening scores, interview questions, status history, and workflow memory. Candidates with active AI tasks (parsing or screening) will be skipped automatically.`,
+        confirmDeleteResume: isZh ? "确认删除简历" : "Confirm Delete Resume",
+        resumeDeleteDescription: isZh ? "删除后会同步清理这份简历对应的解析结果和初筛评分；如果该候选人还有其他简历，系统会自动切换到下一份可用简历。正在解析或初筛中的简历暂时不能删除。" : "Deletion will clean up parsing results and screening scores for this resume; if the candidate has other resumes, the system will automatically switch to the next available one. Resumes being parsed or screened cannot be deleted.",
+        currentResume: isZh ? "当前简历" : "Current Resume",
+        resumeDeleteWarning: isZh ? "删除后不可恢复，请确认当前候选人不再需要这份原始文件。" : "Deletion is irreversible. Please confirm the current candidate no longer needs this original file.",
+        confirmDeleteMailSender: isZh ? "确认删除发件箱" : "Confirm Delete Mail Sender",
+        mailSenderDeleteDescription: isZh ? "删除后它将无法继续发送简历邮件；已有发送记录会继续保留。" : "After deletion, it will no longer be able to send resume emails; existing send records will be retained.",
+        confirmDeleteMailRecipient: isZh ? "确认删除收件人" : "Confirm Delete Mail Recipient",
+        mailRecipientDeleteDescription: isZh ? "删除后发送简历时将不再出现在可选名单里，历史发送记录不会受影响。" : "After deletion, it will no longer appear in the recipient list when sending resumes; historical send records will not be affected.",
+        publishing: isZh ? "发布中..." : "Publishing...",
+        editMailSender: isZh ? "编辑发件箱" : "Edit Mail Sender",
+        newMailSender: isZh ? "新增发件箱" : "New Mail Sender",
+        mailSenderDescription: isZh ? "支持配置 163、Outlook、企业邮箱等 SMTP 发件箱。编辑已有发件箱时，密码可留空以继续使用当前密码。" : "Supports configuring SMTP senders like 163, Outlook, corporate email, etc. When editing an existing sender, password can be left empty to keep the current one.",
+        mailSenderName: isZh ? "名称" : "Name",
+        mailSenderFromName: isZh ? "发件人名称" : "Sender Name",
+        mailSenderFromNamePlaceholder: isZh ? "例如：某某科技招聘中心" : "e.g., HR Center of Company",
+        mailSenderEmail: isZh ? "发件邮箱" : "Sender Email",
+        mailSenderEmailPlaceholder: isZh ? "name@example.com" : "name@example.com",
+        mailSenderUsername: isZh ? "登录账号" : "Login Username",
+        smtpHost: isZh ? "SMTP Host" : "SMTP Host",
+        smtpHostPlaceholder: isZh ? "smtp.163.com" : "smtp.163.com",
+        smtpPort: isZh ? "SMTP Port" : "SMTP Port",
+        smtpHostAutoHint: isZh ? "如果 SMTP Host 留空，系统会尝试根据发件邮箱自动识别 163 / Outlook 默认配置。" : "If SMTP Host is left empty, the system will try to auto-detect 163/Outlook default settings based on the sender email.",
+        mailSenderPassword: isZh ? "密码" : "Password",
+        mailSenderPasswordEdit: isZh ? "密码（留空则不修改）" : "Password (leave empty to keep current)",
+        useSSL: isZh ? "使用 SSL" : "Use SSL",
+        useSTARTTLS: isZh ? "使用 STARTTLS" : "Use STARTTLS",
+        setAsDefaultSender: isZh ? "设为默认发件箱" : "Set as default sender",
+        enableSender: isZh ? "启用此发件箱" : "Enable this sender",
+        editMailRecipient: isZh ? "编辑收件人" : "Edit Recipient",
+        newMailRecipient: isZh ? "新增收件人" : "New Recipient",
+        mailRecipientDescription: isZh ? "可维护公司招聘团队、面试官、部门负责人等收件人，发送简历时支持多选和复用。" : "Maintain recipients like HR team, interviewers, department heads, etc. Supports multi-select and reuse when sending resumes.",
+        recipientName: isZh ? "姓名" : "Name",
+        recipientEmail: isZh ? "邮箱" : "Email",
+        recipientDepartment: isZh ? "部门" : "Department",
+        recipientRoleTitle: isZh ? "岗位" : "Role Title",
+        recipientTags: isZh ? "标签" : "Tags",
+        recipientTagsPlaceholder: isZh ? "例如：招聘同事，技术面试官，业务负责人" : "e.g., HR colleague, tech interviewer, business lead",
+        recipientNotes: isZh ? "备注" : "Notes",
+        enableRecipient: isZh ? "启用此收件人" : "Enable this recipient",
+        candidatesInThisSend: isZh ? "本次发送的候选人" : "Candidates in this send",
+        resumeNoLinkedPosition: isZh ? "未关联岗位" : "Not linked to position",
+        alreadySent: isZh ? "已发送" : "Sent",
+        firstSend: isZh ? "首次发送" : "First send",
+        saveMailSender: isZh ? "保存发件箱" : "Save Mail Sender",
+        saveMailRecipient: isZh ? "保存收件人" : "Save Recipient",
+        candidatesInThisSendLabel: isZh ? "本次发送的候选人" : "Candidates in this send",
+        noSendHistory: isZh ? "当前候选人还没有成功发送记录。" : "This candidate has no successful send history yet.",
+        noCandidateDetails: isZh ? "未找到候选人详情，请返回候选人中心重新选择。" : "Candidate details not found. Please go back to candidates center and select again.",
+        senderConfig: isZh ? "发件箱" : "Sender",
+        useDefaultSender: isZh ? "使用默认发件箱" : "Use default sender",
+        recipientEmailsOptional: isZh ? "收件人邮箱（可选）" : "Recipient emails (optional)",
+        recipientEmailsPlaceholder: isZh ? "可直接填写一个或多个收件人邮箱，多个请用英文逗号分隔" : "Enter one or more recipient emails, separated by commas",
+        selectInternalRecipients: isZh ? "选择内部收件人" : "Select internal recipients",
+        noDepartmentSet: isZh ? "未设置部门" : "No department set",
+        noRoleSet: isZh ? "未设置岗位" : "No role set",
+        noRecipientsAvailable: isZh ? "暂无可选收件人" : "No recipients available",
+        noRecipientsAvailableDesc: isZh ? "可以直接填写上方收件人邮箱，也可以先在邮件中心维护公司内部收件人。" : "You can directly fill in recipient emails above, or maintain internal recipients in Mail Center first.",
+        emailSubjectOptional: isZh ? "邮件标题（可留空）" : "Email subject (optional)",
+        emailSubjectPlaceholder: isZh ? "例如：候选人简历推荐 / IoT 测试工程师" : "e.g., Candidate Resume Referral / IoT Test Engineer",
+        emailBodyOptional: isZh ? "邮件正文（可留空）" : "Email body (optional)",
+        emailBodyPlaceholder: isZh ? "可填写本次推荐理由、安排建议等；留空时将使用系统默认正文。" : "Fill in referral reasons, scheduling suggestions, etc.; leave empty to use default body.",
     }), [isZh, recruitmentToast]);
     const localizeCandidateStatusValue = useCallback((value?: string | null, fallback?: string | null) => {
         const normalized = String(value || "").trim();
@@ -5239,7 +5397,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             const useSsl = mailSenderForm.smtpHost.trim() ? mailSenderForm.useSsl : (inferredPreset?.useSsl ?? mailSenderForm.useSsl);
             const useStarttls = mailSenderForm.smtpHost.trim() ? mailSenderForm.useStarttls : (inferredPreset?.useStarttls ?? mailSenderForm.useStarttls);
             if (!smtpHost) {
-                toast.error("请填写 SMTP Host；163 常用 smtp.163.com，Outlook 常用 smtp-mail.outlook.com");
+                toast.error(recruitmentToast.smtpHostRequired);
                 return;
             }
             const payload = {
@@ -5260,22 +5418,22 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     method: "PATCH",
                     body: JSON.stringify(payload),
                 });
-                toast.success("发件箱已更新");
+                toast.success(recruitmentToast.updated(recruitmentToastEntities.mailSender));
             } else {
                 await recruitmentApi(`/mail-senders`, {
                     method: "POST",
                     body: JSON.stringify(payload),
                 });
-                toast.success("发件箱已创建");
+                toast.success(recruitmentToast.created(recruitmentToastEntities.mailSender));
             }
             setMailSenderDialogOpen(false);
             try {
                 await loadMailSettings();
             } catch (refreshError) {
-                toast.error(`发件箱已保存，但邮件配置刷新失败：${formatActionError(refreshError)}`);
+                toast.error(recruitmentToast.savedButRefreshFailed(recruitmentToastEntities.mailSender, formatActionError(refreshError)));
             }
         } catch (error) {
-            toast.error(`保存发件箱失败：${formatActionError(error)}`);
+            toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.mailSender, formatActionError(error)));
         } finally {
             setMailSenderSaving(false);
         }
@@ -5287,10 +5445,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         try {
             await recruitmentApi(`/mail-senders/${senderId}`, {method: "DELETE"});
             setMailSenderDeleteTarget(null);
-            toast.success("发件箱已删除");
+            toast.success(recruitmentToast.deleted(recruitmentToastEntities.mailSender));
             await loadMailSettings();
         } catch (error) {
-            toast.error(`删除发件箱失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.deleteFailed(recruitmentToastEntities.mailSender, error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
             setDeleteActionKey((current) => (current === actionKey ? null : current));
         }
@@ -5335,18 +5493,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     method: "PATCH",
                     body: JSON.stringify(payload),
                 });
-                toast.success("收件人已更新");
+                toast.success(recruitmentToast.updated(recruitmentToastEntities.mailRecipient));
             } else {
                 await recruitmentApi(`/mail-recipients`, {
                     method: "POST",
                     body: JSON.stringify(payload),
                 });
-                toast.success("收件人已创建");
+                toast.success(recruitmentToast.created(recruitmentToastEntities.mailRecipient));
             }
             setMailRecipientDialogOpen(false);
             await loadMailSettings();
         } catch (error) {
-            toast.error(`保存收件人失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.mailRecipient, error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
             setMailRecipientSaving(false);
         }
@@ -5358,10 +5516,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         try {
             await recruitmentApi(`/mail-recipients/${recipientId}`, {method: "DELETE"});
             setMailRecipientDeleteTarget(null);
-            toast.success("收件人已删除");
+            toast.success(recruitmentToast.deleted(recruitmentToastEntities.mailRecipient));
             await loadMailSettings();
         } catch (error) {
-            toast.error(`删除收件人失败：${error instanceof Error ? error.message : "未知错误"}`);
+            toast.error(recruitmentToast.deleteFailed(recruitmentToastEntities.mailRecipient, error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
             setDeleteActionKey((current) => (current === actionKey ? null : current));
         }
@@ -5378,7 +5536,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 .filter(Boolean),
         ));
         if (!nextCandidateIds.length) {
-            toast.error("请先选择需要发送的简历");
+            toast.error(recruitmentToast.noResumeMailCandidates);
             return;
         }
         setResumeMailDialogMode(overrides?.mode || "send");
@@ -5422,25 +5580,25 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 method: "POST",
                 body: JSON.stringify(payload),
             });
-            toast.success(options?.successMessage || "简历邮件已发送");
+            toast.success(options?.successMessage || recruitmentToast.sent(recruitmentToastEntities.resumeMail));
             if (options?.closeDialog !== false) {
                 setResumeMailDialogOpen(false);
             }
             try {
                 await loadMailSettings();
             } catch (refreshError) {
-                toast.error(`简历邮件已发送，但邮件中心刷新失败：${formatActionError(refreshError)}`);
+                toast.error(recruitmentToast.savedButRefreshFailed(recruitmentToastEntities.resumeMail, formatActionError(refreshError)));
             }
             return dispatch;
         } catch (error) {
-            const errorMessage = `发送简历邮件失败：${formatActionError(error)}`;
+            const errorMessage = recruitmentToast.sendFailed(recruitmentToastEntities.resumeMail, formatActionError(error));
             throw new Error(errorMessage); // 重新抛出以便调用方处理
         }
     }
 
     async function confirmAssistantPreparedResumeMail(messageId: string, preparedMail: RecruitmentAssistantPreparedResumeMail) {
         if (!preparedMail.can_confirm) {
-            setResumeMailError(preparedMail.blocking_reason || "当前邮件预览还不能直接发送");
+            setResumeMailError(preparedMail.blocking_reason || recruitmentToast.mailPreviewBlocked);
             return;
         }
         setResumeMailSourceAssistantMessageId(null);
@@ -5484,7 +5642,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 {
                     id: `a-mail-sent-${Date.now()}`,
                     role: "assistant",
-                    content: `已发送简历邮件。\n- 发送记录：#${dispatch.id}\n- 收件人：${dispatch.recipient_emails.join("、")}\n- 附件：${dispatch.attachment_count} 份简历`,
+                    content: recruitmentUiText.mailSentMessage(dispatch.id, dispatch.recipient_emails, dispatch.attachment_count, false),
                     createdAt: new Date().toISOString(),
                     sourceRunType: "stream",
                 },
@@ -5505,12 +5663,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     async function submitResumeMail() {
         if (!resumeMailForm.candidateIds.length) {
-            setResumeMailError("请先选择需要发送的候选人");
+            setResumeMailError(recruitmentToast.noResumeMailCandidates);
             return;
         }
         const extraEmails = parseEmailList(resumeMailForm.extraRecipientEmails);
         if (!resumeMailForm.recipientIds.length && !extraEmails.length) {
-            setResumeMailError("请至少选择一个内部收件人或填写一个收件人邮箱");
+            setResumeMailError(recruitmentToast.noRecipientsSelected);
             return;
         }
         setResumeMailSubmitting(true);
@@ -5560,7 +5718,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         {
                             id: `a-mail-dialog-sent-${Date.now()}`,
                             role: "assistant",
-                            content: `${resumeMailDialogMode === "resend" ? "已再次发送简历邮件。" : "已发送简历邮件。"}\n- 发送记录：#${dispatch.id}\n- 收件人：${dispatch.recipient_emails.join("、")}\n- 附件：${dispatch.attachment_count} 份简历`,
+                            content: recruitmentUiText.mailSentMessage(dispatch.id, dispatch.recipient_emails, dispatch.attachment_count, resumeMailDialogMode === "resend"),
                             createdAt: new Date().toISOString(),
                             sourceRunType: "stream",
                         },
@@ -7327,7 +7485,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                                                 {jdViewMode === "publish" ? (
                                                     <div className="min-h-[360px] whitespace-pre-wrap rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                                                        {currentPublishText || (isZh ? "当前还没有可直接发布的 JD 文案，点击“AI 生成 JD”后会在这里展示。" : "There is no publish-ready JD copy yet. Click “Generate JD” and it will appear here.")}
+                                                        {currentPublishText || (isZh ? '当前还没有可直接发布的 JD 文案，点击"AI 生成 JD"后会在这里展示。' : 'There is no publish-ready JD copy yet. Click "Generate JD" and it will appear here.')}
                                                     </div>
                                                 ) : null}
 
@@ -7421,9 +7579,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                                                 <Field label={isZh ? "Skill 与自动化配置" : "Skills & Automation"}>
                                                     <div className="grid gap-3 md:grid-cols-2">
-                                                        <InfoTile label={isZh ? "JD 生成 Skill" : "JD Skills"} value={(positionDetail.position.jd_skill_ids || []).length ? formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
-                                                        <InfoTile label={isZh ? "初筛绑定 Skills" : "Screening Skills"} value={(positionDetail.position.screening_skill_ids || []).length ? formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
-                                                        <InfoTile label={isZh ? "面试题 Skill" : "Interview Skills"} value={(positionDetail.position.interview_skill_ids || []).length ? formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
+                                                        <InfoTile label={isZh ? "JD 生成 Skill" : "JD Skills"} value={(positionDetail.position.jd_skill_ids || []).length ? formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
+                                                        <InfoTile label={isZh ? "初筛绑定 Skills" : "Screening Skills"} value={(positionDetail.position.screening_skill_ids || []).length ? formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
+                                                        <InfoTile label={isZh ? "面试题 Skill" : "Interview Skills"} value={(positionDetail.position.interview_skill_ids || []).length ? formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
                                                         <InfoTile label={isZh ? "自动流程" : "Automation"} value={`${positionDetail.position.auto_screen_on_upload ? (isZh ? "上传自动初筛已开启" : "Auto-screen on upload is on") : (isZh ? "上传自动初筛未开启" : "Auto-screen on upload is off")} · ${positionDetail.position.auto_advance_on_screening === false ? (isZh ? "通过后自动推进关闭" : "Auto-advance after pass is off") : (isZh ? "通过后自动推进开启" : "Auto-advance after pass is on")}`}/>
                                                     </div>
                                                 </Field>
@@ -7500,7 +7658,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         </button>
                                                     );
                                                 }) : (
-                                                    <EmptyState title={isZh ? "暂无候选人" : "No Candidates"} description={isZh ? "上传简历并关联到这个岗位后，这里会出现最新候选人列表。" : "Upload resumes and link them to this position to see candidates here."}/>
+                                                    <EmptyState title={recruitmentUiText.noCandidates} description={recruitmentUiText.noCandidatesDesc}/>
                                                 )}
                                             </CardContent>
                                         </Card>
@@ -8102,7 +8260,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         size="icon"
                         onClick={() => setNavCollapsed((current) => !current)}
                         className="absolute right-0 top-1/2 z-20 h-10 w-5 -translate-y-1/2 translate-x-1/2 rounded-full border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
-                        title={navCollapsed ? "展开左侧菜单" : "收起左侧菜单"}
+                        title={navCollapsed ? recruitmentUiText.expandMenu : recruitmentUiText.collapseMenu}
                     >
                         {navCollapsed ? <ChevronRight className="h-3.5 w-3.5"/> : <ChevronLeft className="h-3.5 w-3.5"/>}
                     </Button>
@@ -8141,7 +8299,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 onClick={() => openAssistantMode("drawer")}
             >
                 <Bot className="h-4 w-4"/>
-                {isZh ? "AI 助手" : "AI Assistant"}
+                {recruitmentUiText.assistantPanelTitle}
             </Button>
 
             <Dialog open={assistantOpen} onOpenChange={setAssistantOpen}>
@@ -8159,7 +8317,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 >
                     <DialogHeader className="sr-only">
                         <DialogTitle>{recruitmentUiText.assistantLabel}</DialogTitle>
-                        <DialogDescription>{isZh ? "用于生成 JD、查看岗位候选人、筛选简历和生成面试题的招聘助手对话面板。" : "Assistant panel for generating JDs, viewing candidates, screening resumes, and creating interview questions."}</DialogDescription>
+                        <DialogDescription>{recruitmentUiText.assistantPanelDescription}</DialogDescription>
                     </DialogHeader>
                     {renderAssistantConsole(assistantDisplayMode)}
                 </DialogContent>
@@ -8175,8 +8333,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }}>
                 <DialogContent className="flex h-[min(88vh,900px)] max-h-[88vh] flex-col overflow-hidden sm:max-w-4xl">
                     <DialogHeader>
-                        <DialogTitle>{positionDialogMode === "create" ? "新建岗位" : "编辑岗位"}</DialogTitle>
-                        <DialogDescription>岗位基础信息放在弹窗中维护，详情操作回到岗位工作区完成。</DialogDescription>
+                        <DialogTitle>{positionDialogMode === "create" ? recruitmentUiText.positionDialogNew : recruitmentUiText.positionDialogEdit}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.positionBasicsDialogHint}</DialogDescription>
                     </DialogHeader>
                     <ScrollArea className="min-h-0 flex-1">
                         <div className="space-y-4 px-1 py-1">
@@ -8197,7 +8355,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         ) : null}
                                     </Field>
                                 ) : null}
-                                <Field label="岗位名称" error={positionFormErrors.title}>
+                                <Field label={recruitmentUiText.positionName} error={positionFormErrors.title}>
                                     <Input
                                         ref={positionTitleInputRef}
                                         value={positionForm.title}
@@ -8205,19 +8363,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         onChange={(event) => updatePositionFormField("title", event.target.value.slice(0, 200))}
                                     />
                                 </Field>
-                                <Field label="部门"><Input value={positionForm.department}
+                                <Field label={recruitmentUiText.department}><Input value={positionForm.department}
                                                            maxLength={120}
                                                            onChange={(event) => updatePositionFormField("department", event.target.value.slice(0, 120))}/></Field>
-                                <Field label="地点"><Input value={positionForm.location}
+                                <Field label={recruitmentUiText.location}><Input value={positionForm.location}
                                                            maxLength={120}
                                                            onChange={(event) => updatePositionFormField("location", event.target.value.slice(0, 120))}/></Field>
-                                <Field label="用工类型"><Input value={positionForm.employmentType}
+                                <Field label={recruitmentUiText.employmentType}><Input value={positionForm.employmentType}
                                                                maxLength={120}
                                                                onChange={(event) => updatePositionFormField("employmentType", event.target.value.slice(0, 120))}/></Field>
-                                <Field label="薪资范围"><Input value={positionForm.salaryRange}
+                                <Field label={recruitmentUiText.salaryRange}><Input value={positionForm.salaryRange}
                                                                maxLength={120}
                                                                onChange={(event) => updatePositionFormField("salaryRange", event.target.value.slice(0, 120))}/></Field>
-                                <Field label="招聘人数" error={positionFormErrors.headcount}>
+                                <Field label={recruitmentUiText.headcount} error={positionFormErrors.headcount}>
                                     <Input
                                         ref={positionHeadcountInputRef}
                                         type="text"
@@ -8227,7 +8385,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         placeholder="1 - 999"
                                     />
                                 </Field>
-                                <Field label="岗位状态">
+                                <Field label={recruitmentUiText.positionStatus}>
                                     <NativeSelect value={positionForm.status}
                                                   onChange={(event) => updatePositionFormField("status", event.target.value)}>
                                         {Object.entries(positionStatusLabels).map(([value, label]) => (
@@ -8235,16 +8393,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         ))}
                                     </NativeSelect>
                                 </Field>
-                                <Field label="标签"><Input value={positionForm.tagsText}
+                                <Field label={recruitmentUiText.tags}><Input value={positionForm.tagsText}
                                                            maxLength={240}
-                                                           onChange={(event) => updatePositionFormField("tagsText", event.target.value.slice(0, 240))} placeholder="标签，使用英文逗号分隔"/></Field>
-                                <Field label="关键要求"><Textarea value={positionForm.keyRequirements}
+                                                           onChange={(event) => updatePositionFormField("tagsText", event.target.value.slice(0, 240))} placeholder={recruitmentUiText.tagsPlaceholder}/></Field>
+                                <Field label={recruitmentUiText.keyRequirements}><Textarea value={positionForm.keyRequirements}
                                                                   maxLength={2000}
                                                                   onChange={(event) => updatePositionFormField("keyRequirements", event.target.value.slice(0, 2000))} rows={4}/></Field>
-                                <Field label="加分项"><Textarea value={positionForm.bonusPoints}
+                                <Field label={recruitmentUiText.bonusPoints}><Textarea value={positionForm.bonusPoints}
                                                                 maxLength={2000}
                                                                 onChange={(event) => updatePositionFormField("bonusPoints", event.target.value.slice(0, 2000))} rows={4}/></Field>
-                                <Field label="初筛配置" className="md:col-span-2">
+                                <Field label={recruitmentUiText.screeningConfig} className="md:col-span-2">
                                     <div
                                         className="space-y-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">
                                         <label
@@ -8263,11 +8421,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                     updatePositionFormField("autoScreenOnUpload", event.target.checked);
                                                 }}
                                             />
-                                            上传简历后自动进入初筛
+                                            {recruitmentUiText.uploadResumeAutoScreenHint}
                                         </label>
                                         {positionForm.screeningSkillIds.length === 0 && (
                                             <p className="text-xs text-amber-600 dark:text-amber-400">
-                                                请先在下方「初筛Skills」中绑定至少一个初筛Skill，再开启此功能
+                                                {recruitmentUiText.uploadResumeAutoScreenHintNoSkill}
                                             </p>
                                         )}
                                         <label
@@ -8277,14 +8435,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                 checked={positionForm.autoAdvanceOnScreening}
                                                 onChange={(event) => updatePositionFormField("autoAdvanceOnScreening", event.target.checked)}
                                             />
-                                            初筛通过后自动推进候选人状态
+                                            {recruitmentUiText.autoAdvanceOnScreeningLabel}
                                         </label>
                                         <div className="rounded-2xl border border-slate-200/80 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-950/60">
                                             <div className="flex flex-wrap items-start justify-between gap-3">
                                                 <div>
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">初筛完成后自动推送邮件</p>
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{recruitmentUiText.autoMailPushTitle}</p>
                                                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                        启用后仅在候选人状态命中允许列表且解析出有效收件人时触发。岗位专属收件人优先，不受全局开关限制；使用全局收件人时需全局能力也开启。手动发送入口始终保留。
+                                                        {recruitmentUiText.autoMailPushDescription}
                                                     </p>
                                                 </div>
                                                 <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
@@ -8293,7 +8451,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         checked={positionForm.autoMailEnabled}
                                                         onChange={(event) => updatePositionFormField("autoMailEnabled", event.target.checked)}
                                                     />
-                                                    启用自动推送
+                                                    {recruitmentUiText.autoMailEnableToggle}
                                                 </label>
                                             </div>
                                             <div className={cn("mt-4 grid gap-4 lg:grid-cols-2", !positionForm.autoMailEnabled && "pointer-events-none opacity-40")}>
@@ -8303,7 +8461,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         checked={positionForm.autoMailUsePositionRecipients}
                                                         onChange={(event) => updatePositionFormField("autoMailUsePositionRecipients", event.target.checked)}
                                                     />
-                                                    使用岗位专属收件人
+                                                    {recruitmentUiText.positionSpecificRecipient}
                                                 </label>
                                                 <label className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
                                                     <input
@@ -8313,14 +8471,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         onChange={(event) => updatePositionFormField("autoMailUseGlobalRecipients", event.target.checked)}
                                                     />
                                                     <span>
-                                                        叠加全局默认收件人
-                                                        <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">（需全局能力也开启）</span>
+                                                        {recruitmentUiText.globalDefaultRecipient}
+                                                        <span className="ml-1 text-xs text-slate-400 dark:text-slate-500">{recruitmentUiText.globalDefaultRecipientHint}</span>
                                                     </span>
                                                 </label>
                                             </div>
                                             <div className="mt-4 space-y-4">
                                                 <div className="space-y-2">
-                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">岗位专属收件人</p>
+                                                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.positionSpecificRecipients}</p>
                                                     <div className="flex flex-wrap gap-2">
                                                         {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
                                                             <button
@@ -8336,12 +8494,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                             >
                                                                 {recipient.name}
                                                             </button>
-                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">请先在邮件中心维护收件人</p>}
+                                                        )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noRecipientsInMailCenter}</p>}
                                                     </div>
                                                 </div>
                                                 <div className="grid gap-4 xl:grid-cols-2">
                                                     <div className="space-y-2">
-                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">抄送人（CC）</p>
+                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.ccRecipients}</p>
                                                         <div className="flex flex-wrap gap-2">
                                                             {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
                                                                 <button
@@ -8357,11 +8515,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                 >
                                                                     {recipient.name}
                                                                 </button>
-                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可选抄送人</p>}
+                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noCCRecipients}</p>}
                                                         </div>
                                                     </div>
                                                     <div className="space-y-2">
-                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">密送人（BCC）</p>
+                                                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{recruitmentUiText.bccRecipients}</p>
                                                         <div className="flex flex-wrap gap-2">
                                                             {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
                                                                 <button
@@ -8377,7 +8535,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                 >
                                                                     {recipient.name}
                                                                 </button>
-                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">暂无可选密送人</p>}
+                                                            )) : <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noBCCRecipients}</p>}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -8421,16 +8579,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                         >
                                                             <option value="once_per_candidate_per_status">{recruitmentUiText.dedupOncePerCandidatePerStatus}</option>
                                                             <option value="once_per_candidate">{recruitmentUiText.dedupOncePerCandidate}</option>
-                                                            <option value="allow_repeat">{isZh ? "允许重复发送" : "Allow repeat sending"}</option>
+                                                            <option value="allow_repeat">{recruitmentUiText.allowRepeatSending}</option>
                                                         </NativeSelect>
                                                     </Field>
                                                 </div>
                                             </div>
                                         </div>
                                         <div className="space-y-3">
-                                            <p className="text-sm text-slate-600 dark:text-slate-300">每个岗位可以分别绑定 1 条 JD Skill、1 条初筛 Skill、1 条面试题 Skill。若某一类不选择，系统会自动使用该任务的内置通用基座约束。如果没有合适的 Skill，可以点击下方「+」直接新建，创建后会自动绑定到当前岗位。</p>
+                                            <p className="text-sm text-slate-600 dark:text-slate-300">{recruitmentUiText.autoMailSkillBindingHint}</p>
                                             <div className="grid gap-4 xl:grid-cols-3">
-                                                {([["jdAuthoringSkills", "jdSkillIds", "jd", "JD 生成 Skill"], ["screeningAuthoringSkills", "screeningSkillIds", "screening", "初筛 Skill"], ["interviewAuthoringSkills", "interviewSkillIds", "interview", "面试题 Skill"]] as const).map(([skillsKey, formKey, taskKind, label]) => (
+                                                {([["jdAuthoringSkills", "jdSkillIds", "jd", recruitmentUiText.jdSkillLabel], ["screeningAuthoringSkills", "screeningSkillIds", "screening", recruitmentUiText.screeningSkillLabel], ["interviewAuthoringSkills", "interviewSkillIds", "interview", recruitmentUiText.interviewSkillLabel]] as const).map(([skillsKey, formKey, taskKind, label]) => (
                                                     <div key={formKey} className="space-y-2">
                                                         <div className="flex items-center gap-2">
                                                             <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{label}</p>
@@ -8439,7 +8597,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                 variant="ghost"
                                                                 size="icon"
                                                                 className="h-5 w-5"
-                                                                title={`新建 ${label.replace(" Skill", "")} Skill`}
+                                                                title={recruitmentUiText.newSkillTitle(label.replace(" Skill", ""))}
                                                                 onClick={() => openSkillEditorForPosition(taskKind, formKey)}
                                                             >
                                                                 <Plus className="h-3.5 w-3.5"/>
@@ -8466,7 +8624,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                     </button>
                                                                 ))
                                                             ) : (
-                                                                <p className="text-xs text-slate-400">暂无可选 Skill，点击上方「+」新建</p>
+                                                                <p className="text-xs text-slate-400">{recruitmentUiText.noSkillsAvailable}</p>
                                                             )}
                                                         </div>
                                                     </div>
@@ -8476,7 +8634,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     </div>
                                 </Field>
                             </div>
-                            <Field label="岗位摘要">
+                            <Field label={recruitmentUiText.positionSummary}>
                                 <Textarea value={positionForm.summary}
                                           maxLength={4000}
                                           onChange={(event) => updatePositionFormField("summary", event.target.value.slice(0, 4000))} rows={5}/>
@@ -8487,9 +8645,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         <div className="min-h-5 flex-1 text-sm text-red-600 dark:text-red-400">
                             {positionFormSubmitError ?? ""}
                         </div>
-                        <Button variant="outline" onClick={() => setPositionDialogOpen(false)}>取消</Button>
+                        <Button variant="outline" onClick={() => setPositionDialogOpen(false)}>{recruitmentUiText.cancelButton}</Button>
                         <Button disabled={positionSubmitting} onClick={() => void submitPosition()}>
-                            {positionSubmitting ? "保存中..." : "保存岗位"}
+                            {positionSubmitting ? recruitmentUiText.savingPosition : recruitmentUiText.savePosition}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -8503,15 +8661,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }}>
                 <DialogContent className="sm:max-w-xl">
                     <DialogHeader>
-                        <DialogTitle>上传简历</DialogTitle>
-                        <DialogDescription>支持批量上传 PDF / DOC / DOCX /
-                            TXT。若岗位开启“上传自动初筛”，系统会自动进入新的初筛流程；否则可在候选人页手动触发。</DialogDescription>
+                        <DialogTitle>{recruitmentUiText.uploadResumeTitle}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.resumeUploadDescription}</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
-                        <Field label="关联岗位">
+                        <Field label={recruitmentUiText.linkPosition}>
                             <NativeSelect value={resumeUploadPositionId}
                                           onChange={(event) => setResumeUploadPositionId(event.target.value)}>
-                                <option value="all">暂不关联岗位</option>
+                                <option value="all">{recruitmentUiText.noLinkedPosition}</option>
                                 {positions.map((position) => (
                                     <option key={position.id} value={position.id}>{position.title}</option>
                                 ))}
@@ -8533,12 +8690,12 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 ) : null}
                             </Field>
                         ) : null}
-                        <Field label={isZh ? "所在城市" : "City"}>
+                        <Field label={recruitmentUiText.city}>
                             <div className="flex flex-col gap-2">
                                 <div className="flex gap-1">
                                     {([
-                                        {value: "manual" as const, label: isZh ? "手动指定" : "Manual"},
-                                        {value: "auto" as const, label: isZh ? "自动识别" : "Auto Detect"},
+                                        {value: "manual" as const, label: recruitmentUiText.manualCityEntry},
+                                        {value: "auto" as const, label: recruitmentUiText.autoDetectCity},
                                     ] as const).map((opt) => (
                                         <button
                                             key={opt.value}
@@ -8559,7 +8716,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     <div className="flex flex-col gap-1.5">
                                         <Input
                                             list="city-options"
-                                            placeholder={isZh ? "输入或选择城市" : "Enter or select city"}
+                                            placeholder={recruitmentUiText.cityPlaceholder}
                                             value={resumeUploadCity}
                                             onChange={(event) => setResumeUploadCity(event.target.value)}
                                         />
@@ -8588,18 +8745,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                     </div>
                                 ) : resumeUploadCitySource === "auto" ? (
                                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                                        {isZh ? "系统将从文件名中自动提取城市，未识别到的由AI解析兜底" : "System extracts city from filename; AI parsing as fallback if not detected"}
+                                        {recruitmentUiText.cityAutoHint}
                                     </p>
                                 ) : null}
                             </div>
                         </Field>
-                        <Field label="选择文件">
+                        <Field label={recruitmentUiText.selectFiles}>
                             <Input type="file" multiple accept=".pdf,.docx"
                                    onChange={(event) => { setResumeUploadError(null); setResumeUploadFileList(event.target.files); }}/>
                         </Field>
                         <div
                             className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                            已选择 {resumeUploadFileList?.length ?? 0} 个文件
+                            {recruitmentUiText.filesSelected(resumeUploadFileList?.length ?? 0)}
                         </div>
                     </div>
                     <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
@@ -8609,20 +8766,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         <div className="flex shrink-0 items-center gap-2">
                             {uploadingResume ? (
                                 <Button variant="outline" onClick={() => abortControllerRef.current?.abort()}>
-                                    {isZh ? "取消上传" : "Cancel Upload"}
+                                    {recruitmentUiText.cancelUpload}
                                 </Button>
                             ) : (
-                                <Button variant="outline" onClick={() => setResumeUploadOpen(false)}>取消</Button>
+                                <Button variant="outline" onClick={() => setResumeUploadOpen(false)}>{recruitmentUiText.cancelButton}</Button>
                             )}
                             <Button onClick={() => void uploadResumes()} disabled={uploadingResume}>
-                                {uploadingResume ? (isZh ? "上传中..." : "Uploading...") : (isZh ? "开始上传" : "Start Upload")}
+                                {uploadingResume ? recruitmentUiText.uploading : recruitmentUiText.startUpload}
                             </Button>
                         </div>
                     </DialogFooter>
                     {uploadingResume && (
                         <div className="space-y-1">
                             <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
-                                <span>已上传 {uploadCompletedCount} / {resumeUploadFileList?.length ?? 0} 份</span>
+                                <span>{recruitmentUiText.uploadedProgress(uploadCompletedCount, resumeUploadFileList?.length ?? 0)}</span>
                                 <span>{uploadProgress}%</span>
                             </div>
                             <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800">
@@ -8637,13 +8794,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             <Dialog open={positionDeleteConfirmOpen} onOpenChange={setPositionDeleteConfirmOpen}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>确认删除岗位</DialogTitle>
-                        <DialogDescription>删除后岗位会从工作台隐藏，已关联的候选人与日志仍会保留。请再确认一次。</DialogDescription>
+                        <DialogTitle>{recruitmentUiText.confirmDeletePosition}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.positionDeleteHint}</DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setPositionDeleteConfirmOpen(false)}>取消</Button>
+                        <Button variant="outline" onClick={() => setPositionDeleteConfirmOpen(false)}>{recruitmentUiText.cancelButton}</Button>
                         <Button variant="destructive" onClick={() => void deletePosition()} disabled={positionDeleting}>
-                            {positionDeleting ? "删除中..." : "确认删除"}
+                            {positionDeleting ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -8657,15 +8814,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>确认删除候选人</DialogTitle>
+                        <DialogTitle>{recruitmentUiText.confirmDeleteCandidate}</DialogTitle>
                         <DialogDescription>
-                            删除后会同步清理该候选人的简历文件、解析结果、初筛评分、面试题、状态流转记录和工作记忆。正在执行中的候选人任务需要先结束后才能删除。
+                            {recruitmentUiText.candidateDeleteHint}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
-                        <p className="font-medium text-slate-900 dark:text-slate-100">{candidateDeleteTarget?.name || "当前候选人"}</p>
+                        <p className="font-medium text-slate-900 dark:text-slate-100">{candidateDeleteTarget?.name || recruitmentUiText.currentCandidate}</p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                            删除后不可恢复；历史删除审计会保留，但该候选人不会再出现在候选人列表和详情区中。
+                            {recruitmentUiText.candidateDeleteWarning}
                         </p>
                     </div>
                     <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
@@ -8681,10 +8838,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             }}
                             disabled={candidateDeleting}
                         >
-                            取消
+                            {recruitmentUiText.cancelButton}
                         </Button>
                         <Button variant="destructive" onClick={() => void deleteCandidate()} disabled={candidateDeleting}>
-                            {candidateDeleting ? "删除中..." : "确认删除"}
+                            {candidateDeleting ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
                         </Button>
                         </div>
                     </DialogFooter>
@@ -8699,9 +8856,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>确认批量删除候选人</DialogTitle>
+                        <DialogTitle>{recruitmentUiText.confirmDeleteCandidates}</DialogTitle>
                         <DialogDescription>
-                            将删除选中的 {batchDeleteTargetIds?.length ?? 0} 位候选人及其简历文件、解析结果、初筛评分、面试题、状态流转记录和工作记忆。有活动AI任务（解析或初筛中）的候选人将自动跳过。
+                            {recruitmentUiText.batchDeleteDescription(batchDeleteTargetIds?.length ?? 0)}
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
@@ -8717,10 +8874,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             }}
                             disabled={batchDeleting}
                         >
-                            取消
+                            {recruitmentUiText.cancelButton}
                         </Button>
                         <Button variant="destructive" onClick={() => void batchDeleteCandidates()} disabled={batchDeleting}>
-                            {batchDeleting ? "删除中..." : "确认删除"}
+                            {batchDeleting ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
                         </Button>
                         </div>
                     </DialogFooter>
@@ -8734,14 +8891,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>确认删除简历</DialogTitle>
+                        <DialogTitle>{recruitmentUiText.confirmDeleteResume}</DialogTitle>
                         <DialogDescription>
-                            删除后会同步清理这份简历对应的解析结果和初筛评分；如果该候选人还有其他简历，系统会自动切换到下一份可用简历。正在解析或初筛中的简历暂时不能删除。
+                            {recruitmentUiText.resumeDeleteDescription}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
-                        <p className="font-medium text-slate-900 dark:text-slate-100">{resumeDeleteTarget?.original_name || "当前简历"}</p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">删除后不可恢复，请确认当前候选人不再需要这份原始文件。</p>
+                        <p className="font-medium text-slate-900 dark:text-slate-100">{resumeDeleteTarget?.original_name || recruitmentUiText.currentResume}</p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{recruitmentUiText.resumeDeleteWarning}</p>
                     </div>
                     <DialogFooter>
                         <Button
@@ -8749,10 +8906,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             onClick={() => setResumeDeleteTarget(null)}
                             disabled={resumeDeleting}
                         >
-                            取消
+                            {recruitmentUiText.cancelButton}
                         </Button>
                         <Button variant="destructive" onClick={() => void deleteResumeFile()} disabled={resumeDeleting}>
-                            {resumeDeleting ? "删除中..." : "确认删除"}
+                            {resumeDeleting ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -8803,16 +8960,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>确认删除发件箱</DialogTitle>
-                        <DialogDescription>删除后它将无法继续发送简历邮件；已有发送记录会继续保留。</DialogDescription>
+                        <DialogTitle>{recruitmentUiText.confirmDeleteMailSender}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.mailSenderDeleteDescription}</DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setMailSenderDeleteTarget(null)}
-                                disabled={deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}`}>取消</Button>
+                                disabled={deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}`}>{recruitmentUiText.cancelButton}</Button>
                         <Button variant="destructive"
                                 onClick={() => mailSenderDeleteTarget && void deleteMailSender(mailSenderDeleteTarget.id)}
                                 disabled={deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}`}>
-                            {deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}` ? "删除中..." : "确认删除"}
+                            {deleteActionKey === `mail-sender-${mailSenderDeleteTarget?.id}` ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -8823,16 +8980,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>确认删除收件人</DialogTitle>
-                        <DialogDescription>删除后发送简历时将不再出现在可选名单里，历史发送记录不会受影响。</DialogDescription>
+                        <DialogTitle>{recruitmentUiText.confirmDeleteMailRecipient}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.mailRecipientDeleteDescription}</DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setMailRecipientDeleteTarget(null)}
-                                disabled={deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}`}>取消</Button>
+                                disabled={deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}`}>{recruitmentUiText.cancelButton}</Button>
                         <Button variant="destructive"
                                 onClick={() => mailRecipientDeleteTarget && void deleteMailRecipient(mailRecipientDeleteTarget.id)}
                                 disabled={deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}`}>
-                            {deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}` ? "删除中..." : "确认删除"}
+                            {deleteActionKey === `mail-recipient-${mailRecipientDeleteTarget?.id}` ? recruitmentUiText.deletingPosition : recruitmentUiText.confirmDeletePositionAction}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -8862,7 +9019,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setPublishDialogOpen(false)}>{recruitmentUiText.cancel}</Button>
-                        <Button onClick={() => void submitPublishTask()} disabled={publishSubmitting}>{publishSubmitting ? (isZh ? "发布中..." : "Publishing...") : recruitmentUiText.createTask}</Button>
+                        <Button onClick={() => void submitPublishTask()} disabled={publishSubmitting}>{publishSubmitting ? recruitmentUiText.publishing : recruitmentUiText.createTask}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -9019,38 +9176,37 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             <Dialog open={mailSenderDialogOpen} onOpenChange={setMailSenderDialogOpen}>
                 <DialogContent className="sm:max-w-3xl">
                     <DialogHeader>
-                        <DialogTitle>{mailSenderEditingId ? "编辑发件箱" : "新增发件箱"}</DialogTitle>
-                        <DialogDescription>支持配置 163、Outlook、企业邮箱等 SMTP
-                            发件箱。编辑已有发件箱时，密码可留空以继续使用当前密码。</DialogDescription>
+                        <DialogTitle>{mailSenderEditingId ? recruitmentUiText.editMailSender : recruitmentUiText.newMailSender}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.mailSenderDescription}</DialogDescription>
                     </DialogHeader>
                     <ScrollArea className="max-h-[65vh]">
                         <div className="grid gap-4 px-1 py-1 md:grid-cols-2">
-                            <Field label="名称"><Input value={mailSenderForm.name}
+                            <Field label={recruitmentUiText.mailSenderName}><Input value={mailSenderForm.name}
                                                        onChange={(event) => setMailSenderForm((current) => ({
                                                            ...current,
                                                            name: event.target.value
                                                        }))}/></Field>
-                            <Field label="发件人名称"><Input value={mailSenderForm.fromName}
+                            <Field label={recruitmentUiText.mailSenderFromName}><Input value={mailSenderForm.fromName}
                                                              onChange={(event) => setMailSenderForm((current) => ({
                                                                  ...current,
                                                                  fromName: event.target.value
-                                                             }))} placeholder="例如：某某科技招聘中心"/></Field>
-                            <Field label="发件邮箱"><Input value={mailSenderForm.fromEmail}
+                                                             }))} placeholder={recruitmentUiText.mailSenderFromNamePlaceholder}/></Field>
+                            <Field label={recruitmentUiText.mailSenderEmail}><Input value={mailSenderForm.fromEmail}
                                                            onChange={(event) => setMailSenderForm((current) => ({
                                                                ...current,
                                                                fromEmail: event.target.value
-                                                           }))} placeholder="name@example.com"/></Field>
-                            <Field label="登录账号"><Input value={mailSenderForm.username}
+                                                           }))} placeholder={recruitmentUiText.mailSenderEmailPlaceholder}/></Field>
+                            <Field label={recruitmentUiText.mailSenderUsername}><Input value={mailSenderForm.username}
                                                            onChange={(event) => setMailSenderForm((current) => ({
                                                                ...current,
                                                                username: event.target.value
                                                            }))}/></Field>
-                            <Field label="SMTP Host"><Input value={mailSenderForm.smtpHost}
+                            <Field label={recruitmentUiText.smtpHost}><Input value={mailSenderForm.smtpHost}
                                                             onChange={(event) => setMailSenderForm((current) => ({
                                                                 ...current,
                                                                 smtpHost: event.target.value
-                                                            }))} placeholder="smtp.163.com"/></Field>
-                            <Field label="SMTP Port"><Input type="number" value={mailSenderForm.smtpPort}
+                                                            }))} placeholder={recruitmentUiText.smtpHostPlaceholder}/></Field>
+                            <Field label={recruitmentUiText.smtpPort}><Input type="number" value={mailSenderForm.smtpPort}
                                                             onChange={(event) => setMailSenderForm((current) => ({
                                                                 ...current,
                                                                 smtpPort: event.target.value
@@ -9062,10 +9218,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         {preset.label}
                                     </Button>
                                 ))}
-                                <p className="self-center text-xs text-slate-500 dark:text-slate-400">如果 SMTP Host
-                                    留空，系统会尝试根据发件邮箱自动识别 163 / Outlook 默认配置。</p>
+                                <p className="self-center text-xs text-slate-500 dark:text-slate-400">{recruitmentUiText.smtpHostAutoHint}</p>
                             </div>
-                            <Field label={mailSenderEditingId ? "密码（留空则不修改）" : "密码"}>
+                            <Field label={mailSenderEditingId ? recruitmentUiText.mailSenderPasswordEdit : recruitmentUiText.mailSenderPassword}>
                                 <Input type="password" value={mailSenderForm.password}
                                        onChange={(event) => setMailSenderForm((current) => ({
                                            ...current,
@@ -9080,7 +9235,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                            ...current,
                                            useSsl: event.target.checked
                                        }))}/>
-                                使用 SSL
+                                {recruitmentUiText.useSSL}
                             </label>
                             <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                                 <input type="checkbox" checked={mailSenderForm.useStarttls}
@@ -9088,7 +9243,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                            ...current,
                                            useStarttls: event.target.checked
                                        }))}/>
-                                使用 STARTTLS
+                                {recruitmentUiText.useSTARTTLS}
                             </label>
                             <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                                 <input type="checkbox" checked={mailSenderForm.isDefault}
@@ -9096,7 +9251,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                            ...current,
                                            isDefault: event.target.checked
                                        }))}/>
-                                设为默认发件箱
+                                {recruitmentUiText.setAsDefaultSender}
                             </label>
                             <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                                 <input type="checkbox" checked={mailSenderForm.isEnabled}
@@ -9104,13 +9259,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                            ...current,
                                            isEnabled: event.target.checked
                                        }))}/>
-                                启用此发件箱
+                                {recruitmentUiText.enableSender}
                             </label>
                         </div>
                     </ScrollArea>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setMailSenderDialogOpen(false)}>取消</Button>
-                        <Button onClick={() => void submitMailSender()} disabled={mailSenderSaving}>{mailSenderSaving ? (isZh ? "保存中..." : "Saving...") : "保存发件箱"}</Button>
+                        <Button variant="outline" onClick={() => setMailSenderDialogOpen(false)}>{recruitmentUiText.cancelButton}</Button>
+                        <Button onClick={() => void submitMailSender()} disabled={mailSenderSaving}>{mailSenderSaving ? recruitmentUiText.saving : recruitmentUiText.saveMailSender}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -9118,41 +9273,41 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             <Dialog open={mailRecipientDialogOpen} onOpenChange={setMailRecipientDialogOpen}>
                 <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden">
                     <DialogHeader>
-                        <DialogTitle>{mailRecipientEditingId ? "编辑收件人" : "新增收件人"}</DialogTitle>
-                        <DialogDescription>可维护公司招聘团队、面试官、部门负责人等收件人，发送简历时支持多选和复用。</DialogDescription>
+                        <DialogTitle>{mailRecipientEditingId ? recruitmentUiText.editMailRecipient : recruitmentUiText.newMailRecipient}</DialogTitle>
+                        <DialogDescription>{recruitmentUiText.mailRecipientDescription}</DialogDescription>
                     </DialogHeader>
                     <ScrollArea className="max-h-[65vh]">
                         <div className="space-y-4 px-1 py-1">
                             <div className="grid gap-4 md:grid-cols-2">
-                                <Field label="姓名"><Input value={mailRecipientForm.name}
+                                <Field label={recruitmentUiText.recipientName}><Input value={mailRecipientForm.name}
                                                            onChange={(event) => setMailRecipientForm((current) => ({
                                                                ...current,
                                                                name: event.target.value
                                                            }))}/></Field>
-                                <Field label="邮箱"><Input value={mailRecipientForm.email}
+                                <Field label={recruitmentUiText.recipientEmail}><Input value={mailRecipientForm.email}
                                                            onChange={(event) => setMailRecipientForm((current) => ({
                                                                ...current,
                                                                email: event.target.value
                                                            }))} placeholder="name@example.com"/></Field>
-                                <Field label="部门"><Input value={mailRecipientForm.department}
+                                <Field label={recruitmentUiText.recipientDepartment}><Input value={mailRecipientForm.department}
                                                            onChange={(event) => setMailRecipientForm((current) => ({
                                                                ...current,
                                                                department: event.target.value
                                                            }))}/></Field>
-                                <Field label="岗位"><Input value={mailRecipientForm.roleTitle}
+                                <Field label={recruitmentUiText.recipientRoleTitle}><Input value={mailRecipientForm.roleTitle}
                                                            onChange={(event) => setMailRecipientForm((current) => ({
                                                                ...current,
                                                                roleTitle: event.target.value
                                                            }))}/></Field>
                             </div>
-                            <Field label="标签">
+                            <Field label={recruitmentUiText.recipientTags}>
                                 <Input value={mailRecipientForm.tagsText}
                                        onChange={(event) => setMailRecipientForm((current) => ({
                                            ...current,
                                            tagsText: event.target.value
-                                       }))} placeholder="例如：招聘同事，技术面试官，业务负责人"/>
+                                       }))} placeholder={recruitmentUiText.recipientTagsPlaceholder}/>
                             </Field>
-                            <Field label="备注">
+                            <Field label={recruitmentUiText.recipientNotes}>
                                 <Textarea className="resize-y" value={mailRecipientForm.notes}
                                           onChange={(event) => setMailRecipientForm((current) => ({
                                               ...current,
@@ -9165,13 +9320,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                            ...current,
                                            isEnabled: event.target.checked
                                        }))}/>
-                                启用此收件人
+                                {recruitmentUiText.enableRecipient}
                             </label>
                         </div>
                     </ScrollArea>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setMailRecipientDialogOpen(false)}>取消</Button>
-                        <Button onClick={() => void submitMailRecipient()} disabled={mailRecipientSaving}>{mailRecipientSaving ? (isZh ? "保存中..." : "Saving...") : "保存收件人"}</Button>
+                        <Button variant="outline" onClick={() => setMailRecipientDialogOpen(false)}>{recruitmentUiText.cancelButton}</Button>
+                        <Button onClick={() => void submitMailRecipient()} disabled={mailRecipientSaving}>{mailRecipientSaving ? recruitmentUiText.saving : recruitmentUiText.saveMailRecipient}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -9210,7 +9365,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </DialogHeader>
                     <ScrollArea className="max-h-[70vh]">
                         <div className="space-y-5 px-1 py-1">
-                            <Field label="本次发送的候选人">
+                            <Field label={recruitmentUiText.candidatesInThisSendLabel}>
                                 <div className="grid gap-3">
                                     {resumeMailTargetCandidates.length ? resumeMailTargetCandidates.map((candidate) => (
                                         <div key={candidate.id}
@@ -9218,40 +9373,40 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             <div className="flex flex-wrap items-start justify-between gap-3">
                                                 <div>
                                                     <p className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</p>
-                                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{candidate.position_title || "未关联岗位"}</p>
+                                                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{candidate.position_title || recruitmentUiText.resumeNoLinkedPosition}</p>
                                                 </div>
                                                 <div className="flex flex-wrap gap-2">
                                                     {getCandidateResumeMailSummary(candidate.id) ? (
                                                         <Badge
                                                             className="rounded-full border border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                            已发送
+                                                            {recruitmentUiText.alreadySent}
                                                         </Badge>
                                                     ) : (
                                                         <Badge variant="outline"
-                                                               className="rounded-full">首次发送</Badge>
+                                                               className="rounded-full">{recruitmentUiText.firstSend}</Badge>
                                                     )}
                                                 </div>
                                             </div>
                                             {getCandidateResumeMailSummary(candidate.id) ? (
                                                 <p className="mt-2 text-xs text-sky-600 dark:text-sky-300">{getCandidateResumeMailSummary(candidate.id)}</p>
                                             ) : (
-                                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">当前候选人还没有成功发送记录。</p>
+                                                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{recruitmentUiText.noSendHistory}</p>
                                             )}
                                         </div>
                                     )) : (
-                                        <p className="text-sm text-slate-500 dark:text-slate-400">未找到候选人详情，请返回候选人中心重新选择。</p>
+                                        <p className="text-sm text-slate-500 dark:text-slate-400">{recruitmentUiText.noCandidateDetails}</p>
                                     )}
                                 </div>
                             </Field>
 
                             <div className="grid gap-4 md:grid-cols-2">
-                                <Field label="发件箱">
+                                <Field label={recruitmentUiText.senderConfig}>
                                     <NativeSelect value={resumeMailForm.senderConfigId}
                                                   onChange={(event) => setResumeMailForm((current) => ({
                                                       ...current,
                                                       senderConfigId: event.target.value
                                                   }))}>
-                                        <option value="">使用默认发件箱</option>
+                                        <option value="">{recruitmentUiText.useDefaultSender}</option>
                                         {mailSenderConfigs.filter((sender) => sender.is_enabled).map((sender) => (
                                             <option key={sender.id} value={sender.id}>
                                                 {sender.name} / {sender.from_email}
@@ -9259,19 +9414,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         ))}
                                     </NativeSelect>
                                 </Field>
-                                <Field label="收件人邮箱（可选）">
+                                <Field label={recruitmentUiText.recipientEmailsOptional}>
                                     <Input
                                         value={resumeMailForm.extraRecipientEmails}
                                         onChange={(event) => setResumeMailForm((current) => ({
                                             ...current,
                                             extraRecipientEmails: event.target.value
                                         }))}
-                                        placeholder="可直接填写一个或多个收件人邮箱，多个请用英文逗号分隔"
+                                        placeholder={recruitmentUiText.recipientEmailsPlaceholder}
                                     />
                                 </Field>
                             </div>
 
-                            <Field label="选择内部收件人">
+                            <Field label={recruitmentUiText.selectInternalRecipients}>
                                 <div className="grid gap-3 md:grid-cols-2">
                                     {mailRecipients.filter((recipient) => recipient.is_enabled).length ? mailRecipients.filter((recipient) => recipient.is_enabled).map((recipient) => (
                                         <label key={recipient.id}
@@ -9287,30 +9442,30 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                             <div>
                                                 <p className="font-medium text-slate-900 dark:text-slate-100">{recipient.name}</p>
                                                 <p className="mt-1 text-slate-500 dark:text-slate-400">{recipient.email}</p>
-                                                <p className="mt-1 text-slate-500 dark:text-slate-400">{recipient.department || "未设置部门"} / {recipient.role_title || "未设置岗位"}</p>
+                                                <p className="mt-1 text-slate-500 dark:text-slate-400">{recipient.department || recruitmentUiText.noDepartmentSet} / {recipient.role_title || recruitmentUiText.noRoleSet}</p>
                                             </div>
                                         </label>
                                     )) : (
-                                        <EmptyState title="暂无可选收件人"
-                                                    description="可以直接填写上方收件人邮箱，也可以先在邮件中心维护公司内部收件人。"/>
+                                        <EmptyState title={recruitmentUiText.noRecipientsAvailable}
+                                                    description={recruitmentUiText.noRecipientsAvailableDesc}/>
                                     )}
                                 </div>
                             </Field>
 
-                            <Field label="邮件标题（可留空）">
+                            <Field label={recruitmentUiText.emailSubjectOptional}>
                                 <Input value={resumeMailForm.subject}
                                        onChange={(event) => setResumeMailForm((current) => ({
                                            ...current,
                                            subject: event.target.value
-                                       }))} placeholder="例如：候选人简历推荐 / IoT 测试工程师"/>
+                                       }))} placeholder={recruitmentUiText.emailSubjectPlaceholder}/>
                             </Field>
-                            <Field label="邮件正文（可留空）">
+                            <Field label={recruitmentUiText.emailBodyOptional}>
                                 <Textarea value={resumeMailForm.bodyText}
                                           onChange={(event) => setResumeMailForm((current) => ({
                                               ...current,
                                               bodyText: event.target.value
                                           }))} rows={10}
-                                          placeholder="可填写本次推荐理由、安排建议等；留空时将使用系统默认正文。"/>
+                                          placeholder={recruitmentUiText.emailBodyPlaceholder}/>
                             </Field>
                         </div>
                     </ScrollArea>
@@ -9318,7 +9473,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         {resumeMailError && (
                             <p className="text-sm text-red-500 flex-1 text-left">{resumeMailError}</p>
                         )}
-                        <Button variant="outline" onClick={() => setResumeMailDialogOpen(false)}>取消</Button>
+                        <Button variant="outline" onClick={() => setResumeMailDialogOpen(false)}>{recruitmentUiText.cancelButton}</Button>
                         <Button onClick={() => void submitResumeMail()} disabled={resumeMailSubmitting}>
                             <Send className="h-4 w-4"/>
                             {resumeMailSubmitLabel}

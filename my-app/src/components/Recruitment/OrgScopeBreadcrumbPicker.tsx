@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Building2, ChevronDown, ChevronRight, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -185,8 +186,21 @@ export function OrgScopeBreadcrumbPicker({
     selectedOrgScope,
     selectedDepartmentScope,
     onOrgScopeChange,
+    allDepartmentsLabel,
     disabled,
 }: OrgScopeBreadcrumbPickerProps) {
+    const { t } = useI18n();
+    const tr = {
+        selectOrgScope: t.recruitment.selectOrganization,
+        searchOrg: t.recruitment.searchOrganization,
+        noResults: t.recruitment.noOrganizationMatch,
+        orgTypeLabels: {
+            group: t.recruitment.organizationGroup,
+            sub_group: t.recruitment.organizationSubGroup,
+            company: t.recruitment.organizationCompany,
+            department: t.recruitment.organizationDepartment,
+        },
+    };
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState('');
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -372,7 +386,7 @@ export function OrgScopeBreadcrumbPicker({
                         {node.name}
                     </span>
                     <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                        {ORG_TYPE_LABELS[node.orgType] || node.orgType}
+                        {tr.orgTypeLabels[node.orgType as keyof typeof tr.orgTypeLabels] || node.orgType}
                     </span>
                 </div>
                 {isExpanded &&
@@ -432,7 +446,7 @@ export function OrgScopeBreadcrumbPicker({
                                 )}
                             </span>
                         ) : (
-                            <span className="text-xs text-muted-foreground">选择组织范围</span>
+                            <span className="text-xs text-muted-foreground">{tr.selectOrgScope}</span>
                         )}
                     </span>
                     <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-slate-400" />
@@ -446,7 +460,7 @@ export function OrgScopeBreadcrumbPicker({
                 <div className="relative mb-3">
                     <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                        placeholder="搜索组织..."
+                        placeholder={tr.searchOrg}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         className="h-8 pl-8 pr-8 text-sm rounded-lg"
@@ -464,7 +478,7 @@ export function OrgScopeBreadcrumbPicker({
                     <div className="space-y-0.5">
                         {filteredTree.length === 0 ? (
                             <p className="py-6 text-center text-sm text-muted-foreground">
-                                无匹配结果
+                                {tr.noResults}
                             </p>
                         ) : (
                             filteredTree.map((node) => renderTreeNode(node))

@@ -13,6 +13,7 @@ import {
 } from "../utils";
 
 import {cn} from "@/lib/utils";
+import {useI18n} from "@/lib/i18n";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
 import {Checkbox} from "@/components/ui/checkbox";
@@ -37,13 +38,6 @@ type StructuredSkillEditorProps = {
     positionId?: number | null;
     positionJdContent?: string | null;
 };
-
-const PRIORITY_OPTIONS = [
-    {value: "core", label: "核心"},
-    {value: "secondary", label: "次要"},
-    {value: "auxiliary", label: "辅助"},
-    {value: "bonus", label: "加分"},
-] as const;
 
 /* ── Debounced text input: local state for typing, syncs to parent on blur ── */
 function DebouncedInput({
@@ -115,6 +109,15 @@ const DimensionRow = React.memo(function DimensionRow({
     onRemove,
     onMove,
     isFirst,
+    priorityOptions,
+    skillUnnamed,
+    skillDimensionName,
+    skillDimensionPlaceholder,
+    skillMaxScore,
+    skillPriority,
+    skillEvaluationFocus,
+    skillEvaluationPlaceholder,
+    skillHardRequirement,
 }: {
     dim: ScreeningSkillDimension;
     index: number;
@@ -125,6 +128,15 @@ const DimensionRow = React.memo(function DimensionRow({
     onRemove: () => void;
     onMove: (direction: -1 | 1) => void;
     isFirst: boolean;
+    priorityOptions: readonly {value: string; label: string}[];
+    skillUnnamed: string;
+    skillDimensionName: string;
+    skillDimensionPlaceholder: string;
+    skillMaxScore: string;
+    skillPriority: string;
+    skillEvaluationFocus: string;
+    skillEvaluationPlaceholder: string;
+    skillHardRequirement: string;
 }) {
     const [localName, setLocalName] = useState(dim.name);
     const [localDesc, setLocalDesc] = useState(dim.description);
@@ -138,10 +150,10 @@ const DimensionRow = React.memo(function DimensionRow({
         <React.Fragment>
             <tr className={cn("border-t", isEditing && "bg-slate-50 dark:bg-slate-900/50")}>
                 <td className="px-2 py-2 text-center text-slate-400">{index + 1}</td>
-                <td className="px-3 py-2 font-medium">{dim.name || <span className="text-slate-400 italic">未命名</span>}</td>
+                <td className="px-3 py-2 font-medium">{dim.name || <span className="text-slate-400 italic">{skillUnnamed}</span>}</td>
                 <td className="px-3 py-2 text-center">{dim.maxScore}</td>
                 <td className="px-3 py-2 text-center">
-                    <Badge variant="outline" className="rounded-full text-xs">{PRIORITY_OPTIONS.find((p) => p.value === dim.priority)?.label}</Badge>
+                    <Badge variant="outline" className="rounded-full text-xs">{priorityOptions.find((p) => p.value === dim.priority)?.label}</Badge>
                 </td>
                 <td className="px-3 py-2 text-center">{dim.isHardRequirement ? "✓" : ""}</td>
                 <td className="px-3 py-2 text-center">
@@ -163,43 +175,43 @@ const DimensionRow = React.memo(function DimensionRow({
                     <td colSpan={6} className="p-4">
                         <div className="grid gap-3 md:grid-cols-2">
                             <div className="space-y-1.5">
-                                <Label className="text-xs">维度名称</Label>
+                                <Label className="text-xs">{skillDimensionName}</Label>
                                 <Input
                                     value={localName}
                                     onChange={(e) => setLocalName(e.target.value)}
                                     onBlur={() => { if (localName !== dim.name) onUpdate({name: localName}); }}
-                                    placeholder="如：智能家居生态"
+                                    placeholder={skillDimensionPlaceholder}
                                 />
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1.5">
-                                    <Label className="text-xs">满分值</Label>
+                                    <Label className="text-xs">{skillMaxScore}</Label>
                                     <Input type="number" step="0.1" min="0.1" max="5.0" value={dim.maxScore} onChange={(e) => onUpdate({maxScore: parseFloat(e.target.value) || 0})} />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <Label className="text-xs">优先级</Label>
+                                    <Label className="text-xs">{skillPriority}</Label>
                                     <Select value={dim.priority} onValueChange={(v) => onUpdate({priority: v as ScreeningSkillDimension["priority"]})}>
                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent>
-                                            {PRIORITY_OPTIONS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                                            {priorityOptions.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
                                         </SelectContent>
                                     </Select>
                                 </div>
                             </div>
                         </div>
                         <div className="mt-3 space-y-1.5">
-                            <Label className="text-xs">评估重点说明</Label>
+                            <Label className="text-xs">{skillEvaluationFocus}</Label>
                             <Textarea
                                 value={localDesc}
                                 onChange={(e) => setLocalDesc(e.target.value)}
                                 onBlur={() => { if (localDesc !== dim.description) onUpdate({description: localDesc}); }}
-                                placeholder="描述这个维度重点看什么证据、如何评分"
+                                placeholder={skillEvaluationPlaceholder}
                                 rows={3}
                             />
                         </div>
                         <div className="mt-3 flex items-center gap-2">
                             <Checkbox checked={dim.isHardRequirement} onCheckedChange={(v) => onUpdate({isHardRequirement: !!v})} />
-                            <Label className="text-xs cursor-pointer">硬性要求（缺失则不得通过初筛）</Label>
+                            <Label className="text-xs cursor-pointer">{skillHardRequirement}</Label>
                         </div>
                     </td>
                 </tr>
@@ -222,6 +234,15 @@ export function StructuredSkillEditor({
     positionId,
     positionJdContent,
 }: StructuredSkillEditorProps) {
+    const { t } = useI18n();
+
+    const priorityOptions = [
+        {value: "core", label: t.recruitment.skillPriorityCore},
+        {value: "secondary", label: t.recruitment.skillPrioritySecondary},
+        {value: "auxiliary", label: t.recruitment.skillPriorityAuxiliary},
+        {value: "bonus", label: t.recruitment.skillPriorityBonus},
+    ] as const;
+
     const [tab, setTab] = useState<string>(defaultTab);
     const [form, setForm] = useState<ScreeningSkillFormData>(initialData || emptyScreeningSkillForm());
     const [advancedContent, setAdvancedContent] = useState("");
@@ -353,31 +374,31 @@ export function StructuredSkillEditor({
                 setTab(v);
             }} className="flex flex-col flex-1 min-h-0">
                 <TabsList className="w-full justify-start shrink-0">
-                    <TabsTrigger value="structured">结构化编辑</TabsTrigger>
-                    <TabsTrigger value="advanced">高级模式</TabsTrigger>
-                    <TabsTrigger value="ai">AI 生成</TabsTrigger>
+                    <TabsTrigger value="structured">{t.recruitment.skillTabsStructured}</TabsTrigger>
+                    <TabsTrigger value="advanced">{t.recruitment.skillTabsAdvanced}</TabsTrigger>
+                    <TabsTrigger value="ai">{t.recruitment.skillTabsAi}</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="structured" className="flex-1 min-h-0 overflow-y-auto pr-1 mt-3 space-y-5">
                     <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-1.5">
-                            <Label>岗位名称 *</Label>
-                            <DebouncedInput value={form.roleName} onCommit={(v) => updateForm("roleName", v)} placeholder="如：IoT 测试工程师" />
+                            <Label>{t.recruitment.skillRoleName} {t.recruitment.required}</Label>
+                            <DebouncedInput value={form.roleName} onCommit={(v) => updateForm("roleName", v)} placeholder={t.recruitment.placeholderRoleName} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>Skill 名称 *</Label>
-                            <DebouncedInput value={form.name} onCommit={(v) => updateForm("name", v)} placeholder="如：IoT 测试工程师初筛评分 Skill" />
+                            <Label>{t.recruitment.skillName} {t.recruitment.required}</Label>
+                            <DebouncedInput value={form.name} onCommit={(v) => updateForm("name", v)} placeholder={t.recruitment.placeholderSkillName} />
                         </div>
                     </div>
                     <div className="space-y-1.5">
-                        <Label>岗位背景说明</Label>
-                        <DebouncedTextarea value={form.roleBackground} onCommit={(v) => updateForm("roleBackground", v)} placeholder="描述岗位核心方向、重点考察内容、不要求的方向" rows={2} />
+                        <Label>{t.recruitment.skillRoleBackground}</Label>
+                        <DebouncedTextarea value={form.roleBackground} onCommit={(v) => updateForm("roleBackground", v)} placeholder={t.recruitment.placeholderRoleBackground} rows={2} />
                     </div>
 
                     <div className="space-y-1.5">
-                        <Label>适用场景</Label>
+                        <Label>{t.recruitment.skillDimensions}</Label>
                         <div className="flex flex-wrap gap-2">
-                            {([["jd", "JD 生成"], ["screening", "初筛"], ["interview", "面试题"]] as const).map(([kind, label]) => (
+                            {([["jd", t.recruitment.taskTypeJd], ["screening", t.recruitment.taskTypeScreening], ["interview", t.recruitment.taskTypeInterview]] as const).map(([kind, label]) => (
                                 <button
                                     key={kind}
                                     type="button"
@@ -393,7 +414,7 @@ export function StructuredSkillEditor({
                                 </button>
                             ))}
                         </div>
-                        <p className="text-xs text-slate-400">选择后，在岗位管理中对应的分类下只会显示匹配的 Skill（必选）</p>
+                        <p className="text-xs text-slate-400">{t.recruitment.taskTypeHint}</p>
                     </div>
 
                     <Separator />
@@ -401,12 +422,12 @@ export function StructuredSkillEditor({
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <Label className="text-base font-semibold">评分维度</Label>
-                                <span className="text-sm text-slate-500">{form.dimensions.length} 个维度</span>
+                                <Label className="text-base font-semibold">{t.recruitment.skillDimensions}</Label>
+                                <span className="text-sm text-slate-500">{t.recruitment.skillDimensionsCount.replace('{count}', String(form.dimensions.length))}</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <Badge variant={deferredDimValidation.valid ? "default" : "destructive"} className="rounded-full">
-                                    总分 {deferredDimValidation.total.toFixed(1)} / 10.0
+                                    {t.recruitment.totalScore} {deferredDimValidation.total.toFixed(1)} / 10.0
                                 </Badge>
                                 {!deferredDimValidation.valid && (
                                     <span className="text-xs text-red-500">{deferredDimValidation.message}</span>
@@ -418,12 +439,12 @@ export function StructuredSkillEditor({
                             <table className="w-full text-sm">
                                 <thead className="bg-slate-50 dark:bg-slate-900">
                                     <tr>
-                                        <th className="w-8 px-2 py-2 text-center">#</th>
-                                        <th className="px-3 py-2 text-left">维度名称</th>
-                                        <th className="w-20 px-3 py-2 text-center">满分</th>
-                                        <th className="w-20 px-3 py-2 text-center">优先级</th>
-                                        <th className="w-14 px-3 py-2 text-center">硬性</th>
-                                        <th className="w-24 px-3 py-2 text-center">操作</th>
+                                        <th className="w-8 px-2 py-2 text-center">{t.recruitment.skillDimensionIndex}</th>
+                                        <th className="px-3 py-2 text-left">{t.recruitment.skillDimensionName}</th>
+                                        <th className="w-20 px-3 py-2 text-center">{t.recruitment.skillDimensionFullScore}</th>
+                                        <th className="w-20 px-3 py-2 text-center">{t.recruitment.skillDimensionPriority}</th>
+                                        <th className="w-14 px-3 py-2 text-center">{t.recruitment.skillDimensionHard}</th>
+                                        <th className="w-24 px-3 py-2 text-center">{t.recruitment.skillDimensionActions}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -439,69 +460,78 @@ export function StructuredSkillEditor({
                                             onRemove={() => removeDimension(dim.id)}
                                             onMove={(dir) => moveDimension(dim.id, dir)}
                                             isFirst={i === 0}
+                                            priorityOptions={priorityOptions}
+                                            skillUnnamed={t.recruitment.skillUnnamed}
+                                            skillDimensionName={t.recruitment.skillDimensionName}
+                                            skillDimensionPlaceholder={t.recruitment.skillDimensionPlaceholder}
+                                            skillMaxScore={t.recruitment.skillMaxScore}
+                                            skillPriority={t.recruitment.skillPriority}
+                                            skillEvaluationFocus={t.recruitment.skillEvaluationFocus}
+                                            skillEvaluationPlaceholder={t.recruitment.skillEvaluationPlaceholder}
+                                            skillHardRequirement={t.recruitment.skillHardRequirement}
                                         />
                                     ))}
                                     {form.dimensions.length === 0 && (
-                                        <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400">暂无评分维度，点击下方按钮添加</td></tr>
+                                        <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400">{t.recruitment.skillDimensionsEmpty}</td></tr>
                                     )}
                                 </tbody>
                             </table>
                         </div>
                         <Button variant="outline" size="sm" onClick={addDimension}>
-                            <Plus className="h-4 w-4 mr-1" /> 添加维度
+                            <Plus className="h-4 w-4 mr-1" /> {t.recruitment.skillDimensionsAdd}
                         </Button>
                     </div>
 
                     <Separator />
 
                     <div className="space-y-1.5">
-                        <Label>自定义硬性规则（每行一条，可选）</Label>
-                        <DebouncedTextarea value={form.hardRules} onCommit={(v) => updateForm("hardRules", v)} placeholder={"如：仅出现 OTA 升级专项测试时，嵌入式/固件经验最高只能给 0.4 分"} rows={3} />
+                        <Label>{t.recruitment.skillHardRules}</Label>
+                        <DebouncedTextarea value={form.hardRules} onCommit={(v) => updateForm("hardRules", v)} placeholder={t.recruitment.skillHardRulesPlaceholder} rows={3} />
                     </div>
 
                     <div className="space-y-1.5">
-                        <Label>自定义判定规则（每行一条，可选）</Label>
-                        <DebouncedTextarea value={form.judgmentRules} onCommit={(v) => updateForm("judgmentRules", v)} placeholder={"如：一线城市建议总分 ≥7.5 分进入面试"} rows={2} />
+                        <Label>{t.recruitment.skillJudgmentRules}</Label>
+                        <DebouncedTextarea value={form.judgmentRules} onCommit={(v) => updateForm("judgmentRules", v)} placeholder={t.recruitment.skillJudgmentRulesPlaceholder} rows={2} />
                     </div>
 
                     <Separator />
 
                     <div className="grid gap-4 md:grid-cols-3">
                         <div className="space-y-1.5">
-                            <Label>说明</Label>
-                            <DebouncedInput value={form.description} onCommit={(v) => updateForm("description", v)} placeholder="简要描述此 Skill" />
+                            <Label>{t.recruitment.skillDescription}</Label>
+                            <DebouncedInput value={form.description} onCommit={(v) => updateForm("description", v)} placeholder={t.recruitment.placeholderDescription} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>标签（逗号分隔）</Label>
-                            <DebouncedInput value={form.tagsText} onCommit={(v) => updateForm("tagsText", v)} placeholder="IoT, 测试, 初筛" />
+                            <Label>{t.recruitment.skillTags}</Label>
+                            <DebouncedInput value={form.tagsText} onCommit={(v) => updateForm("tagsText", v)} placeholder={t.recruitment.placeholderTags} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>排序</Label>
+                            <Label>{t.common.sortOrder}</Label>
                             <DebouncedInput type="number" value={form.sortOrder} onCommit={(v) => updateForm("sortOrder", v)} />
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
                         <Checkbox checked={form.isEnabled} onCheckedChange={(v) => updateForm("isEnabled", !!v)} />
-                        <Label className="cursor-pointer">启用</Label>
+                        <Label className="cursor-pointer">{t.recruitment.enabled}</Label>
                     </div>
                 </TabsContent>
 
                 <TabsContent value="advanced" className="flex-1 min-h-0 overflow-y-auto pr-1 mt-3 space-y-4">
-                    <p className="text-sm text-slate-500">直接编辑 Skill 的 Markdown content。切换到结构化编辑模式时会自动解析。</p>
+                    <p className="text-sm text-slate-500">{t.recruitment.skillAdvancedHint}</p>
                     <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-1.5">
-                            <Label>Skill 名称 *</Label>
+                            <Label>{t.recruitment.skillName} {t.recruitment.required}</Label>
                             <DebouncedInput value={form.name} onCommit={(v) => updateForm("name", v)} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>说明</Label>
+                            <Label>{t.recruitment.skillDescription}</Label>
                             <DebouncedInput value={form.description} onCommit={(v) => updateForm("description", v)} />
                         </div>
                     </div>
                     <div className="space-y-1.5">
-                        <Label>适用场景</Label>
+                        <Label>{t.recruitment.skillDimensions}</Label>
                         <div className="flex flex-wrap gap-2">
-                            {([["jd", "JD 生成"], ["screening", "初筛"], ["interview", "面试题"]] as const).map(([kind, label]) => (
+                            {([["jd", t.recruitment.taskTypeJd], ["screening", t.recruitment.taskTypeScreening], ["interview", t.recruitment.taskTypeInterview]] as const).map(([kind, label]) => (
                                 <button
                                     key={kind}
                                     type="button"
@@ -519,42 +549,42 @@ export function StructuredSkillEditor({
                         </div>
                     </div>
                     <div className="space-y-1.5">
-                        <Label>Content *</Label>
+                        <Label>{t.recruitment.skillContent} {t.recruitment.required}</Label>
                         <Textarea value={advancedContent} onChange={(e) => setAdvancedContent(e.target.value)} className="min-h-[400px] font-mono text-xs" />
                     </div>
                     <div className="grid gap-4 md:grid-cols-3">
                         <div className="space-y-1.5">
-                            <Label>标签</Label>
+                            <Label>{t.recruitment.skillTags}</Label>
                             <DebouncedInput value={form.tagsText} onCommit={(v) => updateForm("tagsText", v)} />
                         </div>
                         <div className="space-y-1.5">
-                            <Label>排序</Label>
+                            <Label>{t.common.sortOrder}</Label>
                             <DebouncedInput type="number" value={form.sortOrder} onCommit={(v) => updateForm("sortOrder", v)} />
                         </div>
                         <div className="flex items-end gap-2 pb-1.5">
                             <Checkbox checked={form.isEnabled} onCheckedChange={(v) => updateForm("isEnabled", !!v)} />
-                            <Label className="cursor-pointer">启用</Label>
+                            <Label className="cursor-pointer">{t.recruitment.enabled}</Label>
                         </div>
                     </div>
                 </TabsContent>
 
                 <TabsContent value="ai" className="flex-1 min-h-0 overflow-y-auto pr-1 mt-3 space-y-4">
                     <div className="space-y-1.5">
-                        <Label>岗位名称 *</Label>
-                        <Input value={aiRoleName} onChange={(e) => setAiRoleName(e.target.value)} placeholder="如：智能家居技术工程师（兼职）" />
+                        <Label>{t.recruitment.skillRoleName} {t.recruitment.required}</Label>
+                        <Input value={aiRoleName} onChange={(e) => setAiRoleName(e.target.value)} placeholder={t.recruitment.placeholderRoleName} />
                     </div>
                     <div className="space-y-1.5">
-                        <Label>补充评估条件（可选）</Label>
+                        <Label>{t.recruitment.aiGenerationNotes}</Label>
                         <Textarea
                             rows={4}
                             value={aiExtraRequirements}
                             onChange={(e) => setAiExtraRequirements(e.target.value)}
                             placeholder={
                                 positionId && positionJdContent
-                                    ? "当前岗位 JD 已自动带入，此处可填写额外评估要求（如：侧重硬件测试经验）"
+                                    ? t.recruitment.aiGenerationNotesWithJD
                                     : positionId
-                                        ? "当前岗位未配置 JD，可在此粘贴 JD 内容或填写评估要求"
-                                        : "可粘贴岗位 JD 或填写补充评估要求（如：侧重硬件测试能力、有大厂经验优先）"
+                                        ? t.recruitment.aiGenerationNotesNoJD
+                                        : t.recruitment.aiGenerationNotesNoPosition
                             }
                         />
                     </div>
@@ -562,17 +592,17 @@ export function StructuredSkillEditor({
                         {aiGenerating ? (
                             <Button variant="outline" onClick={() => onStopGeneration?.()}>
                                 <Square className="h-4 w-4 mr-1" />
-                                停止生成
+                                {t.common.cancel}
                             </Button>
                         ) : (
                             <Button onClick={() => void handleGenerate()} disabled={!aiRoleName.trim()}>
                                 <Sparkles className="h-4 w-4 ml-1" />
-                                开始生成
+                                {t.recruitment.aiGenerate}
                             </Button>
                         )}
                         {aiGeneratedContent && (
                             <Button variant="outline" onClick={handleUseAIResult}>
-                                使用此结果并编辑
+                                {t.common.edit}
                             </Button>
                         )}
                     </div>
@@ -583,7 +613,7 @@ export function StructuredSkillEditor({
                     )}
                     {!aiGeneratedContent && !aiGenerating && (
                         <div className="rounded-lg border border-dashed p-8 text-center text-slate-400">
-                            输入岗位名称后点击「开始生成」，AI 将自动生成完整的初筛评分 Skill
+                            {t.recruitment.skillAiEmptyHint}
                         </div>
                     )}
                 </TabsContent>
@@ -594,9 +624,9 @@ export function StructuredSkillEditor({
             )}
 
             <div className="flex items-center justify-end gap-2 pt-3 border-t mt-3 shrink-0">
-                <Button variant="outline" onClick={onCancel} disabled={submitting}>取消</Button>
+                <Button variant="outline" onClick={onCancel} disabled={submitting}>{t.common.cancel}</Button>
                 <Button onClick={() => void handleSubmit()} disabled={submitting || !canSave}>
-                    {submitting ? "保存中..." : editingSkillId ? "更新" : "创建"}
+                    {submitting ? t.common.saving : editingSkillId ? t.recruitment.skillUpdate : t.recruitment.skillCreate}
                 </Button>
             </div>
         </div>

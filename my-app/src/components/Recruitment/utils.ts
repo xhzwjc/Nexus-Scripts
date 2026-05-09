@@ -52,6 +52,12 @@ type RecruitmentUiLocale = {
         skill: string;
         systemTask: string;
     };
+    skillDimensionValidation: {
+        needAtLeastOneDimension: string;
+        needMorePoints: string;
+        exceedPoints: string;
+        totalScoreValid: string;
+    };
 };
 
 const zhRecruitmentUiLocale: RecruitmentUiLocale = {
@@ -135,6 +141,12 @@ const zhRecruitmentUiLocale: RecruitmentUiLocale = {
         skill: "Skill",
         systemTask: "系统任务",
     },
+    skillDimensionValidation: {
+        needAtLeastOneDimension: "至少需要一个评分维度",
+        needMorePoints: "还需分配",
+        exceedPoints: "超出",
+        totalScoreValid: "总分校验通过",
+    },
 };
 
 const enRecruitmentUiLocale: RecruitmentUiLocale = {
@@ -217,6 +229,12 @@ const enRecruitmentUiLocale: RecruitmentUiLocale = {
         position: "Position",
         skill: "Skill",
         systemTask: "System Task",
+    },
+    skillDimensionValidation: {
+        needAtLeastOneDimension: "At least one scoring dimension is required",
+        needMorePoints: "Need more",
+        exceedPoints: "Exceeds by",
+        totalScoreValid: "Total score validated",
     },
 };
 
@@ -476,16 +494,17 @@ export function parseSkillContent(content: string): Partial<ScreeningSkillFormDa
 }
 
 export function validateSkillDimensions(dimensions: ScreeningSkillDimension[]): { valid: boolean; total: number; message: string } {
+    const locale = getRecruitmentUiLocale().skillDimensionValidation;
     if (dimensions.length === 0) {
-        return { valid: false, total: 0, message: "至少需要一个评分维度" };
+        return { valid: false, total: 0, message: locale.needAtLeastOneDimension };
     }
     const total = Math.round(dimensions.reduce((sum, d) => sum + d.maxScore, 0) * 100) / 100;
     const diff = Math.abs(total - 10.0);
     if (diff > 0.01) {
-        const direction = total < 10 ? "还需分配" : "超出";
-        return { valid: false, total, message: `当前总分 ${total.toFixed(1)}，${direction} ${Math.abs(10 - total).toFixed(1)} 分` };
+        const msg = total < 10 ? locale.needMorePoints : locale.exceedPoints;
+        return { valid: false, total, message: `Current total: ${total.toFixed(1)}, ${msg} ${Math.abs(10 - total).toFixed(1)} points` };
     }
-    return { valid: true, total: 10.0, message: "总分校验通过" };
+    return { valid: true, total: 10.0, message: locale.totalScoreValid };
 }
 
 export function emptyLLMForm(): LLMFormState {
@@ -615,14 +634,15 @@ export function shortText(value?: string | null, limit = 120) {
     return value.length > limit ? `${value.slice(0, limit)}...` : value;
 }
 
-export function formatSkillNames(skillIds: number[] | undefined | null, skillMap: Map<number, RecruitmentSkill>) {
+export function formatSkillNames(skillIds: number[] | undefined | null, skillMap: Map<number, RecruitmentSkill>, language?: string) {
+    const isZh = language ? language === "zh-CN" : getCurrentLanguage() !== "en-US";
     const ids = skillIds || [];
     if (!ids.length) {
-        return "未关联 Skills";
+        return isZh ? "未关联 Skills" : "No skills linked";
     }
     return ids
         .map((skillId) => skillMap.get(skillId)?.name || `Skill #${skillId}`)
-        .join("、");
+        .join(isZh ? "、" : ", ");
 }
 
 export type SkillTaskKind = "jd" | "screening" | "interview";
@@ -978,11 +998,12 @@ export function resolveLogSkillSnapshots(
     ));
 }
 
-export function formatSkillSnapshotNames(skillSnapshots: RecruitmentSkill[]) {
+export function formatSkillSnapshotNames(skillSnapshots: RecruitmentSkill[], language?: string) {
+    const isZh = language ? language === "zh-CN" : getCurrentLanguage() !== "en-US";
     if (!skillSnapshots.length) {
-        return "未关联 Skills";
+        return isZh ? "未关联 Skills" : "No skills linked";
     }
-    return skillSnapshots.map((skill) => skill.name || `Skill #${skill.id}`).join("、");
+    return skillSnapshots.map((skill) => skill.name || `Skill #${skill.id}`).join(isZh ? "、" : ", ");
 }
 
 export function formatStructuredValue(value: unknown, fallback: string) {

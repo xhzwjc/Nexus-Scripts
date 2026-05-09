@@ -30,6 +30,7 @@ export interface Translations {
     reset: string;
     clear: string;
     refresh: string;
+    refreshing: string;
     submit: string;
     unknownError: string;
     required: string;
@@ -39,6 +40,78 @@ export interface Translations {
       suffix: string;
       separator: string;
     };
+    // Additional common texts
+    skillsBelongToAdminSettings: string;
+    skillsSettingsHint: string;
+    noDescription: string;
+    noSkills: string;
+    skillsEmptyHint: string;
+    loadingSkills: string;
+    sortOrder: string;
+    // Model settings
+    modelConfigCenter: string;
+    modelConfigHint: string;
+    currentChatModel: string;
+    currentChatSource: string;
+    totalModels: string;
+    modelFallbackHint: string;
+    currentActive: string;
+    priorityLabel: string;
+    modelName: string;
+    resolvedSource: string;
+    currentlyActive: string;
+    setAsCurrent: string;
+    noModelConfigs: string;
+    noModelConfigsHint: string;
+    unrecognized: string;
+    refreshModels: string;
+    // Mail settings
+    mailConfigCenter: string;
+    mailConfigHint: string;
+    loadingMailCenter: string;
+    globalAutoSendDefaults: string;
+    globalAutoSendHint: string;
+    enableSystemAutoSend: string;
+    globalDefaultRecipients: string;
+    currentDefaultEmails: string;
+    notSet: string;
+    saving: string;
+    saveDefaults: string;
+    senders: string;
+    sendersHint: string;
+    default: string;
+    username: string;
+    noSenders: string;
+    noSendersHint: string;
+    recipients: string;
+    recipientsLabel: string;
+    recipientsHint: string;
+    noDepartment: string;
+    noRole: string;
+    noRecipients: string;
+    noRecipientsHint: string;
+    deliveryRecords: string;
+    deliveryRecordsHint: string;
+    recipient: string;
+    candidate: string;
+    noCustomSubject: string;
+    defaultSender: string;
+    automatic: string;
+    manual: string;
+    triggerScreeningCompleted: string;
+    canResend: string;
+    unrecorded: string;
+    sourcePosition: string;
+    position: string;
+    candidates: string;
+    noLinkedPosition: string;
+    triggerStatus: string;
+    defaultEmailBodyHint: string;
+    retrying: string;
+    retryFailedSend: string;
+    sendAgain: string;
+    noDeliveryRecords: string;
+    noDeliveryRecordsHint: string;
   };
 
   serverMonitoring: {
@@ -2188,5 +2261,243 @@ export interface Translations {
     assistantDeleted: string;
     nameAndPromptRequired: string;
     navLabel: string;
+  };
+
+  // Recruitment
+  recruitment: {
+    // Organization
+    searchOrganization: string;
+    selectOrganization: string;
+    noOrganizationMatch: string;
+    organizationGroup: string;
+    organizationSubGroup: string;
+    organizationCompany: string;
+    organizationDepartment: string;
+    // Common Actions
+    refresh: string;
+    refreshing: string;
+    uploadResume: string;
+    createPosition: string;
+    newPosition: string;
+    editPosition: string;
+    generateJD: string;
+    generateAILabel: string;
+    aiGenerationNotes: string;
+    aiGenerationNotesWithJD: string;
+    aiGenerationNotesNoJD: string;
+    aiGenerationNotesNoPosition: string;
+    // Status
+    enabled: string;
+    disabled: string;
+    enabling: string;
+    saving: string;
+    // Page Titles
+    noPositions: string;
+    noPositionsDesc: string;
+    noJDVersions: string;
+    noJDVersionsDesc: string;
+    noCandidates: string;
+    noCandidatesDesc: string;
+    // Skill
+    newSkill: string;
+    aiGenerate: string;
+    enable: string;
+    disable: string;
+    skillEnabled: string;
+    skillDisabled: string;
+    // Model
+    newModel: string;
+    newModelConfig: string;
+    copyModel: string;
+    enabledModels: string;
+    currentTaskHint: string;
+    // Mail
+    refreshMailSettings: string;
+    sendCurrentCandidate: string;
+    newRecipient: string;
+    newSender: string;
+    noRecipientsAvailable: string;
+    selectable: string;
+    // Audit
+    refreshTasks: string;
+    expandFilters: string;
+    collapseFilters: string;
+    // Toast Messages
+    dataRefreshed: string;
+    positionDeletedRefreshFailed: string;
+    mailConfigRefreshFailed: string;
+    mailSentRefreshFailed: string;
+    // Assistant
+    assistantHint: string;
+    assistantContextHint: string;
+    // JD Dialog
+    autoParseAfterUpload: string;
+    enableAutoSendHint: string;
+    // Organization Scope
+    currentViewingOrg: string;
+    currentOrgScope: string;
+    currentDeptScope: string;
+    allVisibleDepts: string;
+    orgCompany: string;
+    landingOrg: string;
+    selectLandingOrg: string;
+    openAIAssistant: string;
+    manageSettings: string;
+    skillManagement: string;
+    loadingWorkspace: string;
+    // Position Dialog
+    newPositionTitle: string;
+    editPositionTitle: string;
+    // Position Form
+    positionName: string;
+    department: string;
+    location: string;
+    employmentType: string;
+    salaryRange: string;
+    headcount: string;
+    positionStatus: string;
+    tags: string;
+    tagsPlaceholder: string;
+    keyRequirements: string;
+    bonusPoints: string;
+    screeningConfig: string;
+    autoScreenOnUpload: string;
+    autoScreenHint: string;
+    autoAdvanceOnScreening: string;
+    autoMailAfterScreening: string;
+    autoMailHint: string;
+    enableAutoPush: string;
+    usePositionRecipients: string;
+    useGlobalRecipients: string;
+    useGlobalHint: string;
+    positionRecipients: string;
+    ccRecipients: string;
+    bccRecipients: string;
+    noRecipientsHint: string;
+    noCcHint: string;
+    noBccHint: string;
+    bindSkills: string;
+    bindSkillsHint: string;
+    positionSummary: string;
+    savePosition: string;
+    // Resume Upload Dialog
+    uploadResumeTitle: string;
+    uploadResumeDesc: string;
+    linkPosition: string;
+    selectFiles: string;
+    selectedFiles: string;
+    uploading: string;
+    uploadProgress: string;
+    // Delete Dialogs
+    confirmDeletePosition: string;
+    confirmDeletePositionDesc: string;
+    confirmDeleteCandidate: string;
+    confirmDeleteCandidateDesc: string;
+    confirmBatchDeleteCandidate: string;
+    confirmBatchDeleteCandidateDesc: string;
+    confirmDeleteResume: string;
+    confirmDeleteResumeDesc: string;
+    resumeDeleteHint: string;
+    // Skill Editor
+    skillEditorTitle: string;
+    skillName: string;
+    skillRoleName: string;
+    skillRoleBackground: string;
+    skillDescription: string;
+    skillContent: string;
+    skillTags: string;
+    skillPriority: string;
+    skillPriorityCore: string;
+    skillPrioritySecondary: string;
+    skillPriorityAuxiliary: string;
+    skillPriorityBonus: string;
+    skillMaxScore: string;
+    skillHardRequirement: string;
+    skillHardRequirementHint: string;
+    skillDimensionName: string;
+    skillDimensionPlaceholder: string;
+    skillEvaluationFocus: string;
+    skillEvaluationPlaceholder: string;
+    skillUnnamed: string;
+    skillSave: string;
+    skillUpdate: string;
+    skillCreate: string;
+    skillHardRules: string;
+    skillHardRulesPlaceholder: string;
+    skillJudgmentRules: string;
+    skillJudgmentRulesPlaceholder: string;
+    skillBasicInfo: string;
+    skillDimensions: string;
+    skillAdvancedMode: string;
+    skillAiMode: string;
+    skillStructuredMode: string;
+    // Skill Editor Table
+    skillDimensionIndex: string;
+    skillDimensionFullScore: string;
+    skillDimensionPriority: string;
+    skillDimensionHard: string;
+    skillDimensionActions: string;
+    skillDimensionsCount: string;
+    skillDimensionsEmpty: string;
+    skillDimensionsAdd: string;
+    skillTabsStructured: string;
+    skillTabsAdvanced: string;
+    skillTabsAi: string;
+    skillAdvancedHint: string;
+    skillAiEmptyHint: string;
+    // Common form fields
+    required: string;
+    placeholderRoleName: string;
+    placeholderSkillName: string;
+    placeholderRoleBackground: string;
+    placeholderDescription: string;
+    placeholderTags: string;
+    placeholderTagsHint: string;
+    // Task type labels
+    taskTypeJd: string;
+    taskTypeScreening: string;
+    taskTypeInterview: string;
+    taskTypeHint: string;
+    // Total score badge
+    totalScore: string;
+    // Validation errors
+    validationPositionNameRequired: string;
+    validationPositionNameTooLong: string;
+    validationSkillNameRequired: string;
+    validationSkillNameTooLong: string;
+    validationSkillContentRequired: string;
+    validationSkillSortInvalid: string;
+    validationSkillSceneRequired: string;
+    // Toast messages
+    positionCreated: string;
+    positionUpdated: string;
+    positionDeleted: string;
+    positionDeleteFailed: string;
+    positionSaveFailed: string;
+    jdGenerated: string;
+    jdGeneratedFallback: string;
+    uploadCancelled: string;
+    resumeOpenFailed: string;
+    // Resume mail
+    resumeMailSent: string;
+    resumeMailResent: string;
+    resumeMailFailed: string;
+    resumeMailSentHint: string;
+    selectResumeFirst: string;
+    selectRecipientFirst: string;
+    resumeMailNoCandidateSelected: string;
+    // Candidate
+    candidates: string;
+    candidateDeleted: string;
+    candidateDeleteFailed: string;
+    batchCandidatesDeleted: string;
+    batchCandidatesDeleteFailed: string;
+    resumeDeleted: string;
+    resumeDeleteFailed: string;
+    currentResume: string;
+    // Batch update
+    batchUpdatePosition: string;
+    batchUpdatePositionSuccess: string;
+    batchUpdatePositionFailed: string;
   };
 }

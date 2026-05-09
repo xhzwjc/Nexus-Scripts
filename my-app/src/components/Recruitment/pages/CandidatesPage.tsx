@@ -431,6 +431,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         batchUpdateStatus: isZh ? "批量变更状态" : "Batch Change Status",
         batchUpdateStatusTitle: isZh ? "批量变更候选人状态" : "Batch Change Candidate Status",
         batchUpdateStatusLabel: isZh ? "目标状态" : "Target Status",
+        batchUpdateStatusSelectPlaceholder: isZh ? "请选择状态" : "Select status",
         batchUpdateStatusReason: isZh ? "变更原因（选填）" : "Reason (optional)",
         batchUpdateStatusReasonPlaceholder: isZh ? "填写变更原因" : "Enter reason for status change",
         batchUpdateStatusConfirm: isZh ? "确定变更" : "Confirm Change",
@@ -478,6 +479,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         tagsPlaceholder: isZh ? "标签，使用英文逗号分隔" : "Tags, separated by commas",
         notesPlaceholder: isZh ? "例如：沟通不错，但对设备联调经验需要进一步核实" : "Example: strong communication, but device integration experience needs follow-up",
         saveCandidateInfo: isZh ? "保存候选人信息" : "Save Candidate Info",
+        savingCandidate: isZh ? "保存中..." : "Saving...",
         statusFlow: isZh ? "状态流转" : "Status Flow",
         confirmStatusChange: (label: string) => (isZh ? `确认变更为「${label}」？` : `Change status to "${label}"?`),
         currentStatusLine: (label: string) => (isZh ? `当前：${label}` : `Current: ${label}`),
@@ -566,6 +568,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         interviewSchedules: isZh ? "面试安排" : "Interview Schedules",
         addSchedule: isZh ? "添加面试安排" : "Add Interview Schedule",
         scheduleRound: isZh ? "面试轮次" : "Round",
+        roundNameDefault: isZh ? "初试" : "Round 1",
         scheduleInterviewer: isZh ? "面试官" : "Interviewer",
         scheduleTime: isZh ? "面试时间" : "Scheduled Time",
         scheduleDuration: isZh ? "时长（分钟）" : "Duration (min)",
@@ -1631,7 +1634,8 @@ export function CandidatesPage({
     const [batchStatusReason, setBatchStatusReason] = React.useState<string>("");
     const [batchStatusSubmitting, setBatchStatusSubmitting] = React.useState(false);
     const [scheduleFormOpen, setScheduleFormOpen] = React.useState(false);
-    const [scheduleForm, setScheduleForm] = React.useState({round_name: "初试", interviewer_name: "", scheduled_at: "", duration_minutes: "60", location: "", meeting_link: "", notes: ""});
+    const defaultRoundName = tr.roundNameDefault;
+    const [scheduleForm, setScheduleForm] = React.useState({round_name: defaultRoundName, interviewer_name: "", scheduled_at: "", duration_minutes: "60", location: "", meeting_link: "", notes: ""});
     const [scheduleSubmitting, setScheduleSubmitting] = React.useState(false);
     const [offerFormOpen, setOfferFormOpen] = React.useState(false);
     const [offerForm, setOfferForm] = React.useState({offer_title: "", salary: "", department: "", entry_date: "", offer_content: "", notes: ""});
@@ -2910,8 +2914,8 @@ export function CandidatesPage({
                                                     <div className="grid gap-3 md:grid-cols-2">
                                                         <InfoTile label={tr.memorySource} value={labelForMemorySource(candidateDetail.workflow_memory.screening_memory_source)}/>
                                                         <InfoTile label={tr.lastScreeningTime} value={formatLongDateTime(candidateDetail.workflow_memory.last_screened_at)}/>
-                                                        <InfoTile label={tr.screeningSkills} value={formatSkillNames(candidateDetail.workflow_memory.screening_skill_ids, skillMap)}/>
-                                                        <InfoTile label={tr.interviewSkills} value={formatSkillNames(candidateDetail.workflow_memory.interview_skill_ids, skillMap)}/>
+                                                        <InfoTile label={tr.screeningSkills} value={formatSkillNames(candidateDetail.workflow_memory.screening_skill_ids, skillMap, language)}/>
+                                                        <InfoTile label={tr.interviewSkills} value={formatSkillNames(candidateDetail.workflow_memory.interview_skill_ids, skillMap, language)}/>
                                                     </div>
                                                 ) : (
                                                     <EmptyState title={tr.noScreeningMemory} description={tr.noScreeningMemoryDesc}/>
@@ -2920,7 +2924,7 @@ export function CandidatesPage({
                                                     {tr.screeningMemoryHint(effectiveScreeningSkillSourceLabel)}
                                                 </p>
                                                 <p className="mt-2 break-words text-xs leading-6 text-slate-500 dark:text-slate-400">
-                                                    {tr.screeningSkillPreview(formatSkillNames(effectiveScreeningSkillIds, skillMap))}
+                                                    {tr.screeningSkillPreview(formatSkillNames(effectiveScreeningSkillIds, skillMap, language))}
                                                 </p>
                                             </Field>
 
@@ -2967,7 +2971,7 @@ export function CandidatesPage({
 
                                             <Button onClick={() => void saveCandidate()} disabled={candidateSaving}>
                                                 <Save className="h-4 w-4"/>
-                                                {candidateSaving ? (language !== "en-US" ? "保存中..." : "Saving...") : tr.saveCandidateInfo}
+                                                {candidateSaving ? tr.savingCandidate : tr.saveCandidateInfo}
                                             </Button>
 
                                             <Field label={tr.aiAssistant}>
@@ -3022,7 +3026,7 @@ export function CandidatesPage({
                                                                             </Badge>
                                                                         </div>
                                                                         <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                                                            <InfoTile label="Skills" value={formatSkillSnapshotNames(logSkillSnapshots)}/>
+                                                                            <InfoTile label="Skills" value={formatSkillSnapshotNames(logSkillSnapshots, language)}/>
                                                                             <InfoTile label={tr.memorySource} value={labelForMemorySource(log.memory_source)}/>
                                                                         </div>
                                                                         {log.error_message ? <p className="mt-3 break-all text-sm text-rose-600">{log.error_message}</p> : null}
@@ -3092,7 +3096,7 @@ export function CandidatesPage({
                                                     placeholder={tr.interviewRequirementsPlaceholder}
                                                 />
                                                 <p className="text-xs leading-6 text-slate-500 dark:text-slate-400">
-                                                    {tr.actualSkills(formatSkillNames(effectiveInterviewSkillIds, skillMap))}
+                                                    {tr.actualSkills(formatSkillNames(effectiveInterviewSkillIds, skillMap, language))}
                                                 </p>
                                                 <div className="flex flex-wrap items-center justify-between gap-3">
                                                     <p className="text-xs text-slate-500 dark:text-slate-400">{tr.actualSource(effectiveInterviewSkillSourceLabel)}</p>
@@ -3153,7 +3157,7 @@ export function CandidatesPage({
                                             <div className="rounded-2xl border border-slate-200/80 bg-white/85 px-4 py-4 dark:border-slate-800 dark:bg-slate-950/70">
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                                     <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.interviewSchedules}</p>
-                                                    <Button size="sm" variant="outline" onClick={() => { setScheduleForm({round_name: interviewRoundName || "初试", interviewer_name: "", scheduled_at: "", duration_minutes: "60", location: "", meeting_link: "", notes: ""}); setScheduleFormOpen(!scheduleFormOpen); }}>
+                                                    <Button size="sm" variant="outline" onClick={() => { setScheduleForm({round_name: interviewRoundName || defaultRoundName, interviewer_name: "", scheduled_at: "", duration_minutes: "60", location: "", meeting_link: "", notes: ""}); setScheduleFormOpen(!scheduleFormOpen); }}>
                                                         <Plus className="h-4 w-4"/>
                                                         {tr.addSchedule}
                                                     </Button>
@@ -3342,7 +3346,7 @@ export function CandidatesPage({
                         <div className="space-y-1.5">
                             <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{tr.batchUpdateStatusLabel}</p>
                             <NativeSelect value={batchStatusValue} onChange={(event) => setBatchStatusValue(event.target.value)}>
-                                <option value="" disabled>{language !== "en-US" ? "请选择状态" : "Select status"}</option>
+                                <option value="" disabled>{tr.batchUpdateStatusSelectPlaceholder}</option>
                                 {Object.entries(candidateStatusLabels).map(([value, label]) => (
                                     <option key={value} value={value}>{label}</option>
                                 ))}
