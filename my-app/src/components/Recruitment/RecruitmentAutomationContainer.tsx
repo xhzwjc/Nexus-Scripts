@@ -479,9 +479,28 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         startX: number;
         startWidth: number;
     } | null>(null);
+    // Fine-grained permission checks — each controls specific UI elements
+    const perms = sessionUser?.permissions ?? {};
+    const canManagePosition = Boolean(perms["recruitment-position-manage"]);
+    const canManageCandidate = Boolean(perms["recruitment-candidate-manage"]);
+    const canExecuteProcess = Boolean(perms["recruitment-process-execute"]);
+    const canViewLog = Boolean(perms["recruitment-log-view"]);
+    const canViewSkill = Boolean(perms["recruitment-skill-view"]);
+    const canBindSkill = Boolean(perms["recruitment-skill-bind"]);
+    const canManageSkill = Boolean(perms["recruitment-skill-manage"]);
+    const canViewMail = Boolean(perms["recruitment-mail-view"]);
+    const canSendMail = Boolean(perms["recruitment-mail-send"]);
+    const canManageMailConfig = Boolean(perms["recruitment-mail-config-manage"] || perms["recruitment-mail-sender-manage"]);
+    const canViewLLMConfig = Boolean(perms["recruitment-llm-config-view"]);
+    const canManageLLMConfig = Boolean(perms["recruitment-llm-config-manage"]);
+    const canManageSharing = Boolean(perms["resource-sharing-manage"]);
+    const canManageRBAC = Boolean(perms["rbac-manage"]);
+    // Derived: show settings button if any view/manage permission for config pages exists
     const canManageRecruitment = Boolean(
-        sessionUser?.permissions["ai-recruitment-manage"]
-        || sessionUser?.permissions["rbac-manage"],
+        canViewSkill || canManageSkill
+        || canViewMail || canManageMailConfig
+        || canViewLLMConfig || canManageLLMConfig
+        || canManageSharing || canManageRBAC,
     );
     const recruitmentUiText = useMemo(() => ({
         loadingWorkspace: isZh ? "正在加载招聘工作台..." : "Loading recruiting workspace...",
@@ -1575,14 +1594,20 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }, [visibleAiLogs]);
 
     useEffect(() => {
-        if (!canManageRecruitment && (
-            activePage === "settings-skills"
-            || activePage === "settings-models"
-            || activePage === "settings-mail"
-        )) {
+        if (activePage === "positions" && !canManagePosition) {
+            setActivePage("workspace");
+        } else if (activePage === "candidates" && !canManageCandidate) {
+            setActivePage("workspace");
+        } else if (activePage === "audit" && !canViewLog) {
+            setActivePage("workspace");
+        } else if (activePage === "settings-skills" && !canViewSkill && !canManageSkill) {
+            setActivePage("workspace");
+        } else if (activePage === "settings-models" && !canViewLLMConfig && !canManageLLMConfig) {
+            setActivePage("workspace");
+        } else if (activePage === "settings-mail" && !canViewMail && !canManageMailConfig) {
             setActivePage("workspace");
         }
-    }, [activePage, canManageRecruitment]);
+    }, [activePage, canManagePosition, canManageCandidate, canViewLog, canViewSkill, canManageSkill, canViewLLMConfig, canManageLLMConfig, canViewMail, canManageMailConfig]);
 
     useEffect(() => {
         setSettingsPopoverOpen(false);
@@ -1771,7 +1796,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 loadSkills(),
                                 loadMailSettings(),
                                 loadChatContext(),
-                                canManageRecruitment ? loadLLMConfigs() : Promise.resolve(),
+                                canManageLLMConfig ? loadLLMConfigs() : Promise.resolve(),
                             ]);
                         }
                     }, { timeout: 5000 });
@@ -1782,7 +1807,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 loadSkills(),
                                 loadMailSettings(),
                                 loadChatContext(),
-                                canManageRecruitment ? loadLLMConfigs() : Promise.resolve(),
+                                canManageLLMConfig ? loadLLMConfigs() : Promise.resolve(),
                             ]);
                         }
                     }, 500);
@@ -1857,7 +1882,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return () => {
             cancelled = true;
         };
-    }, [canManageRecruitment]);
+    }, [canManageLLMConfig]);
 
     useEffect(() => {
         if (bootstrapping) {
@@ -2752,7 +2777,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }
 
     async function loadLLMConfigs() {
-        if (!canManageRecruitment) {
+        if (!canManageLLMConfig) {
             return [];
         }
         setModelsLoading(true);
@@ -7672,6 +7697,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 panelClass={panelClass}
                 skillsLoading={skillsLoading}
                 skills={skills}
+                canManageSkill={canManageSkill}
                 openSkillEditor={openSkillEditor}
                 openSkillEditorWithAI={openSkillEditorWithAI}
                 toggleSkill={toggleSkill}
@@ -7686,6 +7712,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 panelClass={panelClass}
                 llmConfigs={llmConfigs}
                 modelsLoading={modelsLoading}
+                canManageLLMConfig={canManageLLMConfig}
                 assistantModelLabel={assistantModelLabel}
                 assistantActiveLLMConfig={assistantActiveLLMConfig}
                 preferredLLMConfigIds={preferredLLMConfigIds}
@@ -7715,7 +7742,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 mailDispatchActionKey={mailDispatchActionKey}
                 selectedCandidateIds={selectedCandidateIds}
                 selectedCandidateId={selectedCandidateId}
-                canManageRecruitment={canManageRecruitment}
+                canManageMailConfig={canManageMailConfig}
                 openMailSenderEditor={openMailSenderEditor}
                 openMailRecipientEditor={openMailRecipientEditor}
                 openResumeMailDialog={openResumeMailDialog}
@@ -7806,14 +7833,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 <RefreshCw className="h-4 w-4"/>}
                             {coreRefreshing ? recruitmentUiText.refreshing : recruitmentUiText.refresh}
                         </Button>
-                        <Button variant="outline" onClick={openResumeUploadDialog} className="rounded-xl">
-                            <Upload className="h-4 w-4"/>
-                            {recruitmentUiText.uploadResume}
-                        </Button>
-                        <Button onClick={openCreatePosition} className="rounded-xl">
-                            <Plus className="h-4 w-4"/>
-                            {recruitmentUiText.createPosition}
-                        </Button>
+                        {canManageCandidate && (
+                            <Button variant="outline" onClick={openResumeUploadDialog} className="rounded-xl">
+                                <Upload className="h-4 w-4"/>
+                                {recruitmentUiText.uploadResume}
+                            </Button>
+                        )}
+                        {canManagePosition && (
+                            <Button onClick={openCreatePosition} className="rounded-xl">
+                                <Plus className="h-4 w-4"/>
+                                {recruitmentUiText.createPosition}
+                            </Button>
+                        )}
                         <Button
                             className="rounded-xl bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                             onClick={() => openAssistantMode("drawer")}>
@@ -7831,21 +7862,27 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 <PopoverContent align="end"
                                                 className="w-80 rounded-2xl border-slate-200 p-2 dark:border-slate-800">
                                     <div className="space-y-1">
-                                        <SettingsEntry
-                                            title={recruitmentUiText.settingsSkillsTitle}
-                                            description={recruitmentUiText.settingsSkillsDescription}
-                                            onClick={() => navigateToSettingsPage("settings-skills")}
-                                        />
-                                        <SettingsEntry
-                                            title={recruitmentUiText.settingsModelsTitle}
-                                            description={recruitmentUiText.settingsModelsDescription}
-                                            onClick={() => navigateToSettingsPage("settings-models")}
-                                        />
-                                        <SettingsEntry
-                                            title={recruitmentUiText.settingsMailTitle}
-                                            description={recruitmentUiText.settingsMailDescription}
-                                            onClick={() => navigateToSettingsPage("settings-mail")}
-                                        />
+                                        {(canViewSkill || canManageSkill) && (
+                                            <SettingsEntry
+                                                title={recruitmentUiText.settingsSkillsTitle}
+                                                description={recruitmentUiText.settingsSkillsDescription}
+                                                onClick={() => navigateToSettingsPage("settings-skills")}
+                                            />
+                                        )}
+                                        {(canViewLLMConfig || canManageLLMConfig) && (
+                                            <SettingsEntry
+                                                title={recruitmentUiText.settingsModelsTitle}
+                                                description={recruitmentUiText.settingsModelsDescription}
+                                                onClick={() => navigateToSettingsPage("settings-models")}
+                                            />
+                                        )}
+                                        {(canViewMail || canManageMailConfig) && (
+                                            <SettingsEntry
+                                                title={recruitmentUiText.settingsMailTitle}
+                                                description={recruitmentUiText.settingsMailDescription}
+                                                onClick={() => navigateToSettingsPage("settings-mail")}
+                                            />
+                                        )}
                                     </div>
                                 </PopoverContent>
                             </Popover>
@@ -7890,42 +7927,48 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                 }}
                                 onClick={() => navigatePrimaryPage("workspace")}
                             />
-                            <SectionNavButton
-                                active={activePrimaryNavPage === "positions"}
-                                icon={BriefcaseBusiness}
-                                title={recruitmentUiText.positionsTitle}
-                                description={recruitmentUiText.positionsDescription}
-                                count={positions.length}
-                                collapsed={navCollapsed}
-                                buttonRef={(node) => {
-                                    primaryNavButtonRefs.current.positions = node;
-                                }}
-                                onClick={() => navigatePrimaryPage("positions")}
-                            />
-                            <SectionNavButton
-                                active={activePrimaryNavPage === "candidates"}
-                                icon={Users}
-                                title={recruitmentUiText.candidatesTitle}
-                                description={recruitmentUiText.candidatesDescription}
-                                count={candidateStats?.total ?? candidates.length}
-                                collapsed={navCollapsed}
-                                buttonRef={(node) => {
-                                    primaryNavButtonRefs.current.candidates = node;
-                                }}
-                                onClick={() => navigatePrimaryPage("candidates")}
-                            />
-                            <SectionNavButton
-                                active={activePrimaryNavPage === "audit"}
-                                icon={History}
-                                title={recruitmentUiText.auditTitle}
-                                description={recruitmentUiText.auditDescription}
-                                count={aiLogStats?.total ?? allAiLogs.length}
-                                collapsed={navCollapsed}
-                                buttonRef={(node) => {
-                                    primaryNavButtonRefs.current.audit = node;
-                                }}
-                                onClick={() => navigatePrimaryPage("audit")}
-                            />
+                            {canManagePosition && (
+                                <SectionNavButton
+                                    active={activePrimaryNavPage === "positions"}
+                                    icon={BriefcaseBusiness}
+                                    title={recruitmentUiText.positionsTitle}
+                                    description={recruitmentUiText.positionsDescription}
+                                    count={positions.length}
+                                    collapsed={navCollapsed}
+                                    buttonRef={(node) => {
+                                        primaryNavButtonRefs.current.positions = node;
+                                    }}
+                                    onClick={() => navigatePrimaryPage("positions")}
+                                />
+                            )}
+                            {canManageCandidate && (
+                                <SectionNavButton
+                                    active={activePrimaryNavPage === "candidates"}
+                                    icon={Users}
+                                    title={recruitmentUiText.candidatesTitle}
+                                    description={recruitmentUiText.candidatesDescription}
+                                    count={candidateStats?.total ?? candidates.length}
+                                    collapsed={navCollapsed}
+                                    buttonRef={(node) => {
+                                        primaryNavButtonRefs.current.candidates = node;
+                                    }}
+                                    onClick={() => navigatePrimaryPage("candidates")}
+                                />
+                            )}
+                            {canViewLog && (
+                                <SectionNavButton
+                                    active={activePrimaryNavPage === "audit"}
+                                    icon={History}
+                                    title={recruitmentUiText.auditTitle}
+                                    description={recruitmentUiText.auditDescription}
+                                    count={aiLogStats?.total ?? allAiLogs.length}
+                                    collapsed={navCollapsed}
+                                    buttonRef={(node) => {
+                                        primaryNavButtonRefs.current.audit = node;
+                                    }}
+                                    onClick={() => navigatePrimaryPage("audit")}
+                                />
+                            )}
                             <SectionNavButton
                                 active={activePrimaryNavPage === "assistant"}
                                 icon={Bot}
@@ -7943,6 +7986,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         <div className="shrink-0 pt-4">
                             {navCollapsed ? (
                                 <div className="space-y-2">
+                                {canManagePosition && (
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <button
@@ -7958,7 +8002,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         {recruitmentUiText.quickAddPosition}
                                     </TooltipContent>
                                 </Tooltip>
+                                )}
 
+                                {canManageCandidate && (
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <button
@@ -7974,6 +8020,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                         {recruitmentUiText.uploadResume}
                                     </TooltipContent>
                                 </Tooltip>
+                                )}
 
                                 <Tooltip>
                                     <TooltipTrigger asChild>

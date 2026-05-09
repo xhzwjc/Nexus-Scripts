@@ -544,6 +544,8 @@ export interface Translations {
     roleFormBasicInfo: string;
     roleFormBoundaryHint: string;
     rolePermissionOnlyHint: string;
+    selectAll: string;
+    deselectAll: string;
     landingPageLabel: string;
     landingPageHome: string;
     landingPageWelcome: string;

@@ -57,6 +57,17 @@ export function RoleForm({
 }: RoleFormProps) {
     const permissionGroups = groupPermissionsByCategory(permissions);
 
+    const toggleCategory = (categoryPermissions: ScriptHubPermissionDefinition[], selectAll: boolean) => {
+        const categoryKeys = categoryPermissions.map((p) => p.key);
+        if (selectAll) {
+            const merged = new Set([...form.permissionKeys, ...categoryKeys]);
+            onChange({ ...form, permissionKeys: [...merged] });
+        } else {
+            onChange({ ...form, permissionKeys: form.permissionKeys.filter((k) => !categoryKeys.includes(k)) });
+        }
+        onFieldChange('permissionKeys');
+    };
+
     return (
         <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
             <DialogContent className="sm:max-w-5xl">
@@ -190,7 +201,26 @@ export function RoleForm({
                                         <div key={category} className="rounded-md border bg-background p-4">
                                             <div className="mb-3 flex items-center justify-between">
                                                 <p className="text-sm font-medium">{categoryLabel(category, labels)}</p>
-                                                <Badge variant="outline">{categoryPermissions.length}</Badge>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                                        onClick={() => toggleCategory(categoryPermissions, true)}
+                                                        disabled={saving}
+                                                    >
+                                                        {labels.selectAll}
+                                                    </button>
+                                                    <span className="text-xs text-muted-foreground/40">|</span>
+                                                    <button
+                                                        type="button"
+                                                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                                        onClick={() => toggleCategory(categoryPermissions, false)}
+                                                        disabled={saving}
+                                                    >
+                                                        {labels.deselectAll}
+                                                    </button>
+                                                    <Badge variant="outline">{categoryPermissions.length}</Badge>
+                                                </div>
                                             </div>
                                             <div className="space-y-3">
                                                 {categoryPermissions.map((permission) => (

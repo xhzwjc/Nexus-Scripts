@@ -47,7 +47,7 @@ type MailSettingsPageProps = {
     mailDispatchActionKey: string | null;
     selectedCandidateIds: number[];
     selectedCandidateId: number | null;
-    canManageRecruitment: boolean;
+    canManageMailConfig: boolean;
     openMailSenderEditor: (sender?: RecruitmentMailSenderConfig) => void;
     openMailRecipientEditor: (recipient?: RecruitmentMailRecipient) => void;
     openResumeMailDialog: () => void;
@@ -75,7 +75,7 @@ export function MailSettingsPage({
     mailDispatchActionKey,
     selectedCandidateIds,
     selectedCandidateId,
-    canManageRecruitment,
+    canManageMailConfig,
     openMailSenderEditor,
     openMailRecipientEditor,
     openResumeMailDialog,
@@ -142,7 +142,7 @@ export function MailSettingsPage({
                             <input
                                 type="checkbox"
                                 checked={mailAutoPushGlobalConfig.global_auto_push_enabled}
-                                disabled={!canManageRecruitment || mailAutoPushConfigSaving}
+                                disabled={!canManageMailConfig || mailAutoPushConfigSaving}
                                 onChange={(event) => setMailAutoPushGlobalConfig((current) => ({
                                     ...current,
                                     global_auto_push_enabled: event.target.checked,
@@ -159,7 +159,7 @@ export function MailSettingsPage({
                                         <button
                                             key={`global-mail-recipient-${recipient.id}`}
                                             type="button"
-                                            disabled={!canManageRecruitment || mailAutoPushConfigSaving}
+                                            disabled={!canManageMailConfig || mailAutoPushConfigSaving}
                                             className={cn(
                                                 "rounded-full border px-3 py-2 text-xs transition disabled:cursor-not-allowed disabled:opacity-60",
                                                 selected
@@ -184,7 +184,7 @@ export function MailSettingsPage({
                             <Button
                                 size="sm"
                                 onClick={() => void saveMailAutoPushGlobalConfig(mailAutoPushGlobalConfig)}
-                                disabled={!canManageRecruitment || mailAutoPushConfigSaving}
+                                disabled={!canManageMailConfig || mailAutoPushConfigSaving}
                             >
                                 {mailAutoPushConfigSaving ? (isZh ? "保存中..." : "Saving...") : (isZh ? "保存默认配置" : "Save Defaults")}
                             </Button>

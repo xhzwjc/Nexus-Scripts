@@ -23,6 +23,7 @@ type ModelSettingsPageProps = {
     panelClass: string;
     llmConfigs: RecruitmentLLMConfig[];
     modelsLoading: boolean;
+    canManageLLMConfig: boolean;
     assistantModelLabel: string;
     assistantActiveLLMConfig: RecruitmentLLMConfig | null;
     preferredLLMConfigIds: Set<number>;
@@ -37,6 +38,7 @@ export function ModelSettingsPage({
     panelClass,
     llmConfigs,
     modelsLoading,
+    canManageLLMConfig,
     assistantModelLabel,
     assistantActiveLLMConfig,
     preferredLLMConfigIds,
@@ -71,10 +73,12 @@ export function ModelSettingsPage({
                             {modelsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> : <RefreshCw className="h-4 w-4"/>}
                             {modelsLoading ? (isZh ? "刷新中..." : "Refreshing...") : (isZh ? "刷新模型" : "Refresh Models")}
                         </Button>
-                        <Button onClick={() => openLLMEditor()}>
-                            <Plus className="h-4 w-4"/>
-                            {isZh ? "新增模型" : "New Model"}
-                        </Button>
+                        {canManageLLMConfig && (
+                            <Button onClick={() => openLLMEditor()}>
+                                <Plus className="h-4 w-4"/>
+                                {isZh ? "新增模型" : "New Model"}
+                            </Button>
+                        )}
                     </div>
                 </CardContent>
             </Card>
@@ -120,12 +124,20 @@ export function ModelSettingsPage({
                                         <InfoTile label="Base URL" value={config.resolved_base_url || config.base_url || "-"}/>
                                     </div>
                                     <div className="mt-4 flex flex-wrap gap-2">
-                                        <Button size="sm" variant={isCurrent ? "default" : "outline"} onClick={() => void setPreferredLLMConfig(config)} disabled={isCurrent}>
-                                            {isCurrent ? (isZh ? "当前使用中" : "Currently Active") : (isZh ? "设为当前使用" : "Set as Current")}
-                                        </Button>
-                                        <Button size="sm" variant="outline" onClick={() => openLLMEditor(config)}>{isZh ? "编辑" : "Edit"}</Button>
-                                        <Button size="sm" variant="outline" onClick={() => copyLLMEditor(config)}><Copy className="h-4 w-4"/>{isZh ? "复制" : "Copy"}</Button>
-                                        <Button size="sm" variant="outline" onClick={() => setLlmDeleteTarget(config)}>{isZh ? "删除" : "Delete"}</Button>
+                                        {canManageLLMConfig && (
+                                            <Button size="sm" variant={isCurrent ? "default" : "outline"} onClick={() => void setPreferredLLMConfig(config)} disabled={isCurrent}>
+                                                {isCurrent ? (isZh ? "当前使用中" : "Currently Active") : (isZh ? "设为当前使用" : "Set as Current")}
+                                            </Button>
+                                        )}
+                                        {canManageLLMConfig && (
+                                            <Button size="sm" variant="outline" onClick={() => openLLMEditor(config)}>{isZh ? "编辑" : "Edit"}</Button>
+                                        )}
+                                        {canManageLLMConfig && (
+                                            <Button size="sm" variant="outline" onClick={() => copyLLMEditor(config)}><Copy className="h-4 w-4"/>{isZh ? "复制" : "Copy"}</Button>
+                                        )}
+                                        {canManageLLMConfig && (
+                                            <Button size="sm" variant="outline" onClick={() => setLlmDeleteTarget(config)}>{isZh ? "删除" : "Delete"}</Button>
+                                        )}
                                     </div>
                                 </div>
                             );

@@ -23,6 +23,7 @@ type SkillSettingsPageProps = {
     panelClass: string;
     skillsLoading: boolean;
     skills: RecruitmentSkill[];
+    canManageSkill: boolean;
     openSkillEditor: (skill?: RecruitmentSkill) => void;
     openSkillEditorWithAI: () => void;
     toggleSkill: (skillId: number, enabled: boolean) => Promise<void>;
@@ -33,6 +34,7 @@ export function SkillSettingsPage({
     panelClass,
     skillsLoading,
     skills,
+    canManageSkill,
     openSkillEditor,
     openSkillEditorWithAI,
     toggleSkill,
@@ -50,14 +52,18 @@ export function SkillSettingsPage({
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{isZh ? "入口已收进管理设置，避免主工作台被配置项干扰。" : "This entry lives inside management settings so the main workspace stays focused."}</p>
                     </div>
                     <div className="flex gap-2">
-                        <Button variant="outline" onClick={openSkillEditorWithAI}>
-                            <Sparkles className="h-4 w-4"/>
-                            {isZh ? "AI 生成" : "AI Generate"}
-                        </Button>
-                        <Button onClick={() => openSkillEditor()}>
-                            <Plus className="h-4 w-4"/>
-                            {isZh ? "新增 Skill" : "New Skill"}
-                        </Button>
+                        {canManageSkill && (
+                            <Button variant="outline" onClick={openSkillEditorWithAI}>
+                                <Sparkles className="h-4 w-4"/>
+                                {isZh ? "AI 生成" : "AI Generate"}
+                            </Button>
+                        )}
+                        {canManageSkill && (
+                            <Button onClick={() => openSkillEditor()}>
+                                <Plus className="h-4 w-4"/>
+                                {isZh ? "新增 Skill" : "New Skill"}
+                            </Button>
+                        )}
                     </div>
                 </CardContent>
             </Card>
@@ -85,11 +91,17 @@ export function SkillSettingsPage({
                                 ))}
                             </div>
                             <div className="flex flex-wrap gap-2">
-                                <Button size="sm" variant="outline" onClick={() => openSkillEditor(skill)}>{isZh ? "编辑" : "Edit"}</Button>
-                                <Button size="sm" variant="outline" onClick={() => void toggleSkill(skill.id, !skill.is_enabled)}>
-                                    {skill.is_enabled ? (isZh ? "停用" : "Disable") : (isZh ? "启用" : "Enable")}
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => setSkillDeleteTarget(skill)}>{isZh ? "删除" : "Delete"}</Button>
+                                {canManageSkill && (
+                                    <Button size="sm" variant="outline" onClick={() => openSkillEditor(skill)}>{isZh ? "编辑" : "Edit"}</Button>
+                                )}
+                                {canManageSkill && (
+                                    <Button size="sm" variant="outline" onClick={() => void toggleSkill(skill.id, !skill.is_enabled)}>
+                                        {skill.is_enabled ? (isZh ? "停用" : "Disable") : (isZh ? "启用" : "Enable")}
+                                    </Button>
+                                )}
+                                {canManageSkill && (
+                                    <Button size="sm" variant="outline" onClick={() => setSkillDeleteTarget(skill)}>{isZh ? "删除" : "Delete"}</Button>
+                                )}
                             </div>
                         </CardContent>
                     </Card>

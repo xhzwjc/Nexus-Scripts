@@ -358,6 +358,8 @@ export const enUS: Translations = {
         landingPageWelcome: 'Welcome Page',
         landingPageHint: 'Select the default landing page for users with this role.',
         rolePermissionOnlyHint: 'Select functional permission points by category. Organization and sharing policies are not stored on roles.',
+        selectAll: 'Select All',
+        deselectAll: 'Deselect All',
         systemRole: 'System Role',
         customRole: 'Custom Role',
         assignedUsers: 'Assigned Users',

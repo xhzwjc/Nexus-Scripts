@@ -357,6 +357,8 @@ export const zhCN: Translations = {
         landingPageWelcome: '欢迎页',
         landingPageHint: '设置该角色的用户登录后默认进入的页面。',
         rolePermissionOnlyHint: '按权限分类选择功能点，组织与共享策略不写入角色定义。',
+        selectAll: '全选',
+        deselectAll: '取消全选',
         systemRole: '系统角色',
         customRole: '自定义角色',
         assignedUsers: '关联用户',
