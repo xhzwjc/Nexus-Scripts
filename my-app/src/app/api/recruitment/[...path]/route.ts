@@ -100,7 +100,9 @@ async function proxyRecruitmentRequest(
     path === "candidates/upload-resumes",
   ].some(Boolean);
 
-  const isSSEStream = path === "task-events";
+  const isSSEStream = path === "task-events"
+    || path.endsWith("/generate-jd/stream")
+    || path.endsWith("/generate-content");
 
   // 当客户端断开连接时（如热更新），也取消对后端的请求，避免后端连接被挂起
   const clientSignal = request.signal;
@@ -150,6 +152,9 @@ async function proxyRecruitmentRequest(
         responseHeaders.set("content-type", "application/json; charset=utf-8");
       }
       if (isSSE && response.body) {
+        // Prevent Next.js / upstream proxy from buffering SSE chunks
+        responseHeaders.set("Cache-Control", "no-cache, no-transform");
+        responseHeaders.set("X-Accel-Buffering", "no");
         return new NextResponse(response.body, {
           status: response.status,
           headers: responseHeaders,
