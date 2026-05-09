@@ -304,10 +304,12 @@ export function InfoTile({label, value}: { label: string; value: string }) {
 
 export function LoadingCard({label}: { label: string }) {
     return (
-        <div
-            className="flex items-center gap-2 rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            <Loader2 className="h-4 w-4 animate-spin"/>
-            {label}
+        <div className="flex min-h-[320px] flex-1 items-center justify-center">
+            <div
+                className="flex items-center gap-2 rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                <Loader2 className="h-4 w-4 animate-spin"/>
+                {label}
+            </div>
         </div>
     );
 }
