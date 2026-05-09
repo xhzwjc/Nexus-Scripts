@@ -251,14 +251,25 @@ def resource_is_visible_to_context(
     resource_org_code: Any,
     share_policy: Any = SHARE_POLICY_PRIVATE,
     allow_sub_org_use: Any = False,
+    scope_level: Any = None,
 ) -> bool:
     org_code = normalize_org_code(resource_org_code)
     policy = normalize_share_policy(share_policy)
+
+    # scope_level=GLOBAL makes the resource visible to all organizations
+    if str(scope_level or "").strip().upper() == "GLOBAL":
+        return True
+
     if context.has_all_orgs:
         return True
     visible_orgs = set(context.visible_org_codes or ())
     if org_code in visible_orgs:
         return True
+
+    # PUBLIC_IN_GROUP is visible across the entire group, regardless of allow_sub_org_use
+    if policy == SHARE_POLICY_PUBLIC_IN_GROUP:
+        return True
+
     if not bool(allow_sub_org_use) or policy == SHARE_POLICY_PRIVATE:
         return False
     return any(is_ancestor_org(db, org_code, visible_org) for visible_org in visible_orgs)

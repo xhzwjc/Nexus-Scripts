@@ -27,6 +27,7 @@ from ..database import SessionLocal
 from ..permission_governance import (
     PermissionContext,
     ROOT_ORG_CODE,
+    SHARE_POLICY_PRIVATE,
     SHARE_POLICY_SHARED_COPYABLE,
     build_permission_context,
     normalize_org_code,
@@ -5281,6 +5282,7 @@ class RecruitmentService:
             resource_org_code=getattr(row, "org_code", ROOT_ORG_CODE),
             share_policy=getattr(row, "share_policy", "PRIVATE"),
             allow_sub_org_use=getattr(row, "allow_sub_org_use", False),
+            scope_level=getattr(row, "scope_level", None),
         )
 
     def _apply_business_org_filter(self, builder: Any, model: Any) -> Any:
@@ -5332,7 +5334,9 @@ class RecruitmentService:
             row_org_code = normalize_org_code(getattr(row, "org_code", None))
             visible = ", ".join(self.permission_context.visible_org_codes or []) if self.permission_context else ""
             raise ValueError(f"无权复制此资源，该资源属于组织 {row_org_code}，当前用户可访问的组织为 {visible}")
-        if normalize_share_policy(getattr(row, "share_policy", None)) != SHARE_POLICY_SHARED_COPYABLE:
+        policy = normalize_share_policy(getattr(row, "share_policy", None))
+        # allow_copy works for any non-PRIVATE policy, not just SHARED_COPYABLE
+        if policy == SHARE_POLICY_PRIVATE:
             raise ValueError("资源不允许复制")
         if not bool(getattr(row, "allow_copy", False)):
             raise ValueError("资源不允许复制")
@@ -13604,7 +13608,7 @@ class RecruitmentService:
 
     def _serialize_llm_config(self, row: RecruitmentLLMConfig) -> Dict[str, Any]:
         runtime = self.ai_gateway.resolve_runtime_config_for_row(row)
-        return {"id": row.id, "config_key": row.config_key, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "task_type": row.task_type, "provider": row.provider, "model_name": row.model_name, "base_url": row.base_url, "api_key_env": row.api_key_env, "api_key_masked": runtime.api_key_masked, "has_stored_api_key": bool(row.api_key_ciphertext), "has_runtime_api_key": bool(runtime.api_key), "extra_config": json_loads_safe(row.extra_config_json, None), "is_active": bool(row.is_active), "priority": row.priority, "resolved_provider": runtime.provider, "resolved_model_name": runtime.model_name, "resolved_base_url": runtime.base_url, "resolved_source": runtime.source, "created_by": getattr(row, "created_by", None), "updated_by": getattr(row, "updated_by", None), "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "config_key": row.config_key, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "task_type": row.task_type, "provider": row.provider, "model_name": row.model_name, "base_url": row.base_url, "api_key_env": row.api_key_env, "api_key_masked": runtime.api_key_masked, "has_stored_api_key": bool(row.api_key_ciphertext), "has_runtime_api_key": bool(runtime.api_key), "extra_config": json_loads_safe(row.extra_config_json, None), "is_active": bool(row.is_active), "is_enabled": bool(row.is_active), "priority": row.priority, "resolved_provider": runtime.provider, "resolved_model_name": runtime.model_name, "resolved_base_url": runtime.base_url, "resolved_source": runtime.source, "created_by": getattr(row, "created_by", None), "updated_by": getattr(row, "updated_by", None), "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def list_llm_configs(self) -> List[Dict[str, Any]]:
         rows = self.db.query(RecruitmentLLMConfig).order_by(RecruitmentLLMConfig.task_type.asc(), RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).all()
@@ -13651,6 +13655,8 @@ class RecruitmentService:
         for field in ["config_key", "task_type", "provider", "model_name", "base_url", "api_key_env", "is_active", "priority", "scope_level", "allow_sub_org_use", "allow_copy"]:
             if field in payload:
                 setattr(row, field, payload.get(field))
+        if "is_enabled" in payload:
+            row.is_active = bool(payload.get("is_enabled"))
         if "share_policy" in payload:
             row.share_policy = normalize_share_policy(payload.get("share_policy"))
         if "org_code" in payload:

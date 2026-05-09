@@ -1119,6 +1119,7 @@ class RecruitmentAIGateway:
             resource_org_code=getattr(config, "org_code", None) or ROOT_ORG_CODE,
             share_policy=getattr(config, "share_policy", "PRIVATE"),
             allow_sub_org_use=getattr(config, "allow_sub_org_use", False),
+            scope_level=getattr(config, "scope_level", None),
         )
 
     def _resolve_api_key_from_provider(self, definition: ProviderDefinition) -> Optional[str]:
