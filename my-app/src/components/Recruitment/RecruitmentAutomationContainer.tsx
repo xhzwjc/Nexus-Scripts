@@ -3140,7 +3140,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
         // 静默刷新时不显示 toast
         if (!options?.silent) {
-            toast.success(isZh ? "数据已刷新" : "Data refreshed");
+            toast.success(recruitmentToast.dataRefreshed);
         }
     }
 
@@ -3920,7 +3920,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             sourceRunType: "stream",
                             frontendDebug: buildFrontendDebugPayload(),
                         }));
-                        toast.error(isZh ? `发送失败：${payload.message}` : `Request failed: ${payload.message}`);
+                        toast.error(recruitmentToast.sendFailed("发送", payload.message));
                         setCurrentAssistantRunId(null);
                         setAssistantStreamStopping(false);
                         runCompleted = true;
@@ -4004,7 +4004,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }));
             }
             if (mountedRef.current) {
-                toast.success(isZh ? "已停止助手生成" : "Assistant generation stopped");
+                toast.success(recruitmentToast.assistantGenerationStopped);
             }
         } finally {
             assistantStreamAbortRef.current = null;
@@ -4036,14 +4036,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     async function copyPublishJDText() {
         if (!currentPublishText.trim()) {
-            toast.error(isZh ? "当前没有可复制的发布文案" : "There is no publish copy to copy right now");
+            toast.error(recruitmentToast.noPublishText);
             return;
         }
         try {
             await navigator.clipboard.writeText(currentPublishText);
-            toast.success(isZh ? "发布文案已复制" : "Publish copy copied");
+            toast.success(recruitmentToast.copied("发布文案"));
         } catch (error) {
-            toast.error(isZh ? `复制失败：${error instanceof Error ? error.message : "未知错误"}` : `Copy failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+            toast.error(recruitmentToast.copyFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
         }
     }
 
@@ -4397,13 +4397,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 });
                 setSelectedPositionId(created.id);
                 targetPositionId = created.id;
-                toast.success(isZh ? "岗位已创建" : "Position created");
+                toast.success(recruitmentToast.created(recruitmentToastEntities.position));
             } else if (selectedPositionId) {
                 await recruitmentApi<PositionSummary>(`/positions/${selectedPositionId}`, {
                     method: "PATCH",
                     body: JSON.stringify(payload),
                 });
-                toast.success(isZh ? "岗位已更新" : "Position updated");
+                toast.success(recruitmentToast.updated(recruitmentToastEntities.position));
             }
             setPositionDialogOpen(false);
             await refreshCoreData();
@@ -4412,7 +4412,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             setActivePage("positions");
         } catch (error) {
-            setPositionFormSubmitError(isZh ? `保存岗位失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to save position: ${error instanceof Error ? error.message : "Unknown error"}`);
+            setPositionFormSubmitError(recruitmentToast.saveFailed(recruitmentToastEntities.position, error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
             setPositionSubmitting(false);
         }
@@ -4425,17 +4425,17 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setPositionDeleting(true);
         try {
             await recruitmentApi(`/positions/${selectedPositionId}`, {method: "DELETE"});
-            toast.success(isZh ? "岗位已删除" : "Position deleted");
+            toast.success(recruitmentToast.deleted(recruitmentToastEntities.position));
             setPositionDeleteConfirmOpen(false);
             setPositionDetail(null);
             setSelectedPositionId(null);
             try {
                 await Promise.all([loadPositions(), loadDashboard(), loadCandidates(), loadLogs()]);
             } catch (refreshError) {
-                toast.error(isZh ? `岗位已删除，但页面刷新失败：${formatActionError(refreshError)}` : `Position deleted, but page refresh failed: ${formatActionError(refreshError)}`);
+                toast.error(recruitmentToast.deletedButRefreshFailed(recruitmentToastEntities.position, formatActionError(refreshError)));
             }
         } catch (error) {
-            toast.error(isZh ? `删除岗位失败：${formatActionError(error)}` : `Failed to delete position: ${formatActionError(error)}`);
+            toast.error(recruitmentToast.deleteFailed(recruitmentToastEntities.position, formatActionError(error)));
         } finally {
             setPositionDeleting(false);
         }
@@ -4528,9 +4528,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setJdViewMode("publish");
             setJdGenerationStatus("idle");
             if (completedData?.used_fallback) {
-                toast.warning(isZh ? "岗位 JD 已生成（AI 超时，已使用兜底结果）" : "JD generated (AI timed out, fallback result used)");
+                toast.warning(recruitmentToast.generatedWithFallback("岗位 JD"));
             } else {
-                toast.success(isZh ? "岗位 JD 已生成" : "JD generated");
+                toast.success(recruitmentToast.generated("岗位 JD", false));
             }
         } catch (error) {
             if (!mountedRef.current) return;
@@ -4540,8 +4540,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 return;
             }
             setJdGenerationStatus("failed");
-            setJdGenerationError(error instanceof Error ? error.message : (isZh ? "未知错误" : "Unknown error"));
-            toast.error(isZh ? `生成 JD 失败：${error instanceof Error ? error.message : "未知错误"}` : `JD generation failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+            setJdGenerationError(error instanceof Error ? error.message : recruitmentToast.unknownError);
+            toast.error(recruitmentToast.createFailed("JD 生成", error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
             jdGenerationInFlightRef.current = false;
             jdAbortControllerRef.current = null;
@@ -4576,11 +4576,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     auto_activate: jdDraft.autoActivate,
                 }),
             });
-            toast.success(isZh ? "JD 新版本已保存" : "New JD version saved");
+            toast.success(recruitmentToast.newJdVersionSaved);
             await Promise.all([loadPositionDetail(selectedPositionId), loadDashboard(), loadPositions()]);
             setJdViewMode("publish");
         } catch (error) {
-            toast.error(isZh ? `保存 JD 失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to save the JD: ${error instanceof Error ? error.message : "Unknown error"}`);
+            toast.error(recruitmentToast.saveFailed("JD", error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
             setJdVersionSaving(false);
         }
@@ -4595,10 +4595,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             await recruitmentApi<JDVersion>(`/positions/${selectedPositionId}/jd-versions/${versionId}/activate`, {
                 method: "POST",
             });
-            toast.success(isZh ? "已切换生效版本" : "Active version switched");
+            toast.success(recruitmentToast.jdVersionSwitched);
             await Promise.all([loadPositionDetail(selectedPositionId), loadDashboard(), loadPositions()]);
         } catch (error) {
-            toast.error(isZh ? `切换 JD 版本失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to switch JD version: ${error instanceof Error ? error.message : "Unknown error"}`);
+            toast.error(recruitmentToast.updateFailed("JD 版本", error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
             setJdVersionActivating(false);
         }
@@ -4789,7 +4789,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             void refreshCoreData();
         } catch (error) {
             if (error instanceof Error && error.name === "AbortError") {
-                toast.warning(isZh ? "上传已取消" : "Upload cancelled");
+                toast.warning(recruitmentToast.uploadCancelled);
             } else {
                 setResumeUploadError(recruitmentToast.createFailed(recruitmentToastEntities.resume, formatActionError(error)));
             }
@@ -4803,14 +4803,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     async function exportCandidates(candidateIds: number[], includeResumes = true) {
         if (!candidateIds.length) {
-            toast.error(isZh ? "请先选择要导出的候选人" : "Please select candidates to export");
+            toast.error(recruitmentToast.selectCandidatesToExport);
             return;
         }
         if (exporting) {
             return;
         }
         setExporting(true);
-        const exportToastId = toast.loading(isZh ? "正在导出..." : "Exporting...");
+        const exportToastId = toast.loading(recruitmentToast.exporting);
         try {
             const response = await authenticatedFetch("/api/recruitment/candidates/export", {
                 method: "POST",
@@ -4834,9 +4834,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             anchor.click();
             anchor.remove();
             window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-            toast.success(isZh ? `已导出 ${candidateIds.length} 位候选人` : `Exported ${candidateIds.length} candidates`, {id: exportToastId});
+            toast.success(recruitmentToast.exported(candidateIds.length), {id: exportToastId});
         } catch (error) {
-            toast.error(isZh ? `导出失败：${error instanceof Error ? error.message : "未知错误"}` : `Export failed: ${error instanceof Error ? error.message : "Unknown error"}`, {id: exportToastId});
+            toast.error(recruitmentToast.exportFailed(error instanceof Error ? error.message : recruitmentToast.unknownError), {id: exportToastId});
         } finally {
             setExporting(false);
         }
@@ -5030,7 +5030,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 toast.success(task.reused_existing_task ? recruitmentToast.screeningTaskReused : recruitmentUiText.queueJoined);
             }
         } catch (error) {
-            toast.error(isZh ? `发起初筛失败：${formatActionError(error)}` : `Failed to start screening: ${formatActionError(error)}`);
+            toast.error(recruitmentToast.screeningStartFailed(formatActionError(error)));
         } finally {
             screeningLaunchInFlightRef.current = false;
             setScreeningSubmitting(false);
@@ -5054,7 +5054,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     setActiveInterviewCandidateId((current) => (current === candidateId ? null : current));
                 }
             } catch (error) {
-                toast.error(isZh ? `停止面试题生成失败：${formatActionError(error)}` : `Failed to stop interview question generation: ${formatActionError(error)}`);
+                toast.error(recruitmentToast.stopFailed("面试题生成", formatActionError(error)));
             }
             return;
         }
@@ -5093,19 +5093,19 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             : Promise.resolve(null),
                     ]);
                     if (log.status === "success" || log.status === "fallback") {
-                        toast.success(log.status === "fallback" ? (isZh ? "面试题已生成（兜底完成）" : "Interview questions generated with fallback") : (isZh ? "面试题已生成" : "Interview questions generated"));
+                        toast.success(recruitmentToast.generated("面试题", log.status === "fallback"));
                         return;
                     }
                     if (log.status === "cancelled") {
-                        toast.success(isZh ? "已停止面试题生成" : "Interview question generation stopped");
+                        toast.success(recruitmentToast.stopped("面试题生成"));
                         return;
                     }
-                    toast.error(isZh ? `生成面试题失败：${log.error_message || "未知错误"}` : `Interview question generation failed: ${log.error_message || "Unknown error"}`);
+                    toast.error(recruitmentToast.interviewQuestionGenerationFailed(log.error_message || recruitmentToast.unknownError));
                 },
             });
-            toast.success(isZh ? "已开始生成面试题，可随时停止" : "Interview question generation started and can be stopped at any time");
+            toast.success(recruitmentToast.interviewQuestionGenerationStarted);
         } catch (error) {
-            toast.error(isZh ? `生成面试题失败：${error instanceof Error ? error.message : "未知错误"}` : `Interview question generation failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+            toast.error(recruitmentToast.interviewQuestionGenerationFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
             if (!started) {
                 setInterviewGenerating(false);
@@ -5135,7 +5135,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         setActiveChatMessageId((current) => (current === activeChatMessageId ? null : current));
                     }
                 } catch (error) {
-                    toast.error(isZh ? `停止助手生成失败：${formatActionError(error)}` : `Failed to stop assistant generation: ${formatActionError(error)}`);
+                    toast.error(recruitmentToast.stopFailed("助手生成", formatActionError(error)));
                 }
                 return;
             }
@@ -5200,7 +5200,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     },
                 ]);
                 if (response.used_fallback) {
-                    toast.error(isZh ? `本次 AI 调用已回退到兜底结果：${response.fallback_error || "未返回具体原因"}` : `This AI call fell back to a fallback result: ${response.fallback_error || "No specific reason returned"}`);
+                    toast.error(recruitmentToast.screeningFallback(response.fallback_error || recruitmentToast.noReason));
                 }
                 await Promise.all([loadLogs({silent: true}), loadDashboard()]);
                 return;
@@ -5258,11 +5258,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     setActiveChatMessageId((current) => (current === pendingMessageId ? null : current));
                     await Promise.all([loadLogs({silent: true}), loadDashboard()]);
                     if (log.status === "fallback") {
-                        toast.error(isZh ? `本次 AI 调用已回退到兜底结果：${log.error_message || "未返回具体原因"}` : `This AI call fell back to a fallback result: ${log.error_message || "No specific reason returned"}`);
+                        toast.error(recruitmentToast.screeningFallback(log.error_message || recruitmentToast.noReason));
                     } else if (log.status === "failed") {
-                        toast.error(isZh ? `发送失败：${log.error_message || "未知错误"}` : `Request failed: ${log.error_message || "Unknown error"}`);
+                        toast.error(recruitmentToast.sendFailed("发送", log.error_message || recruitmentToast.unknownError));
                     } else if (log.status === "cancelled") {
-                        toast.success(isZh ? "已停止助手生成" : "Assistant generation stopped");
+                        toast.success(recruitmentToast.assistantGenerationStopped);
                     }
                 },
             });
@@ -5272,7 +5272,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 {
                     id: `e-${Date.now()}`,
                     role: "assistant",
-                    content: isZh ? `发送失败：${error instanceof Error ? error.message : "未知错误"}` : `Request failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+                    content: recruitmentToast.sendFailed("发送", error instanceof Error ? error.message : recruitmentToast.unknownError),
                     createdAt: new Date().toISOString(),
                 },
             ]);
@@ -5312,14 +5312,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             if (options?.quiet) {
                 return;
             }
-            toast.success(isZh ? "AI 助手上下文已更新" : "AI assistant context updated");
+            toast.success(recruitmentToast.contextUpdated);
         } catch (error) {
             chatContextRef.current = previousContext;
             setChatContext(previousContext);
             if (options?.quiet) {
                 return;
             }
-            toast.error(isZh ? `更新助手上下文失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to update assistant context: ${error instanceof Error ? error.message : "Unknown error"}`);
+            toast.error(recruitmentToast.contextUpdateFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
         }
     }
 
@@ -5779,7 +5779,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
         } catch (error) {
-            toast.error(isZh ? `打开简历失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to open resume: ${error instanceof Error ? error.message : "Unknown error"}`);
+            toast.error(recruitmentToast.resumeOpenedFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
         }
     }
 
@@ -5806,7 +5806,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setCandidateDeleteTarget(null);
             setSelectedCandidateIds((current) => current.filter((item) => item !== deletedCandidateId));
             setCandidateDetail(null);
-            toast.success(isZh ? "候选人已删除" : "Candidate deleted");
+            toast.success(recruitmentToast.candidateDeleted);
             const nextCandidates = await loadCandidates({silent: true});
             const nextCandidateId = nextCandidates[0]?.id ?? null;
             setSelectedCandidateId(nextCandidateId);
@@ -5852,12 +5852,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             if (skipped.length > 0) {
                 const names = skipped.map((s) => `ID:${s.candidate_id}`).join(", ");
                 toast.warning(
-                    isZh
-                        ? `已删除 ${deletedCount} 位候选人，${skipped.length} 位因任务进行中已被跳过：${names}`
-                        : `Deleted ${deletedCount} candidate(s), ${skipped.length} skipped due to active tasks: ${names}`
+                    recruitmentToast.candidatesDeletedWithSkipped(deletedCount, skipped.length, names)
                 );
             } else {
-                toast.success(isZh ? `已删除 ${deletedCount} 位候选人` : `Deleted ${deletedCount} candidate(s)`);
+                toast.success(recruitmentToast.candidatesDeleted(deletedCount));
             }
             const nextCandidates = await loadCandidates({silent: true});
             const nextCandidateId = nextCandidates[0]?.id ?? null;
@@ -5884,9 +5882,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 body: JSON.stringify({ candidate_ids: candidateIds, position_id: positionId }),
             });
             toast.success(
-                isZh
-                    ? `已为 ${result.updated_count} 位候选人更新岗位`
-                    : `Updated position for ${result.updated_count} candidate(s)`
+                recruitmentToast.positionUpdated(result.updated_count)
             );
             await Promise.all([loadCandidates(), loadDashboard(), refreshCandidateStats()]);
             if (selectedCandidateId && candidateIds.includes(selectedCandidateId)) {
@@ -5910,21 +5906,13 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 method: "POST",
                 body: JSON.stringify({ candidate_ids: candidateIds, status, reason: reason || undefined }),
             });
-            toast.success(
-                isZh
-                    ? `已为 ${result.updated_count} 位候选人变更状态`
-                    : `Updated status for ${result.updated_count} candidate(s)`
-            );
+            toast.success(recruitmentToast.batchStatusUpdated(result.updated_count));
             await Promise.all([loadCandidates(), loadDashboard(), refreshCandidateStats()]);
             if (selectedCandidateId && candidateIds.includes(selectedCandidateId)) {
                 await loadCandidateDetail(selectedCandidateId);
             }
         } catch (error) {
-            toast.error(
-                isZh
-                    ? `批量变更状态失败：${formatActionError(error)}`
-                    : `Failed to batch update status: ${formatActionError(error)}`
-            );
+            toast.error(recruitmentToast.batchStatusUpdateFailed(formatActionError(error)));
         }
     }
 
@@ -5946,8 +5934,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             });
             toast.success(
                 result.remaining_resume_count > 0
-                    ? (isZh ? "简历已删除，候选人已自动切换到剩余简历" : "Resume deleted, and the candidate was switched to a remaining resume automatically")
-                    : (isZh ? "简历已删除" : "Resume deleted"),
+                    ? recruitmentToast.resumeDeletedWithSwitch
+                    : recruitmentToast.resumeDeleted
             );
             setResumeDeleteTarget(null);
             await Promise.all([
@@ -5959,7 +5947,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     : Promise.resolve(null),
             ]);
         } catch (error) {
-            toast.error(isZh ? `删除简历失败：${formatActionError(error)}` : `Failed to delete resume: ${formatActionError(error)}`);
+            toast.error(recruitmentToast.resumeDeleteFailed(formatActionError(error)));
         } finally {
             setResumeDeleting(false);
         }
@@ -5986,9 +5974,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             anchor.click();
             anchor.remove();
             URL.revokeObjectURL(downloadUrl);
-            toast.success(isZh ? "面试题 HTML 已开始下载" : "Interview question HTML download started");
+            toast.success(recruitmentToast.interviewQuestionDownloadStarted);
         } catch (error) {
-            toast.error(isZh ? `下载面试题失败：${error instanceof Error ? error.message : "未知错误"}` : `Failed to download interview questions: ${error instanceof Error ? error.message : "Unknown error"}`);
+            toast.error(recruitmentToast.interviewQuestionDownloadFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
         }
     }
 
@@ -6019,7 +6007,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             method: "POST",
             body: JSON.stringify(payload),
         });
-        toast.success(isZh ? "面试安排已创建" : "Interview schedule created");
+        toast.success(recruitmentToast.interviewScheduleCreated);
         if (selectedCandidateId) {
             await loadInterviewSchedules(selectedCandidateId);
         }
@@ -6028,7 +6016,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     async function deleteInterviewSchedule(scheduleId: number) {
         await recruitmentApi(`/interview-schedules/${scheduleId}`, {method: "DELETE"});
-        toast.success(isZh ? "面试安排已删除" : "Interview schedule deleted");
+        toast.success(recruitmentToast.interviewScheduleDeleted);
         if (selectedCandidateId) {
             await loadInterviewSchedules(selectedCandidateId);
         }
@@ -6052,7 +6040,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             method: "POST",
             body: JSON.stringify({candidate_id: candidateId, content, follow_up_type: followUpType}),
         });
-        toast.success(isZh ? "跟进记录已添加" : "Follow-up added");
+        toast.success(recruitmentToast.followUpAdded);
         if (selectedCandidateId) {
             await loadFollowUps(selectedCandidateId);
         }
@@ -6061,7 +6049,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     async function deleteFollowUp(followUpId: number) {
         await recruitmentApi(`/follow-ups/${followUpId}`, {method: "DELETE"});
-        toast.success(isZh ? "跟进记录已删除" : "Follow-up deleted");
+        toast.success(recruitmentToast.followUpDeleted);
         if (selectedCandidateId) {
             await loadFollowUps(selectedCandidateId);
         }
@@ -6093,7 +6081,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             method: "POST",
             body: JSON.stringify(payload),
         });
-        toast.success(isZh ? "Offer 已创建" : "Offer created");
+        toast.success(recruitmentToast.offerCreated);
         if (selectedCandidateId) {
             await loadOffers(selectedCandidateId);
         }
@@ -6105,7 +6093,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             method: "PATCH",
             body: JSON.stringify(payload),
         });
-        toast.success(isZh ? "Offer 已更新" : "Offer updated");
+        toast.success(recruitmentToast.offerUpdated);
         if (selectedCandidateId) {
             await loadOffers(selectedCandidateId);
         }
@@ -6114,7 +6102,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     async function deleteOffer(offerId: number) {
         await recruitmentApi(`/offers/${offerId}`, {method: "DELETE"});
-        toast.success(isZh ? "Offer 已删除" : "Offer deleted");
+        toast.success(recruitmentToast.offerDeleted);
         if (selectedCandidateId) {
             await loadOffers(selectedCandidateId);
         }
@@ -6397,7 +6385,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     async function toggleSkill(skillId: number, enabled: boolean) {
         try {
             await recruitmentApi(`/skills/${skillId}/toggle${buildQuery({enabled})}`, {method: "POST"});
-            toast.success(enabled ? (isZh ? "Skill 已启用" : "Skill enabled") : (isZh ? "Skill 已停用" : "Skill disabled"));
+            toast.success(enabled ? recruitmentToast.skillEnabled : recruitmentToast.skillDisabled);
             await loadSkills();
         } catch (error) {
             toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.skill, formatActionError(error)));
@@ -7390,7 +7378,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                                                                     setSelectedCandidateId(positionDetail.candidates[0].id);
                                                                     setActivePage("candidates");
                                                                 } else {
-                                                                    toast.error(isZh ? "这个岗位还没有候选人，暂时无法直接生成面试题" : "This position has no candidates yet, so interview questions cannot be generated.");
+                                                                    toast.error(recruitmentToast.noCandidatesForInterview);
                                                                 }
                                                             }}
                                                         >

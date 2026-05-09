@@ -212,6 +212,7 @@ type RecruitmentToastLocale = {
         interviewHtml: string;
     };
     unknownError: string;
+    noReason: string;
     noResumeSelected: string;
     noCandidatesSelected: string;
     noScreeningQueued: string;
@@ -247,6 +248,48 @@ type RecruitmentToastLocale = {
     screeningCompleted: (fallback: boolean) => string;
     screeningQueued: (queued: number, skipped: number, failed: number) => string;
     screeningTaskReused: string;
+    copied: (entity: string) => string;
+    generated: (entity: string, fallback: boolean) => string;
+    generatedWithFallback: (entity: string) => string;
+    exported: (count: number) => string;
+    generating: (entity: string) => string;
+    exporting: string;
+    uploadCancelled: string;
+    contextUpdated: string;
+    contextUpdateFailed: (error: string) => string;
+    newJdVersionSaved: string;
+    jdVersionSwitched: string;
+    fallbackDetected: (error: string) => string;
+    assistantGenerationStopped: string;
+    dataRefreshed: string;
+    selectCandidatesToExport: string;
+    interviewScheduleCreated: string;
+    interviewScheduleDeleted: string;
+    followUpAdded: string;
+    followUpDeleted: string;
+    offerCreated: string;
+    offerUpdated: string;
+    offerDeleted: string;
+    skillEnabled: string;
+    skillDisabled: string;
+    batchStatusUpdated: (count: number) => string;
+    batchStatusUpdateFailed: (error: string) => string;
+    resumeOpenedFailed: (error: string) => string;
+    exportFailed: (error: string) => string;
+    screeningStartFailed: (error: string) => string;
+    interviewQuestionGenerationFailed: (error: string) => string;
+    interviewQuestionGenerationStarted: string;
+    resumeDeleted: string;
+    resumeDeletedWithSwitch: string;
+    candidateDeleted: string;
+    candidatesDeleted: (count: number) => string;
+    candidatesDeletedWithSkipped: (deleted: number, skipped: number, names: string) => string;
+    positionUpdated: (count: number) => string;
+    interviewQuestionDownloadStarted: string;
+    interviewQuestionDownloadFailed: (error: string) => string;
+    resumeDeleteFailed: (error: string) => string;
+    noCandidatesForInterview: string;
+    screeningFallback: (error: string) => string;
 };
 
 type RecruitmentLocaleBundle = {
@@ -367,6 +410,7 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
             interviewHtml: "面试题 HTML",
         },
         unknownError: "未知错误",
+        noReason: "未返回具体原因",
         noResumeSelected: "请先选择要上传的简历文件",
         noCandidatesSelected: "请先选择需要初筛的候选人",
         noScreeningQueued: "没有成功入队任何初筛任务",
@@ -402,6 +446,48 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
         screeningCompleted: (fallback) => fallback ? "初筛已完成（兜底完成）" : "初筛已完成",
         screeningQueued: (queued, skipped, failed) => `已入队 ${queued} 个，已跳过进行中的 ${skipped} 个${failed > 0 ? `，失败 ${failed}` : ""}。`,
         screeningTaskReused: "已有初筛任务在执行，已为你定位到现有任务",
+        copied: (entity) => `${entity}已复制`,
+        generated: (entity, fallback) => fallback ? `${entity}已生成（兜底完成）` : `${entity}已生成`,
+        generatedWithFallback: (entity) => `${entity}已生成（兜底完成）`,
+        exported: (count) => `已导出 ${count} 位候选人`,
+        generating: (entity) => `正在生成${entity}...`,
+        exporting: "正在导出...",
+        uploadCancelled: "上传已取消",
+        contextUpdated: "AI 助手上下文已更新",
+        contextUpdateFailed: (error) => `更新助手上下文失败：${error}`,
+        newJdVersionSaved: "JD 新版本已保存",
+        jdVersionSwitched: "已切换生效版本",
+        fallbackDetected: (error) => `本次 AI 调用已回退到兜底结果：${error}`,
+        assistantGenerationStopped: "已停止助手生成",
+        dataRefreshed: "数据已刷新",
+        selectCandidatesToExport: "请先选择要导出的候选人",
+        interviewScheduleCreated: "面试安排已创建",
+        interviewScheduleDeleted: "面试安排已删除",
+        followUpAdded: "跟进记录已添加",
+        followUpDeleted: "跟进记录已删除",
+        offerCreated: "Offer 已创建",
+        offerUpdated: "Offer 已更新",
+        offerDeleted: "Offer 已删除",
+        skillEnabled: "Skill 已启用",
+        skillDisabled: "Skill 已停用",
+        batchStatusUpdated: (count) => `已为 ${count} 位候选人变更状态`,
+        batchStatusUpdateFailed: (error) => `批量变更状态失败：${error}`,
+        resumeOpenedFailed: (error) => `打开简历失败：${error}`,
+        exportFailed: (error) => `导出失败：${error}`,
+        screeningStartFailed: (error) => `发起初筛失败：${error}`,
+        interviewQuestionGenerationFailed: (error) => `生成面试题失败：${error}`,
+        interviewQuestionGenerationStarted: "已开始生成面试题，可随时停止",
+        resumeDeleted: "简历已删除",
+        resumeDeletedWithSwitch: "简历已删除，候选人已自动切换到剩余简历",
+        candidateDeleted: "候选人已删除",
+        candidatesDeleted: (count) => `已删除 ${count} 位候选人`,
+        candidatesDeletedWithSkipped: (deleted, skipped, names) => `已删除 ${deleted} 位候选人，${skipped} 位因任务进行中已被跳过：${names}`,
+        positionUpdated: (count) => `已为 ${count} 位候选人更新岗位`,
+        interviewQuestionDownloadStarted: "面试题 HTML 已开始下载",
+        interviewQuestionDownloadFailed: (error) => `下载面试题失败：${error}`,
+        resumeDeleteFailed: (error) => `删除简历失败：${error}`,
+        noCandidatesForInterview: "这个岗位还没有候选人，暂时无法直接生成面试题",
+        screeningFallback: (error) => `本次 AI 调用已回退到兜底结果：${error}`,
     },
 };
 
@@ -514,6 +600,7 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
             interviewHtml: "interview HTML",
         },
         unknownError: "Unknown error",
+        noReason: "No specific reason returned",
         noResumeSelected: "Please choose a resume file first.",
         noCandidatesSelected: "Please select at least one candidate to screen.",
         noScreeningQueued: "No screening tasks were queued successfully.",
@@ -549,6 +636,48 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
         screeningCompleted: (fallback) => fallback ? "Screening completed with fallback" : "Screening completed",
         screeningQueued: (queued, skipped, failed) => `Queued ${queued}, skipped ${skipped} already-running task(s)${failed > 0 ? `, failed ${failed}` : ""}.`,
         screeningTaskReused: "An existing screening task is already running, so the current view jumped to that task.",
+        copied: (entity) => `${entity} copied`,
+        generated: (entity, fallback) => fallback ? `${entity} generated with fallback` : `${entity} generated`,
+        generatedWithFallback: (entity) => `${entity} generated with fallback`,
+        exported: (count) => `Exported ${count} candidate(s)`,
+        generating: (entity) => `Generating ${entity}...`,
+        exporting: "Exporting...",
+        uploadCancelled: "Upload cancelled",
+        contextUpdated: "AI assistant context updated",
+        contextUpdateFailed: (error) => `Failed to update assistant context: ${error}`,
+        newJdVersionSaved: "New JD version saved",
+        jdVersionSwitched: "Active version switched",
+        fallbackDetected: (error) => `This AI call fell back to a fallback result: ${error}`,
+        assistantGenerationStopped: "Assistant generation stopped",
+        dataRefreshed: "Data refreshed",
+        selectCandidatesToExport: "Please select candidates to export",
+        interviewScheduleCreated: "Interview schedule created",
+        interviewScheduleDeleted: "Interview schedule deleted",
+        followUpAdded: "Follow-up added",
+        followUpDeleted: "Follow-up deleted",
+        offerCreated: "Offer created",
+        offerUpdated: "Offer updated",
+        offerDeleted: "Offer deleted",
+        skillEnabled: "Skill enabled",
+        skillDisabled: "Skill disabled",
+        batchStatusUpdated: (count) => `Updated status for ${count} candidate(s)`,
+        batchStatusUpdateFailed: (error) => `Failed to batch update status: ${error}`,
+        resumeOpenedFailed: (error) => `Failed to open resume: ${error}`,
+        exportFailed: (error) => `Export failed: ${error}`,
+        screeningStartFailed: (error) => `Failed to start screening: ${error}`,
+        interviewQuestionGenerationFailed: (error) => `Interview question generation failed: ${error}`,
+        interviewQuestionGenerationStarted: "Interview question generation started and can be stopped at any time",
+        resumeDeleted: "Resume deleted",
+        resumeDeletedWithSwitch: "Resume deleted, and the candidate was switched to a remaining resume automatically",
+        candidateDeleted: "Candidate deleted",
+        candidatesDeleted: (count) => `Deleted ${count} candidate(s)`,
+        candidatesDeletedWithSkipped: (deleted, skipped, names) => `Deleted ${deleted} candidate(s), ${skipped} skipped due to active tasks: ${names}`,
+        positionUpdated: (count) => `Updated position for ${count} candidate(s)`,
+        interviewQuestionDownloadStarted: "Interview question HTML download started",
+        interviewQuestionDownloadFailed: (error) => `Failed to download interview questions: ${error}`,
+        resumeDeleteFailed: (error) => `Failed to delete resume: ${error}`,
+        noCandidatesForInterview: "This position has no candidates yet, so interview questions cannot be generated.",
+        screeningFallback: (error) => `This AI call fell back to a fallback result: ${error}`,
     },
 };
 
