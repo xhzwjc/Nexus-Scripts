@@ -539,7 +539,6 @@ export const zhCN: Translations = {
         categoryCollaboration: '协作',
         categoryRecruitment: '招聘',
         categoryRecruitmentConfig: '招聘配置',
-        categoryCompatibility: '兼容别名',
         resourcesPageTitle: '资源治理',
         resourcesPageDesc: '为邮件中心、Skill 配置和模型配置统一预留组织归属、共享策略与治理视图。',
         resourcePartialLoadFailed: '部分资源域暂时无法读取，已展示当前可访问的配置资源。',

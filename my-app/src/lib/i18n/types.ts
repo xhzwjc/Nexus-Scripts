@@ -730,7 +730,6 @@ export interface Translations {
     categoryCollaboration: string;
     categoryRecruitment: string;
     categoryRecruitmentConfig: string;
-    categoryCompatibility: string;
     resourcesPageTitle: string;
     resourcesPageDesc: string;
     resourcePartialLoadFailed: string;

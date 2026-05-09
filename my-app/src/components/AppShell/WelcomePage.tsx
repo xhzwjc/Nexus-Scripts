@@ -24,12 +24,14 @@ export function WelcomePage({ currentUser, onNavigate }: WelcomePageProps) {
                     开启您的精彩旅程
                 </p>
 
-                <button
-                    onClick={() => onNavigate('ai-recruitment')}
-                    className="mt-8 px-8 py-3 bg-slate-900 dark:bg-slate-700 text-white rounded-full hover:bg-slate-800 dark:hover:bg-slate-600 transition-colors duration-300"
-                >
-                    开始探索
-                </button>
+                {currentUser?.permissions?.['ai-recruitment'] && (
+                    <button
+                        onClick={() => onNavigate('ai-recruitment')}
+                        className="mt-8 px-8 py-3 bg-slate-900 dark:bg-slate-700 text-white rounded-full hover:bg-slate-800 dark:hover:bg-slate-600 transition-colors duration-300"
+                    >
+                        开始探索
+                    </button>
+                )}
             </div>
 
             <style>{`

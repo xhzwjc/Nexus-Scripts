@@ -244,8 +244,6 @@ export function categoryLabel(category: string, labels: AccessControlLabels) {
             return labels.categoryRecruitment;
         case 'recruitment-config':
             return labels.categoryRecruitmentConfig;
-        case 'compatibility':
-            return labels.categoryCompatibility;
         default:
             return category;
     }

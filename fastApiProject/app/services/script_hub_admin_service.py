@@ -17,6 +17,7 @@ from ..permission_governance import (
     normalize_org_code,
     normalize_org_code_list,
 )
+from ..rbac_catalog import DEPRECATED_PERMISSION_KEYS
 from ..rbac_models import (
     ScriptHubOrganization,
     ScriptHubPermission,
@@ -267,6 +268,9 @@ def _normalize_role_codes(role_codes: Iterable[str], available_roles: Dict[str, 
 
 def _normalize_permission_keys(permission_keys: Iterable[str], available_permissions: Dict[str, ScriptHubPermission]) -> List[str]:
     normalized = sorted({str(permission_key).strip() for permission_key in permission_keys if str(permission_key).strip()})
+    # Silently strip deprecated keys that may still exist in legacy role data.
+    # They are no longer assignable but should not cause errors when editing old roles.
+    normalized = [key for key in normalized if key not in DEPRECATED_PERMISSION_KEYS]
     invalid = [permission_key for permission_key in normalized if permission_key not in available_permissions]
     if invalid:
         raise ValueError(f"Unknown permissions: {', '.join(invalid)}")

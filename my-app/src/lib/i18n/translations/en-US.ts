@@ -540,7 +540,6 @@ export const enUS: Translations = {
         categoryCollaboration: 'Collaboration',
         categoryRecruitment: 'Recruitment',
         categoryRecruitmentConfig: 'Recruitment Config',
-        categoryCompatibility: 'Compatibility aliases',
         resourcesPageTitle: 'Resource Governance',
         resourcesPageDesc: 'Prepare unified organization ownership, sharing policy, and governance views for Mail, Skill, and Model configs.',
         resourcePartialLoadFailed: 'Some resource domains could not be loaded. Showing configuration resources currently accessible.',

@@ -217,7 +217,7 @@ function AppContent() {
         if (!currentUser || landingPageApplied) return;
         setLandingPageApplied(true);
         const landing = currentUser.landingPage || 'home';
-        if (landing === 'welcome' && currentUser.permissions['ai-recruitment']) {
+        if (landing === 'welcome') {
             setCurrentView('welcome');
         }
     }, [currentUser, landingPageApplied]);
@@ -285,7 +285,7 @@ function AppContent() {
             'agent-chat': 'agent-chat',
             'access-control': 'rbac-manage',
             'ai-recruitment': 'ai-recruitment',
-            'welcome': 'ai-recruitment',
+            'welcome': undefined,
         };
 
         const requiredPermission = requiredViewPermissions[currentView];
@@ -401,18 +401,12 @@ function AppContent() {
     );
 
     // ============== 欢迎页面 ==============
-    const renderWelcomeContent = () => {
-        const hasRecruitmentPermission = !!currentUser?.permissions['ai-recruitment'];
-        if (!hasRecruitmentPermission) {
-            return <WelcomePageUnauthorized />;
-        }
-        return (
-            <WelcomePage
-                currentUser={currentUser}
-                onNavigate={setCurrentView}
-            />
-        );
-    };
+    const renderWelcomeContent = () => (
+        <WelcomePage
+            currentUser={currentUser}
+            onNavigate={setCurrentView}
+        />
+    );
 
     // ============== 系统工具页面 ==============
     const renderSystemContent = () => (

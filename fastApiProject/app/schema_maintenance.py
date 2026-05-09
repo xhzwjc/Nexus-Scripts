@@ -7,7 +7,7 @@ from threading import Lock
 from sqlalchemy import inspect, text
 
 from .database import Base, SessionLocal, engine
-from .rbac_catalog import PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
+from .rbac_catalog import DEPRECATED_PERMISSION_KEYS, PERMISSION_DEFINITIONS, ROLE_DEFINITIONS
 from .permission_governance import ROOT_ORG_CODE
 from .rbac_models import ScriptHubOrganization, ScriptHubPermission, ScriptHubRole, ScriptHubRolePermission
 from .recruitment_models import (
@@ -201,6 +201,15 @@ def _sync_script_hub_catalog() -> None:
                 row.description = definition.description
                 row.sort_order = definition.sort_order
                 row.is_active = True
+
+        # Deactivate deprecated permissions that are no longer in PERMISSION_DEFINITIONS.
+        # They may still exist in the database from prior versions; marking them inactive
+        # hides them from the UI while preserving existing role_permission links for
+        # backward compatibility (expand_permission_aliases handles the derivation).
+        for key in DEPRECATED_PERMISSION_KEYS:
+            dep_row = permission_rows.get(key)
+            if dep_row and dep_row.is_active:
+                dep_row.is_active = False
 
         db.flush()
 

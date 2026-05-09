@@ -125,14 +125,22 @@ def normalize_org_code_list(values: Any) -> list[str]:
 def expand_permission_aliases(permissions: Dict[str, bool]) -> Dict[str, bool]:
     expanded = {key: bool(value) for key, value in (permissions or {}).items() if value}
 
+    # Forward: legacy alias → fine-grained permissions
     if expanded.get("ai-recruitment"):
         expanded.update({key: True for key in LEGACY_RECRUITMENT_VIEW_PERMISSIONS})
-
     if expanded.get("ai-recruitment-manage"):
         expanded["ai-recruitment"] = True
         expanded.update({key: True for key in LEGACY_RECRUITMENT_VIEW_PERMISSIONS})
         expanded.update({key: True for key in LEGACY_RECRUITMENT_MANAGE_PERMISSIONS})
 
+    # Reverse: fine-grained permissions → alias (for UI entry checks)
+    if any(expanded.get(key) for key in LEGACY_RECRUITMENT_VIEW_PERMISSIONS):
+        expanded["ai-recruitment"] = True
+    if any(expanded.get(key) for key in LEGACY_RECRUITMENT_MANAGE_PERMISSIONS):
+        expanded["ai-recruitment-manage"] = True
+        expanded["ai-recruitment"] = True
+
+    # Cross-module implication
     if expanded.get("rbac-manage"):
         expanded["audit-log-view"] = True
 
