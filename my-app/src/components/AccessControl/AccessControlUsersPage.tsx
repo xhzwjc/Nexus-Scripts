@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react';
 import { Loader2, Plus, Search, SlidersHorizontal } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { authenticatedFetch, clearScriptHubSession, getStoredScriptHubSession, validateStoredScriptHubSession } from '@/lib/auth';
-import type { ScriptHubManagedUser } from '@/lib/types';
 import { useI18n } from '@/lib/i18n';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
