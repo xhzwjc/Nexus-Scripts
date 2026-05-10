@@ -958,6 +958,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [mailSettingsLoading, setMailSettingsLoading] = useState(false);
     const [mailAutoPushConfigSaving, setMailAutoPushConfigSaving] = useState(false);
     const [coreRefreshing, setCoreRefreshing] = useState(false);
+    const [orgSwitching, setOrgSwitching] = useState(false);
     const [skillSubmitting, setSkillSubmitting] = useState(false);
     const [llmSubmitting, setLlmSubmitting] = useState(false);
     const [resumeMailSubmitting, setResumeMailSubmitting] = useState(false);
@@ -7965,13 +7966,18 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                             hasAllOrgScope={hasAllOrgScope}
                             selectedOrgScope={selectedOrgScope}
                             selectedDepartmentScope={selectedDepartmentScope}
-                            onOrgScopeChange={(orgScope, deptScope) => {
+                            onOrgScopeChange={async (orgScope, deptScope) => {
                                 setSelectedOrgScope(orgScope);
                                 setSelectedDepartmentScope(deptScope);
-                                void refreshCoreData({ silent: true, departmentScope: deptScope, orgScope: orgScope });
+                                setOrgSwitching(true);
+                                try {
+                                    await refreshCoreData({ silent: true, departmentScope: deptScope, orgScope: orgScope });
+                                } finally {
+                                    setOrgSwitching(false);
+                                }
                             }}
                             allDepartmentsLabel={recruitmentUiText.allVisibleDepartments}
-                            disabled={organizationCatalogLoading}
+                            disabled={organizationCatalogLoading || orgSwitching}
                         />
                         <Button variant="outline" onClick={() => void refreshCoreDataWithFeedback()}
                                 disabled={coreRefreshing} className="rounded-xl">
@@ -8254,7 +8260,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     </Button>
                 </div>
 
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                     <div className={cn("h-full min-h-0 p-4 lg:p-5 2xl:p-6", activePage !== "candidates" && "hidden")}>
                         {renderCandidatesPage()}
                     </div>
@@ -8282,6 +8288,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </div>
             </div>
 
+            {orgSwitching && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/50 backdrop-blur-sm transition-opacity duration-300 dark:bg-slate-950/50">
+                    <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                        <Loader2 className="h-4 w-4 animate-spin"/>
+                        {isZh ? "正在切换组织..." : "Switching organization..."}
+                    </div>
+                </div>
+            )}
             <Button
                 className="fixed bottom-8 right-0 z-30 h-14 translate-x-[calc(100%-14px)] rounded-l-2xl rounded-r-none bg-slate-900 pl-4 pr-3 text-white shadow-[0_20px_40px_-18px_rgba(15,23,42,0.5)] transition-[transform,background-color] duration-200 hover:translate-x-0 hover:bg-slate-800 focus-visible:translate-x-0 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
                 onClick={() => openAssistantMode("drawer")}
