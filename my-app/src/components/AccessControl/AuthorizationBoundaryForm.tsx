@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -20,17 +20,18 @@ import type {
     ScriptHubPermissionDefinition,
     ScriptHubRoleDefinition,
 } from '@/lib/types';
-import { DATA_SCOPE_OPTIONS } from './constants';
 import { buildOrganizationTreeRows, createOrganizationMap, OrganizationTreeText } from './organizationTree';
 import { cn } from '@/lib/utils';
 import type { AccessControlLabels } from './utils';
-import { categoryLabel, getDataScopeLabel, groupPermissionsByCategory, toggleItem } from './utils';
+import { categoryLabel, filterOrganizationsByActorBoundary, filterPermissionsByActorBoundary, filterRolesByActorBoundary, getDataScopeLabel, groupPermissionsByCategory, toggleItem } from './utils';
 
 interface AuthorizationBoundaryFormProps {
     value: AuthorizationBoundary;
     organizations: ScriptHubOrganizationDefinition[];
     roles: ScriptHubRoleDefinition[];
     permissions: ScriptHubPermissionDefinition[];
+    dataScopeOptions: DataScope[];
+    actorBoundary: AuthorizationBoundary | null;
     labels: AccessControlLabels;
     disabled?: boolean;
     onChange: (value: AuthorizationBoundary) => void;
@@ -41,13 +42,18 @@ export function AuthorizationBoundaryForm({
     organizations,
     roles,
     permissions,
+    dataScopeOptions,
+    actorBoundary,
     labels,
     disabled,
     onChange,
 }: AuthorizationBoundaryFormProps) {
-    const permissionGroups = groupPermissionsByCategory(permissions);
-    const organizationRows = useMemo(() => buildOrganizationTreeRows(organizations), [organizations]);
-    const organizationMap = useMemo(() => createOrganizationMap(organizations), [organizations]);
+    const actorFilteredOrganizations = useMemo(() => filterOrganizationsByActorBoundary(organizations, actorBoundary), [organizations, actorBoundary]);
+    const actorFilteredRoles = useMemo(() => filterRolesByActorBoundary(roles, actorBoundary), [roles, actorBoundary]);
+    const actorFilteredPermissions = useMemo(() => filterPermissionsByActorBoundary(permissions, actorBoundary), [permissions, actorBoundary]);
+    const permissionGroups = useMemo(() => groupPermissionsByCategory(actorFilteredPermissions), [actorFilteredPermissions]);
+    const organizationRows = useMemo(() => buildOrganizationTreeRows(actorFilteredOrganizations), [actorFilteredOrganizations]);
+    const organizationMap = useMemo(() => createOrganizationMap(actorFilteredOrganizations), [actorFilteredOrganizations]);
 
     return (
         <div className="rounded-2xl border border-slate-200/80 bg-white/72 shadow-[0_1px_8px_rgba(15,23,42,0.04)] backdrop-blur dark:border-slate-800 dark:bg-slate-950/55">
@@ -74,7 +80,21 @@ export function AuthorizationBoundaryForm({
                     >
                         <Checkbox
                             checked={value.canGrant}
-                            onCheckedChange={(checked) => onChange({ ...value, canGrant: checked === true })}
+                            onCheckedChange={(checked) => {
+                                const next = checked === true;
+                                if (!next) {
+                                    onChange({
+                                        ...value,
+                                        canGrant: false,
+                                        manageableOrgCodes: [],
+                                        assignableRoleCodes: [],
+                                        assignablePermissionKeys: [],
+                                        maxDataScope: 'SELF',
+                                    });
+                                } else {
+                                    onChange({ ...value, canGrant: true });
+                                }
+                            }}
                             disabled={disabled}
                         />
                         <div>
@@ -93,7 +113,7 @@ export function AuthorizationBoundaryForm({
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                {DATA_SCOPE_OPTIONS.map((scope) => (
+                                {dataScopeOptions.map((scope) => (
                                     <SelectItem key={scope} value={scope}>
                                         {getDataScopeLabel(scope, labels)}
                                     </SelectItem>
@@ -102,6 +122,13 @@ export function AuthorizationBoundaryForm({
                         </Select>
                     </div>
                 </div>
+
+                {value.canGrant && value.manageableOrgCodes.length === 0 && value.assignableRoleCodes.length === 0 && value.assignablePermissionKeys.length === 0 && actorBoundary && (
+                    <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <p className="text-xs leading-5">{labels.boundaryEmptyWarning}</p>
+                    </div>
+                )}
 
                 <div className="grid items-start gap-4 xl:grid-cols-[minmax(420px,1.35fr)_minmax(0,0.95fr)]">
                     <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/55 dark:border-slate-800 dark:bg-slate-900/30">
@@ -153,7 +180,7 @@ export function AuthorizationBoundaryForm({
                             </div>
                             <ScrollArea className="h-64 p-3">
                                 <div className="space-y-3 pr-3">
-                                    {roles.map((role) => {
+                                    {actorFilteredRoles.map((role) => {
                                         const checked = value.assignableRoleCodes.includes(role.code);
                                         return (
                                             <label

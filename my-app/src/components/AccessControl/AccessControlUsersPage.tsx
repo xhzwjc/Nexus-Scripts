@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/select';
 import type {
     AccessControlUserViewModel,
+    AuthorizationBoundary,
     DataScope,
     ScriptHubManagedUser,
     ScriptHubOrganizationDefinition,
@@ -45,11 +46,17 @@ import {
     createOrganizationMap,
     createPermissionMap,
     createRoleMap,
+    filterDataScopesByMax,
+    filterOrganizationsByActorBoundary,
+    filterPermissionsByActorBoundary,
+    filterRolesByActorBoundary,
     getDataScopeLabel,
+    isUnboundedActor,
     mapDeleteUserError,
     mapRotateKeyError,
     mapUserMutationError,
     mapUserToForm,
+    normalizeBoundary,
     normalizeUserForm,
     validateUserForm,
 } from './utils';
@@ -165,6 +172,24 @@ export function AccessControlUsersPage({
         return (currentUser?.is_super_admin ?? false) || hasRbacManage;
     }, [users]);
 
+    // 当前用户的授权边界（用于过滤表单可选项）
+    const actorBoundary: AuthorizationBoundary | null = useMemo(() => {
+        const session = getStoredScriptHubSession();
+        if (isUnboundedActor(session?.user ?? null)) return null;
+        const raw = session?.user.authorizationBoundary;
+        if (!raw) return null;
+        return normalizeBoundary(raw);
+    }, []);
+
+    // 根据当前用户边界过滤后的列表
+    const boundaryFilteredRoles = useMemo(() => filterRolesByActorBoundary(assignableRoles, actorBoundary), [assignableRoles, actorBoundary]);
+    const boundaryFilteredPermissions = useMemo(() => filterPermissionsByActorBoundary(permissions, actorBoundary), [permissions, actorBoundary]);
+    const boundaryFilteredOrganizations = useMemo(() => filterOrganizationsByActorBoundary(activeOrganizations, actorBoundary), [activeOrganizations, actorBoundary]);
+    const boundaryFilteredDataScopes = useMemo(() => {
+        if (!actorBoundary || !actorBoundary.canGrant) return DATA_SCOPE_OPTIONS;
+        return filterDataScopesByMax(actorBoundary.maxDataScope);
+    }, [actorBoundary]);
+
     const selectedRolePermissionKeys = useMemo(() => {
         const keys = new Set<string>();
         form.roleCodes.forEach((roleCode) => {
@@ -181,12 +206,12 @@ export function AccessControlUsersPage({
     }, [form.isSuperAdmin, form.roleCodes, permissions, selectedRolePermissionKeys]);
 
     const grantablePermissions = useMemo(() => {
-        return permissions.filter((permission) => !baselinePermissionKeys.includes(permission.key));
-    }, [baselinePermissionKeys, permissions]);
+        return boundaryFilteredPermissions.filter((permission) => !baselinePermissionKeys.includes(permission.key));
+    }, [baselinePermissionKeys, boundaryFilteredPermissions]);
 
     const revokablePermissions = useMemo(() => {
-        return permissions.filter((permission) => baselinePermissionKeys.includes(permission.key));
-    }, [baselinePermissionKeys, permissions]);
+        return boundaryFilteredPermissions.filter((permission) => baselinePermissionKeys.includes(permission.key));
+    }, [baselinePermissionKeys, boundaryFilteredPermissions]);
 
     const formErrors = useMemo(() => validateUserForm(form, labels), [form, labels]);
     const mergedErrors = useMemo(() => ({ ...serverErrors, ...formErrors }), [formErrors, serverErrors]);
@@ -509,13 +534,15 @@ export function AccessControlUsersPage({
                 mode={createOpen ? 'create' : 'edit'}
                 form={form}
                 labels={labels}
-                organizations={activeOrganizations}
-                assignableRoles={assignableRoles}
+                organizations={boundaryFilteredOrganizations}
+                assignableRoles={boundaryFilteredRoles}
                 permissions={permissions}
                 permissionMap={permissionMap}
                 selectedRolePermissionKeys={selectedRolePermissionKeys}
                 grantablePermissions={grantablePermissions}
                 revokablePermissions={revokablePermissions}
+                dataScopeOptions={boundaryFilteredDataScopes}
+                actorBoundary={actorBoundary}
                 showErrors={showFormErrors}
                 errors={mergedErrors}
                 dialogError={dialogError}

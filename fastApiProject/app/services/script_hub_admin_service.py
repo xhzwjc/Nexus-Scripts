@@ -208,6 +208,7 @@ def _validate_authorization_boundary(
     target_org_code: str,
     role_codes: Iterable[str],
     granted_permissions: Iterable[str],
+    revoked_permissions: Iterable[str],
     data_scope: str,
 ) -> None:
     if _actor_has_unbounded_grant(actor):
@@ -232,6 +233,8 @@ def _validate_authorization_boundary(
     assignable_permissions = set(str(item or "").strip() for item in boundary.get("assignable_permission_keys") or [])
     if assignable_permissions and not set(granted_permissions).issubset(assignable_permissions):
         raise ValueError("Permission grant exceeds actor authorization boundary")
+    if assignable_permissions and not set(revoked_permissions).issubset(assignable_permissions):
+        raise ValueError("Permission revocation exceeds actor authorization boundary")
 
     max_data_scope = normalize_data_scope(boundary.get("max_data_scope") or DATA_SCOPE_SELF)
     if _data_scope_rank(data_scope) > _data_scope_rank(max_data_scope):
@@ -795,6 +798,7 @@ def create_rbac_user(
         target_org_code=normalized_primary_org_code,
         role_codes=normalized_role_codes,
         granted_permissions=normalized_granted_permissions,
+        revoked_permissions=normalized_revoked_permissions,
         data_scope=normalized_data_scope,
     )
 
@@ -906,6 +910,7 @@ def update_rbac_user(
         target_org_code=next_primary_org_code,
         role_codes=next_role_codes,
         granted_permissions=next_granted_permissions,
+        revoked_permissions=next_revoked_permissions,
         data_scope=next_data_scope,
     )
 

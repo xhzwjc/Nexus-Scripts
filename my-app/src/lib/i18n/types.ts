@@ -657,6 +657,7 @@ export interface Translations {
     authorizationBoundaryHelp: string;
     canGrant: string;
     canGrantHelp: string;
+    boundaryEmptyWarning: string;
     manageableOrganizations: string;
     assignableRoles: string;
     assignablePermissions: string;

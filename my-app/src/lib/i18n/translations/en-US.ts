@@ -467,6 +467,7 @@ export const enUS: Translations = {
         authorizationBoundaryHelp: 'Structured limits for whether this user can grant access, which orgs they manage, and which roles/permissions they may assign.',
         canGrant: 'Can Grant',
         canGrantHelp: 'When off, this user cannot grant permissions or expand data scope for others.',
+        boundaryEmptyWarning: 'Grant is enabled but no orgs, roles, or permissions are selected. This user will be able to assign any role and permission without restriction.',
         manageableOrganizations: 'Manageable Organizations',
         assignableRoles: 'Assignable Roles',
         assignablePermissions: 'Assignable Permissions',

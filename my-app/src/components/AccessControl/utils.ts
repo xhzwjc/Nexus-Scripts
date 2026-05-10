@@ -561,3 +561,53 @@ export function filterAuditLogs(
         );
     });
 }
+
+const DATA_SCOPE_RANK: Record<DataScope, number> = {
+    ALL: 50,
+    ORG_AND_CHILDREN: 40,
+    ORG_ONLY: 30,
+    CUSTOM_ORGS: 20,
+    SELF: 10,
+};
+
+export function filterDataScopesByMax(maxScope: DataScope): DataScope[] {
+    const maxRank = DATA_SCOPE_RANK[maxScope] ?? 0;
+    return DATA_SCOPE_OPTIONS.filter((scope) => (DATA_SCOPE_RANK[scope] ?? 0) <= maxRank);
+}
+
+export function isUnboundedActor(session: { isSuperAdmin?: boolean; roles?: string[] } | null): boolean {
+    if (!session) return true;
+    if (session.isSuperAdmin) return true;
+    if (session.roles?.includes('admin')) return true;
+    return false;
+}
+
+export function filterRolesByActorBoundary(
+    roles: ScriptHubRoleDefinition[],
+    boundary: AuthorizationBoundary | null,
+): ScriptHubRoleDefinition[] {
+    if (!boundary || !boundary.canGrant) return roles;
+    if (boundary.assignableRoleCodes.length === 0) return roles;
+    const allowed = new Set(boundary.assignableRoleCodes);
+    return roles.filter((role) => allowed.has(role.code));
+}
+
+export function filterPermissionsByActorBoundary(
+    permissions: ScriptHubPermissionDefinition[],
+    boundary: AuthorizationBoundary | null,
+): ScriptHubPermissionDefinition[] {
+    if (!boundary || !boundary.canGrant) return permissions;
+    if (boundary.assignablePermissionKeys.length === 0) return permissions;
+    const allowed = new Set(boundary.assignablePermissionKeys);
+    return permissions.filter((p) => allowed.has(p.key));
+}
+
+export function filterOrganizationsByActorBoundary(
+    organizations: ScriptHubOrganizationDefinition[],
+    boundary: AuthorizationBoundary | null,
+): ScriptHubOrganizationDefinition[] {
+    if (!boundary || !boundary.canGrant) return organizations;
+    if (boundary.manageableOrgCodes.length === 0) return organizations;
+    const allowed = new Set(boundary.manageableOrgCodes);
+    return organizations.filter((org) => allowed.has(org.org_code));
+}

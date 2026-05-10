@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import type {
+    AuthorizationBoundary,
     DataScope,
     ScriptHubOrganizationDefinition,
     ScriptHubPermissionDefinition,
@@ -34,7 +35,6 @@ import type {
 } from '@/lib/types';
 import { CompactBadgeList } from './AccessControlBadges';
 import { AuthorizationBoundaryForm } from './AuthorizationBoundaryForm';
-import { DATA_SCOPE_OPTIONS } from './constants';
 import {
     buildOrganizationTreeRows,
     createOrganizationMap,
@@ -57,6 +57,8 @@ interface UserFormProps {
     selectedRolePermissionKeys: string[];
     grantablePermissions: ScriptHubPermissionDefinition[];
     revokablePermissions: ScriptHubPermissionDefinition[];
+    dataScopeOptions: DataScope[];
+    actorBoundary: AuthorizationBoundary | null;
     showErrors: boolean;
     errors: UserFormErrors;
     dialogError?: string | null;
@@ -80,6 +82,8 @@ export function UserForm({
     selectedRolePermissionKeys,
     grantablePermissions,
     revokablePermissions,
+    dataScopeOptions,
+    actorBoundary,
     showErrors,
     errors,
     dialogError,
@@ -579,7 +583,7 @@ export function UserForm({
                                             <SelectValue placeholder={labels.dataScope} />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {DATA_SCOPE_OPTIONS.map((scope) => (
+                                            {dataScopeOptions.map((scope) => (
                                                 <SelectItem key={scope} value={scope}>
                                                     {getDataScopeLabel(scope, labels)}
                                                 </SelectItem>
@@ -645,6 +649,8 @@ export function UserForm({
                                 organizations={organizations}
                                 roles={assignableRoles}
                                 permissions={permissions}
+                                dataScopeOptions={dataScopeOptions}
+                                actorBoundary={actorBoundary}
                                 labels={labels}
                                 disabled={saving}
                                 onChange={(authorizationBoundary) => onChange({ ...form, authorizationBoundary })}

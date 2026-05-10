@@ -466,6 +466,7 @@ export const zhCN: Translations = {
         authorizationBoundaryHelp: '结构化约束该用户是否可授权、可管理哪些组织、可分配哪些角色和权限。',
         canGrant: '允许授权',
         canGrantHelp: '关闭后该用户不能给其他用户授予权限或扩大数据范围。',
+        boundaryEmptyWarning: '已开启授权但未选择任何组织、角色或权限，该用户将不受限制地分配任何角色和权限。',
         manageableOrganizations: '可管理组织',
         assignableRoles: '可分配角色',
         assignablePermissions: '可分配权限',
