@@ -799,6 +799,8 @@ export interface Translations {
     filterAllSharePolicies: string;
     resetFilters: string;
     emptySelection: string;
+    formHasError: string;
+    formHasErrors: string;
     categoryBusiness: string;
     categoryFinance: string;
     categoryTax: string;

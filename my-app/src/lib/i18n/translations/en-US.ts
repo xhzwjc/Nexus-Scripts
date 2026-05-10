@@ -609,6 +609,8 @@ export const enUS: Translations = {
         filterAllSharePolicies: 'All share policies',
         resetFilters: 'Reset filters',
         emptySelection: 'Nothing selected',
+        formHasError: 'Please complete the required field',
+        formHasErrors: 'Please complete {count} required fields',
         categoryBusiness: 'Business',
         categoryFinance: 'Finance',
         categoryTax: 'Tax',

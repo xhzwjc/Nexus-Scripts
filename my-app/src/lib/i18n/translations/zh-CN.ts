@@ -608,6 +608,8 @@ export const zhCN: Translations = {
         filterAllSharePolicies: '全部共享策略',
         resetFilters: '重置筛选',
         emptySelection: '暂未选择',
+        formHasError: '请完善必填信息',
+        formHasErrors: '请完善 {count} 项必填信息',
         categoryBusiness: '业务',
         categoryFinance: '财务',
         categoryTax: '税务',
