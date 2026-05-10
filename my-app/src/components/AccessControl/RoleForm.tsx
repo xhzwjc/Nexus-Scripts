@@ -1,6 +1,7 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -17,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import type { ScriptHubPermissionDefinition, ScriptHubRoleDefinition } from '@/lib/types';
 import type { RoleFormErrors, RoleFormState } from './types';
 import type { AccessControlLabels } from './utils';
@@ -56,6 +58,19 @@ export function RoleForm({
     onSubmit,
 }: RoleFormProps) {
     const permissionGroups = groupPermissionsByCategory(permissions);
+    const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+
+    const toggleCategoryExpand = (category: string) => {
+        setExpandedCategories((prev) => {
+            const next = new Set(prev);
+            if (next.has(category)) {
+                next.delete(category);
+            } else {
+                next.add(category);
+            }
+            return next;
+        });
+    };
 
     const toggleCategory = (categoryPermissions: ScriptHubPermissionDefinition[], selectAll: boolean) => {
         const categoryKeys = categoryPermissions.map((p) => p.key);
@@ -67,6 +82,14 @@ export function RoleForm({
         }
         onFieldChange('permissionKeys');
     };
+
+    const categorySelectedCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        for (const [category, categoryPermissions] of Object.entries(permissionGroups)) {
+            counts[category] = categoryPermissions.filter((p) => form.permissionKeys.includes(p.key)).length;
+        }
+        return counts;
+    }, [permissionGroups, form.permissionKeys]);
 
     return (
         <Dialog open={open} onOpenChange={(next) => { if (!next) onCancel(); }}>
@@ -196,55 +219,72 @@ export function RoleForm({
                             </div>
 
                             <ScrollArea className="h-[420px] pr-3">
-                                <div className="grid gap-4 md:grid-cols-2">
-                                    {Object.entries(permissionGroups).map(([category, categoryPermissions]) => (
-                                        <div key={category} className="rounded-md border bg-background p-4">
-                                            <div className="mb-3 flex items-center justify-between">
-                                                <p className="text-sm font-medium">{categoryLabel(category, labels)}</p>
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        type="button"
-                                                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                                                        onClick={() => toggleCategory(categoryPermissions, true)}
-                                                        disabled={saving}
-                                                    >
-                                                        {labels.selectAll}
-                                                    </button>
-                                                    <span className="text-xs text-muted-foreground/40">|</span>
-                                                    <button
-                                                        type="button"
-                                                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                                                        onClick={() => toggleCategory(categoryPermissions, false)}
-                                                        disabled={saving}
-                                                    >
-                                                        {labels.deselectAll}
-                                                    </button>
-                                                    <Badge variant="outline">{categoryPermissions.length}</Badge>
-                                                </div>
+                                <div className="space-y-2">
+                                    {Object.entries(permissionGroups).map(([category, categoryPermissions]) => {
+                                        const isExpanded = expandedCategories.has(category);
+                                        const selectedCount = categorySelectedCounts[category] ?? 0;
+                                        return (
+                                            <div key={category} className="rounded-lg border bg-background">
+                                                <button
+                                                    type="button"
+                                                    className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-muted/30"
+                                                    onClick={() => toggleCategoryExpand(category)}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200", !isExpanded && "-rotate-90")} />
+                                                        <span className="text-sm font-medium">{categoryLabel(category, labels)}</span>
+                                                    </div>
+                                                    <Badge variant={selectedCount > 0 ? "default" : "outline"} className="text-xs">
+                                                        {selectedCount}/{categoryPermissions.length}
+                                                    </Badge>
+                                                </button>
+                                                {isExpanded && (
+                                                    <div className="border-t px-4 py-3">
+                                                        <div className="mb-3 flex items-center justify-end gap-2">
+                                                            <button
+                                                                type="button"
+                                                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                                                onClick={() => toggleCategory(categoryPermissions, true)}
+                                                                disabled={saving}
+                                                            >
+                                                                {labels.selectAll}
+                                                            </button>
+                                                            <span className="text-xs text-muted-foreground/40">|</span>
+                                                            <button
+                                                                type="button"
+                                                                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                                                onClick={() => toggleCategory(categoryPermissions, false)}
+                                                                disabled={saving}
+                                                            >
+                                                                {labels.deselectAll}
+                                                            </button>
+                                                        </div>
+                                                        <div className="grid gap-3 md:grid-cols-2">
+                                                            {categoryPermissions.map((permission) => (
+                                                                <label key={permission.key} className="flex items-start gap-3">
+                                                                    <Checkbox
+                                                                        checked={form.permissionKeys.includes(permission.key)}
+                                                                        onCheckedChange={(checked) => {
+                                                                            onFieldChange('permissionKeys');
+                                                                            onChange({
+                                                                                ...form,
+                                                                                permissionKeys: toggleItem(form.permissionKeys, permission.key, checked === true),
+                                                                            });
+                                                                        }}
+                                                                        disabled={saving}
+                                                                    />
+                                                                    <span>
+                                                                        <span className="block text-sm font-medium">{permission.name}</span>
+                                                                        <span className="block text-xs text-muted-foreground">{permission.description}</span>
+                                                                    </span>
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="space-y-3">
-                                                {categoryPermissions.map((permission) => (
-                                                    <label key={permission.key} className="flex items-start gap-3">
-                                                        <Checkbox
-                                                            checked={form.permissionKeys.includes(permission.key)}
-                                                            onCheckedChange={(checked) => {
-                                                                onFieldChange('permissionKeys');
-                                                                onChange({
-                                                                    ...form,
-                                                                    permissionKeys: toggleItem(form.permissionKeys, permission.key, checked === true),
-                                                                });
-                                                            }}
-                                                            disabled={saving}
-                                                        />
-                                                        <span>
-                                                            <span className="block text-sm font-medium">{permission.name}</span>
-                                                            <span className="block text-xs text-muted-foreground">{permission.description}</span>
-                                                        </span>
-                                                    </label>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </ScrollArea>
                         </section>

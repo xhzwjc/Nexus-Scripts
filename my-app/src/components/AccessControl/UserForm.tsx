@@ -43,7 +43,7 @@ import {
 } from './organizationTree';
 import type { UserFormErrors, UserFormState } from './types';
 import type { AccessControlLabels } from './utils';
-import { getDataScopeLabel, toggleItem } from './utils';
+import { categoryLabel, getDataScopeLabel, groupPermissionsByCategory, toggleItem } from './utils';
 
 interface UserFormProps {
     open: boolean;
@@ -445,34 +445,41 @@ export function UserForm({
                                                 <Badge variant="outline">{form.grantedPermissions.length}</Badge>
                                             </div>
                                             <ScrollArea className="h-56 pr-3">
-                                                <div className="space-y-3">
-                                                    {grantablePermissions.map((permission) => {
-                                                        const checked = form.grantedPermissions.includes(permission.key);
-                                                        return (
-                                                            <label
-                                                                key={permission.key}
-                                                                className={cn(
-                                                                    "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
-                                                                    checked
-                                                                        ? "border-emerald-300 bg-white/85 dark:border-emerald-800 dark:bg-emerald-950/35"
-                                                                        : "border-transparent bg-white/55 hover:border-emerald-200 hover:bg-white/80 dark:bg-slate-950/25 dark:hover:border-emerald-900/60 dark:hover:bg-slate-900/45",
-                                                                )}
-                                                            >
-                                                                <Checkbox
-                                                                    checked={checked}
-                                                                    onCheckedChange={(next) => onChange({
-                                                                        ...form,
-                                                                        grantedPermissions: toggleItem(form.grantedPermissions, permission.key, next === true),
-                                                                    })}
-                                                                    disabled={saving}
-                                                                />
-                                                                <span>
-                                                                    <span className="block text-sm font-medium text-slate-950 dark:text-slate-100">{permission.name}</span>
-                                                                    <span className="block text-xs leading-5 text-muted-foreground">{permission.description}</span>
-                                                                </span>
-                                                            </label>
-                                                        );
-                                                    })}
+                                                <div className="space-y-4">
+                                                    {Object.entries(groupPermissionsByCategory(grantablePermissions)).map(([category, categoryPermissions]) => (
+                                                        <div key={category}>
+                                                            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{categoryLabel(category, labels)}</p>
+                                                            <div className="space-y-2">
+                                                                {categoryPermissions.map((permission) => {
+                                                                    const checked = form.grantedPermissions.includes(permission.key);
+                                                                    return (
+                                                                        <label
+                                                                            key={permission.key}
+                                                                            className={cn(
+                                                                                "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
+                                                                                checked
+                                                                                    ? "border-emerald-300 bg-white/85 dark:border-emerald-800 dark:bg-emerald-950/35"
+                                                                                    : "border-transparent bg-white/55 hover:border-emerald-200 hover:bg-white/80 dark:bg-slate-950/25 dark:hover:border-emerald-900/60 dark:hover:bg-slate-900/45",
+                                                                            )}
+                                                                        >
+                                                                            <Checkbox
+                                                                                checked={checked}
+                                                                                onCheckedChange={(next) => onChange({
+                                                                                    ...form,
+                                                                                    grantedPermissions: toggleItem(form.grantedPermissions, permission.key, next === true),
+                                                                                })}
+                                                                                disabled={saving}
+                                                                            />
+                                                                            <span>
+                                                                                <span className="block text-sm font-medium text-slate-950 dark:text-slate-100">{permission.name}</span>
+                                                                                <span className="block text-xs leading-5 text-muted-foreground">{permission.description}</span>
+                                                                            </span>
+                                                                        </label>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             </ScrollArea>
                                         </div>
@@ -483,34 +490,41 @@ export function UserForm({
                                                 <Badge variant="outline">{form.revokedPermissions.length}</Badge>
                                             </div>
                                             <ScrollArea className="h-56 pr-3">
-                                                <div className="space-y-3">
-                                                    {revokablePermissions.map((permission) => {
-                                                        const checked = form.revokedPermissions.includes(permission.key);
-                                                        return (
-                                                            <label
-                                                                key={permission.key}
-                                                                className={cn(
-                                                                    "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
-                                                                    checked
-                                                                        ? "border-rose-300 bg-white/85 dark:border-rose-800 dark:bg-rose-950/35"
-                                                                        : "border-transparent bg-white/55 hover:border-rose-200 hover:bg-white/80 dark:bg-slate-950/25 dark:hover:border-rose-900/60 dark:hover:bg-slate-900/45",
-                                                                )}
-                                                            >
-                                                                <Checkbox
-                                                                    checked={checked}
-                                                                    onCheckedChange={(next) => onChange({
-                                                                        ...form,
-                                                                        revokedPermissions: toggleItem(form.revokedPermissions, permission.key, next === true),
-                                                                    })}
-                                                                    disabled={saving}
-                                                                />
-                                                                <span>
-                                                                    <span className="block text-sm font-medium text-slate-950 dark:text-slate-100">{permission.name}</span>
-                                                                    <span className="block text-xs leading-5 text-muted-foreground">{permission.description}</span>
-                                                                </span>
-                                                            </label>
-                                                        );
-                                                    })}
+                                                <div className="space-y-4">
+                                                    {Object.entries(groupPermissionsByCategory(revokablePermissions)).map(([category, categoryPermissions]) => (
+                                                        <div key={category}>
+                                                            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{categoryLabel(category, labels)}</p>
+                                                            <div className="space-y-2">
+                                                                {categoryPermissions.map((permission) => {
+                                                                    const checked = form.revokedPermissions.includes(permission.key);
+                                                                    return (
+                                                                        <label
+                                                                            key={permission.key}
+                                                                            className={cn(
+                                                                                "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors",
+                                                                                checked
+                                                                                    ? "border-rose-300 bg-white/85 dark:border-rose-800 dark:bg-rose-950/35"
+                                                                                    : "border-transparent bg-white/55 hover:border-rose-200 hover:bg-white/80 dark:bg-slate-950/25 dark:hover:border-rose-900/60 dark:hover:bg-slate-900/45",
+                                                                            )}
+                                                                        >
+                                                                            <Checkbox
+                                                                                checked={checked}
+                                                                                onCheckedChange={(next) => onChange({
+                                                                                    ...form,
+                                                                                    revokedPermissions: toggleItem(form.revokedPermissions, permission.key, next === true),
+                                                                                })}
+                                                                                disabled={saving}
+                                                                            />
+                                                                            <span>
+                                                                                <span className="block text-sm font-medium text-slate-950 dark:text-slate-100">{permission.name}</span>
+                                                                                <span className="block text-xs leading-5 text-muted-foreground">{permission.description}</span>
+                                                                            </span>
+                                                                        </label>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             </ScrollArea>
                                         </div>

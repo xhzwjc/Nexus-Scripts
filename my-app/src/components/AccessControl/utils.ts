@@ -234,6 +234,16 @@ export function categoryLabel(category: string, labels: AccessControlLabels) {
     switch (category) {
         case 'business':
             return labels.categoryBusiness;
+        case 'finance':
+            return labels.categoryFinance;
+        case 'tax':
+            return labels.categoryTax;
+        case 'ops':
+            return labels.categoryOps;
+        case 'sms':
+            return labels.categorySms;
+        case 'biz':
+            return labels.categoryBiz;
         case 'resources':
             return labels.categoryResources;
         case 'platform':

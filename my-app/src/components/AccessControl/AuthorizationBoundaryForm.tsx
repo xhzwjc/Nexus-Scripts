@@ -219,6 +219,7 @@ export function AuthorizationBoundaryForm({
                                                             disabled={disabled || !value.canGrant}
                                                         />
                                                         <span className="text-sm text-slate-950 dark:text-slate-100">{permission.name}</span>
+                                                        <span className="block text-xs text-muted-foreground">{permission.description}</span>
                                                     </label>
                                                 );
                                             })}

@@ -800,6 +800,11 @@ export interface Translations {
     resetFilters: string;
     emptySelection: string;
     categoryBusiness: string;
+    categoryFinance: string;
+    categoryTax: string;
+    categoryOps: string;
+    categorySms: string;
+    categoryBiz: string;
     categoryResources: string;
     categoryPlatform: string;
     categoryCollaboration: string;

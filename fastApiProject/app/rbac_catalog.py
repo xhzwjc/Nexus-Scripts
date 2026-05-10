@@ -22,18 +22,18 @@ class RoleDefinition:
 
 
 PERMISSION_DEFINITIONS: Tuple[PermissionDefinition, ...] = (
-    PermissionDefinition("settlement", "结算处理", "business", "可执行企业结算处理脚本", 10),
-    PermissionDefinition("commission", "佣金计算", "business", "可执行渠道佣金计算与校验", 20),
-    PermissionDefinition("balance", "余额核对", "business", "可执行企业账户余额核对", 30),
-    PermissionDefinition("task-automation", "任务自动化", "business", "可执行任务自动化工具", 40),
-    PermissionDefinition("sms_operations_center", "短信运营中心", "business", "可使用短信运营中心", 50),
-    PermissionDefinition("sms-admin-login", "短信管理后台登录", "business", "可执行短信管理后台免密登录能力", 60),
-    PermissionDefinition("tax-reporting", "税务报表", "business", "可生成税务报表", 70),
-    PermissionDefinition("tax-calculation", "税额计算", "business", "可执行税额计算工具", 80),
-    PermissionDefinition("settlement-sim", "结算状态模拟", "business", "可执行结算状态模拟工具", 85),
-    PermissionDefinition("payment-stats", "结算与开票统计", "business", "可查看结算与开票统计", 90),
-    PermissionDefinition("delivery-tool", "交付物提交", "business", "可执行交付物提交工具", 100),
-    PermissionDefinition("ocr-tool", "OCR 工具", "business", "可使用 OCR 工具", 110),
+    PermissionDefinition("settlement", "结算处理", "finance", "可执行企业结算处理脚本", 10),
+    PermissionDefinition("commission", "佣金计算", "finance", "可执行渠道佣金计算与校验", 20),
+    PermissionDefinition("balance", "余额核对", "finance", "可执行企业账户余额核对", 30),
+    PermissionDefinition("settlement-sim", "结算状态模拟", "finance", "可执行结算状态模拟工具", 40),
+    PermissionDefinition("tax-reporting", "税务报表", "tax", "可生成税务报表", 50),
+    PermissionDefinition("tax-calculation", "税额计算", "tax", "可执行税额计算工具", 60),
+    PermissionDefinition("payment-stats", "结算与开票统计", "tax", "可查看结算与开票统计", 70),
+    PermissionDefinition("task-automation", "任务自动化", "ops", "可执行任务自动化工具", 80),
+    PermissionDefinition("delivery-tool", "交付物提交", "ops", "可执行交付物提交工具", 90),
+    PermissionDefinition("ocr-tool", "OCR 工具", "ops", "可使用 OCR 工具", 100),
+    PermissionDefinition("sms_operations_center", "短信运营中心", "sms", "可使用短信运营中心", 110),
+    PermissionDefinition("sms-admin-login", "短信管理后台登录", "sms", "可执行短信管理后台免密登录能力", 120),
     PermissionDefinition("team-resources", "团队资源查看", "resources", "可查看团队资源", 120),
     PermissionDefinition("team-resources-manage", "团队资源管理", "resources", "可编辑团队资源", 130),
     PermissionDefinition("ai-resources", "AI 资源查看", "resources", "可查看 AI 资源库", 140),
@@ -60,8 +60,8 @@ PERMISSION_DEFINITIONS: Tuple[PermissionDefinition, ...] = (
     PermissionDefinition("recruitment-mail-sender-manage", "发件箱管理", "recruitment-config", "可管理 SMTP 发件箱配置", 233),
     PermissionDefinition("recruitment-llm-config-view", "模型配置查看", "recruitment-config", "可查看招聘模型配置", 240),
     PermissionDefinition("recruitment-llm-config-manage", "模型配置管理", "recruitment-config", "可创建、编辑、删除招聘模型配置", 241),
-    PermissionDefinition("biz-scene", "业务场景管理", "business", "可初始化业务场景数据", 260),
-    PermissionDefinition("biz-task", "任务管理", "business", "可初始化任务数据", 270),
+    PermissionDefinition("biz-scene", "业务场景管理", "biz", "可初始化业务场景数据", 260),
+    PermissionDefinition("biz-task", "任务管理", "biz", "可初始化任务数据", 270),
 )
 
 
