@@ -155,12 +155,14 @@ export function AccessControlUsersPage({
         return users.filter((user) => allowedCodes.has(user.user_code));
     }, [filteredViewModels, users]);
 
-    // 当前登录用户是否为超管，只有超管才能编辑/重置密钥/删除用户
-    const currentUserIsSuperAdmin = useMemo(() => {
-        const currentUserId = getStoredScriptHubSession()?.user.id;
+    // 当前登录用户是否拥有用户管理权限（rbac-manage 或超管）
+    const canManageUsers = useMemo(() => {
+        const session = getStoredScriptHubSession();
+        const currentUserId = session?.user.id;
         if (!currentUserId || !users.length) return false;
         const currentUser = users.find((u) => u.user_code === currentUserId);
-        return currentUser?.is_super_admin ?? false;
+        const hasRbacManage = Boolean(session?.user.permissions?.['rbac-manage']);
+        return (currentUser?.is_super_admin ?? false) || hasRbacManage;
     }, [users]);
 
     const selectedRolePermissionKeys = useMemo(() => {
@@ -478,7 +480,7 @@ export function AccessControlUsersPage({
                             viewModels={filteredViewModels}
                             permissionMap={permissionMap}
                             labels={labels}
-                            currentUserIsSuperAdmin={currentUserIsSuperAdmin}
+                            canManageUsers={canManageUsers}
                             onEdit={openEditDialog}
                             onRotateKey={(user) => {
                                 setRotateDialogError(null);

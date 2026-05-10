@@ -26,7 +26,7 @@ interface UserTableProps {
     viewModels: AccessControlUserViewModel[];
     permissionMap: Map<string, ScriptHubPermissionDefinition>;
     labels: AccessControlLabels;
-    currentUserIsSuperAdmin: boolean;
+    canManageUsers: boolean;
     onEdit: (user: ScriptHubManagedUser) => void;
     onRotateKey: (user: ScriptHubManagedUser) => void;
     onDelete: (user: ScriptHubManagedUser) => void;
@@ -37,7 +37,7 @@ export function UserTable({
     viewModels,
     permissionMap,
     labels,
-    currentUserIsSuperAdmin,
+    canManageUsers,
     onEdit,
     onRotateKey,
     onDelete,
@@ -117,14 +117,14 @@ export function UserTable({
                                 <TableCell className="text-right">
                                     <div className="flex justify-end gap-2">
                                         <Button variant="outline" size="sm" onClick={() => {
-                                            if (!currentUserIsSuperAdmin) { toast.warning(labels.adminOnlyTooltip); return; }
+                                            if (!canManageUsers) { toast.warning(labels.adminOnlyTooltip); return; }
                                             onEdit(rawUser);
                                         }}>
                                             <Pencil className="h-4 w-4" />
                                             {labels.editUser}
                                         </Button>
                                         <Button variant="ghost" size="sm" onClick={() => {
-                                            if (!currentUserIsSuperAdmin) { toast.warning(labels.adminOnlyTooltip); return; }
+                                            if (!canManageUsers) { toast.warning(labels.adminOnlyTooltip); return; }
                                             onRotateKey(rawUser);
                                         }}>
                                             <KeyRound className="h-4 w-4" />
@@ -135,7 +135,7 @@ export function UserTable({
                                             size="sm"
                                             className="text-destructive hover:text-destructive"
                                             onClick={() => {
-                                                if (!currentUserIsSuperAdmin) { toast.warning(labels.adminOnlyTooltip); return; }
+                                                if (!canManageUsers) { toast.warning(labels.adminOnlyTooltip); return; }
                                                 onDelete(rawUser);
                                             }}
                                         >
