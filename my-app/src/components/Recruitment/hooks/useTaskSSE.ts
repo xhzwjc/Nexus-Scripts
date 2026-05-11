@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { authenticatedFetch } from "@/lib/auth";
 
 export type TaskSSEEvent = {
-  type: "task_progress" | "task_completed" | "candidate_updated" | "batch_summary";
+  type: "task_progress" | "task_completed" | "candidate_updated" | "batch_summary" | "reconnect";
   task_id?: number;
   status?: string;
   related_candidate_id?: number;
@@ -16,6 +16,7 @@ export type TaskSSEHandlers = {
   onTaskCompleted?: (event: TaskSSEEvent) => void;
   onCandidateUpdated?: (event: TaskSSEEvent) => void;
   onBatchSummary?: (event: TaskSSEEvent) => void;
+  onReconnect?: () => void;
 };
 
 export function useTaskSSE(
@@ -33,10 +34,12 @@ export function useTaskSSE(
     let reconnectTimer: number | null = null;
     let reconnectDelay = 2000;
     let destroyed = false;
+    let isFirstConnection = true;
 
     async function connect() {
       if (destroyed) return;
       abortController = new AbortController();
+      const wasFirstConnection = isFirstConnection;
       try {
         const response = await authenticatedFetch(`${baseUrl}/task-events`, {
           headers: { Accept: "text/event-stream" },
@@ -47,6 +50,7 @@ export function useTaskSSE(
         const decoder = new TextDecoder();
         let buffer = "";
         reconnectDelay = 2000;
+        isFirstConnection = false;
         while (!destroyed) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -75,6 +79,9 @@ export function useTaskSSE(
         // ignore fetch errors (network, abort, etc.)
       }
       if (!destroyed) {
+        if (!wasFirstConnection) {
+          handlersRef.current.onReconnect?.();
+        }
         reconnectTimer = window.setTimeout(connect, reconnectDelay);
         reconnectDelay = Math.min(reconnectDelay * 1.5, 30_000);
       }

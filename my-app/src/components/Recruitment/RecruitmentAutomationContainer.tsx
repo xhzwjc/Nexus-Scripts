@@ -2116,37 +2116,28 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     void loadCandidates({ silent: true, force: true });
                     void loadDashboard();
                     void refreshCandidateStats();
-                }, 100);
-            },
-            onCandidateUpdated: (event) => {
-                if (event.candidate_id && selectedCandidateIdRef.current === event.candidate_id) {
-                    void loadCandidateDetail(event.candidate_id, { silent: true, force: true });
-                }
-            },
-            onTaskProgress: (event) => {
-                if (
-                    event.task_id &&
-                    activePage === "audit" &&
-                    selectedLogId === event.task_id
-                ) {
-                    void recruitmentApi<AITaskLog>(`/ai-task-logs/${event.task_id}`)
-                        .then((log) => { mergeAiTaskLog(log); })
-                        .catch(() => {});
-                }
+                }, 300);
             },
             onBatchSummary: () => {
-                // 所有批次邮件发送完毕，触发完整刷新
+                void loadCandidates({ silent: true, force: true });
+                void loadDashboard();
+                void refreshCandidateStats();
+                void loadMailSettings();
+            },
+            onReconnect: () => {
                 void loadCandidates({ silent: true, force: true });
                 void loadDashboard();
                 void refreshCandidateStats();
             },
+            // onTaskProgress 移除：审计日志不在初筛过程中实时更新
+            // onCandidateUpdated 移除：不做单条详情刷新
         },
     );
 
     useEffect(() => {
-        const shouldPollLogs = activePage === "audit" || activePage === "workspace";
+        const shouldPollLogs = false;
         const shouldPollCandidateDetail = activePage === "candidates";
-        const shouldPollCandidateList = activePage === "candidates";
+        const shouldPollCandidateList = false;
         const shouldPollLogDetail = activePage === "audit";
         const hasVisibleLiveActivity = (
             (shouldPollLogs && hasLiveLogActivity)
@@ -2177,12 +2168,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             polling = true;
             try {
                 const tasks: Promise<unknown>[] = [];
-                if (shouldPollLogs && !logsLoading) {
-                    tasks.push(loadLogs({silent: true}));
-                }
-                if (shouldPollCandidateList && !candidatesLoading) {
-                    tasks.push(loadCandidates({silent: true}));
-                }
                 if (shouldPollCandidateDetail && selectedCandidateId && !candidateDetailLoading) {
                     tasks.push(loadCandidateDetail(selectedCandidateId, {silent: true}));
                 }
@@ -3311,38 +3296,33 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     : c,
             ),
         );
-        startTaskMonitor(taskId, {
-            onFinish: async (log) => {
-                if (!mountedRef.current) {
-                    return;
-                }
-                clearActiveScreeningTask(candidateId, taskId);
-                await Promise.all([
-                    loadCandidates({silent: true, force: true}),
-                    loadDashboard(),
-                    loadLogs({silent: true}),
-                    loadMailSettings(),
-                    refreshCandidateStats(),
-                ]);
-                if (selectedCandidateIdRef.current === candidateId) {
-                    await loadCandidateDetail(candidateId, {silent: true, force: true});
-                }
-                if (options?.suppressFinishToast) {
-                    return;
-                }
-                if (log.status === "success" || log.status === "fallback") {
-                    toast.success(recruitmentToast.screeningCompleted(log.status === "fallback"));
-                    return;
-                }
-                if (log.status === "cancelled") {
-                    toast.success(recruitmentUiText.screeningStopped);
-                    return;
-                }
-                if (log.status === "failed") {
-                    toast.error(recruitmentUiText.screeningFailed(log.error_message || recruitmentToast.unknownError));
-                }
-            },
-        });
+        if (options?.batch) {
+            // Batch tasks: skip startTaskMonitor polling, rely on SSE events
+            // (task_completed / batch_summary) to drive UI updates instead of
+            // N independent HTTP poll loops.
+        } else {
+            startTaskMonitor(taskId, {
+                onFinish: async (log) => {
+                    if (!mountedRef.current) return;
+                    clearActiveScreeningTask(candidateId, taskId);
+                    if (selectedCandidateIdRef.current === candidateId) {
+                        await loadCandidateDetail(candidateId, { silent: true, force: true });
+                    }
+                    if (options?.suppressFinishToast) return;
+                    if (log.status === "success" || log.status === "fallback") {
+                        toast.success(recruitmentToast.screeningCompleted(log.status === "fallback"));
+                        return;
+                    }
+                    if (log.status === "cancelled") {
+                        toast.success(recruitmentUiText.screeningStopped);
+                        return;
+                    }
+                    if (log.status === "failed") {
+                        toast.error(recruitmentUiText.screeningFailed(log.error_message || recruitmentToast.unknownError));
+                    }
+                },
+            });
+        }
     }
 
     useEffect(() => {
@@ -3353,7 +3333,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             if (taskMonitorTokensRef.current.has(candidate.active_screening_task_id)) {
                 return;
             }
+            if (activeScreeningTaskMap[candidate.id] === candidate.active_screening_task_id) {
+                return;
+            }
             attachScreeningTaskMonitor(candidate.id, candidate.active_screening_task_id, {
+                batch: true,
                 suppressFinishToast: true,
             });
         });
@@ -4762,6 +4746,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             allItems.forEach((item) => {
                 if (item.auto_screen_task_id && item.auto_screen_task_status && isLiveTaskStatus(item.auto_screen_task_status)) {
                     attachScreeningTaskMonitor(item.id, item.auto_screen_task_id, {
+                        batch: true,
                         suppressFinishToast: true,
                     });
                 }

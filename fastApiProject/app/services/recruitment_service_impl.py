@@ -4937,44 +4937,51 @@ class RecruitmentService:
         except Exception:
             logger.exception("Failed to query pending batch emails in _emit_batch_summary_if_needed")
 
-        # 为所有批次中的每个候选人发送 candidate_updated 事件，触发前端刷新
-        if TaskEventBus and self._session_token:
-            try:
-                batch_tasks = (
-                    self.db.query(RecruitmentAITaskLog)
-                    .filter(
-                        RecruitmentAITaskLog.batch_id.isnot(None),
-                        RecruitmentAITaskLog.task_type == 'screening_flow',
-                        RecruitmentAITaskLog.status.in_(TERMINAL_AI_TASK_STATUSES),
-                    )
-                    .order_by(RecruitmentAITaskLog.id.desc())
-                    .limit(200)
-                    .all()
-                )
-                notified_ids: set = set()
-                for task in batch_tasks:
-                    cid = task.related_candidate_id
-                    if cid and cid not in notified_ids:
-                        notified_ids.add(cid)
-                        TaskEventBus.emit(self._session_token, "task_completed", {
-                            "task_id": task.id,
-                            "status": task.status,
-                            "related_candidate_id": cid,
-                            "task_type": task.task_type,
-                        })
-                        TaskEventBus.emit(self._session_token, "candidate_updated", {
-                            "candidate_id": cid,
-                        })
-            except Exception:
-                logger.exception("Failed to emit candidate_updated events in _emit_batch_summary_if_needed")
+        # SSE 事件：无论有没有邮件都发，不依赖邮件路径
+        if not TaskEventBus:
+            return
 
-            # 所有邮件发送完毕后，发送 batch_summary 事件触发前端完整刷新
-            try:
-                TaskEventBus.emit(self._session_token, "batch_summary", {
-                    "message": "all_tasks_completed",
-                })
-            except Exception:
-                pass
+        token = self._session_token
+        # 为所有批次中的每个候选人发送 task_completed 事件，触发前端 stopTaskMonitor + clearActiveScreeningTask
+        try:
+            batch_tasks = (
+                self.db.query(RecruitmentAITaskLog)
+                .filter(
+                    RecruitmentAITaskLog.batch_id.isnot(None),
+                    RecruitmentAITaskLog.task_type == 'screening_flow',
+                    RecruitmentAITaskLog.status.in_(TERMINAL_AI_TASK_STATUSES),
+                )
+                .order_by(RecruitmentAITaskLog.id.desc())
+                .limit(200)
+                .all()
+            )
+            notified_ids: set = set()
+            for task in batch_tasks:
+                cid = task.related_candidate_id
+                if cid and cid not in notified_ids:
+                    notified_ids.add(cid)
+                    payload = {
+                        "task_id": task.id,
+                        "status": task.status,
+                        "related_candidate_id": cid,
+                        "task_type": task.task_type,
+                    }
+                    if token:
+                        TaskEventBus.emit(token, "task_completed", payload)
+                    else:
+                        TaskEventBus.emit_to_all("task_completed", payload)
+        except Exception:
+            logger.exception("Failed to emit task_completed events in _emit_batch_summary_if_needed")
+
+        # batch_summary 事件：独立发送，不依赖邮件逻辑
+        try:
+            summary_payload = {"message": "all_tasks_completed"}
+            if token:
+                TaskEventBus.emit(token, "batch_summary", summary_payload)
+            else:
+                TaskEventBus.emit_to_all("batch_summary", summary_payload)
+        except Exception:
+            logger.exception("Failed to emit batch_summary event")
 
     def _check_and_trigger_batch_email_on_task_completion(self, batch_id: str, *, actor_id: str = "system"):
         """当一个任务完成时，检查该批次的根任务是否全部完成，如果是，触发该批次的邮件。"""
@@ -6772,10 +6779,10 @@ class RecruitmentService:
         legacy_rows = self._filter_skill_rows_for_task(self._get_position_skill_rows(position.id), task_kind)
         return [row.id for row in legacy_rows]
 
-    def _get_position_task_skill_rows(self, position_id: Optional[int], task_kind: str) -> List[RecruitmentSkill]:
+    def _get_position_task_skill_rows(self, position_id: Optional[int], task_kind: str, *, _preloaded_position: Optional[RecruitmentPosition] = None) -> List[RecruitmentSkill]:
         if not position_id:
             return []
-        position = self._get_position(position_id)
+        position = _preloaded_position if _preloaded_position is not None else self._get_position(position_id)
         return self._load_skill_rows(self._get_position_task_skill_ids(position, task_kind), enabled_only=True)
 
     def _sync_position_task_skill_bindings(
@@ -8215,9 +8222,18 @@ class RecruitmentService:
     def _serialize_interview_question(self, row: RecruitmentInterviewQuestion) -> Dict[str, Any]:
         return {"id": row.id, "round_name": row.round_name, "custom_requirements": row.custom_requirements, "skill_ids": json_loads_safe(row.skill_ids_json, []), "html_content": row.html_content or "", "markdown_content": row.markdown_content or "", "status": row.status, "created_by": row.created_by, "created_at": isoformat_or_none(row.created_at)}
 
-    def _build_candidate_screening_state_summary(self, row: RecruitmentCandidate) -> Dict[str, Any]:
-        def _query_active_root_task() -> Optional[RecruitmentAITaskLog]:
-            return self.db.query(RecruitmentAITaskLog).filter(
+    def _build_candidate_screening_state_summary(
+        self,
+        row: RecruitmentCandidate,
+        *,
+        _preloaded_active_root: Optional[RecruitmentAITaskLog] = None,
+        _preloaded_latest_completed_parse: Optional[RecruitmentAITaskLog] = None,
+        _preloaded_latest_completed_score: Optional[RecruitmentAITaskLog] = None,
+    ) -> Dict[str, Any]:
+        if _preloaded_active_root is not None:
+            active_root = _preloaded_active_root
+        else:
+            active_root = self.db.query(RecruitmentAITaskLog).filter(
                 RecruitmentAITaskLog.related_candidate_id == row.id,
                 self._screening_root_task_filter(),
                 RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
@@ -8225,29 +8241,40 @@ class RecruitmentService:
                 RecruitmentAITaskLog.updated_at.desc(),
                 RecruitmentAITaskLog.id.desc(),
             ).first()
+            if active_root and self._settle_orphaned_live_task(active_root):
+                self.db.commit()
+                active_root = self.db.query(RecruitmentAITaskLog).filter(
+                    RecruitmentAITaskLog.related_candidate_id == row.id,
+                    self._screening_root_task_filter(),
+                    RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
+                ).order_by(
+                    RecruitmentAITaskLog.updated_at.desc(),
+                    RecruitmentAITaskLog.id.desc(),
+                ).first()
 
-        active_root = _query_active_root_task()
-        if active_root and self._settle_orphaned_live_task(active_root):
-            self.db.commit()
-            active_root = _query_active_root_task()
+        if _preloaded_latest_completed_parse is not None:
+            latest_completed_parse_task = _preloaded_latest_completed_parse
+        else:
+            latest_completed_parse_task = self.db.query(RecruitmentAITaskLog).filter(
+                RecruitmentAITaskLog.related_candidate_id == row.id,
+                RecruitmentAITaskLog.task_type == "resume_parse",
+                RecruitmentAITaskLog.status == "success",
+            ).order_by(
+                RecruitmentAITaskLog.created_at.desc(),
+                RecruitmentAITaskLog.id.desc(),
+            ).first()
 
-        latest_completed_parse_task = self.db.query(RecruitmentAITaskLog).filter(
-            RecruitmentAITaskLog.related_candidate_id == row.id,
-            RecruitmentAITaskLog.task_type == "resume_parse",
-            RecruitmentAITaskLog.status == "success",
-        ).order_by(
-            RecruitmentAITaskLog.created_at.desc(),
-            RecruitmentAITaskLog.id.desc(),
-        ).first()
-
-        latest_completed_score_task = self.db.query(RecruitmentAITaskLog).filter(
-            RecruitmentAITaskLog.related_candidate_id == row.id,
-            self._screening_root_task_filter(),
-            RecruitmentAITaskLog.status.in_(list(TERMINAL_AI_TASK_STATUSES)),
-        ).order_by(
-            RecruitmentAITaskLog.created_at.desc(),
-            RecruitmentAITaskLog.id.desc(),
-        ).first()
+        if _preloaded_latest_completed_score is not None:
+            latest_completed_score_task = _preloaded_latest_completed_score
+        else:
+            latest_completed_score_task = self.db.query(RecruitmentAITaskLog).filter(
+                RecruitmentAITaskLog.related_candidate_id == row.id,
+                self._screening_root_task_filter(),
+                RecruitmentAITaskLog.status.in_(list(TERMINAL_AI_TASK_STATUSES)),
+            ).order_by(
+                RecruitmentAITaskLog.created_at.desc(),
+                RecruitmentAITaskLog.id.desc(),
+            ).first()
 
         display_status_reason = None
         if active_root:
@@ -8299,13 +8326,21 @@ class RecruitmentService:
             "display_status_reason": display_status_reason,
         }
 
-    def _serialize_candidate_summary(self, row: RecruitmentCandidate) -> Dict[str, Any]:
-        position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == row.position_id, RecruitmentPosition.deleted.is_(False)).first() if row.position_id else None
-        score_row = self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == row.latest_score_id).first() if row.latest_score_id else None
+    def _serialize_candidate_summary(
+        self,
+        row: RecruitmentCandidate,
+        *,
+        _preloaded_position: Optional[RecruitmentPosition] = None,
+        _preloaded_score_row: Optional[RecruitmentCandidateScore] = None,
+        _preloaded_screening_state: Optional[Dict[str, Any]] = None,
+        _preloaded_skill_rows: Optional[Dict[str, List[RecruitmentSkill]]] = None,
+    ) -> Dict[str, Any]:
+        position = _preloaded_position if _preloaded_position is not None else (self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == row.position_id, RecruitmentPosition.deleted.is_(False)).first() if row.position_id else None)
+        score_row = _preloaded_score_row if _preloaded_score_row is not None else (self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == row.latest_score_id).first() if row.latest_score_id else None)
         serialized_score = self._serialize_score(score_row) if score_row else None
         display_match_percent = _parse_score_number(serialized_score.get("match_percent")) if serialized_score else _parse_score_number(row.match_percent)
         display_total_score = _parse_score_number(serialized_score.get("total_score")) if serialized_score else _parse_score_number(score_row.total_score if score_row else None)
-        screening_state = self._build_candidate_screening_state_summary(row)
+        screening_state = _preloaded_screening_state if _preloaded_screening_state is not None else self._build_candidate_screening_state_summary(row)
         score_suggested_status = str(serialized_score.get("suggested_status") or "").strip() if serialized_score else ""
         ai_recommended_status = score_suggested_status or str(row.ai_recommended_status or "").strip() or None
         if screening_state.get("active_screening_task_id"):
@@ -8314,9 +8349,14 @@ class RecruitmentService:
             display_status = ai_recommended_status
         else:
             display_status = row.status or ""
-        position_screening_skill_rows = self._get_position_task_skill_rows(position.id, "screening") if position and self._is_business_row_visible(position) else []
-        position_interview_skill_rows = self._get_position_task_skill_rows(position.id, "interview") if position and self._is_business_row_visible(position) else []
-        position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
+        if _preloaded_skill_rows is not None:
+            position_screening_skill_rows = _preloaded_skill_rows.get("screening", [])
+            position_interview_skill_rows = _preloaded_skill_rows.get("interview", [])
+            position_jd_skill_rows = _preloaded_skill_rows.get("jd", [])
+        else:
+            position_screening_skill_rows = self._get_position_task_skill_rows(position.id, "screening") if position and self._is_business_row_visible(position) else []
+            position_interview_skill_rows = self._get_position_task_skill_rows(position.id, "interview") if position and self._is_business_row_visible(position) else []
+            position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
         return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "owner_id": row.owner_id, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _get_org_and_descendant_codes(self, org_code: str) -> List[str]:
@@ -8515,7 +8555,115 @@ class RecruitmentService:
         if limit > 0:
             builder = builder.limit(limit).offset(offset)
         rows = builder.all()
-        serialized_rows = [self._serialize_candidate_summary(row) for row in rows]
+        if not rows:
+            return {"items": [], "total": total}
+
+        # Batch preload positions
+        position_ids = {row.position_id for row in rows if row.position_id}
+        position_map: Dict[int, RecruitmentPosition] = {}
+        if position_ids:
+            for pos in self.db.query(RecruitmentPosition).filter(
+                RecruitmentPosition.id.in_(position_ids),
+                RecruitmentPosition.deleted.is_(False),
+            ).all():
+                position_map[pos.id] = pos
+
+        # Batch preload scores
+        score_ids = {row.latest_score_id for row in rows if row.latest_score_id}
+        score_map: Dict[int, RecruitmentCandidateScore] = {}
+        if score_ids:
+            for score in self.db.query(RecruitmentCandidateScore).filter(
+                RecruitmentCandidateScore.id.in_(score_ids),
+            ).all():
+                score_map[score.id] = score
+
+        # Batch preload skill rows per position (dedup by position_id)
+        skill_rows_cache: Dict[int, Dict[str, List[RecruitmentSkill]]] = {}
+        for pid in position_ids:
+            pos = position_map.get(pid)
+            if pos and self._is_business_row_visible(pos):
+                skill_rows_cache[pid] = {
+                    "screening": self._get_position_task_skill_rows(pid, "screening", _preloaded_position=pos),
+                    "interview": self._get_position_task_skill_rows(pid, "interview", _preloaded_position=pos),
+                    "jd": self._get_position_task_skill_rows(pid, "jd", _preloaded_position=pos),
+                }
+
+        # Batch preload screening state (active root tasks)
+        candidate_ids = [row.id for row in rows]
+        active_root_map: Dict[int, RecruitmentAITaskLog] = {}
+        if candidate_ids:
+            active_rows = self.db.query(RecruitmentAITaskLog).filter(
+                RecruitmentAITaskLog.related_candidate_id.in_(candidate_ids),
+                self._screening_root_task_filter(),
+                RecruitmentAITaskLog.status.in_(SCREENING_LIVE_TASK_STATUSES),
+            ).order_by(
+                RecruitmentAITaskLog.related_candidate_id,
+                RecruitmentAITaskLog.updated_at.desc(),
+                RecruitmentAITaskLog.id.desc(),
+            ).all()
+            seen_cids: set[int] = set()
+            for ar in active_rows:
+                cid = ar.related_candidate_id
+                if cid not in seen_cids:
+                    seen_cids.add(cid)
+                    active_root_map[cid] = ar
+
+        # Batch preload latest completed parse tasks
+        completed_parse_map: Dict[int, RecruitmentAITaskLog] = {}
+        if candidate_ids:
+            parse_rows = self.db.query(RecruitmentAITaskLog).filter(
+                RecruitmentAITaskLog.related_candidate_id.in_(candidate_ids),
+                RecruitmentAITaskLog.task_type == "resume_parse",
+                RecruitmentAITaskLog.status == "success",
+            ).order_by(
+                RecruitmentAITaskLog.related_candidate_id,
+                RecruitmentAITaskLog.created_at.desc(),
+                RecruitmentAITaskLog.id.desc(),
+            ).all()
+            seen_cids_parse: set[int] = set()
+            for pr in parse_rows:
+                cid = pr.related_candidate_id
+                if cid not in seen_cids_parse:
+                    seen_cids_parse.add(cid)
+                    completed_parse_map[cid] = pr
+
+        # Batch preload latest completed score tasks
+        completed_score_map: Dict[int, RecruitmentAITaskLog] = {}
+        if candidate_ids:
+            score_task_rows = self.db.query(RecruitmentAITaskLog).filter(
+                RecruitmentAITaskLog.related_candidate_id.in_(candidate_ids),
+                self._screening_root_task_filter(),
+                RecruitmentAITaskLog.status.in_(list(TERMINAL_AI_TASK_STATUSES)),
+            ).order_by(
+                RecruitmentAITaskLog.related_candidate_id,
+                RecruitmentAITaskLog.created_at.desc(),
+                RecruitmentAITaskLog.id.desc(),
+            ).all()
+            seen_cids_score: set[int] = set()
+            for sr in score_task_rows:
+                cid = sr.related_candidate_id
+                if cid not in seen_cids_score:
+                    seen_cids_score.add(cid)
+                    completed_score_map[cid] = sr
+
+        serialized_rows = []
+        for row in rows:
+            preloaded_position = position_map.get(row.position_id) if row.position_id else None
+            preloaded_score_row = score_map.get(row.latest_score_id) if row.latest_score_id else None
+            preloaded_skill_rows = skill_rows_cache.get(row.position_id) if row.position_id else None
+            screening_state = self._build_candidate_screening_state_summary(
+                row,
+                _preloaded_active_root=active_root_map.get(row.id),
+                _preloaded_latest_completed_parse=completed_parse_map.get(row.id),
+                _preloaded_latest_completed_score=completed_score_map.get(row.id),
+            )
+            serialized_rows.append(self._serialize_candidate_summary(
+                row,
+                _preloaded_position=preloaded_position,
+                _preloaded_score_row=preloaded_score_row,
+                _preloaded_screening_state=screening_state,
+                _preloaded_skill_rows=preloaded_skill_rows,
+            ))
         return {"items": serialized_rows, "total": total}
 
     def get_candidate_detail(self, candidate_id: int) -> Dict[str, Any]:
@@ -8566,7 +8714,7 @@ class RecruitmentService:
             "reused_existing_parse": latest_screening_validation_meta.get("reused_existing_parse") if isinstance(latest_screening_validation_meta, dict) else None,
             "reused_existing_score": latest_screening_validation_meta.get("reused_existing_score") if isinstance(latest_screening_validation_meta, dict) else None,
         }
-        candidate_payload = _compact_candidate_detail_value(self._serialize_candidate_summary(candidate), max_items=48)
+        candidate_payload = _compact_candidate_detail_value(self._serialize_candidate_summary(candidate, _preloaded_score_row=score_row), max_items=48)
         workflow_memory_payload = self._serialize_workflow_memory(workflow_memory, compact=True) if workflow_memory else None
         serialized_activity: List[Dict[str, Any]] = []
         for item in activity:

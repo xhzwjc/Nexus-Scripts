@@ -1,6 +1,9 @@
 import asyncio
 import json
+import logging
 from typing import Dict, Any
+
+logger = logging.getLogger(__name__)
 
 
 class TaskEventBus:
@@ -9,16 +12,34 @@ class TaskEventBus:
     key = session_token (str)，value = asyncio.Queue
     """
     _queues: Dict[str, asyncio.Queue] = {}
+    _loop: asyncio.AbstractEventLoop = None  # type: ignore[assignment]
 
     @classmethod
     def subscribe(cls, session_token: str) -> asyncio.Queue:
         q = asyncio.Queue(maxsize=2000)
         cls._queues[session_token] = q
+        # 保存当前 event loop，供后台线程 emit 使用
+        try:
+            cls._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
         return q
 
     @classmethod
     def unsubscribe(cls, session_token: str):
         cls._queues.pop(session_token, None)
+
+    @classmethod
+    def _get_loop(cls) -> asyncio.AbstractEventLoop | None:
+        """获取保存的 event loop，优先用当前线程的 loop，fallback 到 subscribe 时保存的 loop。"""
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            loop = cls._loop
+            if loop is not None and loop.is_closed():
+                cls._loop = None
+                return None
+            return loop
 
     @classmethod
     def emit(cls, session_token: str, event_type: str, payload: Dict[str, Any]):
@@ -29,9 +50,9 @@ class TaskEventBus:
         q = cls._queues.get(session_token)
         if q is None:
             return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
+        loop = cls._get_loop()
+        if loop is None:
+            logger.warning("TaskEventBus.emit skipped: no event loop available for event_type=%s", event_type)
             return
         data = json.dumps({"type": event_type, **payload}, ensure_ascii=False)
 
