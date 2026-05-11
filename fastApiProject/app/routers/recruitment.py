@@ -54,7 +54,6 @@ from ..recruitment_schemas import (
     SkillContentGenerateRequest,
     SkillUpsertRequest,
 )
-from ..schema_maintenance import ensure_recruitment_schema
 from ..script_hub_session import (
     get_script_hub_token_from_request,
     require_script_hub_any_permission,
@@ -116,9 +115,16 @@ async def stream_task_events(
 
 
 async def recover_orphaned_tasks_on_startup():
-    """供主 app lifespan 调用。服务启动时将所有 status=running/queued 的任务标记为 failed。"""
+    """供主 app lifespan 调用。服务启动时将所有 status=running/queued 的任务标记为 failed。
+
+    分批处理（每批 10 个），批次间加随机抖动延迟，避免并发写库死锁。
+    """
+    import asyncio
+    import random
     from ..database import SessionLocal
     from ..recruitment_models import RecruitmentAITaskLog
+
+    BATCH_SIZE = 10
     db = SessionLocal()
     try:
         orphaned = db.query(RecruitmentAITaskLog).filter(
@@ -126,10 +132,30 @@ async def recover_orphaned_tasks_on_startup():
         ).all()
         if not orphaned:
             return
-        for row in orphaned:
-            row.status = "failed"
-            row.error_message = "服务重启，任务中断。请手动重新触发初筛。"
-        db.commit()
+        logger.warning("Found %d orphaned tasks, scheduling with batch delay...", len(orphaned))
+        db.close()
+
+        for batch_start in range(0, len(orphaned), BATCH_SIZE):
+            batch = orphaned[batch_start: batch_start + BATCH_SIZE]
+            if batch_start > 0:
+                delay = random.uniform(2, 4)
+                await asyncio.sleep(delay)
+            db = SessionLocal()
+            try:
+                for row_id in [r.id for r in batch]:
+                    row = db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.id == row_id).first()
+                    if row and row.status in ("running", "queued"):
+                        row.status = "failed"
+                        row.error_message = "服务重启，任务中断。请手动重新触发初筛。"
+                db.commit()
+                logger.info("Batch %d-%d: marked %d orphaned tasks as failed",
+                            batch_start, batch_start + len(batch), len(batch))
+            except Exception as exc:
+                logger.error("Batch %d-%d failed: %s", batch_start, batch_start + len(batch), exc)
+                db.rollback()
+            finally:
+                db.close()
+
         logger.warning(
             "Marked %d orphaned tasks as failed on startup. "
             "Manual re-trigger required.",
@@ -137,9 +163,15 @@ async def recover_orphaned_tasks_on_startup():
         )
     except Exception as exc:
         logger.error("Failed to recover orphaned tasks: %s", exc)
-        db.rollback()
+        try:
+            db.rollback()
+        except Exception:
+            pass
     finally:
-        db.close()
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 def _session_has_permission(session: Dict[str, Any], permission: str) -> bool:
@@ -169,7 +201,7 @@ def _ensure_resource_copy_allowed(session: Dict[str, Any], resource_kind: str) -
 
 
 def get_recruitment_service(request: Request, db: Session = Depends(get_db)) -> RecruitmentService:
-    ensure_recruitment_schema()
+    # ensure_recruitment_schema() 已在 prestart.py 中执行，请求路径不再调用
     session = getattr(request.state, "script_hub_session", None)
     if not session:
         token = get_script_hub_token_from_request(request)
@@ -186,7 +218,7 @@ def _run_recruitment_service_call(
     governance_session: Optional[Dict[str, Any]] = None,
     **kwargs: Any,
 ) -> Any:
-    ensure_recruitment_schema()
+    # ensure_recruitment_schema() 已在 prestart.py 中执行，请求路径不再调用
     db = SessionLocal()
     try:
         service = RecruitmentService(db).set_permission_context(governance_session)

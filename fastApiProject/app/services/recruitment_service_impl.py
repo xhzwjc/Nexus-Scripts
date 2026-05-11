@@ -6950,7 +6950,13 @@ class RecruitmentService:
         return row
 
     def _commit_ai_task_log(self, row: RecruitmentAITaskLog) -> RecruitmentAITaskLog:
+        import random as _rnd
+        import time as _time
         self.db.add(row)
+        # 失败/超时终态加抖动，避免大量任务同时超时→同时写库→死锁
+        # success 不抖动，不阻塞正常完成的任务
+        if row.status in TERMINAL_AI_TASK_STATUSES and row.status != "success":
+            _time.sleep(_rnd.uniform(0, 0.15))
         try:
             self.db.commit()
             self.db.refresh(row)

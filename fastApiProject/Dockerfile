@@ -21,6 +21,7 @@ COPY . .
 
 EXPOSE 8091
 
-CMD ["gunicorn", "run:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", \
-     "-b", "0.0.0.0:8091", "--access-logfile", "-", "--error-logfile", "-", \
-     "--log-level", "info", "--capture-output"]
+CMD ["sh", "-c", "python prestart.py && gunicorn run:app -w 4 -k uvicorn.workers.UvicornWorker \
+     -b 0.0.0.0:8091 --access-logfile - --error-logfile - \
+     --timeout 120 --graceful-timeout 30 \
+     --log-level info --capture-output"]

@@ -20,7 +20,6 @@ from ..rbac_schemas import (
     ScriptHubUserMutationResponse,
     ScriptHubUserUpdateRequest,
 )
-from ..schema_maintenance import ensure_script_hub_schema
 from ..script_hub_session import (
     create_script_hub_session,
     get_script_hub_token_from_request,
@@ -118,7 +117,6 @@ def _write_failed_audit_log(
 
 @auth_router.post("/session")
 async def create_auth_session(request: Request, db: Session = Depends(get_db)):
-    ensure_script_hub_schema()
     try:
         body = await request.json()
     except Exception:
@@ -137,7 +135,6 @@ async def create_auth_session(request: Request, db: Session = Depends(get_db)):
 
 @auth_router.get("/session")
 async def verify_auth_session(request: Request, db: Session = Depends(get_db)):
-    ensure_script_hub_schema()
     token = get_script_hub_token_from_request(request)
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -162,7 +159,6 @@ async def get_rbac_overview(
     db: Session = Depends(get_db),
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
-    ensure_script_hub_schema()
     return list_rbac_overview(db, actor=session)
 
 
@@ -174,7 +170,6 @@ async def create_rbac_user_endpoint(
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        ensure_script_hub_schema()
         user, generated_access_key = create_rbac_user(
             db,
             actor=session,
@@ -229,7 +224,6 @@ async def create_rbac_role_endpoint(
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        ensure_script_hub_schema()
         role = create_rbac_role(
             db,
             code=payload.code,
@@ -272,7 +266,6 @@ async def create_rbac_organization_endpoint(
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        ensure_script_hub_schema()
         organization = create_organization(
             db,
             actor=session,
@@ -317,7 +310,6 @@ async def update_rbac_user_endpoint(
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        ensure_script_hub_schema()
         user = update_rbac_user(
             db,
             user_code,
@@ -386,7 +378,6 @@ async def update_rbac_organization_endpoint(
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        ensure_script_hub_schema()
         organization = update_organization(
             db,
             org_code,
@@ -431,7 +422,6 @@ async def update_rbac_role_endpoint(
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        ensure_script_hub_schema()
         role = update_rbac_role(
             db,
             role_code,
@@ -476,7 +466,6 @@ async def rotate_rbac_user_key_endpoint(
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        ensure_script_hub_schema()
         user, generated_access_key = rotate_user_access_key(
             db,
             user_code,
@@ -517,7 +506,6 @@ async def delete_rbac_user_endpoint(
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        ensure_script_hub_schema()
         deleted = delete_rbac_user(db, user_code)
         write_audit_log(
             db,
@@ -551,7 +539,6 @@ async def delete_rbac_organization_endpoint(
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        ensure_script_hub_schema()
         if soft:
             deleted = soft_delete_organization(db, org_code, actor=session)
             action = "organization.soft_delete"
@@ -591,10 +578,12 @@ async def get_rbac_organization_users_endpoint(
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        ensure_script_hub_schema()
         return get_org_users(db, org_code)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@rbac_router.delete("/roles/{role_code}", response_model=ScriptHubDeleteResponse)
 async def delete_rbac_role_endpoint(
     request: Request,
     role_code: str,
@@ -602,7 +591,6 @@ async def delete_rbac_role_endpoint(
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
-        ensure_script_hub_schema()
         deleted = delete_rbac_role(db, role_code)
         write_audit_log(
             db,

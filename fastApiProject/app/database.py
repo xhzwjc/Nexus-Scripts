@@ -19,11 +19,12 @@ SQLALCHEMY_DATABASE_URL = (
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    pool_size=5,
-    max_overflow=10,
-    pool_timeout=30,
-    pool_recycle=3600,
-    pool_pre_ping=True
+    pool_size=20,          # 4 workers × 8 screening threads = 32 并发，pool 需覆盖
+    max_overflow=20,       # 总上限 40，留余量给 API 请求
+    pool_timeout=10,       # 快速失败，不长时间等待连接
+    pool_recycle=1800,     # 容器环境下更积极回收，避免被网络设备断开
+    pool_pre_ping=True,
+    connect_args={"init_command": "SET SESSION innodb_lock_wait_timeout=5"},
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -32,6 +32,39 @@ _schema_lock = Lock()
 _schema_ensured = False
 _recruitment_schema_ensured = False
 
+
+class _MysqlAdvisoryLock:
+    """MySQL GET_LOCK wrapper — prevents concurrent DDL across processes.
+
+    GET_LOCK / RELEASE_LOCK MUST run on the **same** MySQL connection;
+    the lock is connection-scoped and auto-releases when the connection closes.
+    Non-MySQL dialects (SQLite, PostgreSQL, …) are no-ops.
+    """
+
+    def __init__(self, lock_name: str, timeout: int = 30):
+        self._lock_name = lock_name
+        self._timeout = timeout
+        self._active = engine.dialect.name == "mysql"
+        self._conn = None  # 持久化同一个连接，确保 GET/RELEASE 在同一连接上
+
+    def __enter__(self):
+        if not self._active:
+            return self
+        self._conn = engine.connect()
+        self._conn.execute(text(f"SELECT GET_LOCK('{self._lock_name}', {self._timeout})"))
+        return self
+
+    def __exit__(self, *_):
+        if not self._active or self._conn is None:
+            return
+        try:
+            self._conn.execute(text(f"SELECT RELEASE_LOCK('{self._lock_name}')"))
+        except Exception:
+            pass
+        finally:
+            self._conn.close()
+            self._conn = None
+
 _SCHEMA_SKILL_TASK_KEYWORDS = {
     "screening": {"screening", "score", "scoring", "resume_score", "resume-screening", "初筛", "评分", "筛选"},
     "interview": {"interview", "question", "questions", "interview-question", "面试", "面试题", "出题"},
@@ -283,87 +316,88 @@ def ensure_script_hub_schema() -> None:
         if _schema_ensured:
             return
 
-        Base.metadata.create_all(bind=engine)
-        inspector = inspect(engine)
-        if not inspector.has_table("script_hub_users"):
-            _schema_ensured = True
-            return
+        with _MysqlAdvisoryLock("nexus_script_hub_schema"):
+            Base.metadata.create_all(bind=engine)
+            inspector = inspect(engine)
+            if not inspector.has_table("script_hub_users"):
+                _schema_ensured = True
+                return
 
-        columns = {column["name"] for column in inspector.get_columns("script_hub_users")}
-        if "primary_org_code" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN primary_org_code VARCHAR(100) NOT NULL DEFAULT 'group'"))
-            logger.info("Added script_hub_users.primary_org_code column")
+            columns = {column["name"] for column in inspector.get_columns("script_hub_users")}
+            if "primary_org_code" not in columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN primary_org_code VARCHAR(100) NOT NULL DEFAULT 'group'"))
+                logger.info("Added script_hub_users.primary_org_code column")
 
-        if "data_scope" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN data_scope VARCHAR(40) NOT NULL DEFAULT 'ORG_ONLY'"))
-            logger.info("Added script_hub_users.data_scope column")
+            if "data_scope" not in columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN data_scope VARCHAR(40) NOT NULL DEFAULT 'ORG_ONLY'"))
+                logger.info("Added script_hub_users.data_scope column")
 
-        if "custom_org_codes_json" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN custom_org_codes_json TEXT NULL"))
-            logger.info("Added script_hub_users.custom_org_codes_json column")
+            if "custom_org_codes_json" not in columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN custom_org_codes_json TEXT NULL"))
+                logger.info("Added script_hub_users.custom_org_codes_json column")
 
-        if "authorization_boundary_json" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN authorization_boundary_json TEXT NULL"))
-            logger.info("Added script_hub_users.authorization_boundary_json column")
+            if "authorization_boundary_json" not in columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN authorization_boundary_json TEXT NULL"))
+                logger.info("Added script_hub_users.authorization_boundary_json column")
 
-        if "permission_version" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN permission_version INTEGER NOT NULL DEFAULT 1"))
-            logger.info("Added script_hub_users.permission_version column")
+            if "permission_version" not in columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN permission_version INTEGER NOT NULL DEFAULT 1"))
+                logger.info("Added script_hub_users.permission_version column")
 
-        if "team_resources_access_enabled" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN team_resources_access_enabled BOOLEAN NOT NULL DEFAULT TRUE"))
-            logger.info("Added script_hub_users.team_resources_access_enabled column")
+            if "team_resources_access_enabled" not in columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN team_resources_access_enabled BOOLEAN NOT NULL DEFAULT TRUE"))
+                logger.info("Added script_hub_users.team_resources_access_enabled column")
 
-        if "is_deleted" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))
-            logger.info("Added script_hub_users.is_deleted column")
+            if "is_deleted" not in columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))
+                logger.info("Added script_hub_users.is_deleted column")
 
-        if "deleted_at" not in columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN deleted_at DATETIME NULL"))
-            logger.info("Added script_hub_users.deleted_at column")
+            if "deleted_at" not in columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN deleted_at DATETIME NULL"))
+                logger.info("Added script_hub_users.deleted_at column")
 
-        org_columns = {column["name"] for column in inspector.get_columns("script_hub_organizations")}
-        if "is_deleted" not in org_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_organizations ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))
-            logger.info("Added script_hub_organizations.is_deleted column")
+            org_columns = {column["name"] for column in inspector.get_columns("script_hub_organizations")}
+            if "is_deleted" not in org_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_organizations ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))
+                logger.info("Added script_hub_organizations.is_deleted column")
 
-        if "deleted_at" not in org_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_organizations ADD COLUMN deleted_at DATETIME NULL"))
-            logger.info("Added script_hub_organizations.deleted_at column")
+            if "deleted_at" not in org_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_organizations ADD COLUMN deleted_at DATETIME NULL"))
+                logger.info("Added script_hub_organizations.deleted_at column")
 
-        role_columns = {column["name"] for column in inspector.get_columns("script_hub_roles")}
-        if "is_deleted" not in role_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_roles ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))
-            logger.info("Added script_hub_roles.is_deleted column")
+            role_columns = {column["name"] for column in inspector.get_columns("script_hub_roles")}
+            if "is_deleted" not in role_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_roles ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))
+                logger.info("Added script_hub_roles.is_deleted column")
 
-        if "deleted_at" not in role_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_roles ADD COLUMN deleted_at DATETIME NULL"))
-            logger.info("Added script_hub_roles.deleted_at column")
+            if "deleted_at" not in role_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_roles ADD COLUMN deleted_at DATETIME NULL"))
+                logger.info("Added script_hub_roles.deleted_at column")
 
-        audit_columns = {column["name"] for column in inspector.get_columns("script_hub_audit_logs")}
-        if "target_org_code" not in audit_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_audit_logs ADD COLUMN target_org_code VARCHAR(100) NULL"))
-            logger.info("Added script_hub_audit_logs.target_org_code column")
+            audit_columns = {column["name"] for column in inspector.get_columns("script_hub_audit_logs")}
+            if "target_org_code" not in audit_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_audit_logs ADD COLUMN target_org_code VARCHAR(100) NULL"))
+                logger.info("Added script_hub_audit_logs.target_org_code column")
 
-        if "sensitivity" not in audit_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE script_hub_audit_logs ADD COLUMN sensitivity VARCHAR(40) NOT NULL DEFAULT 'normal'"))
-            logger.info("Added script_hub_audit_logs.sensitivity column")
+            if "sensitivity" not in audit_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE script_hub_audit_logs ADD COLUMN sensitivity VARCHAR(40) NOT NULL DEFAULT 'normal'"))
+                logger.info("Added script_hub_audit_logs.sensitivity column")
 
-        _sync_script_hub_catalog()
+            _sync_script_hub_catalog()
         _schema_ensured = True
 
 
@@ -377,462 +411,463 @@ def ensure_recruitment_schema() -> None:
         if _recruitment_schema_ensured:
             return
 
-        Base.metadata.create_all(bind=engine)
-        inspector = inspect(engine)
-        if not inspector.has_table("recruitment_rule_configs"):
-            _recruitment_schema_ensured = True
-            return
+        with _MysqlAdvisoryLock("nexus_recruitment_schema"):
+            Base.metadata.create_all(bind=engine)
+            inspector = inspect(engine)
+            if not inspector.has_table("recruitment_rule_configs"):
+                _recruitment_schema_ensured = True
+                return
 
-        for table_name in [
-            "recruitment_positions",
-            "recruitment_jd_versions",
-            "recruitment_candidates",
-            "recruitment_resume_files",
-            "recruitment_resume_parse_results",
-            "recruitment_candidate_scores",
-            "recruitment_candidate_status_history",
-            "recruitment_ai_task_logs",
-            "recruitment_rule_configs",
-            "recruitment_interview_questions",
-            "recruitment_candidate_workflow_memories",
-            "recruitment_chat_context_memories",
-            "recruitment_resume_mail_dispatches",
-            "recruitment_interview_results",
-            "recruitment_publish_tasks",
-        ]:
-            if inspector.has_table(table_name):
+            for table_name in [
+                "recruitment_positions",
+                "recruitment_jd_versions",
+                "recruitment_candidates",
+                "recruitment_resume_files",
+                "recruitment_resume_parse_results",
+                "recruitment_candidate_scores",
+                "recruitment_candidate_status_history",
+                "recruitment_ai_task_logs",
+                "recruitment_rule_configs",
+                "recruitment_interview_questions",
+                "recruitment_candidate_workflow_memories",
+                "recruitment_chat_context_memories",
+                "recruitment_resume_mail_dispatches",
+                "recruitment_interview_results",
+                "recruitment_publish_tasks",
+            ]:
+                if inspector.has_table(table_name):
+                    _add_column_if_missing(
+                        inspector,
+                        table_name,
+                        "org_code",
+                        f"ALTER TABLE {table_name} ADD COLUMN org_code VARCHAR(100) NOT NULL DEFAULT 'group'",
+                        f"Added {table_name}.org_code column",
+                    )
+    
+            for table_name in [
+                "recruitment_skills",
+                "recruitment_llm_configs",
+                "recruitment_mail_sender_configs",
+                "recruitment_mail_recipients",
+            ]:
+                if not inspector.has_table(table_name):
+                    continue
+                _add_column_if_missing(inspector, table_name, "org_code", f"ALTER TABLE {table_name} ADD COLUMN org_code VARCHAR(100) NOT NULL DEFAULT 'group'", f"Added {table_name}.org_code column")
+                _add_column_if_missing(inspector, table_name, "scope_level", f"ALTER TABLE {table_name} ADD COLUMN scope_level VARCHAR(40) NOT NULL DEFAULT 'ORG'", f"Added {table_name}.scope_level column")
+                _add_column_if_missing(inspector, table_name, "share_policy", f"ALTER TABLE {table_name} ADD COLUMN share_policy VARCHAR(40) NOT NULL DEFAULT 'PRIVATE'", f"Added {table_name}.share_policy column")
+                _add_column_if_missing(inspector, table_name, "allow_sub_org_use", f"ALTER TABLE {table_name} ADD COLUMN allow_sub_org_use BOOLEAN NOT NULL DEFAULT FALSE", f"Added {table_name}.allow_sub_org_use column")
+                _add_column_if_missing(inspector, table_name, "allow_copy", f"ALTER TABLE {table_name} ADD COLUMN allow_copy BOOLEAN NOT NULL DEFAULT FALSE", f"Added {table_name}.allow_copy column")
+    
+            if inspector.has_table("recruitment_skills"):
                 _add_column_if_missing(
                     inspector,
-                    table_name,
-                    "org_code",
-                    f"ALTER TABLE {table_name} ADD COLUMN org_code VARCHAR(100) NOT NULL DEFAULT 'group'",
-                    f"Added {table_name}.org_code column",
+                    "recruitment_skills",
+                    "is_system_base",
+                    "ALTER TABLE recruitment_skills ADD COLUMN is_system_base BOOLEAN NOT NULL DEFAULT FALSE",
+                    "Added recruitment_skills.is_system_base column",
                 )
-
-        for table_name in [
-            "recruitment_skills",
-            "recruitment_llm_configs",
-            "recruitment_mail_sender_configs",
-            "recruitment_mail_recipients",
-        ]:
-            if not inspector.has_table(table_name):
-                continue
-            _add_column_if_missing(inspector, table_name, "org_code", f"ALTER TABLE {table_name} ADD COLUMN org_code VARCHAR(100) NOT NULL DEFAULT 'group'", f"Added {table_name}.org_code column")
-            _add_column_if_missing(inspector, table_name, "scope_level", f"ALTER TABLE {table_name} ADD COLUMN scope_level VARCHAR(40) NOT NULL DEFAULT 'ORG'", f"Added {table_name}.scope_level column")
-            _add_column_if_missing(inspector, table_name, "share_policy", f"ALTER TABLE {table_name} ADD COLUMN share_policy VARCHAR(40) NOT NULL DEFAULT 'PRIVATE'", f"Added {table_name}.share_policy column")
-            _add_column_if_missing(inspector, table_name, "allow_sub_org_use", f"ALTER TABLE {table_name} ADD COLUMN allow_sub_org_use BOOLEAN NOT NULL DEFAULT FALSE", f"Added {table_name}.allow_sub_org_use column")
-            _add_column_if_missing(inspector, table_name, "allow_copy", f"ALTER TABLE {table_name} ADD COLUMN allow_copy BOOLEAN NOT NULL DEFAULT FALSE", f"Added {table_name}.allow_copy column")
-
-        if inspector.has_table("recruitment_skills"):
-            _add_column_if_missing(
-                inspector,
-                "recruitment_skills",
-                "is_system_base",
-                "ALTER TABLE recruitment_skills ADD COLUMN is_system_base BOOLEAN NOT NULL DEFAULT FALSE",
-                "Added recruitment_skills.is_system_base column",
-            )
-
-        if inspector.has_table("recruitment_llm_configs"):
-            _add_column_if_missing(inspector, "recruitment_llm_configs", "created_by", "ALTER TABLE recruitment_llm_configs ADD COLUMN created_by VARCHAR(100) NULL", "Added recruitment_llm_configs.created_by column")
-            _add_column_if_missing(inspector, "recruitment_llm_configs", "updated_by", "ALTER TABLE recruitment_llm_configs ADD COLUMN updated_by VARCHAR(100) NULL", "Added recruitment_llm_configs.updated_by column")
-
-        jd_columns = {column["name"] for column in inspector.get_columns("recruitment_jd_versions")}
-        if "publish_text" not in jd_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_jd_versions ADD COLUMN publish_text TEXT NULL"))
-            logger.info("Added recruitment_jd_versions.publish_text column")
-
-        position_columns = {column["name"] for column in inspector.get_columns("recruitment_positions")}
-        if "auto_screen_on_upload" not in position_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN auto_screen_on_upload BOOLEAN NOT NULL DEFAULT FALSE"))
-            logger.info("Added recruitment_positions.auto_screen_on_upload column")
-        if "auto_advance_on_screening" not in position_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN auto_advance_on_screening BOOLEAN NOT NULL DEFAULT TRUE"))
-            logger.info("Added recruitment_positions.auto_advance_on_screening column")
-        if "jd_skill_ids_json" not in position_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN jd_skill_ids_json TEXT NULL"))
-            logger.info("Added recruitment_positions.jd_skill_ids_json column")
-        if "screening_skill_ids_json" not in position_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN screening_skill_ids_json TEXT NULL"))
-            logger.info("Added recruitment_positions.screening_skill_ids_json column")
-        if "interview_skill_ids_json" not in position_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN interview_skill_ids_json TEXT NULL"))
-            logger.info("Added recruitment_positions.interview_skill_ids_json column")
-
-        skill_columns = {column["name"] for column in inspector.get_columns("recruitment_skills")}
-        if "skill_group" not in skill_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN skill_group VARCHAR(120) NULL"))
-            logger.info("Added recruitment_skills.skill_group column")
-        if "version" not in skill_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN version VARCHAR(40) NULL"))
-            logger.info("Added recruitment_skills.version column")
-        if "tags_json" not in skill_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN tags_json TEXT NULL"))
-            logger.info("Added recruitment_skills.tags_json column")
-        if "task_types_json" not in skill_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN task_types_json TEXT NULL"))
-            logger.info("Added recruitment_skills.task_types_json column")
-
-        ai_task_columns = {column["name"] for column in inspector.get_columns("recruitment_ai_task_logs")}
-        if "screening_run_id" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN screening_run_id VARCHAR(80) NULL"))
-            logger.info("Added recruitment_ai_task_logs.screening_run_id column")
-        if "batch_id" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN batch_id VARCHAR(80) NULL"))
-            logger.info("Added recruitment_ai_task_logs.batch_id column")
-        if "parent_task_id" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN parent_task_id INTEGER NULL"))
-            logger.info("Added recruitment_ai_task_logs.parent_task_id column")
-        if "root_task_id" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN root_task_id INTEGER NULL"))
-            logger.info("Added recruitment_ai_task_logs.root_task_id column")
-        if "stage" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN stage VARCHAR(50) NULL"))
-            logger.info("Added recruitment_ai_task_logs.stage column")
-        if "stage_started_at" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN stage_started_at DATETIME NULL"))
-            logger.info("Added recruitment_ai_task_logs.stage_started_at column")
-        if "stage_completed_at" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN stage_completed_at DATETIME NULL"))
-            logger.info("Added recruitment_ai_task_logs.stage_completed_at column")
-        if "duration_ms" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN duration_ms INTEGER NULL"))
-            logger.info("Added recruitment_ai_task_logs.duration_ms column")
-        if "related_skill_ids_json" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN related_skill_ids_json TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.related_skill_ids_json column")
-        if "related_skill_snapshots_json" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN related_skill_snapshots_json TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.related_skill_snapshots_json column")
-
-        if "memory_source" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN memory_source VARCHAR(80) NULL"))
-            logger.info("Added recruitment_ai_task_logs.memory_source column")
-        if "skill_resolution_source" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN skill_resolution_source VARCHAR(80) NULL"))
-            logger.info("Added recruitment_ai_task_logs.skill_resolution_source column")
-        if "skill_resolution_detail_json" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN skill_resolution_detail_json TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.skill_resolution_detail_json column")
-        if "score_rule_snapshot_json" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN score_rule_snapshot_json TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.score_rule_snapshot_json column")
-        if "timing_breakdown_json" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN timing_breakdown_json TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.timing_breakdown_json column")
-        if "request_hash" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN request_hash VARCHAR(120) NULL"))
-            logger.info("Added recruitment_ai_task_logs.request_hash column")
-        if "output_snapshot" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN output_snapshot TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.output_snapshot column")
-        if "full_request_snapshot" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN full_request_snapshot TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.full_request_snapshot column")
-        if "raw_response_text" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN raw_response_text TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.raw_response_text column")
-        if "parsed_response_json" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN parsed_response_json TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.parsed_response_json column")
-        if "sanitized_response_json" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN sanitized_response_json TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.sanitized_response_json column")
-        if "validation_meta_json" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN validation_meta_json TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.validation_meta_json column")
-        if "persisted_result_refs_json" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN persisted_result_refs_json TEXT NULL"))
-            logger.info("Added recruitment_ai_task_logs.persisted_result_refs_json column")
-        if "model_source" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN model_source VARCHAR(120) NULL"))
-            logger.info("Added recruitment_ai_task_logs.model_source column")
-        if "batch_email_sent" not in ai_task_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN batch_email_sent BOOLEAN NOT NULL DEFAULT FALSE"))
-            logger.info("Added recruitment_ai_task_logs.batch_email_sent column")
-            with engine.begin() as connection:
-                connection.execute(text("CREATE INDEX ix_recruitment_ai_task_logs_batch_email_sent ON recruitment_ai_task_logs (batch_email_sent)"))
-            logger.info("Created index ix_recruitment_ai_task_logs_batch_email_sent")
-        if engine.dialect.name == "mysql":
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN related_skill_snapshots_json LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN skill_resolution_detail_json LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN score_rule_snapshot_json LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN timing_breakdown_json LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN prompt_snapshot LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN full_request_snapshot LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN output_summary LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN output_snapshot LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN raw_response_text LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN parsed_response_json LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN sanitized_response_json LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN validation_meta_json LONGTEXT NULL"))
-                connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN persisted_result_refs_json LONGTEXT NULL"))
-            logger.info("Expanded recruitment_ai_task_logs large text columns to LONGTEXT")
-
-        score_columns = {column["name"]: column for column in inspector.get_columns("recruitment_candidate_scores")}
-        recommendation_column = score_columns.get("recommendation")
-        recommendation_length = None
-        if recommendation_column is not None:
-            recommendation_length = getattr(recommendation_column.get("type"), "length", None)
-        if recommendation_column is not None and recommendation_length and recommendation_length < 255:
+    
+            if inspector.has_table("recruitment_llm_configs"):
+                _add_column_if_missing(inspector, "recruitment_llm_configs", "created_by", "ALTER TABLE recruitment_llm_configs ADD COLUMN created_by VARCHAR(100) NULL", "Added recruitment_llm_configs.created_by column")
+                _add_column_if_missing(inspector, "recruitment_llm_configs", "updated_by", "ALTER TABLE recruitment_llm_configs ADD COLUMN updated_by VARCHAR(100) NULL", "Added recruitment_llm_configs.updated_by column")
+    
+            jd_columns = {column["name"] for column in inspector.get_columns("recruitment_jd_versions")}
+            if "publish_text" not in jd_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_jd_versions ADD COLUMN publish_text TEXT NULL"))
+                logger.info("Added recruitment_jd_versions.publish_text column")
+    
+            position_columns = {column["name"] for column in inspector.get_columns("recruitment_positions")}
+            if "auto_screen_on_upload" not in position_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN auto_screen_on_upload BOOLEAN NOT NULL DEFAULT FALSE"))
+                logger.info("Added recruitment_positions.auto_screen_on_upload column")
+            if "auto_advance_on_screening" not in position_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN auto_advance_on_screening BOOLEAN NOT NULL DEFAULT TRUE"))
+                logger.info("Added recruitment_positions.auto_advance_on_screening column")
+            if "jd_skill_ids_json" not in position_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN jd_skill_ids_json TEXT NULL"))
+                logger.info("Added recruitment_positions.jd_skill_ids_json column")
+            if "screening_skill_ids_json" not in position_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN screening_skill_ids_json TEXT NULL"))
+                logger.info("Added recruitment_positions.screening_skill_ids_json column")
+            if "interview_skill_ids_json" not in position_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN interview_skill_ids_json TEXT NULL"))
+                logger.info("Added recruitment_positions.interview_skill_ids_json column")
+    
+            skill_columns = {column["name"] for column in inspector.get_columns("recruitment_skills")}
+            if "skill_group" not in skill_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN skill_group VARCHAR(120) NULL"))
+                logger.info("Added recruitment_skills.skill_group column")
+            if "version" not in skill_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN version VARCHAR(40) NULL"))
+                logger.info("Added recruitment_skills.version column")
+            if "tags_json" not in skill_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN tags_json TEXT NULL"))
+                logger.info("Added recruitment_skills.tags_json column")
+            if "task_types_json" not in skill_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN task_types_json TEXT NULL"))
+                logger.info("Added recruitment_skills.task_types_json column")
+    
+            ai_task_columns = {column["name"] for column in inspector.get_columns("recruitment_ai_task_logs")}
+            if "screening_run_id" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN screening_run_id VARCHAR(80) NULL"))
+                logger.info("Added recruitment_ai_task_logs.screening_run_id column")
+            if "batch_id" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN batch_id VARCHAR(80) NULL"))
+                logger.info("Added recruitment_ai_task_logs.batch_id column")
+            if "parent_task_id" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN parent_task_id INTEGER NULL"))
+                logger.info("Added recruitment_ai_task_logs.parent_task_id column")
+            if "root_task_id" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN root_task_id INTEGER NULL"))
+                logger.info("Added recruitment_ai_task_logs.root_task_id column")
+            if "stage" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN stage VARCHAR(50) NULL"))
+                logger.info("Added recruitment_ai_task_logs.stage column")
+            if "stage_started_at" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN stage_started_at DATETIME NULL"))
+                logger.info("Added recruitment_ai_task_logs.stage_started_at column")
+            if "stage_completed_at" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN stage_completed_at DATETIME NULL"))
+                logger.info("Added recruitment_ai_task_logs.stage_completed_at column")
+            if "duration_ms" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN duration_ms INTEGER NULL"))
+                logger.info("Added recruitment_ai_task_logs.duration_ms column")
+            if "related_skill_ids_json" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN related_skill_ids_json TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.related_skill_ids_json column")
+            if "related_skill_snapshots_json" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN related_skill_snapshots_json TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.related_skill_snapshots_json column")
+    
+            if "memory_source" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN memory_source VARCHAR(80) NULL"))
+                logger.info("Added recruitment_ai_task_logs.memory_source column")
+            if "skill_resolution_source" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN skill_resolution_source VARCHAR(80) NULL"))
+                logger.info("Added recruitment_ai_task_logs.skill_resolution_source column")
+            if "skill_resolution_detail_json" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN skill_resolution_detail_json TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.skill_resolution_detail_json column")
+            if "score_rule_snapshot_json" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN score_rule_snapshot_json TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.score_rule_snapshot_json column")
+            if "timing_breakdown_json" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN timing_breakdown_json TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.timing_breakdown_json column")
+            if "request_hash" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN request_hash VARCHAR(120) NULL"))
+                logger.info("Added recruitment_ai_task_logs.request_hash column")
+            if "output_snapshot" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN output_snapshot TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.output_snapshot column")
+            if "full_request_snapshot" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN full_request_snapshot TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.full_request_snapshot column")
+            if "raw_response_text" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN raw_response_text TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.raw_response_text column")
+            if "parsed_response_json" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN parsed_response_json TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.parsed_response_json column")
+            if "sanitized_response_json" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN sanitized_response_json TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.sanitized_response_json column")
+            if "validation_meta_json" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN validation_meta_json TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.validation_meta_json column")
+            if "persisted_result_refs_json" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN persisted_result_refs_json TEXT NULL"))
+                logger.info("Added recruitment_ai_task_logs.persisted_result_refs_json column")
+            if "model_source" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN model_source VARCHAR(120) NULL"))
+                logger.info("Added recruitment_ai_task_logs.model_source column")
+            if "batch_email_sent" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN batch_email_sent BOOLEAN NOT NULL DEFAULT FALSE"))
+                logger.info("Added recruitment_ai_task_logs.batch_email_sent column")
+                with engine.begin() as connection:
+                    connection.execute(text("CREATE INDEX ix_recruitment_ai_task_logs_batch_email_sent ON recruitment_ai_task_logs (batch_email_sent)"))
+                logger.info("Created index ix_recruitment_ai_task_logs_batch_email_sent")
             if engine.dialect.name == "mysql":
                 with engine.begin() as connection:
-                    connection.execute(text("ALTER TABLE recruitment_candidate_scores MODIFY COLUMN recommendation VARCHAR(255) NULL"))
-                logger.info("Expanded recruitment_candidate_scores.recommendation to VARCHAR(255)")
-            else:
-                logger.info("Skipped expanding recruitment_candidate_scores.recommendation on dialect %s", engine.dialect.name)
-
-        llm_columns = {column["name"] for column in inspector.get_columns("recruitment_llm_configs")}
-        if "api_key_ciphertext" not in llm_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_llm_configs ADD COLUMN api_key_ciphertext TEXT NULL"))
-            logger.info("Added recruitment_llm_configs.api_key_ciphertext column")
-
-        mail_dispatch_columns = {column["name"] for column in inspector.get_columns("recruitment_resume_mail_dispatches")}
-        if "position_id" not in mail_dispatch_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN position_id INTEGER NULL"))
-            logger.info("Added recruitment_resume_mail_dispatches.position_id column")
-        if "screening_score_id" not in mail_dispatch_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN screening_score_id INTEGER NULL"))
-            logger.info("Added recruitment_resume_mail_dispatches.screening_score_id column")
-        if "cc_recipient_ids_json" not in mail_dispatch_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN cc_recipient_ids_json TEXT NULL"))
-            logger.info("Added recruitment_resume_mail_dispatches.cc_recipient_ids_json column")
-        if "cc_recipient_emails_json" not in mail_dispatch_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN cc_recipient_emails_json TEXT NULL"))
-            logger.info("Added recruitment_resume_mail_dispatches.cc_recipient_emails_json column")
-        if "bcc_recipient_ids_json" not in mail_dispatch_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN bcc_recipient_ids_json TEXT NULL"))
-            logger.info("Added recruitment_resume_mail_dispatches.bcc_recipient_ids_json column")
-        if "bcc_recipient_emails_json" not in mail_dispatch_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN bcc_recipient_emails_json TEXT NULL"))
-            logger.info("Added recruitment_resume_mail_dispatches.bcc_recipient_emails_json column")
-        if "send_mode" not in mail_dispatch_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN send_mode VARCHAR(50) NOT NULL DEFAULT 'manual'"))
-            logger.info("Added recruitment_resume_mail_dispatches.send_mode column")
-        if "trigger_type" not in mail_dispatch_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN trigger_type VARCHAR(80) NULL"))
-            logger.info("Added recruitment_resume_mail_dispatches.trigger_type column")
-        if "candidate_status" not in mail_dispatch_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN candidate_status VARCHAR(50) NULL"))
-            logger.info("Added recruitment_resume_mail_dispatches.candidate_status column")
-        if "dedup_key" not in mail_dispatch_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN dedup_key VARCHAR(255) NULL"))
-            logger.info("Added recruitment_resume_mail_dispatches.dedup_key column")
-        if "trigger_rule_json" not in mail_dispatch_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN trigger_rule_json TEXT NULL"))
-            logger.info("Added recruitment_resume_mail_dispatches.trigger_rule_json column")
-
-        candidate_columns = {column["name"] for column in inspector.get_columns("recruitment_candidates")}
-        if "age" not in candidate_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN age INTEGER NULL"))
-            logger.info("Added recruitment_candidates.age column")
-        if "city" not in candidate_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN city VARCHAR(100) NULL"))
-            logger.info("Added recruitment_candidates.city column")
-        if "owner_id" not in candidate_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN owner_id VARCHAR(100) NULL"))
-            logger.info("Added recruitment_candidates.owner_id column")
-
-        # Widen phone column to handle encrypted/masked values from resume platforms
-        try:
-            phone_col = next((c for c in inspector.get_columns("recruitment_candidates") if c["name"] == "phone"), None)
-            if phone_col is not None:
-                col_type = str(phone_col.get("type") or "")
-                if "40" in col_type and "128" not in col_type:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN related_skill_snapshots_json LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN skill_resolution_detail_json LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN score_rule_snapshot_json LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN timing_breakdown_json LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN prompt_snapshot LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN full_request_snapshot LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN output_summary LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN output_snapshot LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN raw_response_text LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN parsed_response_json LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN sanitized_response_json LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN validation_meta_json LONGTEXT NULL"))
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN persisted_result_refs_json LONGTEXT NULL"))
+                logger.info("Expanded recruitment_ai_task_logs large text columns to LONGTEXT")
+    
+            score_columns = {column["name"]: column for column in inspector.get_columns("recruitment_candidate_scores")}
+            recommendation_column = score_columns.get("recommendation")
+            recommendation_length = None
+            if recommendation_column is not None:
+                recommendation_length = getattr(recommendation_column.get("type"), "length", None)
+            if recommendation_column is not None and recommendation_length and recommendation_length < 255:
+                if engine.dialect.name == "mysql":
                     with engine.begin() as connection:
-                        connection.execute(text("ALTER TABLE recruitment_candidates MODIFY COLUMN phone VARCHAR(128) NULL"))
-                    logger.info("Widened recruitment_candidates.phone to VARCHAR(128)")
-        except Exception as exc:
-            logger.warning("Failed to check/widen phone column: %s", exc)
-
-        score_columns = {col["name"] for col in inspector.get_columns("recruitment_candidate_scores")}
-        if "hr_feedback" not in score_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_candidate_scores ADD COLUMN hr_feedback VARCHAR(50) NULL"))
-            logger.info("Added recruitment_candidate_scores.hr_feedback column")
-        if "hr_feedback_reason" not in score_columns:
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE recruitment_candidate_scores ADD COLUMN hr_feedback_reason TEXT NULL"))
-            logger.info("Added recruitment_candidate_scores.hr_feedback_reason column")
-
-        db = SessionLocal()
-        try:
-            for config_key, config_value in DEFAULT_RULE_CONFIGS.items():
-                exists = db.query(RecruitmentRuleConfig).filter(RecruitmentRuleConfig.config_key == config_key, RecruitmentRuleConfig.scope == "global").first()
-                if not exists:
-                    db.add(RecruitmentRuleConfig(config_key=config_key, config_type="json", scope="global", scope_id=None, config_value=json.dumps(config_value, ensure_ascii=False), description=f"Default recruitment config: {config_key}"))
-
-            for skill in DEFAULT_SKILLS:
-                seed_frontmatter = _parse_skill_frontmatter(skill.get("content") or "")
-                seed_group = str(skill.get("skill_group") or seed_frontmatter.get("skill_group") or seed_frontmatter.get("group") or "").strip() or None
-                seed_version = str(skill.get("version") or seed_frontmatter.get("version") or seed_frontmatter.get("skill_version") or "").strip() or None
-                exists = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == skill["skill_code"]).first()
-                if not exists:
-                    db.add(RecruitmentSkill(skill_code=skill["skill_code"], org_code=ROOT_ORG_CODE, scope_level="GLOBAL", share_policy="SHARED_READONLY", allow_sub_org_use=True, allow_copy=False, is_system_base=True, name=skill["name"], description=skill.get("description"), skill_group=seed_group, version=seed_version, content=skill["content"], tags_json=json.dumps(skill.get("tags") or [], ensure_ascii=False), sort_order=skill.get("sort_order") or 99, is_enabled=True, created_by="system", updated_by="system", deleted=False))
-                elif exists.deleted:
-                    continue
-                elif (exists.updated_by or "system") == "system" or _needs_legacy_default_skill_refresh(exists):
-                    exists.name = skill["name"]
-                    exists.description = skill.get("description")
-                    exists.skill_group = seed_group
-                    exists.version = seed_version
-                    exists.content = skill["content"]
-                    exists.tags_json = json.dumps(skill.get("tags") or [], ensure_ascii=False)
-                    exists.sort_order = skill.get("sort_order") or 99
-                    exists.is_enabled = bool(exists.is_enabled)
-                    exists.org_code = getattr(exists, "org_code", None) or ROOT_ORG_CODE
-                    exists.scope_level = "GLOBAL"
-                    exists.share_policy = "SHARED_READONLY"
-                    exists.allow_sub_org_use = True
-                    exists.allow_copy = False
-                    exists.is_system_base = True
-                    exists.updated_by = "system"
-
-            legacy_combined_skill = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == "skill-iot-resume-screener").first()
-            split_screening_skill = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == "skill-iot-screening-score", RecruitmentSkill.deleted.is_(False)).first()
-            split_interview_skill = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == "skill-iot-interview-question", RecruitmentSkill.deleted.is_(False)).first()
-            if legacy_combined_skill and split_screening_skill and split_interview_skill and not legacy_combined_skill.deleted and (legacy_combined_skill.updated_by or "system") == "system":
-                legacy_combined_skill.is_enabled = False
-                legacy_combined_skill.updated_by = "system"
-
-            # 停用旧的系统自动 seed 的 LLM 配置（gemini、glm 模板等）
-            for seeded_config in db.query(RecruitmentLLMConfig).filter(
-                RecruitmentLLMConfig.created_by == "system",
-                RecruitmentLLMConfig.is_active.is_(True),
-            ).all():
-                seeded_config.is_active = False
-                seeded_config.updated_by = "system"
-
-            db.commit()
-
-            default_position_links: list[tuple[str, list[str]]] = []
-            skill_rows = {
-                row.skill_code: row
-                for row in db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).all()
-            }
-            for title, skill_codes in default_position_links:
-                position = db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False), RecruitmentPosition.title == title).first()
-                if not position:
-                    continue
-                existing_ids = {
-                    row.skill_id
-                    for row in db.query(RecruitmentPositionSkillLink).filter(RecruitmentPositionSkillLink.position_id == position.id).all()
-                }
-                for skill_code in skill_codes:
-                    skill = skill_rows.get(skill_code)
-                    if skill and skill.id not in existing_ids:
-                        db.add(RecruitmentPositionSkillLink(position_id=position.id, skill_id=skill.id, created_by="system", updated_by="system"))
-                legacy_skill = skill_rows.get("skill-iot-resume-screener")
-                if legacy_skill:
-                    db.query(RecruitmentPositionSkillLink).filter(
-                        RecruitmentPositionSkillLink.position_id == position.id,
-                        RecruitmentPositionSkillLink.skill_id == legacy_skill.id,
-                    ).delete(synchronize_session=False)
-                db.commit()
-
-            all_skill_rows = {
-                row.id: row
-                for row in db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).all()
-            }
-            for skill_row in all_skill_rows.values():
-                pack_meta = _extract_schema_skill_pack_meta(skill_row)
-                if not skill_row.skill_group and pack_meta["group"]:
-                    skill_row.skill_group = pack_meta["group"]
-                if not skill_row.version and pack_meta["version"]:
-                    skill_row.version = pack_meta["version"]
-                db.add(skill_row)
-            db.commit()
-            positions = db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False)).all()
-            for position in positions:
-                if (
-                    position.jd_skill_ids_json is not None
-                    and position.screening_skill_ids_json is not None
-                    and position.interview_skill_ids_json is not None
-                ):
-                    continue
-                linked_ids = [
-                    row.skill_id
-                    for row in db.query(RecruitmentPositionSkillLink)
-                    .filter(RecruitmentPositionSkillLink.position_id == position.id)
-                    .order_by(RecruitmentPositionSkillLink.id.asc())
-                    .all()
-                ]
-                jd_ids: list[int] = []
-                screening_ids: list[int] = []
-                interview_ids: list[int] = []
-                for skill_id in linked_ids:
-                    skill = all_skill_rows.get(skill_id)
-                    if not skill:
+                        connection.execute(text("ALTER TABLE recruitment_candidate_scores MODIFY COLUMN recommendation VARCHAR(255) NULL"))
+                    logger.info("Expanded recruitment_candidate_scores.recommendation to VARCHAR(255)")
+                else:
+                    logger.info("Skipped expanding recruitment_candidate_scores.recommendation on dialect %s", engine.dialect.name)
+    
+            llm_columns = {column["name"] for column in inspector.get_columns("recruitment_llm_configs")}
+            if "api_key_ciphertext" not in llm_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_llm_configs ADD COLUMN api_key_ciphertext TEXT NULL"))
+                logger.info("Added recruitment_llm_configs.api_key_ciphertext column")
+    
+            mail_dispatch_columns = {column["name"] for column in inspector.get_columns("recruitment_resume_mail_dispatches")}
+            if "position_id" not in mail_dispatch_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN position_id INTEGER NULL"))
+                logger.info("Added recruitment_resume_mail_dispatches.position_id column")
+            if "screening_score_id" not in mail_dispatch_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN screening_score_id INTEGER NULL"))
+                logger.info("Added recruitment_resume_mail_dispatches.screening_score_id column")
+            if "cc_recipient_ids_json" not in mail_dispatch_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN cc_recipient_ids_json TEXT NULL"))
+                logger.info("Added recruitment_resume_mail_dispatches.cc_recipient_ids_json column")
+            if "cc_recipient_emails_json" not in mail_dispatch_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN cc_recipient_emails_json TEXT NULL"))
+                logger.info("Added recruitment_resume_mail_dispatches.cc_recipient_emails_json column")
+            if "bcc_recipient_ids_json" not in mail_dispatch_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN bcc_recipient_ids_json TEXT NULL"))
+                logger.info("Added recruitment_resume_mail_dispatches.bcc_recipient_ids_json column")
+            if "bcc_recipient_emails_json" not in mail_dispatch_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN bcc_recipient_emails_json TEXT NULL"))
+                logger.info("Added recruitment_resume_mail_dispatches.bcc_recipient_emails_json column")
+            if "send_mode" not in mail_dispatch_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN send_mode VARCHAR(50) NOT NULL DEFAULT 'manual'"))
+                logger.info("Added recruitment_resume_mail_dispatches.send_mode column")
+            if "trigger_type" not in mail_dispatch_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN trigger_type VARCHAR(80) NULL"))
+                logger.info("Added recruitment_resume_mail_dispatches.trigger_type column")
+            if "candidate_status" not in mail_dispatch_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN candidate_status VARCHAR(50) NULL"))
+                logger.info("Added recruitment_resume_mail_dispatches.candidate_status column")
+            if "dedup_key" not in mail_dispatch_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN dedup_key VARCHAR(255) NULL"))
+                logger.info("Added recruitment_resume_mail_dispatches.dedup_key column")
+            if "trigger_rule_json" not in mail_dispatch_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_resume_mail_dispatches ADD COLUMN trigger_rule_json TEXT NULL"))
+                logger.info("Added recruitment_resume_mail_dispatches.trigger_rule_json column")
+    
+            candidate_columns = {column["name"] for column in inspector.get_columns("recruitment_candidates")}
+            if "age" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN age INTEGER NULL"))
+                logger.info("Added recruitment_candidates.age column")
+            if "city" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN city VARCHAR(100) NULL"))
+                logger.info("Added recruitment_candidates.city column")
+            if "owner_id" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN owner_id VARCHAR(100) NULL"))
+                logger.info("Added recruitment_candidates.owner_id column")
+    
+            # Widen phone column to handle encrypted/masked values from resume platforms
+            try:
+                phone_col = next((c for c in inspector.get_columns("recruitment_candidates") if c["name"] == "phone"), None)
+                if phone_col is not None:
+                    col_type = str(phone_col.get("type") or "")
+                    if "40" in col_type and "128" not in col_type:
+                        with engine.begin() as connection:
+                            connection.execute(text("ALTER TABLE recruitment_candidates MODIFY COLUMN phone VARCHAR(128) NULL"))
+                        logger.info("Widened recruitment_candidates.phone to VARCHAR(128)")
+            except Exception as exc:
+                logger.warning("Failed to check/widen phone column: %s", exc)
+    
+            score_columns = {col["name"] for col in inspector.get_columns("recruitment_candidate_scores")}
+            if "hr_feedback" not in score_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidate_scores ADD COLUMN hr_feedback VARCHAR(50) NULL"))
+                logger.info("Added recruitment_candidate_scores.hr_feedback column")
+            if "hr_feedback_reason" not in score_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidate_scores ADD COLUMN hr_feedback_reason TEXT NULL"))
+                logger.info("Added recruitment_candidate_scores.hr_feedback_reason column")
+    
+            db = SessionLocal()
+            try:
+                for config_key, config_value in DEFAULT_RULE_CONFIGS.items():
+                    exists = db.query(RecruitmentRuleConfig).filter(RecruitmentRuleConfig.config_key == config_key, RecruitmentRuleConfig.scope == "global").first()
+                    if not exists:
+                        db.add(RecruitmentRuleConfig(config_key=config_key, config_type="json", scope="global", scope_id=None, config_value=json.dumps(config_value, ensure_ascii=False), description=f"Default recruitment config: {config_key}"))
+    
+                for skill in DEFAULT_SKILLS:
+                    seed_frontmatter = _parse_skill_frontmatter(skill.get("content") or "")
+                    seed_group = str(skill.get("skill_group") or seed_frontmatter.get("skill_group") or seed_frontmatter.get("group") or "").strip() or None
+                    seed_version = str(skill.get("version") or seed_frontmatter.get("version") or seed_frontmatter.get("skill_version") or "").strip() or None
+                    exists = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == skill["skill_code"]).first()
+                    if not exists:
+                        db.add(RecruitmentSkill(skill_code=skill["skill_code"], org_code=ROOT_ORG_CODE, scope_level="GLOBAL", share_policy="SHARED_READONLY", allow_sub_org_use=True, allow_copy=False, is_system_base=True, name=skill["name"], description=skill.get("description"), skill_group=seed_group, version=seed_version, content=skill["content"], tags_json=json.dumps(skill.get("tags") or [], ensure_ascii=False), sort_order=skill.get("sort_order") or 99, is_enabled=True, created_by="system", updated_by="system", deleted=False))
+                    elif exists.deleted:
                         continue
-                    tasks = _extract_schema_skill_tasks(skill)
-                    if "jd" in tasks and skill_id not in jd_ids:
-                        jd_ids.append(skill_id)
-                    if "screening" in tasks and skill_id not in screening_ids:
-                        screening_ids.append(skill_id)
-                    if "interview" in tasks and skill_id not in interview_ids:
-                        interview_ids.append(skill_id)
-                if position.jd_skill_ids_json is None:
-                    position.jd_skill_ids_json = json.dumps(jd_ids, ensure_ascii=False)
-                if position.screening_skill_ids_json is None:
-                    position.screening_skill_ids_json = json.dumps(screening_ids, ensure_ascii=False)
-                if position.interview_skill_ids_json is None:
-                    position.interview_skill_ids_json = json.dumps(interview_ids, ensure_ascii=False)
-                db.add(position)
-            db.commit()
-        except Exception:
-            db.rollback()
-            raise
-        finally:
-            db.close()
+                    elif (exists.updated_by or "system") == "system" or _needs_legacy_default_skill_refresh(exists):
+                        exists.name = skill["name"]
+                        exists.description = skill.get("description")
+                        exists.skill_group = seed_group
+                        exists.version = seed_version
+                        exists.content = skill["content"]
+                        exists.tags_json = json.dumps(skill.get("tags") or [], ensure_ascii=False)
+                        exists.sort_order = skill.get("sort_order") or 99
+                        exists.is_enabled = bool(exists.is_enabled)
+                        exists.org_code = getattr(exists, "org_code", None) or ROOT_ORG_CODE
+                        exists.scope_level = "GLOBAL"
+                        exists.share_policy = "SHARED_READONLY"
+                        exists.allow_sub_org_use = True
+                        exists.allow_copy = False
+                        exists.is_system_base = True
+                        exists.updated_by = "system"
+    
+                legacy_combined_skill = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == "skill-iot-resume-screener").first()
+                split_screening_skill = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == "skill-iot-screening-score", RecruitmentSkill.deleted.is_(False)).first()
+                split_interview_skill = db.query(RecruitmentSkill).filter(RecruitmentSkill.skill_code == "skill-iot-interview-question", RecruitmentSkill.deleted.is_(False)).first()
+                if legacy_combined_skill and split_screening_skill and split_interview_skill and not legacy_combined_skill.deleted and (legacy_combined_skill.updated_by or "system") == "system":
+                    legacy_combined_skill.is_enabled = False
+                    legacy_combined_skill.updated_by = "system"
+    
+                # 停用旧的系统自动 seed 的 LLM 配置（gemini、glm 模板等）
+                for seeded_config in db.query(RecruitmentLLMConfig).filter(
+                    RecruitmentLLMConfig.created_by == "system",
+                    RecruitmentLLMConfig.is_active.is_(True),
+                ).all():
+                    seeded_config.is_active = False
+                    seeded_config.updated_by = "system"
+    
+                db.commit()
+    
+                default_position_links: list[tuple[str, list[str]]] = []
+                skill_rows = {
+                    row.skill_code: row
+                    for row in db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).all()
+                }
+                for title, skill_codes in default_position_links:
+                    position = db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False), RecruitmentPosition.title == title).first()
+                    if not position:
+                        continue
+                    existing_ids = {
+                        row.skill_id
+                        for row in db.query(RecruitmentPositionSkillLink).filter(RecruitmentPositionSkillLink.position_id == position.id).all()
+                    }
+                    for skill_code in skill_codes:
+                        skill = skill_rows.get(skill_code)
+                        if skill and skill.id not in existing_ids:
+                            db.add(RecruitmentPositionSkillLink(position_id=position.id, skill_id=skill.id, created_by="system", updated_by="system"))
+                    legacy_skill = skill_rows.get("skill-iot-resume-screener")
+                    if legacy_skill:
+                        db.query(RecruitmentPositionSkillLink).filter(
+                            RecruitmentPositionSkillLink.position_id == position.id,
+                            RecruitmentPositionSkillLink.skill_id == legacy_skill.id,
+                        ).delete(synchronize_session=False)
+                    db.commit()
+    
+                all_skill_rows = {
+                    row.id: row
+                    for row in db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).all()
+                }
+                for skill_row in all_skill_rows.values():
+                    pack_meta = _extract_schema_skill_pack_meta(skill_row)
+                    if not skill_row.skill_group and pack_meta["group"]:
+                        skill_row.skill_group = pack_meta["group"]
+                    if not skill_row.version and pack_meta["version"]:
+                        skill_row.version = pack_meta["version"]
+                    db.add(skill_row)
+                db.commit()
+                positions = db.query(RecruitmentPosition).filter(RecruitmentPosition.deleted.is_(False)).all()
+                for position in positions:
+                    if (
+                        position.jd_skill_ids_json is not None
+                        and position.screening_skill_ids_json is not None
+                        and position.interview_skill_ids_json is not None
+                    ):
+                        continue
+                    linked_ids = [
+                        row.skill_id
+                        for row in db.query(RecruitmentPositionSkillLink)
+                        .filter(RecruitmentPositionSkillLink.position_id == position.id)
+                        .order_by(RecruitmentPositionSkillLink.id.asc())
+                        .all()
+                    ]
+                    jd_ids: list[int] = []
+                    screening_ids: list[int] = []
+                    interview_ids: list[int] = []
+                    for skill_id in linked_ids:
+                        skill = all_skill_rows.get(skill_id)
+                        if not skill:
+                            continue
+                        tasks = _extract_schema_skill_tasks(skill)
+                        if "jd" in tasks and skill_id not in jd_ids:
+                            jd_ids.append(skill_id)
+                        if "screening" in tasks and skill_id not in screening_ids:
+                            screening_ids.append(skill_id)
+                        if "interview" in tasks and skill_id not in interview_ids:
+                            interview_ids.append(skill_id)
+                    if position.jd_skill_ids_json is None:
+                        position.jd_skill_ids_json = json.dumps(jd_ids, ensure_ascii=False)
+                    if position.screening_skill_ids_json is None:
+                        position.screening_skill_ids_json = json.dumps(screening_ids, ensure_ascii=False)
+                    if position.interview_skill_ids_json is None:
+                        position.interview_skill_ids_json = json.dumps(interview_ids, ensure_ascii=False)
+                    db.add(position)
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+            finally:
+                db.close()
 
         _recruitment_schema_ensured = True
