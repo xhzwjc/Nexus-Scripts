@@ -104,6 +104,7 @@ export interface ScriptHubOrganizationDefinition {
     path: string;
     sort_order: number;
     is_active: boolean;
+    is_deleted?: boolean;
 }
 
 export interface ScriptHubManagedUser {

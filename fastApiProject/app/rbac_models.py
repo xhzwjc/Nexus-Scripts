@@ -58,6 +58,8 @@ class ScriptHubOrganization(Base):
     path = Column(String(500), nullable=False, index=True)
     sort_order = Column(Integer, default=99, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+    deleted_at = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

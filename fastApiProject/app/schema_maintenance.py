@@ -330,6 +330,17 @@ def ensure_script_hub_schema() -> None:
                 connection.execute(text("ALTER TABLE script_hub_users ADD COLUMN deleted_at DATETIME NULL"))
             logger.info("Added script_hub_users.deleted_at column")
 
+        org_columns = {column["name"] for column in inspector.get_columns("script_hub_organizations")}
+        if "is_deleted" not in org_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE script_hub_organizations ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE"))
+            logger.info("Added script_hub_organizations.is_deleted column")
+
+        if "deleted_at" not in org_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE script_hub_organizations ADD COLUMN deleted_at DATETIME NULL"))
+            logger.info("Added script_hub_organizations.deleted_at column")
+
         role_columns = {column["name"] for column in inspector.get_columns("script_hub_roles")}
         if "is_deleted" not in role_columns:
             with engine.begin() as connection:

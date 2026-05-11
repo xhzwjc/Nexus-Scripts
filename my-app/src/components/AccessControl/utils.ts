@@ -386,6 +386,7 @@ export function mapAccessControlApiError(message: string | null | undefined, lab
     if (text.includes('Root organization cannot be disabled')) return labels.errorRootOrganizationDisable;
     if (text.includes('Organization has active children')) return labels.errorOrganizationActiveChildren;
     if (text.includes('Organization is still assigned to users')) return labels.errorOrganizationAssignedUsers;
+    if (text.includes('Organization has children')) return labels.errorOrganizationHasChildren;
     if (text.includes('Organization code must use')) return labels.validationOrgCodePattern;
     if (text.includes('Invalid organization type')) return labels.validationOrgTypeInvalid;
     if (text.includes('Organization name is required')) return labels.validationOrgNameRequired;

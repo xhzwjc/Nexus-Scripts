@@ -98,6 +98,7 @@ def _serialize_organization(row: ScriptHubOrganization) -> Dict[str, object]:
         "path": row.path,
         "sort_order": row.sort_order,
         "is_active": bool(row.is_active),
+        "is_deleted": bool(getattr(row, "is_deleted", False)),
     }
 
 
@@ -105,6 +106,7 @@ def _list_organizations(db: Session) -> List[Dict[str, object]]:
     return [
         _serialize_organization(row)
         for row in db.query(ScriptHubOrganization)
+        .filter(ScriptHubOrganization.is_deleted.is_(False))
         .order_by(ScriptHubOrganization.path.asc(), ScriptHubOrganization.is_active.desc(), ScriptHubOrganization.sort_order.asc(), ScriptHubOrganization.org_code.asc())
         .all()
     ]
@@ -508,6 +510,37 @@ def _org_has_user_references(db: Session, org_code: str) -> bool:
     return False
 
 
+def get_org_users(db: Session, org_code: str) -> Dict[str, object]:
+    normalized = normalize_org_code(org_code)
+    org = db.query(ScriptHubOrganization).filter(ScriptHubOrganization.org_code == normalized).first()
+    if not org:
+        raise ValueError("Organization not found")
+
+    primary_users = []
+    data_scope_users = []
+    for user in db.query(ScriptHubUser).filter(ScriptHubUser.is_deleted.is_(False)).all():
+        if normalize_org_code(user.primary_org_code) == normalized:
+            primary_users.append({
+                "user_code": user.user_code,
+                "display_name": user.display_name,
+                "is_active": bool(user.is_active),
+            })
+        elif normalized in set(normalize_org_code_list(user.custom_org_codes_json)):
+            data_scope_users.append({
+                "user_code": user.user_code,
+                "display_name": user.display_name,
+                "is_active": bool(user.is_active),
+            })
+
+    return {
+        "org_code": normalized,
+        "org_name": org.name,
+        "primary_users": primary_users,
+        "data_scope_users": data_scope_users,
+        "total_count": len(primary_users) + len(data_scope_users),
+    }
+
+
 def _update_descendant_org_paths(db: Session, *, old_path: str, new_path: str) -> None:
     descendants = db.query(ScriptHubOrganization).filter(
         ScriptHubOrganization.path.like(f"{old_path}/%")
@@ -643,6 +676,50 @@ def delete_organization(
         actor=actor,
         is_active=False,
     )
+
+
+def soft_delete_organization(
+    db: Session,
+    org_code: str,
+    *,
+    actor: Optional[Dict[str, Any]] = None,
+) -> Dict[str, object]:
+    normalized_org_code = _normalize_org_code_for_mutation(org_code)
+    row = _get_org_row(db, normalized_org_code)
+    if not row:
+        raise ValueError("Organization not found")
+
+    if getattr(row, "is_deleted", False):
+        raise ValueError("Organization is already deleted")
+
+    if normalized_org_code == "group":
+        raise ValueError("Root organization cannot be deleted")
+
+    if _org_has_active_children(db, normalized_org_code):
+        raise ValueError("Organization has active children")
+
+    if _org_has_user_references(db, normalized_org_code):
+        raise ValueError("Organization is still assigned to users")
+
+    if db.query(ScriptHubOrganization).filter(
+        ScriptHubOrganization.parent_org_code == normalized_org_code,
+        ScriptHubOrganization.is_deleted.is_(False),
+    ).first():
+        raise ValueError("Organization has children")
+
+    _validate_org_mutation_boundary(
+        db,
+        actor=actor,
+        target_org_code=normalized_org_code,
+    )
+
+    row.is_deleted = True
+    row.is_active = False
+    row.deleted_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(row)
+    return _serialize_organization(row)
 
 
 def _set_role_permissions(db: Session, role_id: int, permission_keys: List[str], permission_rows: Dict[str, ScriptHubPermission]):

@@ -35,7 +35,12 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     }
 
     const { orgCode } = await context.params;
-    return proxyAdminRbacRequest(request, `/admin/rbac/organizations/${encodeURIComponent(orgCode)}`, {
+    const url = new URL(request.url);
+    const soft = url.searchParams.get('soft');
+    const backendUrl = soft
+        ? `/admin/rbac/organizations/${encodeURIComponent(orgCode)}?soft=${soft}`
+        : `/admin/rbac/organizations/${encodeURIComponent(orgCode)}`;
+    return proxyAdminRbacRequest(request, backendUrl, {
         method: 'DELETE',
         signal: AbortSignal.timeout(20000),
     });

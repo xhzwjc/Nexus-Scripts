@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Building2, ChevronDown, ChevronRight, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Building2, ChevronDown, ChevronRight, Loader2, Pencil, Plus, Search, Trash2, Users } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { authenticatedFetch } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
@@ -63,6 +63,20 @@ interface DeleteMutationResponse {
     message?: string;
     target_code?: string;
     error?: string;
+}
+
+interface OrgUserItem {
+    user_code: string;
+    display_name: string;
+    is_active: boolean;
+}
+
+interface OrgUsersResponse {
+    org_code: string;
+    org_name: string;
+    primary_users: OrgUserItem[];
+    data_scope_users: OrgUserItem[];
+    total_count: number;
 }
 
 interface OrganizationTreeRow {
@@ -218,10 +232,35 @@ export function AccessControlOrganizationsPage({
     const [createOpen, setCreateOpen] = useState(false);
     const [editOrganization, setEditOrganization] = useState<ScriptHubOrganizationDefinition | null>(null);
     const [deleteOrganization, setDeleteOrganization] = useState<ScriptHubOrganizationDefinition | null>(null);
+    const [softDeleteOrganization, setSoftDeleteOrganization] = useState<ScriptHubOrganizationDefinition | null>(null);
     const [form, setForm] = useState(createEmptyOrganizationForm());
     const [dialogError, setDialogError] = useState<string | null>(null);
     const [deleteDialogError, setDeleteDialogError] = useState<string | null>(null);
+    const [softDeleteDialogError, setSoftDeleteDialogError] = useState<string | null>(null);
+    const [viewOrgUsers, setViewOrgUsers] = useState<ScriptHubOrganizationDefinition | null>(null);
+    const [orgUsersData, setOrgUsersData] = useState<OrgUsersResponse | null>(null);
+    const [orgUsersLoading, setOrgUsersLoading] = useState(false);
     const [collapsedOrgCodes, setCollapsedOrgCodes] = useState<Set<string>>(() => new Set());
+    const [actionOrgUsers, setActionOrgUsers] = useState<OrgUsersResponse | null>(null);
+    const [actionOrgUsersLoading, setActionOrgUsersLoading] = useState(false);
+
+    const actionOrg = deleteOrganization || softDeleteOrganization;
+    useEffect(() => {
+        if (!actionOrg) {
+            setActionOrgUsers(null);
+            return;
+        }
+        let cancelled = false;
+        setActionOrgUsersLoading(true);
+        void authenticatedFetch(`/api/admin/rbac/organizations/${encodeURIComponent(actionOrg.org_code)}/users`)
+            .then((res) => res.ok ? res.json() : null)
+            .then((data) => { if (!cancelled) setActionOrgUsers(data as OrgUsersResponse | null); })
+            .catch(() => { if (!cancelled) setActionOrgUsers(null); })
+            .finally(() => { if (!cancelled) setActionOrgUsersLoading(false); });
+        return () => { cancelled = true; };
+    }, [actionOrg?.org_code]);
+
+    const hasActionOrgUsers = (actionOrgUsers?.total_count ?? 0) > 0;
 
     const organizations = overview?.catalog.organizations ?? EMPTY_ORGANIZATIONS;
     const activeOrganizations = useMemo(() => organizations.filter((organization) => organization.is_active), [organizations]);
@@ -262,9 +301,13 @@ export function AccessControlOrganizationsPage({
         setCreateOpen(false);
         setEditOrganization(null);
         setDeleteOrganization(null);
+        setSoftDeleteOrganization(null);
+        setViewOrgUsers(null);
+        setOrgUsersData(null);
         setForm(createEmptyOrganizationForm());
         setDialogError(null);
         setDeleteDialogError(null);
+        setSoftDeleteDialogError(null);
     };
 
     const openCreateDialog = () => {
@@ -277,6 +320,24 @@ export function AccessControlOrganizationsPage({
         setForm(mapOrganizationToForm(organization));
         setDialogError(null);
         setEditOrganization(organization);
+    };
+
+    const openViewOrgUsers = async (organization: ScriptHubOrganizationDefinition) => {
+        setViewOrgUsers(organization);
+        setOrgUsersData(null);
+        setOrgUsersLoading(true);
+        try {
+            const response = await authenticatedFetch(`/api/admin/rbac/organizations/${encodeURIComponent(organization.org_code)}/users`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch users');
+            }
+            const data = await response.json() as OrgUsersResponse;
+            setOrgUsersData(data);
+        } catch {
+            setOrgUsersData({ org_code: organization.org_code, org_name: organization.name, primary_users: [], data_scope_users: [], total_count: 0 });
+        } finally {
+            setOrgUsersLoading(false);
+        }
     };
 
     const toggleCollapsed = (orgCode: string) => {
@@ -372,6 +433,32 @@ export function AccessControlOrganizationsPage({
             await onReload();
         } catch (deleteError) {
             setDeleteDialogError(mapAccessControlApiError(deleteError instanceof Error ? deleteError.message : labels.organizationDeleteFailed, labels));
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleSoftDeleteOrganization = async () => {
+        if (!softDeleteOrganization) {
+            return;
+        }
+
+        setSaving(true);
+        setSoftDeleteDialogError(null);
+        try {
+            const response = await authenticatedFetch(`/api/admin/rbac/organizations/${encodeURIComponent(softDeleteOrganization.org_code)}?soft=true`, {
+                method: 'DELETE',
+            });
+            const payload = await response.json().catch(() => ({ error: labels.organizationSoftDeleteFailed })) as DeleteMutationResponse;
+            if (!response.ok || payload.error) {
+                throw new Error(payload.error || labels.organizationSoftDeleteFailed);
+            }
+
+            toast.success(labels.organizationSoftDeleted);
+            closeDialogs();
+            await onReload();
+        } catch (deleteError) {
+            setSoftDeleteDialogError(mapAccessControlApiError(deleteError instanceof Error ? deleteError.message : labels.organizationSoftDeleteFailed, labels));
         } finally {
             setSaving(false);
         }
@@ -499,6 +586,10 @@ export function AccessControlOrganizationsPage({
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <div className="flex justify-end gap-2">
+                                                <Button variant="outline" size="sm" onClick={() => void openViewOrgUsers(organization)}>
+                                                    <Users className="h-4 w-4" />
+                                                    {labels.viewOrgUsers}
+                                                </Button>
                                                 <Button variant="outline" size="sm" onClick={() => openEditDialog(organization)}>
                                                     <Pencil className="h-4 w-4" />
                                                     {labels.editOrganization}
@@ -515,6 +606,19 @@ export function AccessControlOrganizationsPage({
                                                 >
                                                     <Trash2 className="h-4 w-4" />
                                                     {labels.disableOrganization}
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-destructive hover:text-destructive"
+                                                    disabled={organization.org_code === 'group' || childCount > 0}
+                                                    onClick={() => {
+                                                        setSoftDeleteDialogError(null);
+                                                        setSoftDeleteOrganization(organization);
+                                                    }}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                    {labels.softDeleteOrganization}
                                                 </Button>
                                             </div>
                                         </TableCell>
@@ -661,14 +765,153 @@ export function AccessControlOrganizationsPage({
                                 <p className="font-mono text-xs text-muted-foreground">{deleteOrganization.org_code}</p>
                             </div>
                         )}
+                        {actionOrgUsersLoading && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                {t.common.loading}
+                            </div>
+                        )}
+                        {hasActionOrgUsers && actionOrgUsers && !actionOrgUsersLoading && (
+                            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                                {labels.orgUserSummary
+                                    .replace('{primary}', String(actionOrgUsers.primary_users.length))
+                                    .replace('{dataScope}', String(actionOrgUsers.data_scope_users.length))}
+                            </div>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={closeDialogs} disabled={saving}>
                             {t.common.cancel}
                         </Button>
-                        <Button variant="destructive" onClick={() => void handleDeleteOrganization()} disabled={saving}>
+                        <Button variant="destructive" onClick={() => void handleDeleteOrganization()} disabled={saving || hasActionOrgUsers}>
                             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                             {labels.disableOrganization}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!softDeleteOrganization} onOpenChange={(open) => { if (!open) closeDialogs(); }}>
+                <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>{labels.softDeleteOrganizationTitle}</DialogTitle>
+                        <DialogDescription>{labels.softDeleteOrganizationDesc}</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        {softDeleteDialogError && (
+                            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                                {softDeleteDialogError}
+                            </div>
+                        )}
+                        {softDeleteOrganization && (
+                            <div className="rounded-md border bg-muted/20 p-4">
+                                <p className="text-sm font-medium">{softDeleteOrganization.name}</p>
+                                <p className="font-mono text-xs text-muted-foreground">{softDeleteOrganization.org_code}</p>
+                            </div>
+                        )}
+                        {actionOrgUsersLoading && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                {t.common.loading}
+                            </div>
+                        )}
+                        {hasActionOrgUsers && actionOrgUsers && !actionOrgUsersLoading && (
+                            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                                {labels.orgUserSummary
+                                    .replace('{primary}', String(actionOrgUsers.primary_users.length))
+                                    .replace('{dataScope}', String(actionOrgUsers.data_scope_users.length))}
+                            </div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={closeDialogs} disabled={saving}>
+                            {t.common.cancel}
+                        </Button>
+                        <Button variant="destructive" onClick={() => void handleSoftDeleteOrganization()} disabled={saving || hasActionOrgUsers}>
+                            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                            {labels.softDeleteOrganization}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!viewOrgUsers} onOpenChange={(open) => { if (!open) closeDialogs(); }}>
+                <DialogContent className="sm:max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>{viewOrgUsers?.name} — {labels.viewOrgUsersTitle}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        {orgUsersLoading ? (
+                            <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                {t.common.loading}
+                            </div>
+                        ) : orgUsersData && orgUsersData.total_count === 0 ? (
+                            <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                                {labels.orgNoUsers}
+                            </div>
+                        ) : orgUsersData ? (
+                            <div className="space-y-4">
+                                {orgUsersData.primary_users.length > 0 && (
+                                    <div>
+                                        <h4 className="mb-2 text-sm font-semibold">{labels.orgPrimaryUsers} ({orgUsersData.primary_users.length})</h4>
+                                        <div className="rounded-md border">
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow className="bg-muted/50">
+                                                        <TableHead>{labels.orgUserCode}</TableHead>
+                                                        <TableHead>{labels.orgUserDisplayName}</TableHead>
+                                                        <TableHead>{labels.orgUserStatus}</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {orgUsersData.primary_users.map((user) => (
+                                                        <TableRow key={user.user_code}>
+                                                            <TableCell className="font-mono text-xs">{user.user_code}</TableCell>
+                                                            <TableCell>{user.display_name}</TableCell>
+                                                            <TableCell>
+                                                                <StatusBadge active={user.is_active} labels={labels} />
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                    </div>
+                                )}
+                                {orgUsersData.data_scope_users.length > 0 && (
+                                    <div>
+                                        <h4 className="mb-2 text-sm font-semibold">{labels.orgDataScopeUsers} ({orgUsersData.data_scope_users.length})</h4>
+                                        <div className="rounded-md border">
+                                            <Table>
+                                                <TableHeader>
+                                                    <TableRow className="bg-muted/50">
+                                                        <TableHead>{labels.orgUserCode}</TableHead>
+                                                        <TableHead>{labels.orgUserDisplayName}</TableHead>
+                                                        <TableHead>{labels.orgUserStatus}</TableHead>
+                                                    </TableRow>
+                                                </TableHeader>
+                                                <TableBody>
+                                                    {orgUsersData.data_scope_users.map((user) => (
+                                                        <TableRow key={user.user_code}>
+                                                            <TableCell className="font-mono text-xs">{user.user_code}</TableCell>
+                                                            <TableCell>{user.display_name}</TableCell>
+                                                            <TableCell>
+                                                                <StatusBadge active={user.is_active} labels={labels} />
+                                                            </TableCell>
+                                                        </TableRow>
+                                                    ))}
+                                                </TableBody>
+                                            </Table>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : null}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={closeDialogs}>
+                            {t.common.close}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

@@ -35,7 +35,9 @@ from ..services.script_hub_admin_service import (
     delete_organization,
     delete_rbac_role,
     delete_rbac_user,
+    get_org_users,
     list_rbac_overview,
+    soft_delete_organization,
     rotate_user_access_key,
     update_organization,
     update_rbac_role,
@@ -544,29 +546,37 @@ async def delete_rbac_user_endpoint(
 async def delete_rbac_organization_endpoint(
     request: Request,
     org_code: str,
+    soft: bool = False,
     db: Session = Depends(get_db),
     session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
 ):
     try:
         ensure_script_hub_schema()
-        deleted = delete_organization(db, org_code, actor=session)
+        if soft:
+            deleted = soft_delete_organization(db, org_code, actor=session)
+            action = "organization.soft_delete"
+            message = "Organization deleted"
+        else:
+            deleted = delete_organization(db, org_code, actor=session)
+            action = "organization.delete"
+            message = "Organization disabled"
         write_audit_log(
             db,
             actor=session,
             request=request,
-            action="organization.delete",
+            action=action,
             target_type="organization",
             target_code=deleted["org_code"],
             target_org_code=deleted["org_code"],
             details=deleted,
         )
-        return {"message": "Organization disabled", "target_code": deleted["org_code"]}
+        return {"message": message, "target_code": deleted["org_code"]}
     except ValueError as exc:
         _write_failed_audit_log(
             db=db,
             actor=session,
             request=request,
-            action="organization.delete",
+            action="organization.soft_delete" if soft else "organization.delete",
             target_type="organization",
             target_code=org_code,
             error=str(exc),
@@ -574,7 +584,17 @@ async def delete_rbac_organization_endpoint(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@rbac_router.delete("/roles/{role_code}", response_model=ScriptHubDeleteResponse)
+@rbac_router.get("/organizations/{org_code}/users")
+async def get_rbac_organization_users_endpoint(
+    org_code: str,
+    db: Session = Depends(get_db),
+    session: Dict[str, Any] = Depends(require_script_hub_permission("rbac-manage")),
+):
+    try:
+        ensure_script_hub_schema()
+        return get_org_users(db, org_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 async def delete_rbac_role_endpoint(
     request: Request,
     role_code: str,
