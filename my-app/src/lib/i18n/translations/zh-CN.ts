@@ -2352,6 +2352,8 @@ export const zhCN: Translations = {
         noJDVersionsDesc: '点击 AI 生成 JD 或保存新版本后，这里会形成完整版本轨迹。',
         noCandidates: '暂无候选人',
         noCandidatesDesc: '上传简历并关联到这个岗位后，这里会出现最新候选人列表。',
+        loadingMoreCandidates: '加载中…',
+        allCandidatesLoaded: '已加载全部候选人',
         // Skill
         newSkill: '新增 Skill',
         aiGenerate: 'AI 生成',

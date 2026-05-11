@@ -557,6 +557,8 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         recentCandidates: isZh ? "最近更新候选人" : "Recently Updated Candidates",
         noCandidates: isZh ? "暂无候选人" : "No Candidates",
         noCandidatesDesc: isZh ? "当前筛选结果为空，调整筛选条件或先上传简历后再继续处理。" : "The current result set is empty. Adjust filters or upload resumes first.",
+        loadingMoreCandidates: isZh ? "加载中…" : "Loading more…",
+        allCandidatesLoaded: isZh ? "已加载全部候选人" : "All candidates loaded",
         recommendedActions: isZh ? "推荐操作" : "Recommended Actions",
         continueFiltering: isZh ? "继续筛选列表" : "Continue Filtering",
         continueFilteringDesc: isZh ? "保持当前筛选条件，在左侧列表中选择一位候选人后，右侧会切换到完整档案工作区。" : "Keep the current filters, choose a candidate on the left, and the full workspace will open on the right.",
@@ -1452,6 +1454,9 @@ type CandidatesPageProps = {
     openResumeMailDialog: (candidateIds?: number[]) => void;
     candidatesLoading: boolean;
     candidatesInitialLoaded: boolean;
+    isLoadingMoreCandidates: boolean;
+    allCandidatesCount: number;
+    candidateTotal: number;
     candidateListScrollRef: (node: HTMLDivElement | null) => void;
     candidateListHorizontalRailRef: (node: HTMLDivElement | null) => void;
     renderCandidateListHeaderCell: (key: CandidateListColumnKey, label: string) => React.ReactNode;
@@ -1551,6 +1556,9 @@ export function CandidatesPage({
     openResumeMailDialog,
     candidatesLoading,
     candidatesInitialLoaded,
+    isLoadingMoreCandidates,
+    allCandidatesCount,
+    candidateTotal,
     candidateListScrollRef,
     candidateListHorizontalRailRef,
     renderCandidateListHeaderCell,
@@ -2207,6 +2215,16 @@ export function CandidatesPage({
                                                 ) : null}
                                             </tbody>
                                         </table>
+                                        {isLoadingMoreCandidates ? (
+                                            <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
+                                                <Loader2 className="h-4 w-4 animate-spin"/>
+                                                <span>{tr.loadingMoreCandidates}</span>
+                                            </div>
+                                        ) : !isLoadingMoreCandidates && allCandidatesCount >= candidateTotal && candidateTotal > 0 ? (
+                                            <div className="flex items-center justify-center py-3 text-sm text-muted-foreground">
+                                                <span>{tr.allCandidatesLoaded}</span>
+                                            </div>
+                                        ) : null}
                                     </div>
                                     <div className="shrink-0 border-t border-slate-200/80 pt-2 dark:border-slate-800">
                                         <div

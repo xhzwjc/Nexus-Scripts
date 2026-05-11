@@ -2321,6 +2321,8 @@ export interface Translations {
     noJDVersionsDesc: string;
     noCandidates: string;
     noCandidatesDesc: string;
+    loadingMoreCandidates: string;
+    allCandidatesLoaded: string;
     // Skill
     newSkill: string;
     aiGenerate: string;

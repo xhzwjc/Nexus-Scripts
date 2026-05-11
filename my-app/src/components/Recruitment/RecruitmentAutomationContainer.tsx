@@ -749,6 +749,8 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         noScreeningQueued: recruitmentToast.noScreeningQueued,
         noCandidates: isZh ? "暂无候选人" : "No Candidates",
         noCandidatesDesc: isZh ? "上传简历并关联到这个岗位后，这里会出现最新候选人列表。" : "Upload resumes and link them to this position to see candidates here.",
+        loadingMoreCandidates: isZh ? "加载中…" : "Loading more…",
+        allCandidatesLoaded: isZh ? "已加载全部候选人" : "All candidates loaded",
         positionDialogNew: isZh ? "新建岗位" : "New Position",
         positionDialogEdit: isZh ? "编辑岗位" : "Edit Position",
         uploadResumeAutoScreenHint: isZh ? "上传简历后自动进入初筛" : "Auto-enter screening after upload",
@@ -949,6 +951,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [positionDetailLoading, setPositionDetailLoading] = useState(false);
     const [candidatesLoading, setCandidatesLoading] = useState(false);
     const [candidatesInitialLoaded, setCandidatesInitialLoaded] = useState(false);
+    const [isLoadingMoreCandidates, setIsLoadingMoreCandidates] = useState(false);
     const [candidateDetailLoading, setCandidateDetailLoading] = useState(false);
     const [duplicateCandidates, setDuplicateCandidates] = useState<Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>>([]);
     const [logsLoading, setLogsLoading] = useState(false);
@@ -2744,6 +2747,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     async function loadMoreCandidates() {
         if (candidatesLoading || loadingMoreCandidatesRef.current || allCandidates.length >= candidateTotal) return;
         loadingMoreCandidatesRef.current = true;
+        setIsLoadingMoreCandidates(true);
         try {
             const offset = allCandidates.length;
             const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
@@ -2756,6 +2760,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             console.error("Failed to load more candidates:", error);
         } finally {
             loadingMoreCandidatesRef.current = false;
+            setIsLoadingMoreCandidates(false);
         }
     }
 
@@ -7726,6 +7731,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 openResumeMailDialog={openResumeMailDialog}
                 candidatesLoading={candidatesLoading}
                 candidatesInitialLoaded={candidatesInitialLoaded}
+                isLoadingMoreCandidates={isLoadingMoreCandidates}
+                allCandidatesCount={allCandidates.length}
+                candidateTotal={candidateTotal}
                 candidateListScrollRef={candidateListScrollRef}
                 candidateListHorizontalRailRef={candidateListHorizontalRailRef}
                 renderCandidateListHeaderCell={renderCandidateListHeaderCell}

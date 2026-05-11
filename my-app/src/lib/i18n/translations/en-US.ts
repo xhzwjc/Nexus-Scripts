@@ -2353,6 +2353,8 @@ export const enUS: Translations = {
         noJDVersionsDesc: 'Generate a JD or save a new version to build the version history here.',
         noCandidates: 'No Candidates',
         noCandidatesDesc: 'Upload resumes and link them to this position to see candidates here.',
+        loadingMoreCandidates: 'Loading more…',
+        allCandidatesLoaded: 'All candidates loaded',
         // Skill
         newSkill: 'New Skill',
         aiGenerate: 'AI Generate',
