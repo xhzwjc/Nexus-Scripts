@@ -172,6 +172,8 @@ export function AccessControlUsersPage({
         return (currentUser?.is_super_admin ?? false) || hasRbacManage;
     }, [users]);
 
+    const currentUserId = useMemo(() => getStoredScriptHubSession()?.user.id, []);
+
     // 当前用户的授权边界（用于过滤表单可选项）
     const actorBoundary: AuthorizationBoundary | null = useMemo(() => {
         const session = getStoredScriptHubSession();
@@ -506,6 +508,7 @@ export function AccessControlUsersPage({
                             permissionMap={permissionMap}
                             labels={labels}
                             canManageUsers={canManageUsers}
+                            currentUserId={currentUserId}
                             onEdit={openEditDialog}
                             onRotateKey={(user) => {
                                 setRotateDialogError(null);

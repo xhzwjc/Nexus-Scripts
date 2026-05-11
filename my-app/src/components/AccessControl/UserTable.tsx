@@ -27,6 +27,7 @@ interface UserTableProps {
     permissionMap: Map<string, ScriptHubPermissionDefinition>;
     labels: AccessControlLabels;
     canManageUsers: boolean;
+    currentUserId?: string;
     onEdit: (user: ScriptHubManagedUser) => void;
     onRotateKey: (user: ScriptHubManagedUser) => void;
     onDelete: (user: ScriptHubManagedUser) => void;
@@ -38,6 +39,7 @@ export function UserTable({
     permissionMap,
     labels,
     canManageUsers,
+    currentUserId,
     onEdit,
     onRotateKey,
     onDelete,
@@ -115,6 +117,7 @@ export function UserTable({
                                     {formatDateTime(user.lastLoginAt) || labels.neverLoggedIn}
                                 </TableCell>
                                 <TableCell className="text-right">
+                                    {user.userCode === 'admin' && currentUserId !== 'admin' ? null : (
                                     <div className="flex justify-end gap-2">
                                         <Button variant="outline" size="sm" onClick={() => {
                                             if (!canManageUsers) { toast.warning(labels.adminOnlyTooltip); return; }
@@ -143,6 +146,7 @@ export function UserTable({
                                             {labels.deleteUser}
                                         </Button>
                                     </div>
+                                    )}
                                 </TableCell>
                             </TableRow>
                         );
