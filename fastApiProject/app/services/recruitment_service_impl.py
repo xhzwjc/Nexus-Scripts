@@ -8359,6 +8359,79 @@ class RecruitmentService:
             position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
         return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "owner_id": row.owner_id, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
+    def _serialize_candidate_list_item(
+        self,
+        row: RecruitmentCandidate,
+        *,
+        _preloaded_position: Optional[RecruitmentPosition] = None,
+        _preloaded_score_row: Optional[RecruitmentCandidateScore] = None,
+        _preloaded_screening_state: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        列表专用精简序列化，不查技能表，只返回列表展示所需字段。
+        详情接口请继续使用 _serialize_candidate_summary。
+        """
+        position = _preloaded_position if _preloaded_position is not None else (
+            self.db.query(RecruitmentPosition).filter(
+                RecruitmentPosition.id == row.position_id,
+                RecruitmentPosition.deleted.is_(False)
+            ).first() if row.position_id else None
+        )
+        score_row = _preloaded_score_row if _preloaded_score_row is not None else (
+            self.db.query(RecruitmentCandidateScore).filter(
+                RecruitmentCandidateScore.id == row.latest_score_id
+            ).first() if row.latest_score_id else None
+        )
+        serialized_score = self._serialize_score(score_row) if score_row else None
+        display_match_percent = _parse_score_number(serialized_score.get("match_percent")) if serialized_score else _parse_score_number(row.match_percent)
+        display_total_score = _parse_score_number(serialized_score.get("total_score")) if serialized_score else _parse_score_number(score_row.total_score if score_row else None)
+        screening_state = _preloaded_screening_state if _preloaded_screening_state is not None else self._build_candidate_screening_state_summary(row)
+        score_suggested_status = str(serialized_score.get("suggested_status") or "").strip() if serialized_score else ""
+        ai_recommended_status = score_suggested_status or str(row.ai_recommended_status or "").strip() or None
+        if screening_state.get("active_screening_task_id"):
+            display_status = "screening_running"
+        elif row.status == "pending_screening" and ai_recommended_status:
+            display_status = ai_recommended_status
+        else:
+            display_status = row.status or ""
+        return {
+            "id": row.id,
+            "candidate_code": row.candidate_code,
+            "org_code": normalize_org_code(getattr(row, "org_code", None)),
+            "position_id": row.position_id,
+            "position_title": position.title if position else None,
+            "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False,
+            # 技能字段给空列表，详情接口会返回完整数据
+            "position_jd_skill_ids": [],
+            "position_jd_skills": [],
+            "position_screening_skill_ids": [],
+            "position_screening_skills": [],
+            "position_interview_skill_ids": [],
+            "position_interview_skills": [],
+            "name": row.name,
+            "current_company": row.current_company,
+            "phone": row.phone,
+            "email": row.email,
+            "age": getattr(row, "age", None),
+            "city": getattr(row, "city", None),
+            "source": row.source,
+            "status": row.status,
+            "display_status": display_status,
+            "display_status_reason": screening_state.get("display_status_reason"),
+            "active_screening_task_id": screening_state.get("active_screening_task_id"),
+            "active_screening_task_type": screening_state.get("active_screening_task_type"),
+            "active_screening_stage": screening_state.get("active_screening_stage"),
+            "active_screening_status": screening_state.get("active_screening_status"),
+            "active_screening_task_status": screening_state.get("active_screening_status"),
+            "active_screening_started_at": screening_state.get("active_screening_started_at"),
+            "ai_recommended_status": ai_recommended_status,
+            "match_percent": display_match_percent,
+            "latest_score_id": row.latest_score_id,
+            "latest_total_score": display_total_score,
+            "created_at": isoformat_or_none(row.created_at),
+            "updated_at": isoformat_or_none(row.updated_at),
+        }
+
     def _get_org_and_descendant_codes(self, org_code: str) -> List[str]:
         """Get all org codes that are descendants of the given org (including the org itself)."""
         from ..rbac_models import ScriptHubOrganization
@@ -8577,17 +8650,6 @@ class RecruitmentService:
             ).all():
                 score_map[score.id] = score
 
-        # Batch preload skill rows per position (dedup by position_id)
-        skill_rows_cache: Dict[int, Dict[str, List[RecruitmentSkill]]] = {}
-        for pid in position_ids:
-            pos = position_map.get(pid)
-            if pos and self._is_business_row_visible(pos):
-                skill_rows_cache[pid] = {
-                    "screening": self._get_position_task_skill_rows(pid, "screening", _preloaded_position=pos),
-                    "interview": self._get_position_task_skill_rows(pid, "interview", _preloaded_position=pos),
-                    "jd": self._get_position_task_skill_rows(pid, "jd", _preloaded_position=pos),
-                }
-
         # Batch preload screening state (active root tasks)
         candidate_ids = [row.id for row in rows]
         active_root_map: Dict[int, RecruitmentAITaskLog] = {}
@@ -8650,19 +8712,17 @@ class RecruitmentService:
         for row in rows:
             preloaded_position = position_map.get(row.position_id) if row.position_id else None
             preloaded_score_row = score_map.get(row.latest_score_id) if row.latest_score_id else None
-            preloaded_skill_rows = skill_rows_cache.get(row.position_id) if row.position_id else None
             screening_state = self._build_candidate_screening_state_summary(
                 row,
                 _preloaded_active_root=active_root_map.get(row.id),
                 _preloaded_latest_completed_parse=completed_parse_map.get(row.id),
                 _preloaded_latest_completed_score=completed_score_map.get(row.id),
             )
-            serialized_rows.append(self._serialize_candidate_summary(
+            serialized_rows.append(self._serialize_candidate_list_item(
                 row,
                 _preloaded_position=preloaded_position,
                 _preloaded_score_row=preloaded_score_row,
                 _preloaded_screening_state=screening_state,
-                _preloaded_skill_rows=preloaded_skill_rows,
             ))
         return {"items": serialized_rows, "total": total}
 
