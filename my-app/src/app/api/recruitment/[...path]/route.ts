@@ -152,10 +152,13 @@ async function proxyRecruitmentRequest(
         responseHeaders.set("content-type", "application/json; charset=utf-8");
       }
       if (isSSE && response.body) {
-        // Prevent Next.js / upstream proxy from buffering SSE chunks
+        // Prevent Next.js compression and upstream proxy buffering
         responseHeaders.set("Cache-Control", "no-cache, no-transform");
         responseHeaders.set("X-Accel-Buffering", "no");
-        return new NextResponse(response.body, {
+        // Tell Next.js not to compress this response
+        responseHeaders.set("Content-Encoding", "identity");
+        // Use native Response to bypass Next.js middleware compression layer
+        return new Response(response.body, {
           status: response.status,
           headers: responseHeaders,
         });
