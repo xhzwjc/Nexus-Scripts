@@ -2118,36 +2118,31 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         clearActiveScreeningTask(event.related_candidate_id, event.task_id);
                     }
                 }
+                // 只刷新列表，dashboard/stats 由 batch_summary 统一补齐
                 if (pendingRefreshRef.current) {
                     window.clearTimeout(pendingRefreshRef.current);
                 }
                 pendingRefreshRef.current = window.setTimeout(() => {
                     void loadCandidates({ silent: true, force: true });
-                    void loadDashboard();
-                    void refreshCandidateStats();
                 }, 500);
             },
             onBatchSummary: () => {
-                // 刷新逻辑走 debounce，防止多条 batch_summary 事件并发触发
+                // 批次结束：清掉 onTaskCompleted 残留的 debounce timer，直接刷新
                 if (pendingRefreshRef.current) {
                     window.clearTimeout(pendingRefreshRef.current);
+                    pendingRefreshRef.current = null;
                 }
-                pendingRefreshRef.current = window.setTimeout(() => {
-                    void loadCandidates({ silent: true, force: true });
-                    void loadDashboard();
-                    void refreshCandidateStats();
-                }, 500);
-                // loadMailSettings 独立调用，不走 debounce，避免被其他事件吞掉
-                void loadMailSettings();
+                void loadCandidates({ silent: true, force: true });
+                void loadDashboard();
+                void refreshCandidateStats();
             },
             onReconnect: () => {
+                // 重连只刷新列表
                 if (pendingRefreshRef.current) {
                     window.clearTimeout(pendingRefreshRef.current);
                 }
                 pendingRefreshRef.current = window.setTimeout(() => {
                     void loadCandidates({ silent: true, force: true });
-                    void loadDashboard();
-                    void refreshCandidateStats();
                 }, 500);
             },
             // onTaskProgress 移除：审计日志不在初筛过程中实时更新
