@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import time
 from threading import Lock
 
 from sqlalchemy import inspect, text
@@ -79,11 +80,31 @@ def _add_column_if_missing(
     ddl: str,
     log_message: str,
 ) -> None:
-    columns = {column["name"] for column in inspector.get_columns(table_name)}
+    for attempt in range(3):
+        try:
+            columns = {column["name"] for column in inspector.get_columns(table_name)}
+            break
+        except Exception as e:
+            if attempt == 2:
+                logger.warning("Could not inspect columns for %s: %s", table_name, e)
+                return
+            time.sleep(1)
+            try:
+                inspector.clear_cache()
+            except Exception:
+                pass
     if column_name in columns:
         return
-    with engine.begin() as connection:
-        connection.execute(text(ddl))
+    for attempt in range(3):
+        try:
+            with engine.begin() as connection:
+                connection.execute(text(ddl))
+            break
+        except Exception as e:
+            if attempt == 2:
+                logger.warning("Could not execute DDL on %s: %s", table_name, e)
+                return
+            time.sleep(1)
     try:
         inspector.clear_cache()
     except Exception:
