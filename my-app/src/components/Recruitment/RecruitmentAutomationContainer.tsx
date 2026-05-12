@@ -2109,6 +2109,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         clearActiveScreeningTask(event.related_candidate_id, event.task_id);
                     }
                 }
+                // 每个任务完成都触发 debounce 刷新，多个任务同时完成只触发一次
                 if (pendingCandidateRefreshRef.current) {
                     window.clearTimeout(pendingCandidateRefreshRef.current);
                 }
@@ -2116,7 +2117,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     void loadCandidates({ silent: true, force: true });
                     void loadDashboard();
                     void refreshCandidateStats();
-                }, 300);
+                }, 500);
             },
             onBatchSummary: () => {
                 void loadCandidates({ silent: true, force: true });
