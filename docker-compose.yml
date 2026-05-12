@@ -41,6 +41,7 @@ services:
 
   # 后端FastAPI服务
   fastapi:
+    container_name: fastapi
     build:
       context: ./fastApiProject
     image: project-root-fastapi:v1.0.0
