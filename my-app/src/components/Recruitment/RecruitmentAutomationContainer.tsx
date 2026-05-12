@@ -2097,7 +2097,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }, [activePage]);
 
-    const pendingCandidateRefreshRef = useRef<number | null>(null);
+    const pendingRefreshRef = useRef<number | null>(null);
+
+    // unmount 时清理所有待执行的 debounce 回调
+    useEffect(() => {
+        return () => {
+            if (pendingRefreshRef.current) {
+                window.clearTimeout(pendingRefreshRef.current);
+            }
+        };
+    }, []);
 
     useTaskSSE(
         activePage === "candidates" || activePage === "audit" || activePage === "workspace",
@@ -2109,26 +2118,37 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         clearActiveScreeningTask(event.related_candidate_id, event.task_id);
                     }
                 }
-                // 每个任务完成都触发 debounce 刷新，多个任务同时完成只触发一次
-                if (pendingCandidateRefreshRef.current) {
-                    window.clearTimeout(pendingCandidateRefreshRef.current);
+                if (pendingRefreshRef.current) {
+                    window.clearTimeout(pendingRefreshRef.current);
                 }
-                pendingCandidateRefreshRef.current = window.setTimeout(() => {
+                pendingRefreshRef.current = window.setTimeout(() => {
                     void loadCandidates({ silent: true, force: true });
                     void loadDashboard();
                     void refreshCandidateStats();
                 }, 500);
             },
             onBatchSummary: () => {
-                void loadCandidates({ silent: true, force: true });
-                void loadDashboard();
-                void refreshCandidateStats();
+                // 刷新逻辑走 debounce，防止多条 batch_summary 事件并发触发
+                if (pendingRefreshRef.current) {
+                    window.clearTimeout(pendingRefreshRef.current);
+                }
+                pendingRefreshRef.current = window.setTimeout(() => {
+                    void loadCandidates({ silent: true, force: true });
+                    void loadDashboard();
+                    void refreshCandidateStats();
+                }, 500);
+                // loadMailSettings 独立调用，不走 debounce，避免被其他事件吞掉
                 void loadMailSettings();
             },
             onReconnect: () => {
-                void loadCandidates({ silent: true, force: true });
-                void loadDashboard();
-                void refreshCandidateStats();
+                if (pendingRefreshRef.current) {
+                    window.clearTimeout(pendingRefreshRef.current);
+                }
+                pendingRefreshRef.current = window.setTimeout(() => {
+                    void loadCandidates({ silent: true, force: true });
+                    void loadDashboard();
+                    void refreshCandidateStats();
+                }, 500);
             },
             // onTaskProgress 移除：审计日志不在初筛过程中实时更新
             // onCandidateUpdated 移除：不做单条详情刷新
