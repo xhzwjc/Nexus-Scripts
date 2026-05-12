@@ -2019,7 +2019,7 @@ export function CandidatesPage({
                 className={cn(
                     "grid h-full min-h-0 overflow-hidden",
                     candidateFilterBarExpanded
-                        ? "grid-rows-[auto_minmax(0,1fr)] gap-4 2xl:gap-6"
+                        ? "grid-rows-[auto_minmax(0,1fr)] gap-2"
                         : "grid-rows-[minmax(0,1fr)] gap-0",
                 )}
             >
@@ -2048,7 +2048,7 @@ export function CandidatesPage({
                 ) : null}
 
                 <div className={cn(
-                    "grid min-h-0 items-stretch gap-4 overflow-hidden 2xl:gap-6 transition-[grid-template-columns] duration-200",
+                    "grid min-h-0 items-stretch gap-2 overflow-hidden transition-[grid-template-columns] duration-200",
                     detailExpanded
                         ? "xl:grid-cols-[0fr_1fr] 2xl:grid-cols-[0fr_1fr]"
                         : "xl:grid-cols-[minmax(260px,0.35fr)_minmax(0,0.65fr)] 2xl:grid-cols-[minmax(280px,0.35fr)_minmax(0,0.65fr)]"

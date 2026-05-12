@@ -486,7 +486,7 @@ function AppContent() {
                     onHealthChange={setHealthCheckState}
                 />
 
-                <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' ? 'p-0' : 'p-6'}`}>
+                <main className={`flex-1 overflow-y-auto overflow-x-hidden relative scrollbar-hide ${currentView === 'help' ? 'p-0' : 'px-2 py-6'}`}>
                         {currentView === 'home' && renderHomeContent()}
                         {currentView === 'welcome' && renderWelcomeContent()}
                         {currentView === 'system' && renderSystemContent()}

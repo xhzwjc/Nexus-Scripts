@@ -70,9 +70,10 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         return () => recruitmentNavBus.removeEventListener('navigate', handler);
     }, []);
 
-    // 离开 AI 招聘时重置展开状态和选中子项
+    // 离开 AI 招聘时重置展开状态和选中子项；挂载时若已在 AI 招聘也重置（热更新后同步）
     React.useEffect(() => {
-        if (currentView !== 'ai-recruitment') {
+        const isEntering = currentView === 'ai-recruitment';
+        if (!isEntering) {
             setAiRecruitmentExpanded(false);
             setActiveRecruitmentPage(null);
         }

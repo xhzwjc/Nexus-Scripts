@@ -8022,16 +8022,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             </div>
 
             <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                    <div className={cn("h-full min-h-0 p-4 lg:p-5 2xl:p-6", activePage !== "candidates" && "hidden")}>
+                    <div className={cn("h-full min-h-0 p-2", activePage !== "candidates" && "hidden")}>
                         {renderCandidatesPage()}
                     </div>
-                    <div className={cn("h-full min-h-0 p-4 lg:p-5 2xl:p-6", activePage !== "positions" && "hidden")}>
+                    <div className={cn("h-full min-h-0 p-2", activePage !== "positions" && "hidden")}>
                         {renderPositionsPage()}
                     </div>
-                    <div className={cn("h-full min-h-0 p-4 lg:p-5 2xl:p-6", activePage !== "audit" && "hidden")}>
+                    <div className={cn("h-full min-h-0 p-2", activePage !== "audit" && "hidden")}>
                         {renderAuditPage()}
                     </div>
-                    <div className={cn("h-full min-h-0 p-4 lg:p-5 2xl:p-6", activePage !== "assistant" && "hidden")}>
+                    <div className={cn("h-full min-h-0 p-2", activePage !== "assistant" && "hidden")}>
                         {renderAssistantPage()}
                     </div>
                     <ScrollArea className={cn("h-full", activePage !== "workspace" && "hidden")}>
