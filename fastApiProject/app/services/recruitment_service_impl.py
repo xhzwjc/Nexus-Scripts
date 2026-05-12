@@ -4889,7 +4889,9 @@ class RecruitmentService:
         """将任务状态变化发布到 SSE 总线，不抛异常（旁路逻辑）"""
         try:
             from .task_event_bus import TaskEventBus
+            logger.warning(f"_emit_task_event: task_id={row.id}, status={row.status}, session_token={self._session_token}")
             if not self._session_token:
+                logger.warning(f"_emit_task_event: SKIPPED - no session_token")
                 return
             # rate_limited 不发 task_completed，任务会自动重试，前端不应刷新列表
             if row.status == "rate_limited":
@@ -4903,10 +4905,12 @@ class RecruitmentService:
                 "task_type": row.task_type,
             }
             TaskEventBus.emit(self._session_token, event_type, payload)
+            logger.warning(f"_emit_task_event: EMITTED {event_type} to {self._session_token}")
             if is_terminal and row.related_candidate_id:
                 TaskEventBus.emit(self._session_token, "candidate_updated", {
                     "candidate_id": row.related_candidate_id,
                 })
+                logger.warning(f"_emit_task_event: EMITTED candidate_updated")
         except Exception:
             pass
 
@@ -4976,10 +4980,13 @@ class RecruitmentService:
         # batch_summary 事件：独立发送，不依赖邮件逻辑
         try:
             summary_payload = {"message": "all_tasks_completed"}
+            logger.warning(f"_emit_batch_summary_if_needed: token={token}")
             if token:
                 TaskEventBus.emit(token, "batch_summary", summary_payload)
+                logger.warning(f"_emit_batch_summary_if_needed: emit to token SUCCESS")
             else:
                 TaskEventBus.emit_to_all("batch_summary", summary_payload)
+                logger.warning(f"_emit_batch_summary_if_needed: emit_to_all called (no token)")
         except Exception:
             logger.exception("Failed to emit batch_summary event")
 
