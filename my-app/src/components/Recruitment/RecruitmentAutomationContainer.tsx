@@ -872,11 +872,9 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const [skills, setSkills] = useState<RecruitmentSkill[]>([]);
     const [allAiLogs, setAllAiLogs] = useState<AITaskLog[]>([]);
     const [aiLogs, setAiLogs] = useState<AITaskLog[]>([]);
-    const [candidateStats, setCandidateStats] = useState<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>} | null>(null);
     const [funnelData, setFunnelData] = useState<import("@/lib/recruitment-api").RecruitmentFunnelData | null>(null);
     const [sourceStatsData, setSourceStatsData] = useState<import("@/lib/recruitment-api").SourceStatsData | null>(null);
     const [candidateTotal, setCandidateTotal] = useState(0);
-    const [aiLogStats, setAiLogStats] = useState<{total: number; status_counts: Record<string, number>} | null>(null);
     const [aiLogTotal, setAiLogTotal] = useState(0);
     const [selectedLogDetail, setSelectedLogDetail] = useState<AITaskLog | null>(null);
     const [chatContext, setChatContext] = useState<ChatContext>({
@@ -1600,24 +1598,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     }), [stats, candidates]);
 
     const todayNewResumes = stats.todayNewResumes;
-    const todayScreeningPassed = useMemo(() => {
-        const tsc = candidateStats?.today_status_counts;
-        if (!tsc) return stats.cards.screening_passed;
-        return (tsc["screening_passed"] ?? 0) + (tsc["interview_passed"] ?? 0) + (tsc["offer_sent"] ?? 0) + (tsc["hired"] ?? 0);
-    }, [candidateStats, stats.cards.screening_passed]);
-
-    const todoSummary = useMemo(() => {
-        const sc = candidateStats?.status_counts;
-        if (sc && Object.keys(sc).length > 0) {
-            return {
-                pendingPublish: stats.todo.pendingPublish, // positions 统计仍用前端（positions 全量加载）
-                pendingScreening: sc["pending_screening"] ?? 0,
-                pendingInterview: sc["pending_interview"] ?? 0,
-                pendingDecision: sc["pending_offer"] ?? 0,
-            };
-        }
-        return stats.todo;
-    }, [candidateStats, stats.todo]);
 
     const recentCandidates = scopedDashboard.recent_candidates || [];
     const recentLogs = aiLogs.slice(0, 6);
@@ -1904,17 +1884,14 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
                 if (cancelled) return;
 
-                // 阶段 2: 工作台核心数据 + 统计 (并行，统计秒出)
-                const dashboardPromise = loadDashboardWithTimeout(5000);
+                // 阶段 2: 工作台漏斗/来源统计 (并行)
                 const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
                 const statsPromise = Promise.allSettled([
-                    recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) setCandidateStats(d); }).catch(() => {}),
-                    recruitmentApi<{total: number; status_counts: Record<string, number>}>(`/ai-task-logs/stats${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) { setAiLogStats(d); setAiLogTotal(d.total); } }).catch(() => {}),
                     recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) setFunnelData(d); }).catch(() => {}),
                     recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) setSourceStatsData(d); }).catch(() => {}),
                 ]);
 
-                await Promise.allSettled([dashboardPromise, statsPromise]);
+                await Promise.allSettled([statsPromise]);
 
                 if (cancelled) return;
                 criticalLoaded = true;
@@ -1954,18 +1931,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     setBootstrapping(false);
                 }
             }
-        }
-
-        async function loadDashboardWithTimeout(timeoutMs: number): Promise<void> {
-            return new Promise((resolve) => {
-                const timeout = setTimeout(() => {
-                    resolve();
-                }, timeoutMs);
-                loadDashboard().finally(() => {
-                    clearTimeout(timeout);
-                    resolve();
-                });
-            });
         }
 
         async function loadPositionsWithCache(): Promise<void> {
@@ -2108,7 +2073,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     pendingRefreshRef.current = null;
                 }
                 void loadCandidates({ silent: true, force: true });
-                void loadDashboard();
                 void refreshCandidateStats();
             },
             onReconnect: () => {
@@ -2626,16 +2590,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
-    async function loadDashboard() {
-        try {
-            const data = await runDedupedRequest("dashboard", () => recruitmentApi<DashboardData>("/dashboard"));
-            return data;
-        } catch (error) {
-            toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.workspace, formatActionError(error)));
-            throw error;
-        }
-    }
-
     async function loadPositions() {
         const requestId = positionsLoadRequestIdRef.current + 1;
         positionsLoadRequestIdRef.current = requestId;
@@ -3010,17 +2964,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 : selectedOrgScope
                     ? `?org_code=${encodeURIComponent(selectedOrgScope)}`
                     : "";
-            const d = await recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam}`);
-            setCandidateStats(d);
-            setCandidateTotal(d.total);
-        } catch {}
-        try {
-            const deptScope = departmentScope ?? selectedDepartmentScope;
-            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
-                ? `?org_code=${encodeURIComponent(deptScope)}`
-                : selectedOrgScope
-                    ? `?org_code=${encodeURIComponent(selectedOrgScope)}`
-                    : "";
             const f = await recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam}`);
             setFunnelData(f);
         } catch {}
@@ -3071,31 +3014,10 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         })();
 
         const tasks: Promise<unknown>[] = [
-            loadDashboard(),
             loadPositions(),
             candidatesPromise,
             logsPromise,
-            // 并行刷新统计
-            (async () => {
-                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
-                    ? `?org_code=${encodeURIComponent(deptScope)}`
-                    : companyScope
-                        ? `?org_code=${encodeURIComponent(companyScope)}`
-                        : "";
-                const d = await recruitmentApi<{total: number; pending_screening: number; status_counts: Record<string, number>; today_total: number; today_status_counts: Record<string, number>}>(`/candidates/stats${orgCodeParam}`);
-                setCandidateStats(d);
-                setCandidateTotal(d.total);
-            })(),
-            (async () => {
-                const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
-                    ? `?org_code=${encodeURIComponent(deptScope)}`
-                    : companyScope
-                        ? `?org_code=${encodeURIComponent(companyScope)}`
-                        : "";
-                const d = await recruitmentApi<{total: number; status_counts: Record<string, number>}>(`/ai-task-logs/stats${orgCodeParam}`);
-                setAiLogStats(d);
-                setAiLogTotal(d.total);
-            })(),
+            // 并行刷新漏斗/来源统计
             (async () => {
                 const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
                     ? `?org_code=${encodeURIComponent(deptScope)}`
@@ -3956,7 +3878,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             if (refreshInterviewCandidateId !== null) {
                 await Promise.all([
                     loadLogs({silent: true}),
-                    loadDashboard(),
                     refreshCandidateStats(),
                     selectedCandidateIdRef.current === refreshInterviewCandidateId
                         ? loadCandidateDetail(refreshInterviewCandidateId, {silent: true})
@@ -4405,7 +4326,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setPositionDetail(null);
             setSelectedPositionId(null);
             try {
-                await Promise.all([loadPositions(), loadDashboard(), loadCandidates(), loadLogs()]);
+                await Promise.all([loadPositions(), loadCandidates(), loadLogs()]);
             } catch (refreshError) {
                 toast.error(recruitmentToast.deletedButRefreshFailed(recruitmentToastEntities.position, formatActionError(refreshError)));
             }
@@ -4491,7 +4412,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             }
             setJdGenerationStatus("syncing");
             await Promise.all([
-                loadDashboard(),
                 loadLogs({silent: true}),
                 loadPositions(),
                 selectedPositionIdRef.current === positionId
@@ -4552,7 +4472,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }),
             });
             toast.success(recruitmentToast.newJdVersionSaved);
-            await Promise.all([loadPositionDetail(selectedPositionId), loadDashboard(), loadPositions()]);
+            await Promise.all([loadPositionDetail(selectedPositionId), loadPositions()]);
             setJdViewMode("publish");
         } catch (error) {
             toast.error(recruitmentToast.saveFailed("JD", error instanceof Error ? error.message : recruitmentToast.unknownError));
@@ -4571,7 +4491,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 method: "POST",
             });
             toast.success(recruitmentToast.jdVersionSwitched);
-            await Promise.all([loadPositionDetail(selectedPositionId), loadDashboard(), loadPositions()]);
+            await Promise.all([loadPositionDetail(selectedPositionId), loadPositions()]);
         } catch (error) {
             toast.error(recruitmentToast.updateFailed("JD 版本", error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
@@ -4859,7 +4779,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 }),
             });
             toast.success(recruitmentToast.updated(recruitmentToastEntities.candidate));
-            await Promise.all([loadCandidateDetail(selectedCandidateId), loadCandidates(), loadDashboard(), refreshCandidateStats()]);
+            await Promise.all([loadCandidateDetail(selectedCandidateId), loadCandidates(), refreshCandidateStats()]);
         } catch (error) {
             toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.candidate, formatActionError(error)));
         } finally {
@@ -4885,7 +4805,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             await Promise.all([
                 loadCandidateDetail(selectedCandidateId),
                 loadCandidates(),
-                loadDashboard(),
                 refreshCandidateStats(),
             ]);
         } catch (error) {
@@ -5178,7 +5097,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 if (response.used_fallback) {
                     toast.error(recruitmentToast.screeningFallback(response.fallback_error || recruitmentToast.noReason));
                 }
-                await Promise.all([loadLogs({silent: true}), loadDashboard()]);
+                await Promise.all([loadLogs({silent: true})]);
                 return;
             }
             const pendingMessageId = `a-${Date.now()}`;
@@ -5232,7 +5151,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     }));
                     setActiveChatTaskId((current) => (current === response.task_id ? null : current));
                     setActiveChatMessageId((current) => (current === pendingMessageId ? null : current));
-                    await Promise.all([loadLogs({silent: true}), loadDashboard()]);
+                    await Promise.all([loadLogs({silent: true})]);
                     if (log.status === "fallback") {
                         toast.error(recruitmentToast.screeningFallback(log.error_message || recruitmentToast.noReason));
                     } else if (log.status === "failed") {
@@ -5790,7 +5709,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             if (nextCandidateId) {
                 void loadCandidateDetail(nextCandidateId, {silent: true});
             }
-            void Promise.all([loadDashboard(), loadLogs({silent: true}), refreshCandidateStats()]);
+            void Promise.all([loadLogs({silent: true}), refreshCandidateStats()]);
             if ((chatContextRef.current.candidate_id ?? null) === deletedCandidateId) {
                 void saveChatContext(chatContextRef.current.position_id ?? null, chatContextRef.current.skill_ids, nextCandidateId, {quiet: true});
             }
@@ -5840,7 +5759,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             if (nextCandidateId) {
                 void loadCandidateDetail(nextCandidateId, {silent: true});
             }
-            void Promise.all([loadDashboard(), loadLogs({silent: true}), refreshCandidateStats()]);
+            void Promise.all([loadLogs({silent: true}), refreshCandidateStats()]);
         } catch (error) {
             setBatchDeleteError(formatActionError(error) || (isZh ? "批量删除候选人失败，请稍后重试" : "Failed to batch delete candidates. Please try again later."));
         } finally {
@@ -5860,7 +5779,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             toast.success(
                 recruitmentToast.positionUpdated(result.updated_count)
             );
-            await Promise.all([loadCandidates(), loadDashboard(), refreshCandidateStats()]);
+            await Promise.all([loadCandidates(), refreshCandidateStats()]);
             if (selectedCandidateId && candidateIds.includes(selectedCandidateId)) {
                 await loadCandidateDetail(selectedCandidateId);
             }
@@ -5883,7 +5802,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 body: JSON.stringify({ candidate_ids: candidateIds, status, reason: reason || undefined }),
             });
             toast.success(recruitmentToast.batchStatusUpdated(result.updated_count));
-            await Promise.all([loadCandidates(), loadDashboard(), refreshCandidateStats()]);
+            await Promise.all([loadCandidates(), refreshCandidateStats()]);
             if (selectedCandidateId && candidateIds.includes(selectedCandidateId)) {
                 await loadCandidateDetail(selectedCandidateId);
             }
@@ -5916,7 +5835,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             setResumeDeleteTarget(null);
             await Promise.all([
                 loadCandidates({silent: true}),
-                loadDashboard(),
                 loadLogs({silent: true}),
                 selectedCandidateIdRef.current === result.candidate_id
                     ? loadCandidateDetail(result.candidate_id, {silent: true})
@@ -7090,8 +7008,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
             <WorkspacePage
                 dashboard={scopedDashboard}
                 todayNewResumes={todayNewResumes}
-                todayScreeningPassed={todayScreeningPassed}
-                todoSummary={todoSummary}
+                stats={stats}
                 recentCandidates={recentCandidates}
                 recentLogs={recentLogs}
                 funnelData={funnelData}

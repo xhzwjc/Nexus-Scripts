@@ -39,18 +39,24 @@ import {
     statusBadgeClass,
 } from "../utils";
 
-type TodoSummary = {
-    pendingPublish: number;
-    pendingScreening: number;
-    pendingInterview: number;
-    pendingDecision: number;
+type WorkspacePageStats = {
+    cards: {
+        positions_recruiting: number;
+        screening_passed: number;
+        recent_ai_tasks: number;
+    };
+    todo: {
+        pendingPublish: number;
+        pendingScreening: number;
+        pendingInterview: number;
+        pendingDecision: number;
+    };
 };
 
 type WorkspacePageProps = {
     dashboard: DashboardData | null;
     todayNewResumes: number;
-    todayScreeningPassed: number;
-    todoSummary: TodoSummary;
+    stats: WorkspacePageStats;
     recentCandidates: CandidateSummary[];
     recentLogs: AITaskLog[];
     funnelData: RecruitmentFunnelData | null;
@@ -70,8 +76,7 @@ type WorkspacePageProps = {
 export function WorkspacePage({
     dashboard,
     todayNewResumes,
-    todayScreeningPassed,
-    todoSummary,
+    stats,
     recentCandidates,
     recentLogs,
     funnelData,
@@ -89,18 +94,18 @@ export function WorkspacePage({
 }: WorkspacePageProps) {
     const {language} = useI18n();
     const isZh = language === "zh-CN";
+    const todayScreeningPassed = React.useMemo(
+        () => stats.cards.screening_passed,
+        [stats.cards.screening_passed],
+    );
     const tr = React.useMemo(() => ({
         overviewBadge: isZh ? "今日总览" : "Today",
         overviewTitle: isZh ? "招聘推进总览" : "Recruiting Overview",
         overviewDescription: isZh ? "集中查看岗位、候选人和 AI 任务的当前进度。" : "Track positions, candidates, and AI tasks in one place.",
         recruitingPositions: isZh ? "招聘中岗位" : "Active Positions",
-        pendingScreeningCandidates: isZh ? "待初筛候选人" : "Pending Screening",
         todayNewResumes: isZh ? "今日新增简历" : "New Resumes Today",
-        openAssistant: isZh ? "打开 AI 招聘助手" : "Open AI Recruiting Assistant",
-        createPosition: isZh ? "新建岗位" : "New Position",
-        activePositionsDesc: isZh ? "当前在推进的岗位" : "Positions currently in progress",
-        todayResumesDesc: isZh ? "今天导入的候选人数量" : "Candidates imported today",
-        screeningPassed: isZh ? "今日初筛通过" : "Screening Passed Today",
+        pendingScreeningCandidates: isZh ? "待初筛候选人" : "Pending Screening",
+        screeningPassed: isZh ? "初筛通过" : "Screening Passed",
         screeningPassedDesc: isZh ? "今天通过初筛进入后续流程" : "Passed screening today and moved into the next stage",
         aiRunsToday: isZh ? "今日 AI 处理数" : "AI Runs Today",
         aiRunsTodayDesc: isZh ? "今天触发的 AI 任务" : "AI tasks triggered today",
@@ -110,6 +115,10 @@ export function WorkspacePage({
         pendingInterviewDesc: isZh ? "已通过初筛但未安排面试" : "Passed screening but not scheduled for interview",
         pendingDecision: isZh ? "待确认结果" : "Pending Decision",
         pendingDecisionDesc: isZh ? "需要确认 Offer 或后续结果" : "Waiting for offer or final decision",
+        openAssistant: isZh ? "打开 AI 招聘助手" : "Open AI Recruiting Assistant",
+        createPosition: isZh ? "新建岗位" : "New Position",
+        activePositionsDesc: isZh ? "当前在推进的岗位" : "Positions currently in progress",
+        todayResumesDesc: isZh ? "今天导入的候选人数量" : "Candidates imported today",
         quickActions: isZh ? "快捷操作" : "Quick Actions",
         quickActionsDesc: isZh ? "把 JD 生成、上传简历、批量初筛、面试题 和 AI 助手集中在这里，减少来回切页。" : "Keep JD generation, resume upload, batch screening, interview questions, and the AI assistant close at hand.",
         generateJd: isZh ? "生成 JD" : "Generate JD",
@@ -174,10 +183,6 @@ export function WorkspacePage({
                                     <span className="font-semibold text-slate-950 dark:text-slate-50">{dashboard?.cards.positions_recruiting ?? 0}</span>
                                 </div>
                                 <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
-                                    <span className="text-xs text-slate-500 dark:text-slate-400">{tr.pendingScreeningCandidates}</span>
-                                    <span className="font-semibold text-slate-950 dark:text-slate-50">{todoSummary.pendingScreening}</span>
-                                </div>
-                                <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/90 px-3 py-2 text-sm dark:border-slate-800 dark:bg-slate-950/80">
                                     <span className="text-xs text-slate-500 dark:text-slate-400">{tr.todayNewResumes}</span>
                                     <span className="font-semibold text-slate-950 dark:text-slate-50">{todayNewResumes}</span>
                                 </div>
@@ -213,17 +218,17 @@ export function WorkspacePage({
                             description={tr.activePositionsDesc} icon={BriefcaseBusiness}/>
                 <MetricCard title={tr.todayNewResumes} value={todayNewResumes} description={tr.todayResumesDesc}
                             icon={Upload}/>
-                <MetricCard title={tr.pendingScreeningCandidates} value={todoSummary.pendingScreening}
+                <MetricCard title={tr.pendingScreeningCandidates} value={stats.todo.pendingScreening}
                             description={isZh ? "优先需要处理的简历" : "Resumes that need immediate attention"} icon={FileSearch}/>
                 <MetricCard title={tr.screeningPassed} value={todayScreeningPassed}
                             description={tr.screeningPassedDesc} icon={ClipboardCheck}/>
                 <MetricCard title={tr.aiRunsToday} value={dashboard?.cards.recent_ai_tasks ?? 0}
                             description={tr.aiRunsTodayDesc} icon={Sparkles}/>
-                <MetricCard title={tr.pendingPublish} value={todoSummary.pendingPublish}
+                <MetricCard title={tr.pendingPublish} value={stats.todo.pendingPublish}
                             description={tr.pendingPublishDesc} icon={Rocket}/>
-                <MetricCard title={tr.pendingInterview} value={todoSummary.pendingInterview}
+                <MetricCard title={tr.pendingInterview} value={stats.todo.pendingInterview}
                             description={tr.pendingInterviewDesc} icon={NotebookText}/>
-                <MetricCard title={tr.pendingDecision} value={todoSummary.pendingDecision}
+                <MetricCard title={tr.pendingDecision} value={stats.todo.pendingDecision}
                             description={tr.pendingDecisionDesc} icon={ClipboardCheck}/>
             </div>
 
