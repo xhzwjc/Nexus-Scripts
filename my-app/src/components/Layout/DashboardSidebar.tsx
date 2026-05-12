@@ -127,7 +127,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
         <div className={cn('relative h-screen shrink-0', collapsed ? 'w-[76px]' : 'w-[210px]')}>
             <aside
                 className={cn(
-                    'dashboard-sidebar h-screen flex flex-col overflow-hidden border-r border-[var(--sidebar-border)] bg-[var(--glass-bg)] py-6 shadow-sm',
+                    'dashboard-sidebar h-screen flex flex-col overflow-hidden border-r border-[var(--sidebar-border)] py-6 shadow-sm',
                     collapsed ? 'px-3' : 'px-4',
                     collapsed && 'collapsed',
                 )}

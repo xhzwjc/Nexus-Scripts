@@ -49,11 +49,21 @@
    侧边栏 - 玻璃拟态
    ============================================ */
 .dashboard-sidebar {
-    background: var(--glass-bg);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    background: var(--glass-bg-solid);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border-right: 1px solid var(--glass-border);
     box-shadow: 4px 0 32px var(--glass-shadow);
+    /* 核心优化：将模糊效果隔离在独立层，避免滚动时重新计算 */
+    contain: paint;
+    transform: translateZ(0);
+    isolation: isolate;
+}
+
+/* 针对滚动视口的极致优化 */
+[data-slot="scroll-area-viewport"] {
+    will-change: transform;
+    backface-visibility: hidden;
 }
 
 .sidebar-nav-item {
