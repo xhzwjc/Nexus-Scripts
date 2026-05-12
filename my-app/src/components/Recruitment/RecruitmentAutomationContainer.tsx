@@ -12,8 +12,6 @@ import {
     ClipboardCheck,
     ExternalLink,
     FilePlus2,
-    FolderKanban,
-    History,
     Loader2,
     NotebookText,
     Plus,
@@ -98,9 +96,7 @@ import {Input} from "@/components/ui/input";
 import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover";
 import {ScrollArea} from "@/components/ui/scroll-area";
 import {OrgScopeBreadcrumbPicker} from './OrgScopeBreadcrumbPicker';
-import {Separator} from "@/components/ui/separator";
 import {Textarea} from "@/components/ui/textarea";
-import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip";
 import {
     aiTaskLabels,
     type AssistantDisplayMode,
@@ -183,7 +179,6 @@ import {
     LoadingPanel,
     NativeSelect,
     SearchField,
-    SectionNavButton,
     SettingsEntry,
 } from "./components/SharedComponents";
 import {StructuredSkillEditor} from "./components/StructuredSkillEditor";
@@ -195,6 +190,7 @@ import {ModelSettingsPage} from "./pages/ModelSettingsPage";
 import {SkillSettingsPage} from "./pages/SkillSettingsPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
 import { useOptimizedStats, useCachedListData, useCachedObjectData, useTaskSSE } from "./hooks";
+import { recruitmentNavBus } from '@/lib/recruitmentNavBus';
 
 const PAGE_ACTIVITY_POLL_VISIBLE_INTERVAL_MS = 15_000;
 const PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS = 60_000;
@@ -436,8 +432,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     const pendingLogUpdatesRef = useRef<AITaskLog[]>([]);
     const logFlushRafRef = useRef<number | null>(null);
     const requestInflightRef = useRef<Map<string, Promise<unknown>>>(new Map());
-    const primaryNavScrollRef = useRef<HTMLDivElement | null>(null);
-    const primaryNavButtonRefs = useRef<Partial<Record<RecruitmentPage, HTMLButtonElement | null>>>({});
     const selectedLogIdRef = useRef<number | null>(null);
     const selectedPositionIdRef = useRef<number | null>(null);
     const selectedCandidateIdRef = useRef<number | null>(null);
@@ -605,15 +599,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         assistantNavTitle: isZh ? "招聘助手" : "Recruiting Assistant",
         assistantNavDescription: isZh ? "自然语言驱动岗位、候选人和 Skill 上下文" : "Natural-language workspace for positions, candidates, and skill context",
         quickAddPosition: isZh ? "新增岗位" : "Add Position",
-        pendingScreeningCandidates: isZh ? "待筛候选人" : "Pending Screening",
-        pendingInterviewCandidates: isZh ? "待安排面试" : "Pending Interview",
-        pendingScreeningShort: isZh ? "待筛" : "Queue",
-        pendingInterviewShort: isZh ? "待面" : "Intv",
-        todayTodos: isZh ? "今日待办" : "Today's To-Dos",
-        pendingPublish: isZh ? "待发布" : "Pending Publish",
-        pendingScreening: isZh ? "待初筛" : "Pending Screening",
-        pendingInterview: isZh ? "待面试" : "Pending Interview",
-        pendingDecision: isZh ? "待决策" : "Pending Decision",
         preferredInterviewSkillFromMemory: isZh ? "工作记忆中的面试题 Skills" : "Interview skills from workflow memory",
         positionBoundSkills: isZh ? "岗位绑定 Skills" : "Position-bound skills",
         noConfiguredSkills: isZh ? "未配置 Skills" : "No skills configured",
@@ -865,13 +850,11 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     const [activePage, setActivePage] = useState<RecruitmentPage>("workspace");
     const [assistantOpen, setAssistantOpen] = useState(false);
-    const [navCollapsed, setNavCollapsed] = useState(false);
     const [positionListCollapsed, setPositionListCollapsed] = useState(false);
     const [positionWorkspaceView, setPositionWorkspaceView] = useState<"jd" | "config">("jd");
     const [positionSecondaryPanelOpen, setPositionSecondaryPanelOpen] = useState(false);
     const [auditFiltersCollapsed, setAuditFiltersCollapsed] = useState(true);
     const [bootstrapping, setBootstrapping] = useState(true);
-    const activePrimaryNavPage = assistantOpen ? "assistant" : activePage;
     const [pageVisible, setPageVisible] = useState(() => (
         typeof document === "undefined" ? true : document.visibilityState === "visible"
     ));
@@ -1775,6 +1758,16 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         setSettingsPopoverOpen(false);
     }, [activePage]);
 
+    // 监听顶栏侧边栏的导航事件
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const page = (e as CustomEvent).detail as RecruitmentPage;
+            setActivePage(page);
+        };
+        recruitmentNavBus.addEventListener('navigate', handler);
+        return () => recruitmentNavBus.removeEventListener('navigate', handler);
+    }, []);
+
     useEffect(() => {
         setSelectedCandidateIds((current) => current.filter((candidateId) => visibleCandidates.some((candidate) => candidate.id === candidateId)));
     }, [visibleCandidates]);
@@ -1810,24 +1803,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
     useEffect(() => {
         selectedCandidateIdRef.current = selectedCandidateId;
     }, [selectedCandidateId]);
-
-    useEffect(() => {
-        const scrollContainer = primaryNavScrollRef.current;
-        const activeButton = primaryNavButtonRefs.current[activePrimaryNavPage];
-        if (!scrollContainer || !activeButton) {
-            return undefined;
-        }
-        const frameId = window.requestAnimationFrame(() => {
-            activeButton.scrollIntoView({
-                block: "nearest",
-                inline: "nearest",
-                behavior: "smooth",
-            });
-        });
-        return () => {
-            window.cancelAnimationFrame(frameId);
-        };
-    }, [activePrimaryNavPage, navCollapsed]);
 
     useEffect(() => {
         auditLogRequestKeyRef.current = auditLogRequestKey;
@@ -3204,12 +3179,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
 
     function navigateToSettingsPage(page: Extract<RecruitmentPage, "settings-skills" | "settings-models" | "settings-mail">) {
         setSettingsPopoverOpen(false);
-        startTransition(() => {
-            setActivePage(page);
-        });
-    }
-
-    function navigatePrimaryPage(page: RecruitmentPage) {
         startTransition(() => {
             setActivePage(page);
         });
@@ -8052,224 +8021,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                 </div>
             </div>
 
-                <div
-                    className={cn(
-                        "grid min-h-0 flex-1",
-                    navCollapsed ? "lg:grid-cols-[56px_minmax(0,1fr)]" : "lg:grid-cols-[176px_minmax(0,1fr)] 2xl:grid-cols-[188px_minmax(0,1fr)]",
-                )}
-            >
-                <div className="relative min-h-0">
-                    <aside
-                        className={cn(
-                            "flex h-full min-h-0 flex-col overflow-hidden border-r border-slate-200/80 bg-white/70 px-2 py-3.5 backdrop-blur dark:border-slate-800 dark:bg-slate-950/50",
-                            navCollapsed ? "lg:px-1" : "lg:px-2.5",
-                        )}
-                    >
-                        {!navCollapsed ? (
-                            <div className="mb-3 flex items-center justify-center">
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{recruitmentUiText.workSections}</p>
-                            </div>
-                        ) : null}
-
-                        <div
-                            ref={primaryNavScrollRef}
-                            className="min-h-0 flex-1 overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:h-0 [&::-webkit-scrollbar]:w-0"
-                        >
-                            <div className="space-y-1.5">
-                            <SectionNavButton
-                                active={activePrimaryNavPage === "workspace"}
-                                icon={FolderKanban}
-                                title={recruitmentUiText.workspaceTitle}
-                                description={recruitmentUiText.workspaceDescription}
-                                count={scopedDashboard.cards.positions_recruiting}
-                                collapsed={navCollapsed}
-                                buttonRef={(node) => {
-                                    primaryNavButtonRefs.current.workspace = node;
-                                }}
-                                onClick={() => navigatePrimaryPage("workspace")}
-                            />
-                            {canManagePosition && (
-                                <SectionNavButton
-                                    active={activePrimaryNavPage === "positions"}
-                                    icon={BriefcaseBusiness}
-                                    title={recruitmentUiText.positionsTitle}
-                                    description={recruitmentUiText.positionsDescription}
-                                    count={positions.length}
-                                    collapsed={navCollapsed}
-                                    buttonRef={(node) => {
-                                        primaryNavButtonRefs.current.positions = node;
-                                    }}
-                                    onClick={() => navigatePrimaryPage("positions")}
-                                />
-                            )}
-                            {canManageCandidate && (
-                                <SectionNavButton
-                                    active={activePrimaryNavPage === "candidates"}
-                                    icon={Users}
-                                    title={recruitmentUiText.candidatesTitle}
-                                    description={recruitmentUiText.candidatesDescription}
-                                    count={candidateStats?.total ?? candidates.length}
-                                    collapsed={navCollapsed}
-                                    buttonRef={(node) => {
-                                        primaryNavButtonRefs.current.candidates = node;
-                                    }}
-                                    onClick={() => navigatePrimaryPage("candidates")}
-                                />
-                            )}
-                            {canViewLog && (
-                                <SectionNavButton
-                                    active={activePrimaryNavPage === "audit"}
-                                    icon={History}
-                                    title={recruitmentUiText.auditTitle}
-                                    description={recruitmentUiText.auditDescription}
-                                    count={aiLogStats?.total ?? allAiLogs.length}
-                                    collapsed={navCollapsed}
-                                    buttonRef={(node) => {
-                                        primaryNavButtonRefs.current.audit = node;
-                                    }}
-                                    onClick={() => navigatePrimaryPage("audit")}
-                                />
-                            )}
-                            <SectionNavButton
-                                active={activePrimaryNavPage === "assistant"}
-                                icon={Bot}
-                                title={recruitmentUiText.assistantNavTitle}
-                                description={recruitmentUiText.assistantNavDescription}
-                                collapsed={navCollapsed}
-                                buttonRef={(node) => {
-                                    primaryNavButtonRefs.current.assistant = node;
-                                }}
-                                onClick={() => navigatePrimaryPage("assistant")}
-                            />
-                            </div>
-                        </div>
-
-                        <div className="shrink-0 pt-4">
-                            {navCollapsed ? (
-                                <div className="space-y-2">
-                                {canManagePosition && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <button
-                                            type="button"
-                                            onClick={openCreatePosition}
-                                            className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
-                                            title={recruitmentUiText.quickAddPosition}
-                                        >
-                                            <Plus className="h-4.5 w-4.5" />
-                                        </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                        {recruitmentUiText.quickAddPosition}
-                                    </TooltipContent>
-                                </Tooltip>
-                                )}
-
-                                {canManageCandidate && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <button
-                                            type="button"
-                                            onClick={openResumeUploadDialog}
-                                            className="flex h-11 w-full items-center justify-center rounded-2xl border border-slate-200/80 bg-white/85 text-slate-700 transition hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-200"
-                                            title={recruitmentUiText.uploadResume}
-                                        >
-                                            <Upload className="h-4.5 w-4.5" />
-                                        </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                        {recruitmentUiText.uploadResume}
-                                    </TooltipContent>
-                                </Tooltip>
-                                )}
-
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <div
-                                            className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
-                                            title={recruitmentUiText.pendingScreeningCandidates}
-                                        >
-                                            <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingScreeningShort}</span>
-                                            <span className="text-sm font-semibold leading-4">{todoSummary.pendingScreening}</span>
-                                        </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                        {recruitmentUiText.pendingScreeningCandidates} {todoSummary.pendingScreening}
-                                    </TooltipContent>
-                                </Tooltip>
-
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <div
-                                            className="flex h-11 w-full flex-col items-center justify-center rounded-2xl border border-slate-200/80 bg-slate-50/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200"
-                                            title={recruitmentUiText.pendingInterviewCandidates}
-                                        >
-                                            <span className="text-[10px] leading-4 text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingInterviewShort}</span>
-                                            <span className="text-sm font-semibold leading-4">{todoSummary.pendingInterview}</span>
-                                        </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="right" className="rounded-xl px-3 py-2 text-xs">
-                                        {recruitmentUiText.pendingInterviewCandidates} {todoSummary.pendingInterview}
-                                    </TooltipContent>
-                                </Tooltip>
-                                </div>
-                            ) : (
-                                <>
-                                    <Separator className="mb-3" />
-
-                                    <div
-                                        className="rounded-[18px] border border-slate-200/80 bg-white/85 px-2 py-1.5 shadow-sm dark:border-slate-800 dark:bg-slate-950/80 2xl:px-2.5 2xl:py-2"
-                                    >
-                                        <div className="space-y-1.5">
-                                            <div>
-                                                <p className="text-[12px] font-semibold text-slate-900 dark:text-slate-100 2xl:text-[13px]">{recruitmentUiText.todayTodos}</p>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-1.5">
-                                                <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingPublish}</p>
-                                                    <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
-                                                        {todoSummary.pendingPublish}
-                                                    </p>
-                                                </div>
-                                                <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingScreening}</p>
-                                                    <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
-                                                        {todoSummary.pendingScreening}
-                                                    </p>
-                                                </div>
-                                                <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingInterview}</p>
-                                                    <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
-                                                        {todoSummary.pendingInterview}
-                                                    </p>
-                                                </div>
-                                                <div className="rounded-xl bg-slate-100/80 px-2 py-1.5 dark:bg-slate-900/80 2xl:px-2.5">
-                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">{recruitmentUiText.pendingDecision}</p>
-                                                    <p className="mt-0.5 text-[18px] font-semibold leading-none text-slate-800 dark:text-slate-200 2xl:text-[20px]">
-                                                        {todoSummary.pendingDecision}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    </aside>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => setNavCollapsed((current) => !current)}
-                        className="absolute right-0 top-1/2 z-20 h-10 w-5 -translate-y-1/2 translate-x-1/2 rounded-full border-slate-200/80 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
-                        title={navCollapsed ? recruitmentUiText.expandMenu : recruitmentUiText.collapseMenu}
-                    >
-                        {navCollapsed ? <ChevronRight className="h-3.5 w-3.5"/> : <ChevronLeft className="h-3.5 w-3.5"/>}
-                    </Button>
-                </div>
-
-                <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                     <div className={cn("h-full min-h-0 p-4 lg:p-5 2xl:p-6", activePage !== "candidates" && "hidden")}>
                         {renderCandidatesPage()}
                     </div>
@@ -8295,7 +8047,6 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                         <div className="p-4 lg:p-5 2xl:p-6">{renderMailSettingsPage()}</div>
                     </ScrollArea>
                 </div>
-            </div>
 
             {orgSwitching && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/50 backdrop-blur-sm transition-opacity duration-300 dark:bg-slate-950/50">

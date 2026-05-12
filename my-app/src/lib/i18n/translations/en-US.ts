@@ -192,6 +192,12 @@ export const enUS: Translations = {
         serviceNormal: 'Service Normal',
         allNodesOnline: 'All Nodes Online',
         opsCenter: 'Operations Center',
+        aiRecruitment: 'AI Recruiting',
+        aiRecruitmentWorkspace: 'Workspace',
+        aiRecruitmentPositions: 'Positions',
+        aiRecruitmentCandidates: 'Candidates',
+        aiRecruitmentAudit: 'Audit Center',
+        aiRecruitmentAssistant: 'Recruiting Assistant',
     },
 
     // Header

@@ -192,6 +192,12 @@ export const zhCN: Translations = {
         serviceNormal: '服务正常',
         allNodesOnline: '所有节点在线',
         opsCenter: '运维中心',
+        aiRecruitment: 'AI 招聘',
+        aiRecruitmentWorkspace: '工作台',
+        aiRecruitmentPositions: '岗位管理',
+        aiRecruitmentCandidates: '候选人',
+        aiRecruitmentAudit: '审计中心',
+        aiRecruitmentAssistant: '招聘助手',
     },
 
     // Header

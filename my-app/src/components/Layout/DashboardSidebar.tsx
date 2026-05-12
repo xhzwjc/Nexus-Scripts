@@ -3,9 +3,12 @@ import {
     Bot,
     BriefcaseBusiness,
     CheckCircle,
+    ChevronDown,
     ChevronLeft,
     ChevronRight,
     CircleHelp,
+    FolderKanban,
+    History,
     LogOut,
     ScanLine,
     ScrollText,
@@ -18,8 +21,10 @@ import {
 
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
+import { recruitmentNavBus, navigateToRecruitmentPage } from '@/lib/recruitmentNavBus';
 import type { User, ViewType } from '@/lib/types';
 
 interface SidebarProps {
@@ -41,12 +46,45 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
 }) => {
     const { t, language } = useI18n();
     const [collapsed, setCollapsed] = React.useState(false);
-    const aiRecruitmentNavLabel = language === 'en-US' ? 'AI Recruiting' : 'AI 招聘';
+    const [aiRecruitmentExpanded, setAiRecruitmentExpanded] = React.useState(false);
+    const [activeRecruitmentPage, setActiveRecruitmentPage] = React.useState<string | null>(null);
     const userLandingPage = currentUser?.landingPage || 'home';
     const homeNavView: ViewType = userLandingPage === 'welcome' ? 'welcome' : 'home';
     const homeNavLabel = userLandingPage === 'welcome'
         ? (language === 'en-US' ? 'Welcome' : '欢迎')
         : t.nav.home;
+
+    // AI 招聘模块权限
+    const canAccessRecruitment = Boolean(currentUser?.permissions?.['ai-recruitment']);
+    const canManagePosition = Boolean(currentUser?.permissions?.['recruitment-position-manage']);
+    const canManageCandidate = Boolean(currentUser?.permissions?.['recruitment-candidate-manage']);
+    const canViewLog = Boolean(currentUser?.permissions?.['recruitment-log-view']);
+    const inRecruitmentView = currentView === 'ai-recruitment';
+
+    // 监听来自 RecruitmentAutomationContainer 的页面切换事件
+    React.useEffect(() => {
+        const handler = (e: Event) => {
+            setActiveRecruitmentPage((e as CustomEvent).detail as string);
+        };
+        recruitmentNavBus.addEventListener('navigate', handler);
+        return () => recruitmentNavBus.removeEventListener('navigate', handler);
+    }, []);
+
+    // 离开 AI 招聘时重置展开状态和选中子项
+    React.useEffect(() => {
+        if (currentView !== 'ai-recruitment') {
+            setAiRecruitmentExpanded(false);
+            setActiveRecruitmentPage(null);
+        }
+    }, [currentView]);
+
+    const recruitmentSubItems = [
+        { key: 'workspace', label: t.nav.aiRecruitmentWorkspace, icon: <FolderKanban className="h-4 w-4" /> },
+        ...(canManagePosition ? [{ key: 'positions', label: t.nav.aiRecruitmentPositions, icon: <BriefcaseBusiness className="h-4 w-4" /> }] : []),
+        ...(canManageCandidate ? [{ key: 'candidates', label: t.nav.aiRecruitmentCandidates, icon: <Users className="h-4 w-4" /> }] : []),
+        ...(canViewLog ? [{ key: 'audit', label: t.nav.aiRecruitmentAudit, icon: <History className="h-4 w-4" /> }] : []),
+        { key: 'assistant', label: t.nav.aiRecruitmentAssistant, icon: <Bot className="h-4 w-4" /> },
+    ];
 
     const navItemClass = (active: boolean, disabled = false) =>
         cn(
@@ -172,14 +210,84 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                             onClick: () => setCurrentView('agent-chat'),
                                         })
                                         : null}
-                                    {currentUser?.permissions['ai-recruitment']
-                                        ? renderNavItem({
-                                            active: currentView === 'ai-recruitment',
-                                            label: aiRecruitmentNavLabel,
-                                            icon: <BriefcaseBusiness className="h-[18px] w-[18px]" />,
-                                            onClick: () => setCurrentView('ai-recruitment'),
-                                        })
-                                        : null}
+                                    {canAccessRecruitment ? (
+                                        collapsed ? (
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <div
+                                                        className={navItemClass(inRecruitmentView)}
+                                                        onClick={() => {
+                                                            setCurrentView('ai-recruitment');
+                                                            navigateToRecruitmentPage('workspace');
+                                                        }}
+                                                    >
+                                                        <BriefcaseBusiness className="h-[18px] w-[18px]" />
+                                                    </div>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="right" className="flex flex-col gap-1 p-2">
+                                                    {recruitmentSubItems.map((item) => (
+                                                        <button
+                                                            key={item.key}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setCurrentView('ai-recruitment');
+                                                                setActiveRecruitmentPage(item.key);
+                                                                navigateToRecruitmentPage(item.key);
+                                                            }}
+                                                            className={cn(
+                                                                'flex items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors',
+                                                                activeRecruitmentPage === item.key
+                                                                    ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
+                                                                    : 'hover:bg-accent',
+                                                            )}
+                                                        >
+                                                            {item.icon}
+                                                            <span>{item.label}</span>
+                                                        </button>
+                                                    ))}
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        ) : (
+                                            <div className="space-y-1">
+                                                <div
+                                                    className={navItemClass(inRecruitmentView || Boolean(activeRecruitmentPage))}
+                                                    onClick={() => {
+                                                        setCurrentView('ai-recruitment');
+                                                        setActiveRecruitmentPage('workspace');
+                                                        setAiRecruitmentExpanded(true);
+                                                        navigateToRecruitmentPage('workspace');
+                                                    }}
+                                                >
+                                                    <BriefcaseBusiness className="h-[18px] w-[18px]" />
+                                                    <span>{t.nav.aiRecruitment}</span>
+                                                    <ChevronDown className={cn('ml-auto h-3.5 w-3.5 transition-transform', aiRecruitmentExpanded && 'rotate-180')} />
+                                                </div>
+                                                {aiRecruitmentExpanded && (
+                                                    <div className="ml-3 space-y-0.5 border-l border-slate-200 pl-3 dark:border-slate-700">
+                                                        {recruitmentSubItems.map((item) => (
+                                                            <div
+                                                                key={item.key}
+                                                                className={cn(
+                                                                    'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
+                                                                    activeRecruitmentPage === item.key
+                                                                        ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
+                                                                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
+                                                                )}
+                                                                onClick={() => {
+                                                                    setCurrentView('ai-recruitment');
+                                                                    setActiveRecruitmentPage(item.key);
+                                                                    navigateToRecruitmentPage(item.key);
+                                                                }}
+                                                            >
+                                                                <span className="h-[18px] w-[18px]">{item.icon}</span>
+                                                                <span>{item.label}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )
+                                    ) : null}
                                     {currentUser?.permissions['rbac-manage']
                                         ? renderNavItem({
                                             active: currentView === 'access-control',

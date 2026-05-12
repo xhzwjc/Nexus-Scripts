@@ -196,6 +196,12 @@ export interface Translations {
     serviceNormal: string;
     allNodesOnline: string;
     opsCenter: string;
+    aiRecruitment: string;
+    aiRecruitmentWorkspace: string;
+    aiRecruitmentPositions: string;
+    aiRecruitmentCandidates: string;
+    aiRecruitmentAudit: string;
+    aiRecruitmentAssistant: string;
   };
 
   // Header
