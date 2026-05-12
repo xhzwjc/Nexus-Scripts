@@ -412,9 +412,10 @@ function getPollingDelay(
 
 interface RecruitmentAutomationContainerProps {
     onBack: () => void;
+    initialPage?: RecruitmentPage;
 }
 
-export default function RecruitmentAutomationContainer({onBack}: RecruitmentAutomationContainerProps) {
+export default function RecruitmentAutomationContainer({onBack, initialPage}: RecruitmentAutomationContainerProps) {
     const {language} = useI18n();
     const isZh = language === "zh-CN";
     const sessionUser = useMemo(() => getStoredScriptHubSession()?.user ?? null, []);
@@ -849,7 +850,15 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         return candidateStatusLabels[normalized] || fallback || normalized;
     }, []);
 
-    const [activePage, setActivePage] = useState<RecruitmentPage>("workspace");
+    const [activePage, setActivePage] = useState<RecruitmentPage>(initialPage || "workspace");
+
+    // 从侧边栏切换时同步 initialPage prop
+    useEffect(() => {
+        if (initialPage && initialPage !== activePage) {
+            setActivePage(initialPage);
+        }
+    }, [initialPage]);
+
     const [assistantOpen, setAssistantOpen] = useState(false);
     const [positionListCollapsed, setPositionListCollapsed] = useState(false);
     const [positionWorkspaceView, setPositionWorkspaceView] = useState<"jd" | "config">("jd");

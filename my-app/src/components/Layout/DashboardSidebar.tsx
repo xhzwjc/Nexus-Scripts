@@ -19,9 +19,9 @@ import {
     Wrench,
 } from 'lucide-react';
 
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
 import { recruitmentNavBus, navigateToRecruitmentPage } from '@/lib/recruitmentNavBus';
@@ -33,6 +33,7 @@ interface SidebarProps {
     setSelectedSystem: (sys: string) => void;
     setScriptQuery: (q: string) => void;
     setShowLogoutConfirm: (show: boolean) => void;
+    setRecruitmentInitialPage?: (page: string) => void;
     currentUser: User | null;
 }
 
@@ -42,12 +43,14 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     setSelectedSystem,
     setScriptQuery,
     setShowLogoutConfirm,
+    setRecruitmentInitialPage,
     currentUser,
 }) => {
     const { t, language } = useI18n();
     const [collapsed, setCollapsed] = React.useState(false);
     const [aiRecruitmentExpanded, setAiRecruitmentExpanded] = React.useState(false);
     const [activeRecruitmentPage, setActiveRecruitmentPage] = React.useState<string | null>(null);
+    const [recruitmentPopoverOpen, setRecruitmentPopoverOpen] = React.useState(false);
     const userLandingPage = currentUser?.landingPage || 'home';
     const homeNavView: ViewType = userLandingPage === 'welcome' ? 'welcome' : 'home';
     const homeNavLabel = userLandingPage === 'welcome'
@@ -213,30 +216,28 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                         : null}
                                     {canAccessRecruitment ? (
                                         collapsed ? (
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
+                                            <Popover open={recruitmentPopoverOpen} onOpenChange={setRecruitmentPopoverOpen}>
+                                                <PopoverTrigger asChild>
                                                     <div
                                                         className={navItemClass(inRecruitmentView)}
-                                                        onClick={() => {
-                                                            setCurrentView('ai-recruitment');
-                                                            navigateToRecruitmentPage('workspace');
-                                                        }}
                                                     >
                                                         <BriefcaseBusiness className="h-[18px] w-[18px]" />
                                                     </div>
-                                                </TooltipTrigger>
-                                                <TooltipContent side="right" className="flex flex-col gap-1 p-2">
+                                                </PopoverTrigger>
+                                                <PopoverContent side="right" align="start" sideOffset={8} className="w-40 p-1">
                                                     {recruitmentSubItems.map((item) => (
                                                         <button
                                                             key={item.key}
                                                             type="button"
                                                             onClick={() => {
+                                                                setRecruitmentPopoverOpen(false);
+                                                                setRecruitmentInitialPage?.(item.key);
                                                                 setCurrentView('ai-recruitment');
                                                                 setActiveRecruitmentPage(item.key);
-                                                                navigateToRecruitmentPage(item.key);
+                                                                setAiRecruitmentExpanded(true);
                                                             }}
                                                             className={cn(
-                                                                'flex items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors',
+                                                                'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors',
                                                                 activeRecruitmentPage === item.key
                                                                     ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
                                                                     : 'hover:bg-accent',
@@ -246,13 +247,14 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                                             <span>{item.label}</span>
                                                         </button>
                                                     ))}
-                                                </TooltipContent>
-                                            </Tooltip>
+                                                </PopoverContent>
+                                            </Popover>
                                         ) : (
                                             <div className="space-y-1">
                                                 <div
                                                     className={navItemClass(inRecruitmentView || Boolean(activeRecruitmentPage))}
                                                     onClick={() => {
+                                                        setRecruitmentInitialPage?.('workspace');
                                                         setCurrentView('ai-recruitment');
                                                         setActiveRecruitmentPage('workspace');
                                                         setAiRecruitmentExpanded(true);
@@ -275,6 +277,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                                                         : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
                                                                 )}
                                                                 onClick={() => {
+                                                                    setRecruitmentInitialPage?.(item.key);
                                                                     setCurrentView('ai-recruitment');
                                                                     setActiveRecruitmentPage(item.key);
                                                                     navigateToRecruitmentPage(item.key);

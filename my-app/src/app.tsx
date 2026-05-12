@@ -82,6 +82,7 @@ export default function App() {
 function AppContent() {
     const { t, language } = useI18n();
     const [currentView, setCurrentView] = useState<ViewType>('home');
+    const [recruitmentInitialPage, setRecruitmentInitialPage] = useState<string>('workspace');
     const [landingPageApplied, setLandingPageApplied] = useState(false);
     const [selectedSystem, setSelectedSystem] = useState<string>('');
     const [selectedScript, setSelectedScript] = useState<string>('');
@@ -460,6 +461,7 @@ function AppContent() {
                 setSelectedSystem={setSelectedSystem}
                 setScriptQuery={setScriptQuery}
                 setShowLogoutConfirm={setShowLogoutConfirm}
+                setRecruitmentInitialPage={setRecruitmentInitialPage}
                 currentUser={currentUser}
             />
 
@@ -527,7 +529,7 @@ function AppContent() {
                         )}
                         {currentView === 'ai-recruitment' && (
                             <div className="h-full p-0">
-                                <RecruitmentAutomationContainer onBack={() => setCurrentView('home')} />
+                                <RecruitmentAutomationContainer onBack={() => setCurrentView('home')} initialPage={recruitmentInitialPage as any} />
                             </div>
                         )}
                         {currentView === 'access-control' && (
