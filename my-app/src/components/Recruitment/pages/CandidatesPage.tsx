@@ -2496,8 +2496,10 @@ export function CandidatesPage({
                                     {candidateDetailPanel === "profile" ? (
                                         <>
                                             {duplicateCandidates.length > 0 && (
-                                                <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900/80 dark:bg-amber-950/30">
-                                                    <p className="text-sm font-medium text-amber-800 dark:text-amber-200">{tr.duplicateWarning}</p>
+                                                <details className="rounded-2xl border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900/80 dark:bg-amber-950/30">
+                                                    <summary className="cursor-pointer text-sm font-medium text-amber-800 dark:text-amber-200">
+                                                        {tr.duplicateWarning}（{duplicateCandidates.length}）
+                                                    </summary>
                                                     <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{tr.duplicateWarningDesc(duplicateCandidates.length)}</p>
                                                     <div className="mt-2 flex flex-wrap gap-1.5">
                                                         {duplicateCandidates.map((dup) => (
@@ -2512,7 +2514,7 @@ export function CandidatesPage({
                                                             </Button>
                                                         ))}
                                                     </div>
-                                                </div>
+                                                </details>
                                             )}
 
                                             <Field label={tr.baseInfo}>

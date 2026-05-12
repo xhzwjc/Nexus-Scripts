@@ -4678,14 +4678,23 @@ def _build_screening_output_summary(
     parsed_resume: Optional[Dict[str, Any]] = None,
     score_payload: Optional[Dict[str, Any]] = None,
 ) -> str:
-    summary_payload: Dict[str, Any] = {}
-    if isinstance(parsed_resume, dict):
-        summary_payload["parsed_resume"] = parsed_resume
-    if isinstance(score_payload, dict):
-        summary_payload["score"] = score_payload
-    if not summary_payload:
+    """
+    生成人类可读的初筛结果摘要，存储到 output_summary 字段供前端展示。
+    不再包含完整的 parsed_resume JSON（避免数据冗余和 UI 展示混乱）。
+    """
+    if not isinstance(score_payload, dict):
         return ""
-    return truncate_text(json_dumps_safe(summary_payload), 600)
+    suggested = str(score_payload.get("suggested_status") or "").strip()
+    match_str = str(score_payload.get("match_percent") or "").strip()
+    total_str = str(score_payload.get("total_score") or "").strip()
+    parts = []
+    if match_str:
+        parts.append(f"匹配度 {match_str}")
+    if total_str:
+        parts.append(f"总分 {total_str}")
+    if suggested:
+        parts.append(f"建议: {suggested}")
+    return " · ".join(parts) if parts else ""
 
 
 def _distill_dimension_rules(
