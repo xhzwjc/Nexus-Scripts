@@ -697,6 +697,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         noLinkedPosition: isZh ? "暂不关联岗位" : "Not linked to any position",
         filesSelected: (count: number) => (isZh ? `已选择 ${count} 个文件` : `${count} file(s) selected`),
         cancelUpload: isZh ? "取消上传" : "Cancel Upload",
+        loading: isZh ? "加载中..." : "Loading...",
         uploading: isZh ? "上传中..." : "Uploading...",
         startUpload: isZh ? "开始上传" : "Start Upload",
         confirmDeletePosition: isZh ? "确认删除岗位" : "Confirm Delete Position",
@@ -4738,6 +4739,148 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
         }
     }
 
+    const handleResumeFileChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        setResumeUploadError(null);
+        setResumeUploadFileList(event.target.files);
+    }, []);
+
+    const resumeUploadDialogBody = React.useMemo(() => (
+        <DialogContent className="sm:max-w-xl">
+            <DialogHeader>
+                <DialogTitle>{recruitmentUiText.uploadResumeTitle}</DialogTitle>
+                <DialogDescription>{recruitmentUiText.resumeUploadDescription}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+                <Field label={recruitmentUiText.linkPosition}>
+                    <NativeSelect
+                        value={resumeUploadPositionId}
+                        onChange={(event) => setResumeUploadPositionId(event.target.value)}
+                        disabled={positionsLoading}
+                    >
+                        <option value="all">{positionsLoading ? recruitmentUiText.loading : recruitmentUiText.noLinkedPosition}</option>
+                        {positions.map((position) => (
+                            <option key={position.id} value={position.id}>{position.title}</option>
+                        ))}
+                    </NativeSelect>
+                </Field>
+                {resumeUploadPositionId === "all" && showOrganizationFields && organizationSelectOptions.length > 1 ? (
+                    <Field label={recruitmentUiText.targetOrganization}>
+                        <NativeSelect
+                            value={resumeUploadOrgCode}
+                            onChange={(event) => setResumeUploadOrgCode(event.target.value)}
+                        >
+                            <option value="">{recruitmentUiText.chooseTargetOrganization}</option>
+                            {organizationSelectOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                        </NativeSelect>
+                        <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{recruitmentUiText.allVisibleUploadHint}</p>
+                    </Field>
+                ) : null}
+                <Field label={recruitmentUiText.city}>
+                    <div className="flex flex-col gap-2">
+                        <div className="flex gap-1">
+                            {([
+                                {value: "manual" as const, label: recruitmentUiText.manualCityEntry},
+                                {value: "auto" as const, label: recruitmentUiText.autoDetectCity},
+                            ] as const).map((opt) => (
+                                <button
+                                    key={opt.value}
+                                    type="button"
+                                    className={cn(
+                                        "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                                        resumeUploadCitySource === opt.value
+                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
+                                    )}
+                                    onClick={() => setResumeUploadCitySource(opt.value)}
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                        {resumeUploadCitySource === "manual" ? (
+                            <div className="flex flex-col gap-1.5">
+                                <Input
+                                    list="city-options"
+                                    placeholder={recruitmentUiText.cityPlaceholder}
+                                    value={resumeUploadCity}
+                                    onChange={(event) => setResumeUploadCity(event.target.value)}
+                                />
+                                <datalist id="city-options">
+                                    {POPULAR_CITIES.map((city) => (
+                                        <option key={city} value={city}/>
+                                    ))}
+                                </datalist>
+                                <div className="flex flex-wrap gap-1">
+                                    {POPULAR_CITIES.slice(0, 8).map((city) => (
+                                        <button
+                                            key={city}
+                                            type="button"
+                                            className={cn(
+                                                "rounded-full border px-2 py-0.5 text-xs transition-colors",
+                                                resumeUploadCity === city
+                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
+                                            )}
+                                            onClick={() => setResumeUploadCity(city)}
+                                        >
+                                            {city}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : resumeUploadCitySource === "auto" ? (
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                {recruitmentUiText.cityAutoHint}
+                            </p>
+                        ) : null}
+                    </div>
+                </Field>
+                <Field label={recruitmentUiText.selectFiles}>
+                    <Input
+                        type="file"
+                        multiple
+                        accept=".pdf,.docx"
+                        onChange={handleResumeFileChange}
+                    />
+                </Field>
+                <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                    {recruitmentUiText.filesSelected(resumeUploadFileList?.length ?? 0)}
+                </div>
+            </div>
+            <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
+                <span className="min-h-[20px] flex-1 text-sm text-rose-600 dark:text-rose-300">
+                    {resumeUploadError ?? ""}
+                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                    {uploadingResume ? (
+                        <Button variant="outline" onClick={() => abortControllerRef.current?.abort()}>
+                            {recruitmentUiText.cancelUpload}
+                        </Button>
+                    ) : (
+                        <Button variant="outline" onClick={() => setResumeUploadOpen(false)}>{recruitmentUiText.cancelButton}</Button>
+                    )}
+                    <Button onClick={() => void uploadResumes()} disabled={uploadingResume}>
+                        {uploadingResume ? recruitmentUiText.uploading : recruitmentUiText.startUpload}
+                    </Button>
+                </div>
+            </DialogFooter>
+            {uploadingResume && (
+                <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                        <span>{recruitmentUiText.uploadedProgress(uploadCompletedCount, resumeUploadFileList?.length ?? 0)}</span>
+                        <span>{uploadProgress}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800">
+                        <div className="h-1.5 rounded-full bg-slate-900 dark:bg-slate-100 transition-all"
+                             style={{ width: `${uploadProgress}%` }}/>
+                    </div>
+                </div>
+            )}
+        </DialogContent>
+    ), [recruitmentUiText, positionsLoading, positions, resumeUploadPositionId, showOrganizationFields, organizationSelectOptions, resumeUploadOrgCode, resumeUploadCitySource, resumeUploadCity, resumeUploadFileList, resumeUploadError, uploadingResume, uploadCompletedCount, uploadProgress]);
+
     function openResumeUploadDialog() {
         if (activePage === "positions" && selectedPositionId) {
             setResumeUploadPositionId(String(selectedPositionId));
@@ -8338,136 +8481,7 @@ export default function RecruitmentAutomationContainer({onBack}: RecruitmentAuto
                     setResumeUploadError(null);
                 }
             }}>
-                <DialogContent className="sm:max-w-xl">
-                    <DialogHeader>
-                        <DialogTitle>{recruitmentUiText.uploadResumeTitle}</DialogTitle>
-                        <DialogDescription>{recruitmentUiText.resumeUploadDescription}</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        <Field label={recruitmentUiText.linkPosition}>
-                            <NativeSelect value={resumeUploadPositionId}
-                                          onChange={(event) => setResumeUploadPositionId(event.target.value)}>
-                                <option value="all">{recruitmentUiText.noLinkedPosition}</option>
-                                {positions.map((position) => (
-                                    <option key={position.id} value={position.id}>{position.title}</option>
-                                ))}
-                            </NativeSelect>
-                        </Field>
-                        {resumeUploadPositionId === "all" && showOrganizationFields && organizationSelectOptions.length > 1 ? (
-                            <Field label={recruitmentUiText.targetOrganization}>
-                                <NativeSelect
-                                    value={resumeUploadOrgCode}
-                                    onChange={(event) => setResumeUploadOrgCode(event.target.value)}
-                                >
-                                    <option value="">{recruitmentUiText.chooseTargetOrganization}</option>
-                                    {organizationSelectOptions.map((option) => (
-                                        <option key={option.value} value={option.value}>{option.label}</option>
-                                    ))}
-                                </NativeSelect>
-                                {showOrganizationFields ? (
-                                    <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{recruitmentUiText.allVisibleUploadHint}</p>
-                                ) : null}
-                            </Field>
-                        ) : null}
-                        <Field label={recruitmentUiText.city}>
-                            <div className="flex flex-col gap-2">
-                                <div className="flex gap-1">
-                                    {([
-                                        {value: "manual" as const, label: recruitmentUiText.manualCityEntry},
-                                        {value: "auto" as const, label: recruitmentUiText.autoDetectCity},
-                                    ] as const).map((opt) => (
-                                        <button
-                                            key={opt.value}
-                                            type="button"
-                                            className={cn(
-                                                "rounded-md border px-2.5 py-1 text-xs transition-colors",
-                                                resumeUploadCitySource === opt.value
-                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
-                                            )}
-                                            onClick={() => setResumeUploadCitySource(opt.value)}
-                                        >
-                                            {opt.label}
-                                        </button>
-                                    ))}
-                                </div>
-                                {resumeUploadCitySource === "manual" ? (
-                                    <div className="flex flex-col gap-1.5">
-                                        <Input
-                                            list="city-options"
-                                            placeholder={recruitmentUiText.cityPlaceholder}
-                                            value={resumeUploadCity}
-                                            onChange={(event) => setResumeUploadCity(event.target.value)}
-                                        />
-                                        <datalist id="city-options">
-                                            {POPULAR_CITIES.map((city) => (
-                                                <option key={city} value={city}/>
-                                            ))}
-                                        </datalist>
-                                        <div className="flex flex-wrap gap-1">
-                                            {POPULAR_CITIES.slice(0, 8).map((city) => (
-                                                <button
-                                                    key={city}
-                                                    type="button"
-                                                    className={cn(
-                                                        "rounded-full border px-2 py-0.5 text-xs transition-colors",
-                                                        resumeUploadCity === city
-                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700",
-                                                    )}
-                                                    onClick={() => setResumeUploadCity(city)}
-                                                >
-                                                    {city}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ) : resumeUploadCitySource === "auto" ? (
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                        {recruitmentUiText.cityAutoHint}
-                                    </p>
-                                ) : null}
-                            </div>
-                        </Field>
-                        <Field label={recruitmentUiText.selectFiles}>
-                            <Input type="file" multiple accept=".pdf,.docx"
-                                   onChange={(event) => { setResumeUploadError(null); setResumeUploadFileList(event.target.files); }}/>
-                        </Field>
-                        <div
-                            className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                            {recruitmentUiText.filesSelected(resumeUploadFileList?.length ?? 0)}
-                        </div>
-                    </div>
-                    <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
-                        <span className="min-h-[20px] flex-1 text-sm text-rose-600 dark:text-rose-300">
-                            {resumeUploadError ?? ""}
-                        </span>
-                        <div className="flex shrink-0 items-center gap-2">
-                            {uploadingResume ? (
-                                <Button variant="outline" onClick={() => abortControllerRef.current?.abort()}>
-                                    {recruitmentUiText.cancelUpload}
-                                </Button>
-                            ) : (
-                                <Button variant="outline" onClick={() => setResumeUploadOpen(false)}>{recruitmentUiText.cancelButton}</Button>
-                            )}
-                            <Button onClick={() => void uploadResumes()} disabled={uploadingResume}>
-                                {uploadingResume ? recruitmentUiText.uploading : recruitmentUiText.startUpload}
-                            </Button>
-                        </div>
-                    </DialogFooter>
-                    {uploadingResume && (
-                        <div className="space-y-1">
-                            <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
-                                <span>{recruitmentUiText.uploadedProgress(uploadCompletedCount, resumeUploadFileList?.length ?? 0)}</span>
-                                <span>{uploadProgress}%</span>
-                            </div>
-                            <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800">
-                                <div className="h-1.5 rounded-full bg-slate-900 dark:bg-slate-100 transition-all"
-                                     style={{ width: `${uploadProgress}%` }}/>
-                            </div>
-                        </div>
-                    )}
-                </DialogContent>
+                {resumeUploadDialogBody}
             </Dialog>
 
             <Dialog open={positionDeleteConfirmOpen} onOpenChange={setPositionDeleteConfirmOpen}>
