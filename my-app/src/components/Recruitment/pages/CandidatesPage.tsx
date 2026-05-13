@@ -1733,9 +1733,19 @@ export function CandidatesPage({
             return () => window.removeEventListener("resize", syncCompactMode);
         }
 
-        const observer = new ResizeObserver(() => syncCompactMode());
+        let rafId: number | null = null;
+        const observer = new ResizeObserver(() => {
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(() => {
+                syncCompactMode();
+                rafId = null;
+            });
+        });
         observer.observe(candidateListViewportEl);
-        return () => observer.disconnect();
+        return () => {
+            observer.disconnect();
+            if (rafId !== null) cancelAnimationFrame(rafId);
+        };
     }, [candidateListViewportEl]);
 
     const mergedCandidateListScrollRef = React.useCallback((node: HTMLDivElement | null) => {
@@ -1745,7 +1755,8 @@ export function CandidatesPage({
 
     // ---- 拖拽框选（Rubber Band Selection）----
     type DragBox = { startX: number; startY: number; currentX: number; currentY: number };
-    const [dragBox, setDragBox] = React.useState<DragBox | null>(null);
+    const dragBoxRef = React.useRef<DragBox | null>(null);
+    const dragBoxElRef = React.useRef<HTMLDivElement>(null);
     const dragShiftRef = React.useRef(false);
     const dragContainerRectRef = React.useRef<DOMRect | null>(null);
     const selectedCandidateIdsRef = React.useRef(selectedCandidateIds);
@@ -1789,6 +1800,24 @@ export function CandidatesPage({
         }
     }, []);
 
+    const updateDragBoxVisual = React.useCallback((box: DragBox | null, containerRect: DOMRect | null) => {
+        const el = dragBoxElRef.current;
+        if (!el) return;
+        if (!box || !containerRect) {
+            el.style.display = 'none';
+            return;
+        }
+        const left = Math.min(box.startX, box.currentX) - containerRect.left;
+        const top = Math.min(box.startY, box.currentY) - containerRect.top;
+        const width = Math.abs(box.currentX - box.startX);
+        const height = Math.abs(box.currentY - box.startY);
+        el.style.display = 'block';
+        el.style.left = `${left}px`;
+        el.style.top = `${top}px`;
+        el.style.width = `${width}px`;
+        el.style.height = `${height}px`;
+    }, []);
+
     const handleMouseDown = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         if (e.button !== 0) return;
         const target = e.target as HTMLElement;
@@ -1799,32 +1828,32 @@ export function CandidatesPage({
         if (candidateListViewportEl) {
             dragContainerRectRef.current = candidateListViewportEl.getBoundingClientRect();
         }
-        // 使用视口坐标（clientX/clientY），与 getBoundingClientRect() 坐标系一致
-        setDragBox({ startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY });
-    }, []);
+        const newBox = { startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY };
+        dragBoxRef.current = newBox;
+        updateDragBoxVisual(newBox, dragContainerRectRef.current);
 
-    const handleMouseMove = React.useCallback((e: MouseEvent) => {
-        if (!dragBox || !candidateListViewportEl) return;
-        const newBox = { ...dragBox, currentX: e.clientX, currentY: e.clientY };
-        setDragBox(newBox);
-        updateSelectionFromDrag(newBox, candidateListViewportEl);
-    }, [dragBox, updateSelectionFromDrag]);
-
-    const handleMouseUp = React.useCallback((e: MouseEvent) => {
-        if (!dragBox) return;
-        dragShiftRef.current = e.shiftKey;
-        setDragBox(null);
-    }, [dragBox]);
-
-    React.useEffect(() => {
-        if (!dragBox) return;
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
-        return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleMouseUp);
+        const onMove = (ev: MouseEvent) => {
+            const box = dragBoxRef.current;
+            if (!box || !candidateListViewportEl) return;
+            const updated = { ...box, currentX: ev.clientX, currentY: ev.clientY };
+            dragBoxRef.current = updated;
+            updateDragBoxVisual(updated, dragContainerRectRef.current);
         };
-    }, [dragBox, handleMouseMove, handleMouseUp]);
+        const onUp = (ev: MouseEvent) => {
+            const box = dragBoxRef.current;
+            // 只在鼠标实际移动后才更新选区，避免简单点击也触发勾选
+            if (box && candidateListViewportEl && (box.startX !== box.currentX || box.startY !== box.currentY)) {
+                dragShiftRef.current = ev.shiftKey;
+                updateSelectionFromDrag(box, candidateListViewportEl);
+            }
+            dragBoxRef.current = null;
+            updateDragBoxVisual(null, null);
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, [candidateListViewportEl, updateDragBoxVisual, updateSelectionFromDrag]);
 
     const rowVirtualizer = useVirtualizer({
         count: visibleCandidates.length,
@@ -1892,7 +1921,7 @@ export function CandidatesPage({
 
     const [candidateDetailPanel, setCandidateDetailPanel] = React.useState<"profile" | "ai" | "interview">("profile");
     const [detailExpanded, setDetailExpanded] = React.useState(false);
-    const [zoomHintPos, setZoomHintPos] = React.useState<{x: number; y: number} | null>(null);
+    const zoomHintRef = React.useRef<HTMLDivElement>(null);
 
     React.useEffect(() => {
         setCandidateDetailPanel("profile");
@@ -1908,13 +1937,23 @@ export function CandidatesPage({
             return;
         }
 
-        const observer = new ResizeObserver(() => updateCandidateDetailToolbarMetrics());
+        let rafId: number | null = null;
+        const observer = new ResizeObserver(() => {
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(() => {
+                updateCandidateDetailToolbarMetrics();
+                rafId = null;
+            });
+        });
         observer.observe(node);
         if (node.firstElementChild instanceof HTMLElement) {
             observer.observe(node.firstElementChild);
         }
 
-        return () => observer.disconnect();
+        return () => {
+            observer.disconnect();
+            if (rafId !== null) cancelAnimationFrame(rafId);
+        };
     }, [candidateDetail, candidateDetailPanel, updateCandidateDetailToolbarMetrics]);
 
     const candidateOverviewCounts = React.useMemo(() => {
@@ -2125,17 +2164,11 @@ export function CandidatesPage({
                                         onMouseDown={handleMouseDown}
                                         className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(148,163,184,0.9)_transparent] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:bg-clip-content hover:[&::-webkit-scrollbar-thumb]:bg-slate-400 dark:[scrollbar-color:rgba(71,85,105,0.95)_transparent] dark:[&::-webkit-scrollbar-thumb]:bg-slate-700 dark:hover:[&::-webkit-scrollbar-thumb]:bg-slate-600"
                                     >
-                                        {dragBox && dragContainerRectRef.current && (
-                                            <div
-                                                className="pointer-events-none absolute z-50 rounded border border-blue-400 bg-blue-400/10"
-                                                style={{
-                                                    left: Math.min(dragBox.startX, dragBox.currentX) - dragContainerRectRef.current.left,
-                                                    top: Math.min(dragBox.startY, dragBox.currentY) - dragContainerRectRef.current.top,
-                                                    width: Math.abs(dragBox.currentX - dragBox.startX),
-                                                    height: Math.abs(dragBox.currentY - dragBox.startY),
-                                                }}
-                                            />
-                                        )}
+                                        <div
+                                            ref={dragBoxElRef}
+                                            className="pointer-events-none absolute z-50 rounded border border-blue-400 bg-blue-400/10"
+                                            style={{ display: 'none' }}
+                                        />
                                         <table style={{width: candidateListEffectiveTableWidth, minWidth: candidateListEffectiveTableWidth}} className="caption-bottom table-fixed text-sm">
                                             <thead className="[&_tr]:border-b">
                                                 <tr className="border-b bg-white/95 transition-colors dark:bg-slate-950/95">
@@ -2321,16 +2354,19 @@ export function CandidatesPage({
     onMouseMove={(e) => {
         const target = e.target as HTMLElement;
         if (target.closest("button, a, [data-no-zoom]")) {
-            setZoomHintPos(null);
+            if (zoomHintRef.current) zoomHintRef.current.style.display = 'none';
             e.currentTarget.style.cursor = "";
             return;
         }
-        setZoomHintPos({x: e.clientX, y: e.clientY});
+        if (zoomHintRef.current) {
+            zoomHintRef.current.style.left = `${e.clientX + 14}px`;
+            zoomHintRef.current.style.top = `${e.clientY + 14}px`;
+            zoomHintRef.current.style.display = 'flex';
+        }
         e.currentTarget.style.cursor = detailExpanded ? "zoom-out" : "zoom-in";
     }}
-    onMouseLeave={(e) => {
-        setZoomHintPos(null);
-        e.currentTarget.style.cursor = "";
+    onMouseLeave={() => {
+        if (zoomHintRef.current) zoomHintRef.current.style.display = 'none';
     }}
 >
                                 <div className="space-y-1">
@@ -2376,12 +2412,12 @@ export function CandidatesPage({
                                         </div>
                                     </div>
                                 </div>
-                                {zoomHintPos && ReactDOM.createPortal(
+                                {ReactDOM.createPortal(
                                     <div
+                                        ref={zoomHintRef}
                                         style={{
                                             position: "fixed",
-                                            left: zoomHintPos.x + 14,
-                                            top: zoomHintPos.y + 14,
+                                            display: "none",
                                             pointerEvents: "none",
                                             zIndex: 9999,
                                         }}
