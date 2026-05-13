@@ -416,6 +416,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         candidateList: isZh ? "候选人列表" : "Candidate List",
         loadingCandidateList: isZh ? "正在加载候选人列表" : "Loading candidate list",
         loadingCandidateDetail: isZh ? "正在加载候选人详情" : "Loading candidate details",
+        splitResizeHint: isZh ? "✨ 列表宽度可自由拖拽调整，找到你最舒适的视图。" : "✨ Drag to resize the list width and find your perfect view.",
         selectedCandidates: (count: number) => (isZh ? `已选中 ${count} 位候选人` : `${count} candidates selected`),
         clearSelection: isZh ? "清空选择" : "Clear Selection",
         stopBatchScreening: isZh ? "停止批量初筛" : "Stop Batch Screening",
@@ -2486,7 +2487,7 @@ export function CandidatesPage({
                                 <div className="bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900
                                                 text-xs font-medium px-3 py-2 rounded-lg shadow-lg
                                                 animate-pulse">
-                                    ✨ 列表宽度可自由拖拽调整，找到你最舒适的视图。
+                                    {tr.splitResizeHint}
                                 </div>
                             </div>
                         )}
