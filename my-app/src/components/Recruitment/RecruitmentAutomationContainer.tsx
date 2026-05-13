@@ -11,7 +11,9 @@ import {
     ChevronUp,
     ClipboardCheck,
     ExternalLink,
+    Eye,
     FilePlus2,
+    FileText,
     Loader2,
     NotebookText,
     Plus,
@@ -26,6 +28,7 @@ import {
     Upload,
     Users,
     Wand2,
+    X,
 } from "lucide-react";
 import {toast} from "@/lib/toast";
 import type {ScriptHubOrganizationDefinition} from "@/lib/types";
@@ -1288,6 +1291,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [candidatesInitialLoaded, setCandidatesInitialLoaded] = useState(false);
     const [isLoadingMoreCandidates, setIsLoadingMoreCandidates] = useState(false);
     const [candidateDetailLoading, setCandidateDetailLoading] = useState(false);
+    const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
+    const [previewPdfLoading, setPreviewPdfLoading] = useState(false);
     const [duplicateCandidates, setDuplicateCandidates] = useState<Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>>([]);
     const [logsLoading, setLogsLoading] = useState(false);
     const [logDetailLoading, setLogDetailLoading] = useState(false);
@@ -6272,6 +6277,38 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
+    async function openResumePreview(file: ResumeFile) {
+        if (previewPdfUrl) {
+            URL.revokeObjectURL(previewPdfUrl);
+        }
+        setPreviewPdfLoading(true);
+        try {
+            const response = await authenticatedFetch(`/api/recruitment/resume-files/${file.id}/download`, {
+                method: "GET",
+                cache: "no-store"
+            });
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+            const blob = await response.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            setPreviewPdfUrl(objectUrl);
+        } catch (error) {
+            toast.error(recruitmentToast.resumeOpenedFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
+            setPreviewPdfUrl(null);
+        } finally {
+            setPreviewPdfLoading(false);
+        }
+    }
+
+    function closeResumePreview() {
+        if (previewPdfUrl) {
+            URL.revokeObjectURL(previewPdfUrl);
+            setPreviewPdfUrl(null);
+        }
+        setPreviewPdfLoading(false);
+    }
+
     function requestDeleteResumeFile(file: ResumeFile) {
         setResumeDeleteTarget(file);
     }
@@ -8162,11 +8199,17 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                             <div className="space-y-1.5">
                                                                 <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "简历文件" : "Resumes"}</p>
                                                                 {resumeFiles.map((rf) => (
-                                                                    <div key={rf.id} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs dark:border-slate-800">
+                                                                    <div
+                                                                        key={rf.id}
+                                                                        onClick={() => openResumePreview(rf)}
+                                                                        className="group flex cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-slate-800 dark:hover:border-blue-700 dark:hover:bg-blue-900/20"
+                                                                    >
+                                                                        <FileText className="h-4 w-4 shrink-0 text-red-500" />
                                                                         <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">{rf.original_name}</span>
                                                                         <Badge variant="outline" className={cn("shrink-0 text-[10px]", rf.parse_status === "completed" ? "text-emerald-600" : "text-slate-400")}>
                                                                             {rf.parse_status}
                                                                         </Badge>
+                                                                        <Eye className="h-3.5 w-3.5 shrink-0 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100" />
                                                                     </div>
                                                                 ))}
                                                             </div>
@@ -9898,6 +9941,46 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             {resumeMailSubmitLabel}
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* 简历 PDF 预览模态框 */}
+            <Dialog open={!!previewPdfUrl} onOpenChange={() => closeResumePreview()}>
+                <DialogContent showCloseButton={false} className="flex h-[95vh] w-[90vw] max-w-[1000px] flex-col overflow-hidden border-none bg-slate-900 p-0">
+                    <DialogHeader className="flex flex-row items-center justify-between border-b border-slate-800 bg-white px-6 py-3 dark:bg-slate-950">
+                        <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+                            <FileText className="h-4 w-4 text-blue-500" />
+                            {isZh ? "简历预览" : "Resume Preview"}
+                        </DialogTitle>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => previewPdfUrl && window.open(previewPdfUrl, "_blank")}
+                            >
+                                <ExternalLink className="mr-1 h-4 w-4" />
+                                {isZh ? "新窗口打开" : "Open in New Tab"}
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => closeResumePreview()}>
+                                <X className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    </DialogHeader>
+                    <div className="relative flex-1 w-full bg-slate-100 dark:bg-slate-900">
+                        {previewPdfLoading && (
+                            <div className="absolute inset-0 flex items-center justify-center">
+                                <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+                            </div>
+                        )}
+                        {previewPdfUrl && (
+                            <iframe
+                                src={`${previewPdfUrl}#toolbar=0&navpanes=0`}
+                                className="h-full w-full border-none"
+                                title="Resume Preview"
+                                onLoad={() => setPreviewPdfLoading(false)}
+                            />
+                        )}
+                    </div>
                 </DialogContent>
             </Dialog>
         </div>
