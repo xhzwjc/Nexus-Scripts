@@ -275,6 +275,7 @@ type RecruitmentToastLocale = {
     batchStatusUpdated: (count: number) => string;
     batchStatusUpdateFailed: (error: string) => string;
     resumeOpenedFailed: (error: string) => string;
+    resumePreviewTimeout: string;
     exportFailed: (error: string) => string;
     screeningStartFailed: (error: string) => string;
     interviewQuestionGenerationFailed: (error: string) => string;
@@ -473,6 +474,7 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
         batchStatusUpdated: (count) => `已为 ${count} 位候选人变更状态`,
         batchStatusUpdateFailed: (error) => `批量变更状态失败：${error}`,
         resumeOpenedFailed: (error) => `打开简历失败：${error}`,
+        resumePreviewTimeout: "简历加载超时，请稍后重试",
         exportFailed: (error) => `导出失败：${error}`,
         screeningStartFailed: (error) => `发起初筛失败：${error}`,
         interviewQuestionGenerationFailed: (error) => `生成面试题失败：${error}`,
@@ -663,6 +665,7 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
         batchStatusUpdated: (count) => `Updated status for ${count} candidate(s)`,
         batchStatusUpdateFailed: (error) => `Failed to batch update status: ${error}`,
         resumeOpenedFailed: (error) => `Failed to open resume: ${error}`,
+        resumePreviewTimeout: "Resume preview timed out, please try again",
         exportFailed: (error) => `Export failed: ${error}`,
         screeningStartFailed: (error) => `Failed to start screening: ${error}`,
         interviewQuestionGenerationFailed: (error) => `Interview question generation failed: ${error}`,
