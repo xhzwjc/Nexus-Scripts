@@ -138,7 +138,7 @@ const zhRecruitmentUiLocale: RecruitmentUiLocale = {
     objectLabels: {
         candidate: "候选人",
         position: "岗位",
-        skill: "Skill",
+        skill: "评估方案",
         systemTask: "系统任务",
     },
     skillDimensionValidation: {
@@ -227,7 +227,7 @@ const enRecruitmentUiLocale: RecruitmentUiLocale = {
     objectLabels: {
         candidate: "Candidate",
         position: "Position",
-        skill: "Skill",
+        skill: "Assessment Plan",
         systemTask: "System Task",
     },
     skillDimensionValidation: {
@@ -638,10 +638,10 @@ export function formatSkillNames(skillIds: number[] | undefined | null, skillMap
     const isZh = language ? language === "zh-CN" : getCurrentLanguage() !== "en-US";
     const ids = skillIds || [];
     if (!ids.length) {
-        return isZh ? "未关联 Skills" : "No skills linked";
+        return isZh ? "未关联评估方案" : "No assessment plans linked";
     }
     return ids
-        .map((skillId) => skillMap.get(skillId)?.name || `Skill #${skillId}`)
+        .map((skillId) => skillMap.get(skillId)?.name || `评估方案 #${skillId}`)
         .join(isZh ? "、" : ", ");
 }
 
@@ -958,7 +958,7 @@ export function normalizeSkillSnapshot(skill: Partial<RecruitmentSkill> | null |
     return {
         id: fallbackId,
         skill_code: skill?.skill_code || `snapshot-${Math.abs(fallbackId) || fallbackIndex + 1}`,
-        name: skill?.name || `Skill #${Math.abs(fallbackId) || fallbackIndex + 1}`,
+        name: skill?.name || `评估方案 #${Math.abs(fallbackId) || fallbackIndex + 1}`,
         description: skill?.description || null,
         content: skill?.content || "",
         tags: normalizedTags,
@@ -988,7 +988,7 @@ export function resolveLogSkillSnapshots(
         skillMap.get(skillId) || {
             id: skillId,
             skill_code: `skill-${skillId}`,
-            name: `Skill #${skillId}`,
+            name: `评估方案 #${skillId}`,
             content: "",
             tags: [],
             sort_order: 999,
@@ -1001,9 +1001,9 @@ export function resolveLogSkillSnapshots(
 export function formatSkillSnapshotNames(skillSnapshots: RecruitmentSkill[], language?: string) {
     const isZh = language ? language === "zh-CN" : getCurrentLanguage() !== "en-US";
     if (!skillSnapshots.length) {
-        return isZh ? "未关联 Skills" : "No skills linked";
+        return isZh ? "未关联评估方案" : "No assessment plans linked";
     }
-    return skillSnapshots.map((skill) => skill.name || `Skill #${skill.id}`).join(isZh ? "、" : ", ");
+    return skillSnapshots.map((skill) => skill.name || `评估方案 #${skill.id}`).join(isZh ? "、" : ", ");
 }
 
 export function formatStructuredValue(value: unknown, fallback: string) {
@@ -1054,24 +1054,24 @@ export function labelForMemorySource(source?: string | null) {
         case "explicit_request":
         case "manual_override":
         case "manual":
-            return "手动指定 Skills";
+            return "手动指定评估方案";
         case "candidate_memory":
             return "候选人工作记忆";
         case "position":
         case "position_default":
         case "position_binding":
-            return "岗位绑定 Skills";
+            return "岗位绑定评估方案";
         case "system_builtin_base":
         case "system_base":
         case "builtin_base":
             return "系统通用基座";
         case "global":
         case "enabled_global_fallback":
-            return "全局启用 Skills";
+            return "全局启用评估方案";
         case "task_snapshot":
             return "任务快照";
         case "none":
-            return "未命中 Skills";
+            return "未命中评估方案";
         case "guardrail":
             return "非招聘拒答规则";
         default:

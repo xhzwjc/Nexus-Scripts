@@ -85,9 +85,9 @@ function getAuditPageLocale(language = getCurrentLanguage()) {
         retryQueued: isZh ? "排队重试中" : "Retry Queued",
         waitingRetry: isZh ? "等待重试" : "Waiting to Retry",
         noTaskSelected: isZh ? "未选择任务" : "No task selected",
-        parseNoSkills: isZh ? "本任务为简历解析，不使用岗位初筛 Skills" : "Resume parsing does not use screening skills",
-        skillsUsed: (names: string[]) => (isZh ? `本任务已使用 Skills：${names.join("、")}` : `Skills used: ${names.join(", ")}`),
-        skillsExpectedButMissing: isZh ? "本任务应使用 Skills，但本次未解析到有效 Skills" : "Skills were expected but none were resolved",
+        parseNoSkills: isZh ? "本任务为简历解析，不使用岗位初筛评估方案" : "Resume parsing does not use screening assessment plans",
+        skillsUsed: (names: string[]) => (isZh ? `本任务已使用评估方案：${names.join("、")}` : `Assessment plans used: ${names.join(", ")}`),
+        skillsExpectedButMissing: isZh ? "本任务应使用评估方案，但本次未解析到有效评估方案" : "Assessment plans were expected but none were resolved",
         unrecorded: isZh ? "未记录" : "Unrecorded",
         promptSnapshotMissing: isZh ? "暂无 Prompt 快照" : "No prompt snapshot",
         fullRequestMissing: isZh ? "暂无完整模型请求" : "No full model request",
@@ -117,7 +117,7 @@ function getAuditPageLocale(language = getCurrentLanguage()) {
         loadingLogDetail: isZh ? "正在加载日志详情" : "Loading log details",
         currentStage: isZh ? "当前阶段" : "Current Stage",
         runId: "Run ID",
-        skillUsage: isZh ? "技能使用情况" : "Skill Usage",
+        skillUsage: isZh ? "评估方案使用情况" : "Assessment Plan Usage",
         memorySource: isZh ? "记忆来源" : "Memory Source",
         retryCount: isZh ? "已重试次数" : "Retry Count",
         retryAfter: isZh ? "下次重试间隔" : "Next Retry Delay",
@@ -125,7 +125,7 @@ function getAuditPageLocale(language = getCurrentLanguage()) {
         taskFlow: isZh ? "任务链路" : "Task Flow",
         inferredTerminal: isZh ? "主流程状态未及时收口，已按子阶段结果推断展示。" : "The root flow did not settle in time; the UI is showing an inferred terminal state from child stages.",
         noRunFlow: isZh ? "本次未找到同 run 的任务链路。" : "No task flow was found for this run.",
-        skillResolution: isZh ? "Skills 解析结果" : "Skill Resolution",
+        skillResolution: isZh ? "评估方案解析结果" : "Assessment Plan Resolution",
         sourceLine: (skillSource: string, memorySource: string) => (isZh ? `来源：${skillSource} · 记忆源：${memorySource}` : `Source: ${skillSource} · Memory: ${memorySource}`),
         dimensionCount: isZh ? "提炼维度数" : "Derived Dimensions",
         dimensionCountSuffix: isZh ? "个" : "",
@@ -134,14 +134,14 @@ function getAuditPageLocale(language = getCurrentLanguage()) {
         yes: isZh ? "是" : "Yes",
         no: isZh ? "否" : "No",
         source: isZh ? "来源" : "Source",
-        noSkillResolutionDetail: isZh ? "暂无 Skills 解析详情" : "No skill resolution details",
+        noSkillResolutionDetail: isZh ? "暂无评估方案解析详情" : "No assessment plan resolution details",
         noSkillContent: isZh ? "暂无内容" : "No content",
         scoreRuleSnapshot: isZh ? "评分维度快照" : "Score Rule Snapshot",
         pointsSuffix: isZh ? " 分" : " pts",
         durationNotStarted: isZh ? "未开始" : "Not Started",
         durationInProgress: isZh ? "进行中" : "In Progress",
         durationStopping: isZh ? "停止中" : "Stopping",
-        sourceSkillMissing: isZh ? "未记录来源 Skill" : "Source skill missing",
+        sourceSkillMissing: isZh ? "未记录来源评估方案" : "Source assessment plan missing",
         coreDimension: isZh ? "核心维度" : "Core Dimension",
         nonCoreDimension: isZh ? "非核心维度" : "Non-core Dimension",
         noNotes: isZh ? "暂无说明" : "No notes",
@@ -176,7 +176,7 @@ function getAuditPageLocale(language = getCurrentLanguage()) {
         sanitizedJson: isZh ? "清洗后 JSON" : "Sanitized JSON",
         fullOutput: isZh ? "完整输出" : "Full Output",
         selectTaskRecord: isZh ? "请选择一条任务记录" : "Select a Task Record",
-        selectTaskRecordDesc: isZh ? "左侧点开任务后，这里会展示输入摘要、输出摘要、错误信息和 Skill 使用情况。" : "Select a task on the left to view its input, output, errors, and skill usage.",
+        selectTaskRecordDesc: isZh ? "左侧点开任务后，这里会展示输入摘要、输出摘要、错误信息和评估方案使用情况。" : "Select a task on the left to view its input, output, errors, and assessment plan usage.",
         sourceLog: isZh ? "来源日志" : "Source Log",
         stage: isZh ? "阶段" : "Stage",
     };
@@ -563,7 +563,7 @@ export function AuditPage({
     );
     const selectedSkillNames = React.useMemo(() => (
         selectedLogSkillSnapshots.length
-            ? selectedLogSkillSnapshots.map((skill) => skill.name || `Skill #${skill.id}`)
+            ? selectedLogSkillSnapshots.map((skill) => skill.name || `评估方案 #${skill.id}`)
             : readStringList(selectedSkillResolutionDetail?.resolved_skill_names)
     ), [selectedLogSkillSnapshots, selectedSkillResolutionDetail]);
     const selectedSkillUsageText = React.useMemo(() => {

@@ -507,12 +507,12 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         screeningMemory: isZh ? "初筛工作记忆" : "Screening Memory",
         memorySource: isZh ? "记忆来源" : "Memory Source",
         lastScreeningTime: isZh ? "最近初筛时间" : "Last Screening Time",
-        screeningSkills: isZh ? "初筛 Skills" : "Screening Skills",
-        interviewSkills: isZh ? "面试题 Skills" : "Interview Skills",
+        screeningSkills: isZh ? "初筛评估方案" : "Screening Assessment Plans",
+        interviewSkills: isZh ? "面试题评估方案" : "Interview Assessment Plans",
         noScreeningMemory: isZh ? "暂无初筛工作记忆" : "No Screening Memory",
-        noScreeningMemoryDesc: isZh ? "完成一次初筛后，这里会显示本次初筛使用的 Skills、来源和时间，便于后续生成面试题时复用。" : "After a screening run, the used skills, source, and time will appear here for reuse in interview generation.",
-        screeningMemoryHint: (source: string) => (isZh ? `点击“开始初筛”时，会按“岗位绑定 Skills > 初筛工作记忆”继续执行；若均未配置，则本次不会传 Skills。当前预计来源：${source}。` : `When you click "Start Screening", the system uses "position-bound skills > screening memory". If neither exists, no skills are passed. Current expected source: ${source}.`),
-        screeningSkillPreview: (skillsText: string) => (isZh ? `当前预计使用：${skillsText}` : `Expected skills: ${skillsText}`),
+        noScreeningMemoryDesc: isZh ? "完成一次初筛后，这里会显示本次初筛使用的评估方案、来源和时间，便于后续生成面试题时复用。" : "After a screening run, the used assessment plans, source, and time will appear here for reuse in interview generation.",
+        screeningMemoryHint: (source: string) => (isZh ? `点击“开始初筛”时，会按“岗位绑定评估方案 > 初筛工作记忆”继续执行；若均未配置，则本次不会传评估方案。当前预计来源：${source}。` : `When you click "Start Screening", the system uses "position-bound assessment plans > screening memory". If neither exists, no assessment plans are passed. Current expected source: ${source}.`),
+        screeningSkillPreview: (skillsText: string) => (isZh ? `当前预计使用：${skillsText}` : `Expected assessment plans: ${skillsText}`),
         manualOverrideScore: isZh ? "人工修正分数" : "Manual Override Score",
         overrideScorePlaceholder: isZh ? "例如 88" : "e.g. 88",
         overrideReason: isZh ? "修正原因" : "Override Reason",
@@ -548,14 +548,14 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         deleteResume: isZh ? "删除简历" : "Delete Resume",
         parseErrorLine: (message: string) => (isZh ? `解析异常：${message}` : `Parse error: ${message}`),
         roundPlaceholder: isZh ? "轮次，例如 初试 / 复试" : "Round, e.g. Round 1 / Final",
-        currentSkillsPlaceholder: isZh ? "当前使用的 Skills" : "Current Skills",
+        currentSkillsPlaceholder: isZh ? "当前使用的评估方案" : "Current Assessment Plans",
         interviewRequirementsPlaceholder: isZh ? "补充要求，例如：偏向 IoT 设备联调、自动化稳定性、跨部门协作追问" : "Extra requirements, e.g. IoT device integration, automation stability, or cross-team collaboration follow-ups",
-        actualSkills: (skillsText: string) => (isZh ? `当前实际 Skills：${skillsText}` : `Actual skills: ${skillsText}`),
-        restoreDefaultSkills: isZh ? "恢复默认 Skills" : "Restore Default Skills",
-        interviewSkillHintDefault: isZh ? "未手动选择时，生成面试题会按“岗位绑定 Skills > 面试题工作记忆”执行；若均未配置，则本次不会传 Skills。" : "Without manual selection, interview generation uses \"position-bound skills > interview memory\". If neither exists, no skills are passed.",
-        interviewSkillHintManual: isZh ? "当前已手动选择 Skills，本次会以手动选择为准。" : "Manual skill selection is active and will be used for this run.",
+        actualSkills: (skillsText: string) => (isZh ? `当前实际评估方案：${skillsText}` : `Actual assessment plans: ${skillsText}`),
+        restoreDefaultSkills: isZh ? "恢复默认评估方案" : "Restore Default Assessment Plans",
+        interviewSkillHintDefault: isZh ? "未手动选择时，生成面试题会按“岗位绑定评估方案 > 面试题工作记忆”执行；若均未配置，则本次不会传评估方案。" : "Without manual selection, interview generation uses \"position-bound assessment plans > interview memory\". If neither exists, no assessment plans are passed.",
+        interviewSkillHintManual: isZh ? "当前已手动选择评估方案，本次会以手动选择为准。" : "Manual assessment plan selection is active and will be used for this run.",
         noInterviewQuestions: isZh ? "暂无面试题" : "No Interview Questions",
-        noInterviewQuestionsDesc: isZh ? "点击上方按钮后，系统会结合岗位 JD、候选人简历和 Skills 生成定制化题目。" : "After you click the button above, the system will generate tailored questions from the JD, resume, and skills.",
+        noInterviewQuestionsDesc: isZh ? "点击上方按钮后，系统会结合岗位 JD、候选人简历和评估方案生成定制化题目。" : "After you click the button above, the system will generate tailored questions from the JD, resume, and assessment plans.",
         candidateWorkspace: isZh ? "候选人工作区" : "Candidate Workspace",
         candidateWorkspaceDesc: isZh ? "未选中候选人时，先在这里查看当前筛选结果的概览、最近更新对象和推荐入口。" : "When no candidate is selected, use this area to review the current result set, recent updates, and recommended next actions.",
         recentCandidates: isZh ? "最近更新候选人" : "Recently Updated Candidates",
@@ -3119,7 +3119,7 @@ export function CandidatesPage({
                                                                             </Badge>
                                                                         </div>
                                                                         <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                                                            <InfoTile label="Skills" value={formatSkillSnapshotNames(logSkillSnapshots, language)}/>
+                                                                            <InfoTile label={tr.screeningSkills} value={formatSkillSnapshotNames(logSkillSnapshots, language)}/>
                                                                             <InfoTile label={tr.memorySource} value={labelForMemorySource(log.memory_source)}/>
                                                                         </div>
                                                                         {log.error_message ? <p className="mt-3 break-all text-sm text-rose-600">{log.error_message}</p> : null}

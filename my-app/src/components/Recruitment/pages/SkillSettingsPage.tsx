@@ -47,7 +47,7 @@ export function SkillSettingsPage({
             <Card className={panelClass}>
                 <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-6">
                     <div>
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t.common.skillsBelongToAdminSettings || "Skills belong to admin settings"}</p>
+                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t.common.skillsBelongToAdminSettings || "Assessment plans belong to admin settings"}</p>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t.common.skillsSettingsHint || "This entry lives inside management settings so the main workspace stays focused."}</p>
                     </div>
                     <div className="flex gap-2">
@@ -104,7 +104,7 @@ export function SkillSettingsPage({
                             </div>
                         </CardContent>
                     </Card>
-                )) : <EmptyState title={t.common.noSkills || "No Skills Yet"} description={t.common.skillsEmptyHint || "Admins can maintain recruiting skills here for AI screening and interview question generation."}/>}
+                )) : <EmptyState title={t.common.noSkills || "No Assessment Plans Yet"} description={t.common.skillsEmptyHint || "Admins can maintain assessment plans here for AI screening and interview question generation."}/>}
             </div>
         </div>
     );

@@ -968,8 +968,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         allVisibleUploadHint: isZh ? "当前范围包含多个可落地组织，未关联岗位时必须选择简历落地公司/部门。" : "The current scope contains multiple target organizations. Choose a target organization when no position is linked.",
         openAssistantDrawer: isZh ? "打开 AI 助手" : "Open AI Assistant",
         manageSettings: isZh ? "管理设置" : "Management Settings",
-        settingsSkillsTitle: isZh ? "Skill 管理" : "Skill Settings",
-        settingsSkillsDescription: isZh ? "维护招聘评估和题目生成所用的 Skills。" : "Manage the skills used for screening and interview-question generation.",
+        settingsSkillsTitle: isZh ? "评估方案管理" : "Assessment Plan Settings",
+        settingsSkillsDescription: isZh ? "维护招聘评估和题目生成所用的评估方案。" : "Manage the assessment plans used for screening and interview-question generation.",
         settingsModelsTitle: isZh ? "模型配置" : "Model Settings",
         settingsModelsDescription: isZh ? "按任务类型管理 provider、model、base URL 和 key。" : "Manage provider, model, base URL, and API key by task type.",
         settingsMailTitle: isZh ? "邮件中心" : "Mail Center",
@@ -986,20 +986,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         deleteAction: isZh ? "删除" : "Delete",
         deleting: isZh ? "删除中..." : "Deleting...",
         confirmDelete: isZh ? "确认删除" : "Confirm Delete",
-        skillCreateTitle: isZh ? "新增 Skill" : "New Skill",
-        skillEditTitle: isZh ? "编辑 Skill" : "Edit Skill",
+        skillCreateTitle: isZh ? "新增评估方案" : "New Assessment Plan",
+        skillEditTitle: isZh ? "编辑评估方案" : "Edit Assessment Plan",
         skillDialogDescription: isZh
-            ? "Skills 是管理员配置项，因此入口收在管理设置里，不占用主工作台主路径。"
-            : "Skills are managed from admin settings so the main workspace stays focused.",
-        saveSkill: isZh ? "保存 Skill" : "Save Skill",
-        skillNameRequired: isZh ? "请输入 Skill 名称" : "Please enter a skill name",
-        skillNameTooLong: isZh ? "Skill 名称不能超过 120 个字符" : "Skill name cannot exceed 120 characters",
-        skillContentRequired: isZh ? "请输入 Skill 内容" : "Please enter the skill content",
+            ? "评估方案是管理员配置项，因此入口收在管理设置里，不占用主工作台主路径。"
+            : "Assessment plans are managed from admin settings so the main workspace stays focused.",
+        saveSkill: isZh ? "保存评估方案" : "Save Assessment Plan",
+        skillNameRequired: isZh ? "请输入评估方案名称" : "Please enter an assessment plan name",
+        skillNameTooLong: isZh ? "评估方案名称不能超过 120 个字符" : "Assessment plan name cannot exceed 120 characters",
+        skillContentRequired: isZh ? "请输入评估方案内容" : "Please enter the assessment plan content",
         skillSortOrderInvalid: isZh ? "排序需为 0 到 9999 之间的整数" : "Sort order must be an integer between 0 and 9999",
-        skillDeleteTitle: isZh ? "确认删除 Skill" : "Delete Skill",
+        skillDeleteTitle: isZh ? "确认删除评估方案" : "Delete Assessment Plan",
         skillDeleteDescription: isZh
             ? "删除后该规则将不再参与新的招聘流程，但历史对话和任务日志仍会保留这次使用痕迹。"
-            : "After deletion, this skill will no longer be used in new recruiting flows, while past conversations and task logs will still keep its history.",
+            : "After deletion, this assessment plan will no longer be used in new recruiting flows, while past conversations and task logs will still keep its history.",
         modelConfigCreateTitle: isZh ? "新增模型配置" : "New Model Configuration",
         modelConfigEditTitle: isZh ? "编辑模型配置" : "Edit Model Configuration",
         modelDialogDescription: isZh
@@ -1051,14 +1051,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         auditTitle: isZh ? "审计中心" : "Audit Center",
         auditDescription: isZh ? "看 AI 处理记录、模型、错误与留痕" : "Inspect AI task logs, models, errors, and audit traces",
         assistantNavTitle: isZh ? "招聘助手" : "Recruiting Assistant",
-        assistantNavDescription: isZh ? "自然语言驱动岗位、候选人和 Skill 上下文" : "Natural-language workspace for positions, candidates, and skill context",
+        assistantNavDescription: isZh ? "自然语言驱动岗位、候选人和评估方案上下文" : "Natural-language workspace for positions, candidates, and assessment plan context",
         quickAddPosition: isZh ? "新增岗位" : "Add Position",
-        preferredInterviewSkillFromMemory: isZh ? "工作记忆中的面试题 Skills" : "Interview skills from workflow memory",
-        positionBoundSkills: isZh ? "岗位绑定 Skills" : "Position-bound skills",
-        noConfiguredSkills: isZh ? "未配置 Skills" : "No skills configured",
-        screeningMemorySkills: isZh ? "初筛工作记忆 Skills" : "Screening skills from workflow memory",
-        interviewMemorySkills: isZh ? "面试题工作记忆 Skills" : "Interview skills from workflow memory",
-        manualSelectedSkills: isZh ? "手动选择 Skills" : "Manually selected skills",
+        preferredInterviewSkillFromMemory: isZh ? "工作记忆中的面试题评估方案" : "Interview assessment plans from workflow memory",
+        positionBoundSkills: isZh ? "岗位绑定评估方案" : "Position-bound assessment plans",
+        noConfiguredSkills: isZh ? "未配置评估方案" : "No assessment plans configured",
+        screeningMemorySkills: isZh ? "初筛工作记忆评估方案" : "Screening assessment plans from workflow memory",
+        interviewMemorySkills: isZh ? "面试题工作记忆评估方案" : "Interview assessment plans from workflow memory",
+        manualSelectedSkills: isZh ? "手动选择评估方案" : "Manually selected assessment plans",
         unspecifiedCandidate: isZh ? "未指定候选人" : "No candidate selected",
         candidateWithId: (id: number) => (isZh ? `候选人 #${id}` : `Candidate #${id}`),
         modelUnrecognized: isZh ? "暂未识别" : "Unrecognized",
@@ -1138,12 +1138,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         positionSpecificRecipients: isZh ? "岗位专属收件人" : "Position-specific recipients",
         ccRecipients: isZh ? "抄送人（CC）" : "CC Recipients",
         bccRecipients: isZh ? "密送人（BCC）" : "BCC Recipients",
-        autoMailSkillBindingHint: isZh ? "每个岗位可以分别绑定 1 条 JD Skill、1 条初筛 Skill、1 条面试题 Skill。若某一类不选择，系统会自动使用该任务的内置通用基座约束。如果没有合适的 Skill，可以点击下方「+」直接新建，创建后会自动绑定到当前岗位。" : "Each position can bind 1 JD Skill, 1 screening Skill, and 1 interview skill. If none is selected, the system uses the built-in general constraint for that task. If no suitable Skill exists, click '+' below to create one, which will be automatically bound to the current position.",
-        jdSkillLabel: isZh ? "JD Skill" : "JD Skill",
-        screeningSkillLabel: isZh ? "初筛 Skill" : "Screening Skill",
-        interviewSkillLabel: isZh ? "面试题 Skill" : "Interview Skill",
-        noSkillsAvailable: isZh ? "暂无可选 Skill，点击上方「+」新建" : "No available Skills, click '+' above to create",
-        newSkillTitle: (skillType: string) => (isZh ? `新建 ${skillType} Skill` : `New ${skillType} Skill`),
+        autoMailSkillBindingHint: isZh ? "每个岗位可以分别绑定 1 条 JD 分析方案、1 条初筛评估方案、1 条面试题评估方案。若某一类不选择，系统会自动使用该任务的内置通用基座约束。如果没有合适的评估方案，可以点击下方「+」直接新建，创建后会自动绑定到当前岗位。" : "Each position can bind 1 JD analysis plan, 1 screening assessment plan, and 1 interview assessment plan. If none is selected, the system uses the built-in general constraint for that task. If no suitable assessment plan exists, click '+' below to create one, which will be automatically bound to the current position.",
+        jdSkillLabel: isZh ? "JD 分析方案" : "JD Analysis Plan",
+        screeningSkillLabel: isZh ? "初筛评估方案" : "Screening Assessment Plan",
+        interviewSkillLabel: isZh ? "面试题评估方案" : "Interview Assessment Plan",
+        noSkillsAvailable: isZh ? "暂无可选评估方案，点击上方「+」新建" : "No available assessment plans, click '+' above to create",
+        newSkillTitle: (skillType: string) => (isZh ? `新建 ${skillType} 评估方案` : `New ${skillType} Assessment Plan`),
         positionBasicsDialogHint: isZh ? "岗位基础信息放在弹窗中维护，详情操作回到岗位工作区完成。" : "Maintain position basics in this dialog. For details and operations, go back to the position workspace.",
         cancelButton: isZh ? "取消" : "Cancel",
         savingPosition: isZh ? "保存中..." : "Saving...",
@@ -1164,7 +1164,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         savedCandidate: isZh ? "已保存候选人" : "Candidate saved",
         autoAdvanceOnScreeningHint: isZh ? "（需开启岗位初筛配置）" : "(requires position screening config)",
         positionBasics: isZh ? "岗位基础信息" : "Position Basics",
-        skillsAutomation: isZh ? "Skill 与自动化配置" : "Skills & Automation",
+        skillsAutomation: isZh ? "评估方案与自动化配置" : "Assessment Plans & Automation",
         noPublishText: isZh ? "当前还没有可直接发布的 JD 文案，点击\"AI 生成 JD\"后会在这里展示。" : "There is no publish-ready JD copy yet. Click Generate JD and it will appear here.",
         allowRepeatSending: isZh ? "允许重复发送" : "Allow repeat sending",
         // JD dialog fields
@@ -1176,7 +1176,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         openFullAssistant: isZh ? "打开完整助手" : "Open Full Assistant",
         assistantContextShort: isZh ? "上下文" : "Context",
         currentPosition: isZh ? "当前岗位" : "Current Position",
-        activeSkills: isZh ? "激活 Skills" : "Active Skills",
+        activeSkills: isZh ? "激活评估方案" : "Active Assessment Plans",
         currentModel: isZh ? "当前模型" : "Current Model",
         unspecifiedPosition: isZh ? "未指定岗位" : "No position selected",
         skillCount: (count: number) => (isZh ? `${count} 项` : `${count} selected`),
@@ -1197,7 +1197,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         positionDialogNew: isZh ? "新建岗位" : "New Position",
         positionDialogEdit: isZh ? "编辑岗位" : "Edit Position",
         uploadResumeAutoScreenHint: isZh ? "上传简历后自动进入初筛" : "Auto-enter screening after upload",
-        uploadResumeAutoScreenHintNoSkill: isZh ? "请先在下方「初筛Skills」中绑定至少一个初筛Skill，再开启此功能" : "Bind at least one screening Skill below before enabling this",
+        uploadResumeAutoScreenHintNoSkill: isZh ? "请先在下方「初筛评估方案」中绑定至少一个初筛评估方案，再开启此功能" : "Bind at least one screening assessment plan below before enabling this",
         uploadResumeTitle: isZh ? "上传简历" : "Upload Resume",
         uploadResumeDesc: isZh ? "支持批量上传 PDF / DOC / DOCX / TXT。若岗位开启自动初筛，系统会自动进入新的初筛流程；否则可在候选人页手动触发。" : "Supports batch upload of PDF/DOC/DOCX/TXT. If auto-screening is enabled, system will auto-start new screening; otherwise trigger manually from candidates page.",
         // Position form fields
@@ -1510,8 +1510,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     });
 
     const assistantIntroText = isZh
-        ? "我是招聘助手。你可以直接让我生成 JD、查看岗位候选人、重新初筛某位候选人并追加硬性条件，或者说明这次对话实际使用了哪些 Skills。"
-        : "I'm your recruiting assistant. I can generate a JD, inspect candidates for the current position, re-screen a candidate with stricter requirements, or explain which skills were used in this conversation.";
+        ? "我是招聘助手。你可以直接让我生成 JD、查看岗位候选人、重新初筛某位候选人并追加硬性条件，或者说明这次对话实际使用了哪些评估方案。"
+        : "I'm your recruiting assistant. I can generate a JD, inspect candidates for the current position, re-screen a candidate with stricter requirements, or explain which assessment plans were used in this conversation.";
     const localizedInitialInterviewRoundName = isZh ? "初试" : "Round 1";
 
     const [candidateEditor, setCandidateEditor] = useState<CandidateEditorState>(emptyCandidateEditor);
@@ -6917,7 +6917,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         empty.taskTypes = [taskKind];
         if (roleName) {
             empty.roleName = roleName;
-            empty.name = taskKind === "jd" ? `${roleName} JD Skill` : taskKind === "screening" ? `${roleName}初筛评分 Skill` : `${roleName}面试题 Skill`;
+            empty.name = taskKind === "jd" ? `${roleName} JD 分析方案` : taskKind === "screening" ? `${roleName}初筛评分评估方案` : `${roleName}面试题评估方案`;
         }
         setSkillEditingId(null);
         const skillFormState = emptySkillForm();
@@ -6938,7 +6938,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     async function submitStructuredSkill(data: ScreeningSkillFormData) {
         if (skillSubmitting) return;
         if (!data.name.trim()) {
-            setSkillFormSubmitError("请输入 Skill 名称");
+            setSkillFormSubmitError("请输入评估方案名称");
             return;
         }
         if (!data.taskTypes.length) {
@@ -7049,7 +7049,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const taskId = skillActiveTaskIdRef.current;
         if (taskId) {
             try {
-                await cancelTaskGeneration(taskId, isZh ? "Skill 生成" : "Skill generation", {silent: true});
+                await cancelTaskGeneration(taskId, isZh ? "评估方案生成" : "Assessment plan generation", {silent: true});
             } catch { /* ignore */ }
         }
     }
@@ -7335,7 +7335,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             isZh ? "查看当前岗位候选人" : "Show candidates for the current position",
             isZh ? "重新对当前候选人初筛，硬性要求加强硬件测试" : "Re-screen the current candidate with stronger hardware testing requirements",
             isZh ? "给当前候选人生成面试题" : "Generate interview questions for the current candidate",
-            isZh ? "说明这次对话用了哪些 Skills" : "Explain which skills this conversation used",
+            isZh ? "说明这次对话用了哪些评估方案" : "Explain which assessment plans this conversation used",
             isZh ? "当前使用什么模型" : "Which model is being used now",
         ];
         const workspaceSuggestionPrompts = [
@@ -7343,7 +7343,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             isZh ? "查看当前岗位候选人列表" : "Show candidates for the current position",
             isZh ? "重新对当前候选人初筛，硬性要求加强硬件测试经验" : "Re-screen the current candidate with stronger hardware testing requirements",
             isZh ? "给当前候选人生成初试题，重点考察硬件联调" : "Generate first-round interview questions focused on hardware integration",
-            isZh ? "说明这次对话用了哪些 Skills 和模型" : "Explain which skills and model this conversation used",
+            isZh ? "说明这次对话用了哪些评估方案和模型" : "Explain which assessment plans and model this conversation used",
         ];
         const quickActionPrompts = isWorkspace ? workspaceSuggestionPrompts : suggestionPrompts;
         const collapsedQuickActionPrompts = quickActionPrompts.slice(0, Math.min(3, quickActionPrompts.length));
@@ -7352,7 +7352,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const summaryChips = [
             {key: "position", label: shortText(chatContext.position_title || recruitmentUiText.unspecifiedPosition, 18), dotClassName: "bg-sky-500"},
             {key: "candidate", label: shortText(chatContextCandidateLabel, 18), dotClassName: "bg-amber-500"},
-            {key: "skills", label: `${chatContext.skills?.length || 0} Skills`, dotClassName: "bg-emerald-500"},
+            {key: "skills", label: `${chatContext.skills?.length || 0} ${isZh ? "评估方案" : "Plans"}`, dotClassName: "bg-emerald-500"},
             {key: "model", label: shortText(assistantActiveLLMConfig?.resolved_model_name || assistantActiveLLMConfig?.model_name || recruitmentUiText.modelUnrecognized, 18), dotClassName: "bg-violet-500"},
         ];
         const assistantContextPanel = (
@@ -7361,7 +7361,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         <div>
                             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{recruitmentUiText.assistantContextShort}</p>
                             <p className="mt-1 hidden text-xs leading-5 text-slate-500 dark:text-slate-400 2xl:block">
-                                {isZh ? "按需展开岗位、Skills 和模型配置，不再长期挤压主聊天区。" : "Expand position, skill, and model settings only when needed so the main chat area stays clear."}
+                                {isZh ? "按需展开岗位、评估方案和模型配置，不再长期挤压主聊天区。" : "Expand position, assessment plan, and model settings only when needed so the main chat area stays clear."}
                             </p>
                         </div>
                     <Button
@@ -7794,11 +7794,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                         }
                                     }}
                                     rows={isFullscreen ? 7 : isPage ? 4 : 5}
-                                    placeholder={isZh ? "例如：重新对当前候选人初筛，硬性要求加强硬件测试经验；或说明这次用了哪些 Skills" : "For example: re-screen the current candidate with stronger hardware-testing requirements, or explain which skills were used this time"}
+                                    placeholder={isZh ? "例如：重新对当前候选人初筛，硬性要求加强硬件测试经验；或说明这次用了哪些评估方案" : "For example: re-screen the current candidate with stronger hardware-testing requirements, or explain which assessment plans were used this time"}
                                 />
                                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                                     <p className="hidden text-xs text-slate-500 dark:text-slate-400 2xl:block">
-                                        {isZh ? "助手会自动携带当前岗位与启用 Skill 上下文，适合连续执行筛选、生成和查询操作。按 Ctrl/Cmd + Enter 可直接发送。" : "The assistant automatically carries the current position and enabled skill context, which works well for screening, generation, and lookup flows. Press Ctrl/Cmd + Enter to send."}
+                                        {isZh ? "助手会自动携带当前岗位与启用评估方案上下文，适合连续执行筛选、生成和查询操作。按 Ctrl/Cmd + Enter 可直接发送。" : "The assistant automatically carries the current position and enabled assessment plan context, which works well for screening, generation, and lookup flows. Press Ctrl/Cmd + Enter to send."}
                                     </p>
                                     <Button
                                         onClick={() => void sendChatMessage()}
@@ -8537,11 +8537,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                     </div>
                                                 </Field>
 
-                                                <Field label={isZh ? "Skill 与自动化配置" : "Skills & Automation"}>
+                                                <Field label={isZh ? "评估方案与自动化配置" : "Assessment Plans & Automation"}>
                                                     <div className="grid gap-3 md:grid-cols-2">
-                                                        <InfoTile label={isZh ? "JD 生成 Skill" : "JD Skills"} value={(positionDetail.position.jd_skill_ids || []).length ? formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
-                                                        <InfoTile label={isZh ? "初筛绑定 Skills" : "Screening Skills"} value={(positionDetail.position.screening_skill_ids || []).length ? formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
-                                                        <InfoTile label={isZh ? "面试题 Skill" : "Interview Skills"} value={(positionDetail.position.interview_skill_ids || []).length ? formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
+                                                        <InfoTile label={isZh ? "JD 分析方案" : "JD Analysis Plan"} value={(positionDetail.position.jd_skill_ids || []).length ? formatSkillNames(positionDetail.position.jd_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
+                                                        <InfoTile label={isZh ? "初筛评估方案" : "Screening Assessment Plan"} value={(positionDetail.position.screening_skill_ids || []).length ? formatSkillNames(positionDetail.position.screening_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
+                                                        <InfoTile label={isZh ? "面试题评估方案" : "Interview Assessment Plan"} value={(positionDetail.position.interview_skill_ids || []).length ? formatSkillNames(positionDetail.position.interview_skill_ids || [], skillMap, language) : (isZh ? "未选择，自动使用系统通用基座" : "Not selected, using the system base")}/>
                                                         <InfoTile label={isZh ? "自动流程" : "Automation"} value={`${positionDetail.position.auto_screen_on_upload ? (isZh ? "上传自动初筛已开启" : "Auto-screen on upload is on") : (isZh ? "上传自动初筛未开启" : "Auto-screen on upload is off")} · ${positionDetail.position.auto_advance_on_screening === false ? (isZh ? "通过后自动推进关闭" : "Auto-advance after pass is off") : (isZh ? "通过后自动推进开启" : "Auto-advance after pass is on")}`}/>
                                                     </div>
                                                 </Field>
@@ -9413,7 +9413,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                                 variant="ghost"
                                                                 size="icon"
                                                                 className="h-5 w-5"
-                                                                title={recruitmentUiText.newSkillTitle(label.replace(" Skill", ""))}
+                                                                title={recruitmentUiText.newSkillTitle(label)}
                                                                 onClick={() => openSkillEditorForPosition(taskKind, formKey)}
                                                             >
                                                                 <Plus className="h-3.5 w-3.5"/>
