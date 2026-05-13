@@ -774,6 +774,100 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
     );
 });
 
+// 简历预览模态窗口组件 - 使用 memo 优化性能
+const ResumePreviewModal = React.memo(function ResumePreviewModal({
+    previewPdfUrl,
+    previewPdfLoading,
+    previewCandidateName,
+    isZh,
+    onClose,
+    setPreviewPdfLoading,
+}: {
+    previewPdfUrl: string;
+    previewPdfLoading: boolean;
+    previewCandidateName: string;
+    isZh: boolean;
+    onClose: () => void;
+    setPreviewPdfLoading: React.Dispatch<React.SetStateAction<boolean>>;
+}) {
+    return (
+        <div className="fixed inset-0 isolate" style={{ zIndex: 999999 }}>
+            {/* 背景遮罩层 - 纯黑色 */}
+            <div
+                className="absolute inset-0 bg-black/80 animate-in fade-in duration-200"
+                onClick={onClose}
+            />
+            
+            {/* 简历预览窗口 */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col w-[90vw] max-w-5xl h-[90vh] bg-white rounded-lg shadow-2xl animate-in zoom-in-95 fade-in duration-200">
+                {/* 顶部工具栏 */}
+                <div className="flex items-center justify-between bg-slate-900 px-4 py-3 text-white rounded-t-lg border-b border-slate-700">
+                    <div className="flex items-center gap-3">
+                        <div className="rounded-lg bg-blue-500/20 p-2">
+                            <FileText className="h-5 w-5 text-blue-400" />
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-sm font-semibold">
+                                {previewCandidateName || (isZh ? "简历预览" : "Resume Preview")}
+                            </span>
+                            {previewCandidateName && (
+                                <span className="text-xs text-slate-400">
+                                    {isZh ? "简历预览" : "Resume Preview"}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                            onClick={() => window.open(previewPdfUrl, "_blank")}
+                        >
+                            <ExternalLink className="mr-2 h-4 w-4" />
+                            {isZh ? "新窗口打开" : "Open in New Tab"}
+                        </Button>
+                        <div className="w-px h-6 bg-slate-700 mx-1" />
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                            onClick={onClose}
+                            title={isZh ? "关闭 (ESC)" : "Close (ESC)"}
+                        >
+                            <X className="h-5 w-5" />
+                        </Button>
+                    </div>
+                </div>
+
+                {/* PDF 内容区域 */}
+                <div className="relative flex-1 w-full bg-slate-100 rounded-b-lg overflow-hidden">
+                    {previewPdfLoading && (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/90 backdrop-blur-sm">
+                            <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
+                            <p className="text-sm text-slate-600">
+                                {isZh ? "加载中..." : "Loading..."}
+                            </p>
+                        </div>
+                    )}
+                    <iframe
+                        src={`${previewPdfUrl}#toolbar=0&navpanes=0&view=FitH`}
+                        className="h-full w-full border-none"
+                        title="Resume Preview"
+                        loading="lazy"
+                        onLoad={() => {
+                            // 使用 startTransition 让加载状态更新不阻塞
+                            startTransition(() => {
+                                setPreviewPdfLoading(false);
+                            });
+                        }}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+});
+
 export default function RecruitmentAutomationContainer({onBack, initialPage}: RecruitmentAutomationContainerProps) {
     const {language} = useI18n();
     const isZh = language === "zh-CN";
@@ -6315,10 +6409,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         if (previewPdfUrl) {
             URL.revokeObjectURL(previewPdfUrl);
-            setPreviewPdfUrl(null);
         }
-        setPreviewPdfLoading(true);
-        setPreviewCandidateName(candidateName || "");
+        
+        // 立即显示加载状态，但使用 startTransition 降低优先级
+        startTransition(() => {
+            setPreviewPdfUrl(null);
+            setPreviewPdfLoading(true);
+            setPreviewCandidateName(candidateName || "");
+        });
+        
         const abortController = new AbortController();
         previewPdfAbortRef.current = abortController;
         const TIMEOUT_MS = 10_000;
@@ -6327,6 +6426,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             timedOut = true;
             abortController.abort();
         }, TIMEOUT_MS);
+        
         try {
             const response = await authenticatedFetch(`/api/recruitment/resume-files/${file.id}/download`, {
                 method: "GET",
@@ -6338,22 +6438,26 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             const blob = await response.blob();
             const objectUrl = URL.createObjectURL(blob);
-            setPreviewPdfUrl(objectUrl);
+            
+            // 使用 startTransition 让 PDF 显示不阻塞 UI
+            startTransition(() => {
+                setPreviewPdfUrl(objectUrl);
+                setPreviewPdfLoading(false);
+            });
         } catch (error) {
             if ((error as Error).name === "AbortError") {
                 if (timedOut) {
                     toast.error(recruitmentToast.resumePreviewTimeout);
-                    setPreviewPdfUrl(null);
                 }
-                // else: user closed, already cleaned up by closeResumePreview
             } else {
                 toast.error(recruitmentToast.resumeOpenedFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
-                setPreviewPdfUrl(null);
             }
+            startTransition(() => {
+                setPreviewPdfUrl(null);
+                setPreviewPdfLoading(false);
+            });
         } finally {
             window.clearTimeout(timeoutId);
-            if (abortController.signal.aborted) return;
-            setPreviewPdfLoading(false);
             previewPdfAbortRef.current = null;
         }
     }
@@ -10037,74 +10141,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
             {/* 简历 PDF 预览模态窗口 - 使用 Portal 渲染到 body */}
             {previewPdfUrl && typeof document !== 'undefined' && createPortal(
-                <div className="fixed inset-0 isolate" style={{ zIndex: 999999 }}>
-                    {/* 背景遮罩层 - 纯黑色 */}
-                    <div
-                        className="absolute inset-0 bg-black/80 animate-in fade-in duration-200"
-                        onClick={() => closeResumePreview()}
-                    />
-                    
-                    {/* 简历预览窗口 */}
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col w-[90vw] max-w-5xl h-[90vh] bg-white rounded-lg shadow-2xl animate-in zoom-in-95 fade-in duration-200">
-                        {/* 顶部工具栏 */}
-                        <div className="flex items-center justify-between bg-slate-900 px-4 py-3 text-white rounded-t-lg border-b border-slate-700">
-                            <div className="flex items-center gap-3">
-                                <div className="rounded-lg bg-blue-500/20 p-2">
-                                    <FileText className="h-5 w-5 text-blue-400" />
-                                </div>
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-semibold">
-                                        {previewCandidateName || (isZh ? "简历预览" : "Resume Preview")}
-                                    </span>
-                                    {previewCandidateName && (
-                                        <span className="text-xs text-slate-400">
-                                            {isZh ? "简历预览" : "Resume Preview"}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
-                                    onClick={() => previewPdfUrl && window.open(previewPdfUrl, "_blank")}
-                                >
-                                    <ExternalLink className="mr-2 h-4 w-4" />
-                                    {isZh ? "新窗口打开" : "Open in New Tab"}
-                                </Button>
-                                <div className="w-px h-6 bg-slate-700 mx-1" />
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-9 w-9 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
-                                    onClick={() => closeResumePreview()}
-                                    title={isZh ? "关闭 (ESC)" : "Close (ESC)"}
-                                >
-                                    <X className="h-5 w-5" />
-                                </Button>
-                            </div>
-                        </div>
-
-                        {/* PDF 内容区域 */}
-                        <div className="relative flex-1 w-full bg-slate-100 rounded-b-lg overflow-hidden">
-                            {previewPdfLoading && (
-                                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/90 backdrop-blur-sm">
-                                    <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
-                                    <p className="text-sm text-slate-600">
-                                        {isZh ? "加载中..." : "Loading..."}
-                                    </p>
-                                </div>
-                            )}
-                            <iframe
-                                src={`${previewPdfUrl}#toolbar=0&navpanes=0&view=FitH`}
-                                className="h-full w-full border-none"
-                                title="Resume Preview"
-                                onLoad={() => setPreviewPdfLoading(false)}
-                            />
-                        </div>
-                    </div>
-                </div>,
+                <ResumePreviewModal
+                    previewPdfUrl={previewPdfUrl}
+                    previewPdfLoading={previewPdfLoading}
+                    previewCandidateName={previewCandidateName}
+                    isZh={isZh}
+                    onClose={closeResumePreview}
+                    setPreviewPdfLoading={setPreviewPdfLoading}
+                />,
                 document.body
             )}
         </div>
