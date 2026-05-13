@@ -1941,6 +1941,34 @@ export function CandidatesPage({
     const [detailExpanded, setDetailExpanded] = React.useState(false);
     const zoomHintRef = React.useRef<HTMLDivElement>(null);
 
+    // ---- 分栏拖拽调整 (Split Pane Resize) ----
+    const splitRatioRef = React.useRef<number>(35);
+    // 从 localStorage 恢复已保存的分栏宽度
+    React.useEffect(() => {
+        const saved = localStorage.getItem('candidates-split-width');
+        if (saved) {
+            const parsed = Math.min(60, Math.max(20, parseFloat(saved)));
+            splitRatioRef.current = parsed;
+            if (leftPanelRef.current && !detailExpanded) {
+                leftPanelRef.current.style.width = `${parsed}%`;
+            }
+            if (rightPanelRef.current && !detailExpanded) {
+                rightPanelRef.current.style.width = `${100 - parsed}%`;
+            }
+        }
+    }, []);
+    const splitContainerRef = React.useRef<HTMLDivElement>(null);
+    const leftPanelRef = React.useRef<HTMLDivElement>(null);
+    const rightPanelRef = React.useRef<HTMLDivElement>(null);
+    const resizeHandleRef = React.useRef<HTMLDivElement>(null);
+    const isResizingRef = React.useRef(false);
+
+    // 首次使用提示
+    const [showWidthHint, setShowWidthHint] = React.useState(() =>
+        !localStorage.getItem('has-seen-width-hint')
+    );
+    const widthHintRef = React.useRef<HTMLDivElement>(null);
+
     React.useEffect(() => {
         setCandidateDetailPanel("profile");
         setCandidateAiOutputDialogOpen(false);
@@ -1973,6 +2001,75 @@ export function CandidatesPage({
             if (rafId !== null) cancelAnimationFrame(rafId);
         };
     }, [candidateDetail, candidateDetailPanel, updateCandidateDetailToolbarMetrics]);
+
+    // detailExpanded 恢复时，重新应用存储的分栏宽度
+    React.useEffect(() => {
+        if (!detailExpanded && leftPanelRef.current) {
+            leftPanelRef.current.style.width = `${splitRatioRef.current}%`;
+        }
+        if (!detailExpanded && rightPanelRef.current) {
+            rightPanelRef.current.style.width = `${100 - splitRatioRef.current}%`;
+        }
+    }, [detailExpanded]);
+
+    // 拖拽分割条：Ref-based，完全绕过 React 渲染
+    const handleResizeMouseDown = React.useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        isResizingRef.current = true;
+        const container = splitContainerRef.current;
+        if (!container) return;
+
+        // 移除容器 transition，避免拖拽时动画延迟
+        container.style.transition = 'none';
+
+        // 全局遮罩：捕获鼠标事件，防止 iframe / pointer-events 干扰
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;cursor:col-resize;';
+        document.body.appendChild(overlay);
+        document.body.style.cursor = 'col-resize';
+
+        // will-change 优化
+        if (leftPanelRef.current) leftPanelRef.current.style.willChange = 'width';
+        if (rightPanelRef.current) rightPanelRef.current.style.willChange = 'width';
+
+        // 关闭首次提示
+        if (showWidthHint) {
+            setShowWidthHint(false);
+            localStorage.setItem('has-seen-width-hint', '1');
+        }
+
+        const containerRect = container.getBoundingClientRect();
+        const MIN_RATIO = 20;
+        const MAX_RATIO = 60;
+
+        const onMove = (ev: MouseEvent) => {
+            const ratio = ((ev.clientX - containerRect.left) / containerRect.width) * 100;
+            const clamped = Math.min(MAX_RATIO, Math.max(MIN_RATIO, ratio));
+            splitRatioRef.current = clamped;
+            // 直接操作 DOM，跳过 React 渲染
+            if (leftPanelRef.current) leftPanelRef.current.style.width = `${clamped}%`;
+            if (rightPanelRef.current) rightPanelRef.current.style.width = `${100 - clamped}%`;
+        };
+
+        const onUp = () => {
+            isResizingRef.current = false;
+            // 恢复 transition
+            container.style.transition = '';
+            // 清除 will-change
+            if (leftPanelRef.current) leftPanelRef.current.style.willChange = '';
+            if (rightPanelRef.current) rightPanelRef.current.style.willChange = '';
+            // 移除遮罩
+            document.body.removeChild(overlay);
+            document.body.style.cursor = '';
+            // 持久化
+            localStorage.setItem('candidates-split-width', String(splitRatioRef.current));
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+        };
+
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+    }, [showWidthHint]);
 
     const candidateOverviewCounts = React.useMemo(() => {
         return visibleCandidates.reduce((acc, candidate) => {
@@ -2104,13 +2201,20 @@ export function CandidatesPage({
                     />
                 ) : null}
 
-                <div className={cn(
-                    "grid min-h-0 items-stretch gap-2 overflow-hidden transition-[grid-template-columns] duration-200",
-                    detailExpanded
-                        ? "xl:grid-cols-[0fr_1fr] 2xl:grid-cols-[0fr_1fr]"
-                        : "xl:grid-cols-[minmax(260px,0.35fr)_minmax(0,0.65fr)] 2xl:grid-cols-[minmax(280px,0.35fr)_minmax(0,0.65fr)]"
-                )}>
-                <Card className={cn(panelClass, "min-h-0 !gap-0 overflow-hidden !py-0 transition-all duration-200", detailExpanded && "opacity-0 pointer-events-none w-0")}>
+                <div
+                    ref={splitContainerRef}
+                    className="flex min-h-0 items-stretch gap-2 overflow-hidden"
+                >
+                {/* 左侧列表面板 */}
+                <div
+                    ref={leftPanelRef}
+                    className={cn(
+                        "min-h-0 overflow-hidden transition-all duration-200",
+                        detailExpanded ? "w-0 opacity-0 pointer-events-none" : ""
+                    )}
+                    style={!detailExpanded ? { width: `${splitRatioRef.current}%` } : undefined}
+                >
+                <Card className={cn(panelClass, "h-full !gap-0 overflow-hidden !py-0")}>
                     <CardHeader className="px-4 pt-2 pb-0 sm:px-5">
                         <div className="flex items-center justify-between gap-3">
                             <CardTitle className="text-[15px] leading-none">{tr.candidateList}</CardTitle>
@@ -2358,8 +2462,43 @@ export function CandidatesPage({
                         )}
                     </CardContent>
                 </Card>
+                </div>
 
-                <Card className={cn(panelClass, "min-h-0 min-w-0 gap-0 overflow-hidden py-0")}>
+                {/* 拖拽分割条 */}
+                {!detailExpanded && (
+                    <div
+                        ref={resizeHandleRef}
+                        onMouseDown={handleResizeMouseDown}
+                        className="relative z-10 flex-shrink-0 cursor-col-resize select-none group/handle"
+                        style={{ width: '6px' }}
+                    >
+                        <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-[3px] rounded-full
+                                        bg-slate-300/50 dark:bg-slate-600/50
+                                        group-hover/handle:bg-teal-400 dark:group-hover/handle:bg-teal-500
+                                        transition-colors duration-150" />
+                        {/* 首次使用提示 */}
+                        {showWidthHint && (
+                            <div
+                                ref={widthHintRef}
+                                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2
+                                           whitespace-nowrap z-50 pointer-events-none"
+                            >
+                                <div className="bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900
+                                                text-xs font-medium px-3 py-2 rounded-lg shadow-lg
+                                                animate-pulse">
+                                    ✨ 列表宽度可自由拖拽调整，找到你最舒适的视图。
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* 右侧详情面板 */}
+                <div
+                    ref={rightPanelRef}
+                    className="min-h-0 min-w-0 flex-1 overflow-hidden"
+                >
+                <Card className={cn(panelClass, "h-full min-w-0 gap-0 overflow-hidden py-0")}>
                     {candidateDetailLoading ? <LoadingPanel label={tr.loadingCandidateDetail}/> : candidateDetail ? (
                         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
                             <div
@@ -3366,6 +3505,7 @@ export function CandidatesPage({
                         </div>
                     )}
                 </Card>
+                </div>
                 </div>
             </div>
             <CandidateAiOutputDialog
