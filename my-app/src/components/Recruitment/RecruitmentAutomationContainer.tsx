@@ -426,23 +426,29 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
     candidate,
     isSelected,
     onSelect,
+    onViewResume,
+    isZh,
 }: {
     candidate: CandidateSummary;
     isSelected: boolean;
     onSelect: (id: number) => void;
+    onViewResume: (candidateId: number) => void;
+    isZh: boolean;
 }) {
     const displayStatus = resolveCandidateDisplayStatus(candidate);
     return (
-        <button
-            type="button"
+        <div
+            role="button"
+            tabIndex={0}
             className={cn(
-                "grid w-full items-center gap-6 px-4 text-left transition-colors border-b border-slate-100 dark:border-slate-800/50",
+                "grid w-full items-center gap-6 px-4 text-left transition-colors border-b border-slate-100 dark:border-slate-800/50 cursor-pointer",
                 isSelected
                     ? "bg-teal-50/80 dark:bg-teal-900/20"
                     : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
             )}
-            style={{ height: POSITION_CANDIDATE_ROW_HEIGHT, gridTemplateColumns: "minmax(80px,1.2fr) minmax(120px,1.5fr) 90px 56px 90px 80px 72px 96px" }}
+            style={{ height: POSITION_CANDIDATE_ROW_HEIGHT, gridTemplateColumns: "minmax(80px,1.2fr) minmax(120px,1.8fr) minmax(40px,0.5fr) minmax(60px,0.8fr) minmax(40px,0.4fr) minmax(70px,0.8fr) minmax(50px,0.6fr) minmax(50px,0.6fr) minmax(70px,0.9fr)" }}
             onClick={() => onSelect(candidate.id)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onSelect(candidate.id); }}
         >
             <Tooltip>
                 <TooltipTrigger asChild>
@@ -455,6 +461,19 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
                     <span className="truncate text-xs text-slate-500">{candidate.phone || candidate.email || "-"}</span>
                 </TooltipTrigger>
                 <TooltipContent side="top"><p>{candidate.phone || candidate.email || ""}</p></TooltipContent>
+            </Tooltip>
+            {/* 简历列 */}
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <button
+                        type="button"
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition-colors hover:bg-red-50 hover:text-red-600"
+                        onClick={(e) => { e.stopPropagation(); onViewResume(candidate.id); }}
+                    >
+                        <FileText className="h-4 w-4" />
+                    </button>
+                </TooltipTrigger>
+                <TooltipContent side="top"><p>{isZh ? "查看简历" : "View Resume"}</p></TooltipContent>
             </Tooltip>
             <Tooltip>
                 <TooltipTrigger asChild>
@@ -479,14 +498,15 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
             <Badge className={cn("rounded-full border shrink-0 text-[10px] w-fit", statusBadgeClass("candidate", displayStatus))}>
                 {labelForCandidateStatus(displayStatus)}
             </Badge>
-        </button>
+        </div>
     );
 }, (prev, next) => {
     return prev.candidate.id === next.candidate.id
         && prev.candidate.status === next.candidate.status
         && prev.candidate.display_status === next.candidate.display_status
         && prev.candidate.match_percent === next.candidate.match_percent
-        && prev.isSelected === next.isSelected;
+        && prev.isSelected === next.isSelected
+        && prev.isZh === next.isZh;
 });
 
 // ---- 岗位内嵌候选人列表：无限滚动哨兵组件 ----
@@ -610,6 +630,7 @@ interface PositionCandidatesViewProps {
     onViewInCandidatePage: (candidateId: number) => void;
     onViewAllCandidates: () => void;
     onLoadMore: () => void;
+    onViewResume: (candidateId: number) => void;
 }
 
 const PositionCandidatesView = React.memo(function PositionCandidatesView(props: PositionCandidatesViewProps) {
@@ -635,6 +656,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
         onSelectCandidate,
         onViewAllCandidates,
         onLoadMore,
+        onViewResume,
     } = props;
 
     const statusOptions = [
@@ -685,9 +707,10 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                 </Button>
             </div>
             {/* 列头 */}
-            <div className="grid items-center gap-6 border-b border-slate-200/80 px-4 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500" style={{ height: 32, gridTemplateColumns: "minmax(80px,1.2fr) minmax(120px,1.5fr) 90px 56px 90px 80px 72px 96px" }}>
+            <div className="grid items-center gap-6 border-b border-slate-200/80 px-4 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500" style={{ height: 32, gridTemplateColumns: "minmax(80px,1.2fr) minmax(120px,1.8fr) minmax(40px,0.5fr) minmax(60px,0.8fr) minmax(40px,0.4fr) minmax(70px,0.8fr) minmax(50px,0.6fr) minmax(50px,0.6fr) minmax(70px,0.9fr)" }}>
                 <span>{isZh ? "姓名" : "Name"}</span>
                 <span>{isZh ? "手机/邮箱" : "Phone/Email"}</span>
+                <span>{isZh ? "简历" : "Resume"}</span>
                 <span>{isZh ? "城市" : "City"}</span>
                 <span>{isZh ? "年龄" : "Age"}</span>
                 <span>{isZh ? "学历" : "Education"}</span>
@@ -709,6 +732,8 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                             candidate={c}
                             isSelected={selectedCandidateId === c.id}
                             onSelect={onSelectCandidate}
+                            onViewResume={onViewResume}
+                            isZh={isZh}
                         />
                     ))}
                     {/* 加载更多指示器 */}
@@ -4392,6 +4417,25 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionCandidateDetailOpen(true);
     }, []);
 
+    const handleViewResume = useCallback(async (candidateId: number) => {
+        // Use cached resume_files if we already have detail for this candidate
+        if (candidateDetail?.candidate.id === candidateId && candidateDetail?.resume_files?.length) {
+            await openResumePreview({ id: candidateDetail.resume_files[0].id, original_name: candidateDetail.resume_files[0].original_name });
+            return;
+        }
+        // Otherwise fetch candidate detail to get resume_files
+        try {
+            const data = await recruitmentApi<CandidateDetail>(`/candidates/${candidateId}`);
+            if (data?.resume_files?.length) {
+                await openResumePreview({ id: data.resume_files[0].id, original_name: data.resume_files[0].original_name });
+            } else {
+                toast.error(recruitmentUiText.noCandidates || "No resume found");
+            }
+        } catch (error) {
+            toast.error(recruitmentToast.resumeOpenedFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
+        }
+    }, [candidateDetail]);
+
     const handlePositionCandidateSearchChange = useCallback((v: string) => {
         setPositionCandidateSearch(v);
     }, []);
@@ -6277,7 +6321,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function openResumePreview(file: ResumeFile) {
+    async function openResumePreview(file: { id: number; original_name?: string }) {
         if (previewPdfUrl) {
             URL.revokeObjectURL(previewPdfUrl);
         }
@@ -8277,6 +8321,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                     navigateToRecruitmentPage("candidates");
                                                 }}
                                                 onLoadMore={() => { if (selectedPositionId) void loadMorePositionCandidates(selectedPositionId); }}
+                                                onViewResume={handleViewResume}
                                             />
                                         );
                                     })() : (
