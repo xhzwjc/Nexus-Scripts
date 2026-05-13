@@ -1753,69 +1753,64 @@ export function CandidatesPage({
         candidateListScrollRef(node);
     }, [candidateListScrollRef]);
 
+    const rowVirtualizer = useVirtualizer({
+        count: visibleCandidates.length,
+        getScrollElement: () => candidateListViewportEl,
+        estimateSize: () => CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT,
+        overscan: CANDIDATE_LIST_OVERSCAN,
+    });
+
     // ---- 拖拽框选（Rubber Band Selection）----
-    type DragBox = { startX: number; startY: number; currentX: number; currentY: number };
+    // 坐标系说明：所有 Y 坐标均为"内容空间"坐标（clientY - containerTop + scrollTop）
+    // 这样滚动时选框位置不会漂移
+    type DragBox = { startY: number; currentY: number };
     const dragBoxRef = React.useRef<DragBox | null>(null);
     const dragBoxElRef = React.useRef<HTMLDivElement>(null);
     const dragShiftRef = React.useRef(false);
-    const dragContainerRectRef = React.useRef<DOMRect | null>(null);
+    const dragContainerTopRef = React.useRef(0); // 容器视口顶部 Y
+    const baseSelectedIdsRef = React.useRef<Set<number>>(new Set()); // 拖拽开始前的选中集合
+    const draftSelectedIdsRef = React.useRef<Set<number>>(new Set()); // 本次拖拽产生的草稿选中
     const selectedCandidateIdsRef = React.useRef(selectedCandidateIds);
     React.useEffect(() => { selectedCandidateIdsRef.current = selectedCandidateIds; }, [selectedCandidateIds]);
 
-    const rectsIntersect = (r1: {left: number; right: number; top: number; bottom: number}, r2: DOMRect) =>
-        !(r2.left > r1.right || r2.right < r1.left || r2.top > r1.bottom || r2.bottom < r1.top);
-
-    const updateSelectionFromDrag = React.useCallback((box: DragBox, container: HTMLDivElement) => {
-        const containerRect = container.getBoundingClientRect();
-        // dragBox 是视口坐标，row getBoundingClientRect 也是视口坐标
-        // 但行在容器内部有 padding-left 等，需要减去容器偏移
-        const selRect = {
-            left: Math.min(box.startX, box.currentX),
-            right: Math.max(box.startX, box.currentX),
-            top: Math.min(box.startY, box.currentY),
-            bottom: Math.max(box.startY, box.currentY),
-        };
-        // 快速排除：选框完全在容器外
-        if (selRect.right < containerRect.left || selRect.left > containerRect.right ||
-            selRect.bottom < containerRect.top || selRect.top > containerRect.bottom) {
-            return;
-        }
-        const rows = container.querySelectorAll('[data-candidate-id]');
-        const toSelect: number[] = [];
-        rows.forEach((row) => {
-            const rowRect = row.getBoundingClientRect();
-            if (rectsIntersect(selRect, rowRect)) {
-                const id = Number(row.getAttribute('data-candidate-id'));
-                if (!isNaN(id)) toSelect.push(id);
+    // 用虚拟化器的行位置做交集判断（内容空间坐标）
+    const getDragIntersectingIds = React.useCallback((boxTop: number, boxBottom: number): Set<number> => {
+        const result = new Set<number>();
+        const virtualItems = rowVirtualizer.getVirtualItems();
+        for (const item of virtualItems) {
+            const rowTop = item.start;
+            const rowBottom = item.start + item.size;
+            if (boxTop <= rowBottom && boxBottom >= rowTop) {
+                const candidate = visibleCandidates[item.index];
+                if (candidate) result.add(candidate.id);
             }
-        });
-        if (toSelect.length === 0) return;
-        if (dragShiftRef.current) {
-            // 追加模式
-            const merged = [...new Set([...selectedCandidateIdsRef.current, ...toSelect])];
-            setSelectedCandidateIds(merged);
-        } else {
-            // 替换模式
-            setSelectedCandidateIds(toSelect);
         }
+        return result;
+    }, [rowVirtualizer, visibleCandidates]);
+
+    // 同步选区到 state（合并 base + draft）
+    const commitDraftToUI = React.useCallback(() => {
+        const merged = new Set(baseSelectedIdsRef.current);
+        draftSelectedIdsRef.current.forEach((id) => merged.add(id));
+        setSelectedCandidateIds([...merged]);
     }, []);
 
-    const updateDragBoxVisual = React.useCallback((box: DragBox | null, containerRect: DOMRect | null) => {
+    // 更新选框 DOM（内容空间坐标 → 相对于容器的视觉坐标）
+    const updateDragBoxVisual = React.useCallback((box: DragBox | null, scrollTop: number) => {
         const el = dragBoxElRef.current;
         if (!el) return;
-        if (!box || !containerRect) {
+        if (!box) {
             el.style.display = 'none';
             return;
         }
-        const left = Math.min(box.startX, box.currentX) - containerRect.left;
-        const top = Math.min(box.startY, box.currentY) - containerRect.top;
-        const width = Math.abs(box.currentX - box.startX);
+        const top = Math.min(box.startY, box.currentY) - scrollTop;
         const height = Math.abs(box.currentY - box.startY);
         el.style.display = 'block';
-        el.style.left = `${left}px`;
+        el.style.left = '0';
+        el.style.right = '0';
         el.style.top = `${top}px`;
-        el.style.width = `${width}px`;
         el.style.height = `${height}px`;
+        el.style.width = '100%';
     }, []);
 
     const handleMouseDown = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -1824,43 +1819,66 @@ export function CandidatesPage({
         // 排除 checkbox、button、a 等可交互元素
         if (target.closest('input[type="checkbox"]') || target.closest('button') || target.closest('a')) return;
         e.preventDefault();
+        const container = candidateListViewportEl;
+        if (!container) return;
+
         dragShiftRef.current = e.shiftKey;
-        if (candidateListViewportEl) {
-            dragContainerRectRef.current = candidateListViewportEl.getBoundingClientRect();
-        }
-        const newBox = { startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY };
-        dragBoxRef.current = newBox;
-        updateDragBoxVisual(newBox, dragContainerRectRef.current);
+        // 记录容器视口顶部位置
+        const containerRect = container.getBoundingClientRect();
+        dragContainerTopRef.current = containerRect.top;
+        // 转换为内容空间坐标
+        const startY = e.clientY - containerRect.top + container.scrollTop;
+        dragBoxRef.current = { startY, currentY: startY };
+        // 记录拖拽开始时的选中集合
+        baseSelectedIdsRef.current = new Set(selectedCandidateIdsRef.current);
+        draftSelectedIdsRef.current = new Set();
+        updateDragBoxVisual({ startY, currentY: startY }, container.scrollTop);
 
         const onMove = (ev: MouseEvent) => {
             const box = dragBoxRef.current;
-            if (!box || !candidateListViewportEl) return;
-            const updated = { ...box, currentX: ev.clientX, currentY: ev.clientY };
+            if (!box) return;
+            // 内容空间坐标：clientY - containerTop + scrollTop
+            const currentY = ev.clientY - dragContainerTopRef.current + container.scrollTop;
+            const updated = { ...box, currentY };
             dragBoxRef.current = updated;
-            updateDragBoxVisual(updated, dragContainerRectRef.current);
+            // 实时计算草稿选中
+            const boxTop = Math.min(updated.startY, updated.currentY);
+            const boxBottom = Math.max(updated.startY, updated.currentY);
+            draftSelectedIdsRef.current = getDragIntersectingIds(boxTop, boxBottom);
+            commitDraftToUI();
+            updateDragBoxVisual(updated, container.scrollTop);
+        };
+        const onScroll = () => {
+            const box = dragBoxRef.current;
+            if (!box) return;
+            // 滚动时重新计算选区（坐标不变，但可视行变了）
+            const boxTop = Math.min(box.startY, box.currentY);
+            const boxBottom = Math.max(box.startY, box.currentY);
+            draftSelectedIdsRef.current = getDragIntersectingIds(boxTop, boxBottom);
+            commitDraftToUI();
+            updateDragBoxVisual(box, container.scrollTop);
         };
         const onUp = (ev: MouseEvent) => {
             const box = dragBoxRef.current;
-            // 只在鼠标实际移动后才更新选区，避免简单点击也触发勾选
-            if (box && candidateListViewportEl && (box.startX !== box.currentX || box.startY !== box.currentY)) {
+            // 只在鼠标实际移动后才提交选区
+            if (box && (box.startY !== box.currentY)) {
                 dragShiftRef.current = ev.shiftKey;
-                updateSelectionFromDrag(box, candidateListViewportEl);
+                // 最终选中 = base ∪ draft
+                const merged = new Set(baseSelectedIdsRef.current);
+                draftSelectedIdsRef.current.forEach((id) => merged.add(id));
+                setSelectedCandidateIds([...merged]);
             }
             dragBoxRef.current = null;
-            updateDragBoxVisual(null, null);
+            draftSelectedIdsRef.current = new Set();
+            updateDragBoxVisual(null, 0);
+            container.removeEventListener('scroll', onScroll);
             window.removeEventListener('mousemove', onMove);
             window.removeEventListener('mouseup', onUp);
         };
+        container.addEventListener('scroll', onScroll, { passive: true });
         window.addEventListener('mousemove', onMove);
         window.addEventListener('mouseup', onUp);
-    }, [candidateListViewportEl, updateDragBoxVisual, updateSelectionFromDrag]);
-
-    const rowVirtualizer = useVirtualizer({
-        count: visibleCandidates.length,
-        getScrollElement: () => candidateListViewportEl,
-        estimateSize: () => CANDIDATE_LIST_ESTIMATED_ROW_HEIGHT,
-        overscan: CANDIDATE_LIST_OVERSCAN,
-    });
+    }, [candidateListViewportEl, updateDragBoxVisual, getDragIntersectingIds, commitDraftToUI]);
 
     const candidateListVisibleColumns = React.useMemo<CandidateListColumnKey[]>(
         () => (
