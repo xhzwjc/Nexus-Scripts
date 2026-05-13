@@ -100,6 +100,7 @@ import {
 import {Input} from "@/components/ui/input";
 import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover";
 import {ScrollArea} from "@/components/ui/scroll-area";
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "@/components/ui/select";
 import {OrgScopeBreadcrumbPicker} from './OrgScopeBreadcrumbPicker';
 import {Textarea} from "@/components/ui/textarea";
 import {
@@ -553,9 +554,9 @@ const PositionCandidateSearchInput = React.memo(function PositionCandidateSearch
     }, [onChange]);
 
     return (
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-w-0 max-w-[300px] flex-1">
             <Input
-                className="h-8 rounded-lg text-xs pl-8"
+                className="h-8 min-w-[120px] rounded-lg text-xs pl-8"
                 placeholder={placeholder}
                 value={localValue}
                 onChange={handleChange}
@@ -663,7 +664,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
     } = props;
 
     const statusOptions = [
-        { value: "", label: isZh ? "全部" : "All" },
+        { value: "__all__", label: isZh ? "全部" : "All" },
         ...Object.entries(candidateStatusLabels).map(([k, v]) => ({ value: k, label: v })),
     ];
 
@@ -678,36 +679,33 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                     onChange={onSearchChange}
                     placeholder={recruitmentUiText.positionCandidatesSearch}
                 />
-                <div className="flex flex-wrap gap-1">
-                    {statusOptions.map((opt) => (
-                        <button
-                            key={opt.value}
-                            type="button"
-                            className={cn(
-                                "rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors",
-                                positionCandidateStatusFilter === opt.value
-                                    ? "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300"
-                                    : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                            )}
-                            onClick={() => onStatusFilterChange(opt.value)}
-                        >
-                            {opt.label}
-                        </button>
-                    ))}
+                <Select value={positionCandidateStatusFilter} onValueChange={onStatusFilterChange}>
+                    <SelectTrigger className="h-8 w-fit rounded-lg text-xs">
+                        <SelectValue placeholder={isZh ? "筛选状态" : "Filter status"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {statusOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <div className="ml-auto flex items-center gap-2">
+                    {positionCandidatesTotal > 0 && (
+                        <span className="shrink-0 text-[11px] text-slate-400">
+                            {positionCandidatesTotal}{isZh ? "人" : " total"}
+                        </span>
+                    )}
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 shrink-0 rounded-lg px-2 text-[10px]"
+                        onClick={onViewAllCandidates}
+                    >
+                        {recruitmentUiText.viewInCandidatePage}
+                    </Button>
                 </div>
-                {positionCandidatesTotal > 0 && (
-                    <span className="shrink-0 text-[11px] text-slate-400">
-                        {positionCandidatesTotal}{isZh ? "人" : " total"}
-                    </span>
-                )}
-                <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 shrink-0 rounded-lg px-2 text-[10px]"
-                    onClick={onViewAllCandidates}
-                >
-                    {recruitmentUiText.viewInCandidatePage}
-                </Button>
             </div>
             {/* 列头 */}
             <div className="grid items-center gap-6 border-b border-slate-200/80 px-4 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500" style={{ height: 32, gridTemplateColumns: "minmax(80px,1.2fr) minmax(120px,1.8fr) minmax(40px,0.5fr) minmax(60px,0.8fr) minmax(40px,0.4fr) minmax(70px,0.8fr) minmax(50px,0.6fr) minmax(50px,0.6fr) minmax(70px,0.9fr)" }}>
@@ -1323,7 +1321,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [positionSecondaryPanelOpen, setPositionSecondaryPanelOpen] = useState(false);
     // 岗位内嵌候选人列表状态
     const [positionCandidateSearch, setPositionCandidateSearch] = useState("");
-    const [positionCandidateStatusFilter, setPositionCandidateStatusFilter] = useState<string>("");
+    const [positionCandidateStatusFilter, setPositionCandidateStatusFilter] = useState<string>("__all__");
     const [positionCandidateDetailOpen, setPositionCandidateDetailOpen] = useState(false);
 
     const [positionCandidatesData, setPositionCandidatesData] = useState<CandidateSummary[]>([]);
@@ -2264,7 +2262,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionSecondaryPanelOpen(false);
         setPositionCandidateDetailOpen(false);
         setPositionCandidateSearch("");
-        setPositionCandidateStatusFilter("");
+        setPositionCandidateStatusFilter("__all__");
         setPositionCandidatesData([]);
         setPositionCandidatesTotal(0);
         setPositionCandidatesInitialLoaded(false);
@@ -7881,7 +7879,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     // Memoize filtered + sorted candidates for position detail view
     const positionFilteredSortedCandidates = useMemo(() => {
         const filtered = positionCandidatesData.filter((c) =>
-            !positionCandidateStatusFilter || c.status === positionCandidateStatusFilter
+            positionCandidateStatusFilter === "__all__" || c.status === positionCandidateStatusFilter
         );
         return [...filtered].sort((a, b) => {
             const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
