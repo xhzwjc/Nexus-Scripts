@@ -1,6 +1,7 @@
 "use client";
 
 import React, {useCallback, useDeferredValue, useEffect, useMemo, useRef, startTransition, useState} from "react";
+import {createPortal} from "react-dom";
 import {
     ArrowLeft,
     Bot,
@@ -1318,6 +1319,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [candidateDetailLoading, setCandidateDetailLoading] = useState(false);
     const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
     const [previewPdfLoading, setPreviewPdfLoading] = useState(false);
+    const [previewCandidateName, setPreviewCandidateName] = useState<string>("");
     const previewPdfAbortRef = useRef<AbortController | null>(null);
     const [duplicateCandidates, setDuplicateCandidates] = useState<Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>>([]);
     const [logsLoading, setLogsLoading] = useState(false);
@@ -4404,14 +4406,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const handleViewResume = useCallback(async (candidateId: number) => {
         // Use cached resume_files if we already have detail for this candidate
         if (candidateDetail?.candidate.id === candidateId && candidateDetail?.resume_files?.length) {
-            await openResumePreview({ id: candidateDetail.resume_files[0].id, original_name: candidateDetail.resume_files[0].original_name });
+            await openResumePreview({ id: candidateDetail.resume_files[0].id, original_name: candidateDetail.resume_files[0].original_name }, candidateDetail.candidate.name);
             return;
         }
         // Otherwise fetch candidate detail to get resume_files
         try {
             const data = await recruitmentApi<CandidateDetail>(`/candidates/${candidateId}`);
             if (data?.resume_files?.length) {
-                await openResumePreview({ id: data.resume_files[0].id, original_name: data.resume_files[0].original_name });
+                await openResumePreview({ id: data.resume_files[0].id, original_name: data.resume_files[0].original_name }, data.candidate.name);
             } else {
                 toast.error(recruitmentUiText.noCandidates || "No resume found");
             }
@@ -6305,7 +6307,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function openResumePreview(file: { id: number; original_name?: string }) {
+    async function openResumePreview(file: { id: number; original_name?: string }, candidateName?: string) {
         // Abort any in-flight request
         if (previewPdfAbortRef.current) {
             previewPdfAbortRef.current.abort();
@@ -6316,6 +6318,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setPreviewPdfUrl(null);
         }
         setPreviewPdfLoading(true);
+        setPreviewCandidateName(candidateName || "");
         const abortController = new AbortController();
         previewPdfAbortRef.current = abortController;
         const TIMEOUT_MS = 10_000;
@@ -6355,7 +6358,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    function closeResumePreview() {
+    const closeResumePreview = useCallback(() => {
         if (previewPdfAbortRef.current) {
             previewPdfAbortRef.current.abort();
             previewPdfAbortRef.current = null;
@@ -6365,7 +6368,40 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setPreviewPdfUrl(null);
         }
         setPreviewPdfLoading(false);
-    }
+        setPreviewCandidateName("");
+    }, [previewPdfUrl]);
+
+    // ESC 键全局监听 + Body scroll lock
+    React.useEffect(() => {
+        if (!previewPdfUrl) return;
+        
+        // 锁定 body 滚动
+        const originalOverflow = document.body.style.overflow;
+        const originalPaddingRight = document.body.style.paddingRight;
+        
+        // 计算滚动条宽度，避免内容抖动
+        const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+        document.body.style.overflow = 'hidden';
+        if (scrollbarWidth > 0) {
+            document.body.style.paddingRight = `${scrollbarWidth}px`;
+        }
+        
+        // ESC 键监听
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                closeResumePreview();
+            }
+        };
+        
+        window.addEventListener("keydown", handleEscape);
+        
+        return () => {
+            // 恢复 body 滚动
+            document.body.style.overflow = originalOverflow;
+            document.body.style.paddingRight = originalPaddingRight;
+            window.removeEventListener("keydown", handleEscape);
+        };
+    }, [previewPdfUrl, closeResumePreview]);
 
     function requestDeleteResumeFile(file: ResumeFile) {
         setResumeDeleteTarget(file);
@@ -9999,45 +10035,78 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 </DialogContent>
             </Dialog>
 
-            {/* 简历 PDF 预览模态框 */}
-            <Dialog open={!!previewPdfUrl} onOpenChange={() => closeResumePreview()}>
-                <DialogContent showCloseButton={false} className="flex h-[95vh] w-[90vw] max-w-[1000px] flex-col overflow-hidden border-none bg-slate-900 p-0">
-                    <DialogHeader className="flex flex-row items-center justify-between border-b border-slate-800 bg-white px-6 py-3 dark:bg-slate-950">
-                        <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
-                            <FileText className="h-4 w-4 text-blue-500" />
-                            {isZh ? "简历预览" : "Resume Preview"}
-                        </DialogTitle>
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => previewPdfUrl && window.open(previewPdfUrl, "_blank")}
-                            >
-                                <ExternalLink className="mr-1 h-4 w-4" />
-                                {isZh ? "新窗口打开" : "Open in New Tab"}
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => closeResumePreview()}>
-                                <X className="h-4 w-4" />
-                            </Button>
-                        </div>
-                    </DialogHeader>
-                    <div className="relative flex-1 w-full bg-slate-100 dark:bg-slate-900">
-                        {previewPdfLoading && (
-                            <div className="absolute inset-0 flex items-center justify-center">
-                                <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+            {/* 简历 PDF 预览模态窗口 - 使用 Portal 渲染到 body */}
+            {previewPdfUrl && typeof document !== 'undefined' && createPortal(
+                <div className="fixed inset-0 isolate" style={{ zIndex: 999999 }}>
+                    {/* 背景遮罩层 - 纯黑色 */}
+                    <div
+                        className="absolute inset-0 bg-black/80 animate-in fade-in duration-200"
+                        onClick={() => closeResumePreview()}
+                    />
+                    
+                    {/* 简历预览窗口 */}
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col w-[90vw] max-w-5xl h-[90vh] bg-white rounded-lg shadow-2xl animate-in zoom-in-95 fade-in duration-200">
+                        {/* 顶部工具栏 */}
+                        <div className="flex items-center justify-between bg-slate-900 px-4 py-3 text-white rounded-t-lg border-b border-slate-700">
+                            <div className="flex items-center gap-3">
+                                <div className="rounded-lg bg-blue-500/20 p-2">
+                                    <FileText className="h-5 w-5 text-blue-400" />
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-sm font-semibold">
+                                        {previewCandidateName || (isZh ? "简历预览" : "Resume Preview")}
+                                    </span>
+                                    {previewCandidateName && (
+                                        <span className="text-xs text-slate-400">
+                                            {isZh ? "简历预览" : "Resume Preview"}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
-                        )}
-                        {previewPdfUrl && (
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                                    onClick={() => previewPdfUrl && window.open(previewPdfUrl, "_blank")}
+                                >
+                                    <ExternalLink className="mr-2 h-4 w-4" />
+                                    {isZh ? "新窗口打开" : "Open in New Tab"}
+                                </Button>
+                                <div className="w-px h-6 bg-slate-700 mx-1" />
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-9 w-9 rounded-full text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                                    onClick={() => closeResumePreview()}
+                                    title={isZh ? "关闭 (ESC)" : "Close (ESC)"}
+                                >
+                                    <X className="h-5 w-5" />
+                                </Button>
+                            </div>
+                        </div>
+
+                        {/* PDF 内容区域 */}
+                        <div className="relative flex-1 w-full bg-slate-100 rounded-b-lg overflow-hidden">
+                            {previewPdfLoading && (
+                                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/90 backdrop-blur-sm">
+                                    <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
+                                    <p className="text-sm text-slate-600">
+                                        {isZh ? "加载中..." : "Loading..."}
+                                    </p>
+                                </div>
+                            )}
                             <iframe
-                                src={`${previewPdfUrl}#toolbar=0&navpanes=0`}
+                                src={`${previewPdfUrl}#toolbar=0&navpanes=0&view=FitH`}
                                 className="h-full w-full border-none"
                                 title="Resume Preview"
                                 onLoad={() => setPreviewPdfLoading(false)}
                             />
-                        )}
+                        </div>
                     </div>
-                </DialogContent>
-            </Dialog>
+                </div>,
+                document.body
+            )}
         </div>
     );
 }

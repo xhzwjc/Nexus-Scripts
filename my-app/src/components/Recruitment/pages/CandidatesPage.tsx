@@ -1477,7 +1477,7 @@ type CandidatesPageProps = {
     isSelectedCandidateScreeningCancelling: boolean;
     selectedCandidateScreeningTaskId: number | null;
     openResumeFile: (file: ResumeFile, download?: boolean) => Promise<void>;
-    previewResumeFile: (file: { id: number; original_name?: string }) => void;
+    previewResumeFile: (file: { id: number; original_name?: string }, candidateName?: string) => void;
     requestDeleteResumeFile: (file: ResumeFile) => void;
     requestDeleteCandidate: (candidate: CandidateSummary) => void;
     generateInterviewQuestions: () => Promise<void>;
@@ -2612,7 +2612,7 @@ export function CandidatesPage({
                                                 {isSelectedCandidateScreeningCancelling ? tr.stopping : selectedCandidateScreeningTaskId ? tr.stopScreening : screeningSubmitting ? tr.queueing : tr.startScreening}
                                             </Button>
                                             {primaryResumeFile ? (
-                                                <Button className="shrink-0" size="sm" variant="outline" onClick={() => previewResumeFile({ id: primaryResumeFile.id, original_name: primaryResumeFile.original_name })}>
+                                                <Button className="shrink-0" size="sm" variant="outline" onClick={() => previewResumeFile({ id: primaryResumeFile.id, original_name: primaryResumeFile.original_name }, candidateDetail.candidate.name)}>
                                                     <Eye className="h-4 w-4"/>
                                                     {tr.previewResume}
                                                 </Button>
@@ -3281,7 +3281,7 @@ export function CandidatesPage({
                                                     </div>
                                                     {primaryResumeFile ? (
                                                         <div className="flex flex-wrap gap-2">
-                                                            <Button size="sm" variant="outline" onClick={() => previewResumeFile({ id: primaryResumeFile.id, original_name: primaryResumeFile.original_name })}>
+                                                            <Button size="sm" variant="outline" onClick={() => previewResumeFile({ id: primaryResumeFile.id, original_name: primaryResumeFile.original_name }, candidateDetail.candidate.name)}>
                                                                 <Eye className="mr-1 h-4 w-4"/>
                                                                 {tr.viewOriginal}
                                                             </Button>
