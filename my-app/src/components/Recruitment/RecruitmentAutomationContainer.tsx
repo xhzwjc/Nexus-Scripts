@@ -516,6 +516,240 @@ function PositionCandidatesLoadMoreSentinel({ onVisible, label }: { onVisible: (
     );
 }
 
+const PositionCandidateSearchInput = React.memo(function PositionCandidateSearchInput({
+    initialValue,
+    onChange,
+    placeholder,
+}: {
+    initialValue: string;
+    onChange: (v: string) => void;
+    placeholder: string;
+}) {
+    const [localValue, setLocalValue] = React.useState(initialValue);
+
+    React.useEffect(() => {
+        setLocalValue(initialValue);
+    }, [initialValue]);
+
+    const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setLocalValue(e.target.value);
+        onChange(e.target.value);
+    }, [onChange]);
+
+    return (
+        <div className="relative min-w-0 flex-1">
+            <Input
+                className="h-8 rounded-lg text-xs pl-8"
+                placeholder={placeholder}
+                value={localValue}
+                onChange={handleChange}
+            />
+            <svg className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <circle cx="11" cy="11" r="8" strokeWidth="2"/>
+                <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+        </div>
+    );
+});
+
+const PositionQuerySearchInput = React.memo(function PositionQuerySearchInput({
+    initialValue,
+    onChange,
+    placeholder,
+    inputClassName,
+}: {
+    initialValue: string;
+    onChange: (v: string) => void;
+    placeholder: string;
+    inputClassName?: string;
+}) {
+    const [localValue, setLocalValue] = React.useState(initialValue);
+
+    React.useEffect(() => {
+        setLocalValue(initialValue);
+    }, [initialValue]);
+
+    const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        setLocalValue(e.target.value);
+        onChange(e.target.value);
+    }, [onChange]);
+
+    return (
+        <div className="relative">
+            <Input
+                className={inputClassName}
+                placeholder={placeholder}
+                value={localValue}
+                onChange={handleChange}
+            />
+            <svg className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <circle cx="11" cy="11" r="8" strokeWidth="2"/>
+                <path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+        </div>
+    );
+});
+
+interface PositionCandidatesViewProps {
+    positionDetail: PositionDetail;
+    positionCandidatesData: CandidateSummary[];
+    positionCandidatesLoading: boolean;
+    positionCandidatesTotal: number;
+    positionCandidateDetailOpen: boolean;
+    positionCandidateStatusFilter: string;
+    positionFilteredSortedCandidates: CandidateSummary[];
+    positionCandidateOnSelectMap: Map<number, () => void>;
+    isLoadingMorePositionCandidates: boolean;
+    selectedPositionId: number | null;
+    selectedCandidateId: number | null;
+    candidateDetail: CandidateDetail | null;
+    candidateDetailLoading: boolean;
+    detailContent: React.ReactNode;
+    initialSearchValue: string;
+    isZh: boolean;
+    recruitmentUiText: { positionCandidatesSearch: string; viewInCandidatePage: string; noCandidates: string; noCandidatesDesc: string };
+    candidateStatusLabels: Record<string, string>;
+    onSearchChange: (v: string) => void;
+    onStatusFilterChange: (v: string) => void;
+    onCloseDetail: () => void;
+    onViewInCandidatePage: (candidateId: number) => void;
+    onViewAllCandidates: () => void;
+    onLoadMore: () => void;
+}
+
+const PositionCandidatesView = React.memo(function PositionCandidatesView(props: PositionCandidatesViewProps) {
+    const {
+        positionDetail,
+        positionCandidatesData,
+        positionCandidatesLoading,
+        positionCandidatesTotal,
+        positionCandidateDetailOpen,
+        positionCandidateStatusFilter,
+        positionFilteredSortedCandidates,
+        positionCandidateOnSelectMap,
+        isLoadingMorePositionCandidates,
+        selectedPositionId,
+        selectedCandidateId,
+        detailContent,
+        initialSearchValue,
+        isZh,
+        recruitmentUiText,
+        candidateStatusLabels,
+        onSearchChange,
+        onStatusFilterChange,
+        onCloseDetail,
+        onViewAllCandidates,
+        onLoadMore,
+    } = props;
+
+    const statusOptions = [
+        { value: "", label: isZh ? "全部" : "All" },
+        ...Object.entries(candidateStatusLabels).map(([k, v]) => ({ value: k, label: v })),
+    ];
+
+    return (
+        <div className="relative flex h-full min-h-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 shadow-sm dark:border-slate-800 dark:bg-slate-950/85">
+        {/* 左侧列表 */}
+        <div className={cn(
+            "flex min-w-0 flex-col transition-all duration-200",
+            positionCandidateDetailOpen ? "w-[52%]" : "w-full"
+        )}>
+            {/* 工具栏 */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
+                <PositionCandidateSearchInput
+                    initialValue={initialSearchValue}
+                    onChange={onSearchChange}
+                    placeholder={recruitmentUiText.positionCandidatesSearch}
+                />
+                <div className="flex flex-wrap gap-1">
+                    {statusOptions.map((opt) => (
+                        <button
+                            key={opt.value}
+                            type="button"
+                            className={cn(
+                                "rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors",
+                                positionCandidateStatusFilter === opt.value
+                                    ? "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300"
+                                    : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            )}
+                            onClick={() => onStatusFilterChange(opt.value)}
+                        >
+                            {opt.label}
+                        </button>
+                    ))}
+                </div>
+                {positionCandidatesTotal > 0 && (
+                    <span className="shrink-0 text-[11px] text-slate-400">
+                        {positionCandidatesTotal}{isZh ? "人" : " total"}
+                    </span>
+                )}
+                <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 shrink-0 rounded-lg px-2 text-[10px]"
+                    onClick={onViewAllCandidates}
+                >
+                    {recruitmentUiText.viewInCandidatePage}
+                </Button>
+            </div>
+            {/* 列头 */}
+            <div className="grid items-center gap-6 border-b border-slate-200/80 px-4 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500" style={{ height: 32, gridTemplateColumns: "1.2fr 1.5fr 0.8fr 0.5fr 0.8fr 0.7fr 0.5fr 0.8fr" }}>
+                <span>{isZh ? "姓名" : "Name"}</span>
+                <span>{isZh ? "手机/邮箱" : "Phone/Email"}</span>
+                <span>{isZh ? "城市" : "City"}</span>
+                <span>{isZh ? "年龄" : "Age"}</span>
+                <span>{isZh ? "学历" : "Education"}</span>
+                <span>{isZh ? "年限" : "Exp"}</span>
+                <span className="text-right">{isZh ? "匹配" : "Match"}</span>
+                <span>{isZh ? "状态" : "Status"}</span>
+            </div>
+            {/* 候选人列表 */}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+            {positionCandidatesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                    <LoadingPanel label={isZh ? "加载候选人..." : "Loading candidates..."} />
+                </div>
+            ) : positionFilteredSortedCandidates.length > 0 ? (
+                <>
+                    {positionFilteredSortedCandidates.map((c) => (
+                        <PositionCandidateRow
+                            key={c.id}
+                            candidate={c}
+                            isSelected={selectedCandidateId === c.id}
+                            onSelect={positionCandidateOnSelectMap.get(c.id) ?? (() => {})}
+                        />
+                    ))}
+                    {/* 加载更多指示器 */}
+                    {positionCandidatesData.length < positionCandidatesTotal && (
+                        <PositionCandidatesLoadMoreSentinel
+                            onVisible={onLoadMore}
+                            label={isLoadingMorePositionCandidates
+                                ? (isZh ? "加载中..." : "Loading...")
+                                : (isZh ? "滚动加载更多" : "Scroll to load more")}
+                        />
+                    )}
+                </>
+            ) : (
+                <div className="flex items-center justify-center py-12">
+                    <EmptyState
+                        title={positionCandidatesData.length ? (isZh ? "没有匹配的候选人" : "No matching candidates") : recruitmentUiText.noCandidates}
+                        description={positionCandidatesData.length ? (isZh ? "尝试调整筛选条件" : "Try adjusting filters") : recruitmentUiText.noCandidatesDesc}
+                    />
+                </div>
+            )}
+            </div>
+        </div>
+
+        {/* 右侧详情面板 */}
+        {positionCandidateDetailOpen && (
+            <div className="flex min-h-0 w-[48%] animate-in slide-in-from-right flex-col border-l border-slate-200/80 duration-200 dark:border-slate-800">
+                {detailContent}
+            </div>
+        )}
+        </div>
+    );
+});
+
 export default function RecruitmentAutomationContainer({onBack, initialPage}: RecruitmentAutomationContainerProps) {
     const {language} = useI18n();
     const isZh = language === "zh-CN";
@@ -971,7 +1205,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [positionCandidateSearch, setPositionCandidateSearch] = useState("");
     const [positionCandidateStatusFilter, setPositionCandidateStatusFilter] = useState<string>("");
     const [positionCandidateDetailOpen, setPositionCandidateDetailOpen] = useState(false);
-    const [positionCandidateDetailMode] = useState<"drawer">("drawer");
+
     const [positionCandidatesData, setPositionCandidatesData] = useState<CandidateSummary[]>([]);
     const [positionCandidatesLoading, setPositionCandidatesLoading] = useState(false);
     const [positionCandidatesTotal, setPositionCandidatesTotal] = useState(0);
@@ -1912,15 +2146,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     // 搜索候选人（服务端搜索，防抖 300ms）
     useEffect(() => {
-        if (positionWorkspaceView !== "candidates" || !selectedPositionId) return;
-        // 数据已加载且无搜索关键词时跳过，避免重复请求
-        if (positionCandidatesData.length > 0 && !positionCandidateSearch) return;
-        // 正在加载中时跳过，避免与 loadPositionDetail 中的调用重复
-        if (positionCandidatesLoading) return;
-        const timer = setTimeout(() => {
-            loadPositionCandidates(selectedPositionId, positionCandidateSearch || undefined);
+        if (!selectedPositionId) return;
+        const timer = window.setTimeout(() => {
+            void loadPositionCandidates(selectedPositionId, positionCandidateSearch || undefined);
         }, 300);
-        return () => clearTimeout(timer);
+        return () => window.clearTimeout(timer);
     }, [positionCandidateSearch, positionWorkspaceView, selectedPositionId]);
 
 
@@ -2774,9 +3004,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             // 始终加载候选人总数（用于 Tab badge 和岗位信息栏）
             loadPositionCandidatesCount(data.position.id);
             // 智能默认 Tab：有 JD 时默认候选人，无 JD 时默认 JD
+            // 候选人数据由搜索 useEffect 统一加载，避免重复请求
             if (data.current_jd_version) {
                 setPositionWorkspaceView("candidates");
-                loadPositionCandidates(data.position.id);
             } else {
                 setPositionWorkspaceView("jd");
             }
@@ -4161,6 +4391,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSelectedCandidateId(candidateId);
         setPositionCandidateDetailOpen(true);
     }
+
+    const handlePositionCandidateSearchChange = useCallback((v: string) => {
+        setPositionCandidateSearch(v);
+    }, []);
+
+    const handlePositionQueryChange = useCallback((v: string) => {
+        setPositionQuery(v);
+    }, []);
 
     function openCreatePosition() {
         setPositionDialogMode("create");
@@ -7388,295 +7626,26 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         );
     }
 
-    function renderPositionCandidatesView() {
-        if (!positionDetail) return null;
-        // 使用 positionCandidatesData（通过 /candidates?position_id= 加载）
-        const candidates = positionCandidatesData;
-        // 加载中状态
-        if (positionCandidatesLoading) {
-            return (
-                <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white/95 py-12 shadow-sm dark:border-slate-800 dark:bg-slate-950/85">
-                    <LoadingPanel label={isZh ? "加载候选人..." : "Loading candidates..."} />
-                </div>
-            );
-        }
-        // 状态筛选（客户端，搜索已由服务端处理）
-        const filteredCandidates = candidates.filter((c) => {
-            if (positionCandidateStatusFilter && c.status !== positionCandidateStatusFilter) return false;
-            return true;
-        });
-        // 按更新时间降序
-        const sortedCandidates = [...filteredCandidates].sort((a, b) => {
+    // Memoize filtered + sorted candidates for position detail view
+    const positionFilteredSortedCandidates = useMemo(() => {
+        const filtered = positionCandidatesData.filter((c) =>
+            !positionCandidateStatusFilter || c.status === positionCandidateStatusFilter
+        );
+        return [...filtered].sort((a, b) => {
             const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
             const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
             return tb - ta;
         });
-        const statusOptions = [
-            { value: "", label: isZh ? "全部" : "All" },
-            ...Object.entries(candidateStatusLabels).map(([k, v]) => ({ value: k, label: v })),
-        ];
-        // 详情内容（抽屉共用）
-        const detailContent = candidateDetailLoading ? (
-            <LoadingPanel label={isZh ? "加载中..." : "Loading..."} />
-        ) : candidateDetail ? (() => {
-            const c = candidateDetail.candidate;
-            const score = candidateDetail.score;
-            const resumeFiles = candidateDetail.resume_files || [];
-            const statusHistory = candidateDetail.status_history || [];
-            return (
-                <div className="flex h-full min-h-0 flex-col">
-                    {/* 头部 */}
-                    <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3 dark:border-slate-800">
-                        <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{c.name}</p>
-                            <p className="mt-0.5 text-[11px] text-slate-500">{c.candidate_code}</p>
-                        </div>
-                        <button
-                            type="button"
-                            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
-                            onClick={() => setPositionCandidateDetailOpen(false)}
-                        >
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-5">
-                        {/* 状态 & 匹配度 */}
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(c)))}>
-                                {labelForCandidateStatus(resolveCandidateDisplayStatus(c))}
-                            </Badge>
-                            <Badge variant="outline" className="rounded-full">
-                                {isZh ? "匹配度" : "Match"} {formatPercent(c.match_percent)}
-                            </Badge>
-                            {c.position_title && (
-                                <Badge variant="outline" className="rounded-full">
-                                    {c.position_title}
-                                </Badge>
-                            )}
-                        </div>
+    }, [positionCandidatesData, positionCandidateStatusFilter]);
 
-                        {/* 基本信息 */}
-                        <div className="space-y-1.5 text-sm">
-                            <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "基本信息" : "Basic Info"}</p>
-                            {[
-                                { label: isZh ? "手机号" : "Phone", value: c.phone },
-                                { label: isZh ? "邮箱" : "Email", value: c.email },
-                                { label: isZh ? "城市" : "City", value: c.city },
-                                { label: isZh ? "年龄" : "Age", value: c.age != null ? String(c.age) : null },
-                                { label: isZh ? "公司" : "Company", value: c.current_company },
-                                { label: isZh ? "工作年限" : "Experience", value: c.years_of_experience },
-                                { label: isZh ? "学历" : "Education", value: c.education },
-                                { label: isZh ? "来源" : "Source", value: c.source },
-                            ].filter((f) => f.value).map((f) => (
-                                <div key={f.label} className="flex items-center justify-between">
-                                    <span className="text-slate-500">{f.label}</span>
-                                    <span className="font-medium text-slate-900 dark:text-slate-100">{f.value}</span>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* 评分详情 */}
-                        {score && (
-                            <div className="space-y-2">
-                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "评分详情" : "Score Details"}</p>
-                                {score.dimensions && score.dimensions.length > 0 && (
-                                    <div className="space-y-1.5">
-                                        {score.dimensions.map((dim, i) => (
-                                            <div key={i} className="flex items-center gap-2">
-                                                <span className="min-w-0 flex-1 truncate text-xs text-slate-600 dark:text-slate-400">{dim.label || `维度${i + 1}`}</span>
-                                                <div className="flex items-center gap-1">
-                                                    <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                        <div
-                                                            className="h-full rounded-full bg-teal-500"
-                                                            style={{ width: `${dim.max_score ? Math.min(100, (dim.score ?? 0) / dim.max_score * 100) : 0}%` }}
-                                                        />
-                                                    </div>
-                                                    <span className="w-8 text-right text-[11px] text-slate-500">{dim.score ?? "-"}/{dim.max_score ?? "-"}</span>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                {score.advantages && score.advantages.length > 0 && (
-                                    <div>
-                                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400">{isZh ? "优势" : "Advantages"}</p>
-                                        <ul className="mt-1 space-y-0.5">
-                                            {score.advantages.map((a, i) => (
-                                                <li key={i} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{a}</li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-                                {score.concerns && score.concerns.length > 0 && (
-                                    <div>
-                                        <p className="text-[11px] text-amber-600 dark:text-amber-400">{isZh ? "风险" : "Concerns"}</p>
-                                        <ul className="mt-1 space-y-0.5">
-                                            {score.concerns.map((a, i) => (
-                                                <li key={i} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{a}</li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
-                                {score.recommendation && (
-                                    <div>
-                                        <p className="text-[11px] text-slate-400">{isZh ? "推荐意见" : "Recommendation"}</p>
-                                        <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">{score.recommendation}</p>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* 简历文件 */}
-                        {resumeFiles.length > 0 && (
-                            <div className="space-y-1.5">
-                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "简历文件" : "Resumes"}</p>
-                                {resumeFiles.map((rf) => (
-                                    <div key={rf.id} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs dark:border-slate-800">
-                                        <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">{rf.original_name}</span>
-                                        <Badge variant="outline" className={cn("shrink-0 text-[10px]", rf.parse_status === "completed" ? "text-emerald-600" : "text-slate-400")}>
-                                            {rf.parse_status}
-                                        </Badge>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* 状态变更历史 */}
-                        {statusHistory.length > 0 && (
-                            <div className="space-y-1.5">
-                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "状态变更" : "Status History"}</p>
-                                {statusHistory.slice(0, 8).map((h) => (
-                                    <div key={h.id} className="flex items-center gap-2 text-xs">
-                                        <span className="text-slate-400">{h.created_at ? formatDateTime(h.created_at) : ""}</span>
-                                        <span className="text-slate-500">{h.from_status ? labelForCandidateStatus(h.from_status) : "-"}</span>
-                                        <span className="text-slate-300">{"→"}</span>
-                                        <span className="font-medium text-slate-700 dark:text-slate-300">{labelForCandidateStatus(h.to_status)}</span>
-                                        {h.reason && <span className="truncate text-slate-400">{h.reason}</span>}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* 跳转完整页面 */}
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full rounded-lg"
-                            onClick={() => {
-                                setPositionCandidateDetailOpen(false);
-                                setSelectedCandidateId(c.id);
-                                navigateToRecruitmentPage("candidates");
-                            }}
-                        >
-                            {recruitmentUiText.viewInCandidatePage}
-                        </Button>
-                    </div>
-                </div>
-            );
-        })() : null;
-
-        return (
-            <div className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-sm dark:border-slate-800 dark:bg-slate-950/85">
-                {/* 工具栏 */}
-                <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
-                    <div className="relative min-w-0 flex-1">
-                        <Input
-                            className="h-8 rounded-lg text-xs pl-8"
-                            placeholder={recruitmentUiText.positionCandidatesSearch}
-                            value={positionCandidateSearch}
-                            onChange={(e) => setPositionCandidateSearch(e.target.value)}
-                        />
-                        <svg className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="11" cy="11" r="8" strokeWidth="2"/><path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round"/></svg>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                        {statusOptions.map((opt) => (
-                            <button
-                                key={opt.value}
-                                type="button"
-                                className={cn(
-                                    "rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors",
-                                    positionCandidateStatusFilter === opt.value
-                                        ? "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300"
-                                        : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                                )}
-                                onClick={() => setPositionCandidateStatusFilter(opt.value)}
-                            >
-                                {opt.label}
-                            </button>
-                        ))}
-                    </div>
-                    {positionCandidatesTotal > 0 && (
-                        <span className="shrink-0 text-[11px] text-slate-400">
-                            {positionCandidatesTotal}{isZh ? "人" : " total"}
-                        </span>
-                    )}
-                    <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 shrink-0 rounded-lg px-2 text-[10px]"
-                        onClick={() => {
-                            setCandidatePositionFilter([String(positionDetail.position.id)]);
-                            navigateToRecruitmentPage("candidates");
-                        }}
-                    >
-                        {recruitmentUiText.viewInCandidatePage}
-                    </Button>
-                </div>
-                {/* 列头 */}
-                <div className="grid items-center gap-6 border-b border-slate-200/80 px-4 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500" style={{ height: 32, gridTemplateColumns: "1.2fr 1.5fr 0.8fr 0.5fr 0.8fr 0.7fr 0.5fr 0.8fr" }}>
-                    <span>{isZh ? "姓名" : "Name"}</span>
-                    <span>{isZh ? "手机/邮箱" : "Phone/Email"}</span>
-                    <span>{isZh ? "城市" : "City"}</span>
-                    <span>{isZh ? "年龄" : "Age"}</span>
-                    <span>{isZh ? "学历" : "Education"}</span>
-                    <span>{isZh ? "年限" : "Exp"}</span>
-                    <span className="text-right">{isZh ? "匹配" : "Match"}</span>
-                    <span>{isZh ? "状态" : "Status"}</span>
-                </div>
-                {/* 候选人列表 */}
-                {sortedCandidates.length > 0 ? (
-                    <>
-                        {sortedCandidates.map((c) => (
-                            <PositionCandidateRow
-                                key={c.id}
-                                candidate={c}
-                                isSelected={selectedCandidateId === c.id}
-                                onSelect={() => handlePositionCandidateSelect(c.id)}
-                            />
-                        ))}
-                        {/* 加载更多指示器 */}
-                        {positionCandidatesData.length < positionCandidatesTotal && (
-                            <PositionCandidatesLoadMoreSentinel
-                                onVisible={() => { if (selectedPositionId) void loadMorePositionCandidates(selectedPositionId); }}
-                                label={isLoadingMorePositionCandidates
-                                    ? (isZh ? "加载中..." : "Loading...")
-                                    : (isZh ? "滚动加载更多" : "Scroll to load more")}
-                            />
-                        )}
-                    </>
-                ) : (
-                    <div className="flex items-center justify-center py-12">
-                        <EmptyState
-                            title={candidates.length ? (isZh ? "没有匹配的候选人" : "No matching candidates") : recruitmentUiText.noCandidates}
-                            description={candidates.length ? (isZh ? "尝试调整筛选条件" : "Try adjusting filters") : recruitmentUiText.noCandidatesDesc}
-                        />
-                    </div>
-                )}
-                {/* 详情面板 - 抽屉模式（窄屏） */}
-                {positionCandidateDetailOpen && positionCandidateDetailMode === "drawer" && (
-                    <div className="absolute inset-0 z-30 flex justify-end" onClick={() => setPositionCandidateDetailOpen(false)}>
-                        <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" />
-                        <div
-                            className="relative h-full w-full max-w-[630px] overflow-hidden border-l border-slate-200/80 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 animate-in slide-in-from-right"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {detailContent}
-                        </div>
-                    </div>
-                )}
-            </div>
-        );
-    }
+    // Memoize onSelect callback map to avoid inline closures
+    const positionCandidateOnSelectMap = useMemo(() => {
+        const map = new Map<number, () => void>();
+        positionCandidatesData.forEach((c) => {
+            map.set(c.id, () => handlePositionCandidateSelect(c.id));
+        });
+        return map;
+    }, [positionCandidatesData, handlePositionCandidateSelect]);
 
     function renderPositionsPage() {
         return (
@@ -7715,9 +7684,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
                     {!positionListCollapsed ? (
                         <div className="flex-shrink-0 px-4 pb-3">
-                            <SearchField
-                                value={positionQuery}
-                                onChange={setPositionQuery}
+                            <PositionQuerySearchInput
+                                initialValue={positionQuery}
+                                onChange={handlePositionQueryChange}
                                 placeholder={isZh ? "搜索岗位、部门、地点" : "Search positions, departments, locations"}
                                 inputClassName="h-9 rounded-xl border-slate-200/80 bg-white/80 text-xs shadow-none placeholder:text-slate-400 focus-visible:ring-2 dark:border-slate-800 dark:bg-slate-950/60 dark:placeholder:text-slate-500"
                             />
@@ -8092,9 +8061,196 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 </div>
                                             </CardContent>
                                         </Card>
-                                    ) : positionWorkspaceView === "candidates" ? (
-                                        renderPositionCandidatesView()
-                                    ) : (
+                                    ) : positionWorkspaceView === "candidates" && positionDetail ? (() => {
+                                        const candidates = positionCandidatesData;
+                                        const detailContent = positionCandidateDetailOpen ? (
+                                            candidateDetailLoading ? (
+                                                <LoadingPanel label={isZh ? "加载中..." : "Loading..."} />
+                                            ) : candidateDetail ? (() => {
+                                            const c = candidateDetail.candidate;
+                                            const score = candidateDetail.score;
+                                            const resumeFiles = candidateDetail.resume_files || [];
+                                            const statusHistory = candidateDetail.status_history || [];
+                                            return (
+                                                <div className="flex h-full min-h-0 flex-col">
+                                                    {/* 头部 */}
+                                                    <div className="flex items-center justify-between border-b border-slate-200/80 bg-slate-50/60 px-4 py-3.5 dark:border-slate-800 dark:bg-slate-900/40">
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{c.name}</p>
+                                                            <p className="mt-0.5 text-[11px] text-slate-500">{c.candidate_code}</p>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                                                            onClick={() => setPositionCandidateDetailOpen(false)}
+                                                        >
+                                                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                                        </button>
+                                                    </div>
+                                                    <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-5">
+                                                        {/* 状态 & 匹配度 */}
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(c)))}>
+                                                                {labelForCandidateStatus(resolveCandidateDisplayStatus(c))}
+                                                            </Badge>
+                                                            <Badge variant="outline" className="rounded-full">
+                                                                {isZh ? "匹配度" : "Match"} {formatPercent(c.match_percent)}
+                                                            </Badge>
+                                                            {c.position_title && (
+                                                                <Badge variant="outline" className="rounded-full">
+                                                                    {c.position_title}
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                        {/* 基本信息 */}
+                                                        <div className="space-y-1.5 text-sm">
+                                                            <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "基本信息" : "Basic Info"}</p>
+                                                            {[
+                                                                { label: isZh ? "手机号" : "Phone", value: c.phone },
+                                                                { label: isZh ? "邮箱" : "Email", value: c.email },
+                                                                { label: isZh ? "城市" : "City", value: c.city },
+                                                                { label: isZh ? "年龄" : "Age", value: c.age != null ? String(c.age) : null },
+                                                                { label: isZh ? "公司" : "Company", value: c.current_company },
+                                                                { label: isZh ? "工作年限" : "Experience", value: c.years_of_experience },
+                                                                { label: isZh ? "学历" : "Education", value: c.education },
+                                                                { label: isZh ? "来源" : "Source", value: c.source },
+                                                            ].filter((f) => f.value).map((f) => (
+                                                                <div key={f.label} className="flex items-center justify-between">
+                                                                    <span className="text-slate-500">{f.label}</span>
+                                                                    <span className="font-medium text-slate-900 dark:text-slate-100">{f.value}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {/* 评分详情 */}
+                                                        {score && (
+                                                            <div className="space-y-2">
+                                                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "评分详情" : "Score Details"}</p>
+                                                                {score.dimensions && score.dimensions.length > 0 && (
+                                                                    <div className="space-y-1.5">
+                                                                        {score.dimensions.map((dim, i) => (
+                                                                            <div key={i} className="flex items-center gap-2">
+                                                                                <span className="min-w-0 flex-1 truncate text-xs text-slate-600 dark:text-slate-400">{dim.label || `维度${i + 1}`}</span>
+                                                                                <div className="flex items-center gap-1">
+                                                                                    <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                                                        <div
+                                                                                            className="h-full rounded-full bg-teal-500"
+                                                                                            style={{ width: `${dim.max_score ? Math.min(100, (dim.score ?? 0) / dim.max_score * 100) : 0}%` }}
+                                                                                        />
+                                                                                    </div>
+                                                                                    <span className="w-8 text-right text-[11px] text-slate-500">{dim.score ?? "-"}/{dim.max_score ?? "-"}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                                {score.advantages && score.advantages.length > 0 && (
+                                                                    <div>
+                                                                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400">{isZh ? "优势" : "Advantages"}</p>
+                                                                        <ul className="mt-1 space-y-0.5">
+                                                                            {score.advantages.map((a, i) => (
+                                                                                <li key={i} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{a}</li>
+                                                                            ))}
+                                                                        </ul>
+                                                                    </div>
+                                                                )}
+                                                                {score.concerns && score.concerns.length > 0 && (
+                                                                    <div>
+                                                                        <p className="text-[11px] text-amber-600 dark:text-amber-400">{isZh ? "风险" : "Concerns"}</p>
+                                                                        <ul className="mt-1 space-y-0.5">
+                                                                            {score.concerns.map((a, i) => (
+                                                                                <li key={i} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{a}</li>
+                                                                            ))}
+                                                                        </ul>
+                                                                    </div>
+                                                                )}
+                                                                {score.recommendation && (
+                                                                    <div>
+                                                                        <p className="text-[11px] text-slate-400">{isZh ? "推荐意见" : "Recommendation"}</p>
+                                                                        <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">{score.recommendation}</p>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                        {/* 简历文件 */}
+                                                        {resumeFiles.length > 0 && (
+                                                            <div className="space-y-1.5">
+                                                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "简历文件" : "Resumes"}</p>
+                                                                {resumeFiles.map((rf) => (
+                                                                    <div key={rf.id} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs dark:border-slate-800">
+                                                                        <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">{rf.original_name}</span>
+                                                                        <Badge variant="outline" className={cn("shrink-0 text-[10px]", rf.parse_status === "completed" ? "text-emerald-600" : "text-slate-400")}>
+                                                                            {rf.parse_status}
+                                                                        </Badge>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {/* 状态变更历史 */}
+                                                        {statusHistory.length > 0 && (
+                                                            <div className="space-y-1.5">
+                                                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "状态变更" : "Status History"}</p>
+                                                                {statusHistory.slice(0, 8).map((h) => (
+                                                                    <div key={h.id} className="flex items-center gap-2 text-xs">
+                                                                        <span className="text-slate-400">{h.created_at ? formatDateTime(h.created_at) : ""}</span>
+                                                                        <span className="text-slate-500">{h.from_status ? labelForCandidateStatus(h.from_status) : "-"}</span>
+                                                                        <span className="text-slate-300">{"→"}</span>
+                                                                        <span className="font-medium text-slate-700 dark:text-slate-300">{labelForCandidateStatus(h.to_status)}</span>
+                                                                        {h.reason && <span className="truncate text-slate-400">{h.reason}</span>}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {/* 固定底部操作区 */}
+                                                    <div className="shrink-0 border-t border-slate-200/80 p-3 dark:border-slate-800">
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="w-full rounded-lg"
+                                                            onClick={() => {
+                                                                setPositionCandidateDetailOpen(false);
+                                                                setSelectedCandidateId(c.id);
+                                                                navigateToRecruitmentPage("candidates");
+                                                            }}
+                                                        >
+                                                            {recruitmentUiText.viewInCandidatePage}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })() : null) : null;
+                                        return (
+                                            <PositionCandidatesView
+                                                positionDetail={positionDetail}
+                                                positionCandidatesData={positionCandidatesData}
+                                                positionCandidatesLoading={positionCandidatesLoading}
+                                                positionCandidatesTotal={positionCandidatesTotal}
+                                                positionCandidateDetailOpen={positionCandidateDetailOpen}
+                                                positionCandidateStatusFilter={positionCandidateStatusFilter}
+                                                positionFilteredSortedCandidates={positionFilteredSortedCandidates}
+                                                positionCandidateOnSelectMap={positionCandidateOnSelectMap}
+                                                isLoadingMorePositionCandidates={isLoadingMorePositionCandidates}
+                                                selectedPositionId={selectedPositionId}
+                                                selectedCandidateId={selectedCandidateId}
+                                                candidateDetail={candidateDetail}
+                                                candidateDetailLoading={candidateDetailLoading}
+                                                detailContent={detailContent}
+                                                initialSearchValue={positionCandidateSearch}
+                                                isZh={isZh}
+                                                recruitmentUiText={recruitmentUiText}
+                                                candidateStatusLabels={candidateStatusLabels}
+                                                onSearchChange={handlePositionCandidateSearchChange}
+                                                onStatusFilterChange={(v) => setPositionCandidateStatusFilter(v)}
+                                                onCloseDetail={() => setPositionCandidateDetailOpen(false)}
+                                                onViewInCandidatePage={(id) => { setPositionCandidateDetailOpen(false); setSelectedCandidateId(id); navigateToRecruitmentPage("candidates"); }}
+                                                onViewAllCandidates={() => {
+                                                    setCandidatePositionFilter([String(positionDetail.position.id)]);
+                                                    navigateToRecruitmentPage("candidates");
+                                                }}
+                                                onLoadMore={() => { if (selectedPositionId) void loadMorePositionCandidates(selectedPositionId); }}
+                                            />
+                                        );
+                                    })() : (
                                         <Card className={panelClass}>
                                             <CardHeader className="space-y-3">
                                                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -8492,6 +8648,58 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
+    // Memoize page render results to avoid unnecessary re-renders
+    const candidatesPageNode = useMemo(
+        () => renderCandidatesPage(),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [
+            visibleCandidates, selectedCandidateId, candidateDetail,
+            candidatesLoading, candidatesInitialLoaded, isLoadingMoreCandidates,
+            selectedCandidateIds, candidateDetailLoading, candidateEditor,
+            candidateSaving, exporting, pendingStatus, statusUpdateReason,
+            candidateViewMode, candidatePositionFilter, candidateStatusFilter,
+            candidateMatchFilter, candidateSourceFilter, candidateTimeFilter,
+            candidateQuery, interviewSchedules, followUps, offers,
+            screeningSubmitting, isBatchScreeningRunning, isBatchScreeningCancelling,
+            candidateProcessLogsExpanded, interviewRoundName, interviewCustomRequirements,
+            interviewSkillSelectionDirty, selectedInterviewSkillIds,
+        ]
+    );
+
+    const positionsPageNode = useMemo(
+        () => renderPositionsPage(),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [
+            visiblePositions, positions, positionsLoading, selectedPositionId,
+            positionListCollapsed, positionStatusFilter,
+            positionDetail, positionDetailLoading, positionWorkspaceView,
+            positionSecondaryPanelOpen, positionCandidatesData, positionCandidatesTotal,
+            positionCandidatesLoading, positionCandidateStatusFilter,
+            positionCandidateDetailOpen, selectedCandidateId, candidateDetail,
+            candidateDetailLoading, isZh,
+        ]
+    );
+
+    const auditPageNode = useMemo(
+        () => renderAuditPage(),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [
+            visibleAiLogs, selectedLogId, selectedLogDetail, logDetailLoading,
+            logsLoading, logTaskTypeFilter, logStatusFilter, auditFiltersCollapsed,
+        ]
+    );
+
+    const handleOrgScopeChange = useCallback(async (orgScope: string, deptScope: string) => {
+        setSelectedOrgScope(orgScope);
+        setSelectedDepartmentScope(deptScope);
+        setOrgSwitching(true);
+        try {
+            await refreshCoreData({ silent: true, departmentScope: deptScope, orgScope });
+        } finally {
+            setOrgSwitching(false);
+        }
+    }, [refreshCoreData]);
+
     if (bootstrapping) {
         return (
             <div
@@ -8531,16 +8739,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             hasAllOrgScope={hasAllOrgScope}
                             selectedOrgScope={selectedOrgScope}
                             selectedDepartmentScope={selectedDepartmentScope}
-                            onOrgScopeChange={async (orgScope, deptScope) => {
-                                setSelectedOrgScope(orgScope);
-                                setSelectedDepartmentScope(deptScope);
-                                setOrgSwitching(true);
-                                try {
-                                    await refreshCoreData({ silent: true, departmentScope: deptScope, orgScope: orgScope });
-                                } finally {
-                                    setOrgSwitching(false);
-                                }
-                            }}
+                            onOrgScopeChange={handleOrgScopeChange}
                             allDepartmentsLabel={recruitmentUiText.allVisibleDepartments}
                             disabled={organizationCatalogLoading || orgSwitching}
                         />
@@ -8609,30 +8808,44 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             </div>
 
             <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                    {/* candidates/positions/audit 保持挂载，用 hidden 控制 */}
+                    {/* 原因：这三个页面有列表滚动位置、选中状态需要保持 */}
                     <div className={cn("h-full min-h-0 p-2", activePage !== "candidates" && "hidden")}>
-                        {renderCandidatesPage()}
+                        {candidatesPageNode}
                     </div>
                     <div className={cn("h-full min-h-0 p-2", activePage !== "positions" && "hidden")}>
-                        {renderPositionsPage()}
+                        {positionsPageNode}
                     </div>
                     <div className={cn("h-full min-h-0 p-2", activePage !== "audit" && "hidden")}>
-                        {renderAuditPage()}
+                        {auditPageNode}
                     </div>
-                    <div className={cn("h-full min-h-0 p-2", activePage !== "assistant" && "hidden")}>
-                        {renderAssistantPage()}
-                    </div>
-                    <ScrollArea className={cn("h-full", activePage !== "workspace" && "hidden")}>
-                        <div className="p-4 lg:p-5 2xl:p-6">{renderWorkspacePage()}</div>
-                    </ScrollArea>
-                    <ScrollArea className={cn("h-full", activePage !== "settings-skills" && "hidden")}>
-                        <div className="p-4 lg:p-5 2xl:p-6">{renderSkillsPage()}</div>
-                    </ScrollArea>
-                    <ScrollArea className={cn("h-full", activePage !== "settings-models" && "hidden")}>
-                        <div className="p-4 lg:p-5 2xl:p-6">{renderModelsPage()}</div>
-                    </ScrollArea>
-                    <ScrollArea className={cn("h-full", activePage !== "settings-mail" && "hidden")}>
-                        <div className="p-4 lg:p-5 2xl:p-6">{renderMailSettingsPage()}</div>
-                    </ScrollArea>
+
+                    {/* 以下改为条件渲染，切换时重新挂载，无需保持状态 */}
+                    {activePage === "assistant" && (
+                        <div className="h-full min-h-0 p-2">
+                            {renderAssistantPage()}
+                        </div>
+                    )}
+                    {activePage === "workspace" && (
+                        <ScrollArea className="h-full">
+                            <div className="p-4 lg:p-5 2xl:p-6">{renderWorkspacePage()}</div>
+                        </ScrollArea>
+                    )}
+                    {activePage === "settings-skills" && (
+                        <ScrollArea className="h-full">
+                            <div className="p-4 lg:p-5 2xl:p-6">{renderSkillsPage()}</div>
+                        </ScrollArea>
+                    )}
+                    {activePage === "settings-models" && (
+                        <ScrollArea className="h-full">
+                            <div className="p-4 lg:p-5 2xl:p-6">{renderModelsPage()}</div>
+                        </ScrollArea>
+                    )}
+                    {activePage === "settings-mail" && (
+                        <ScrollArea className="h-full">
+                            <div className="p-4 lg:p-5 2xl:p-6">{renderMailSettingsPage()}</div>
+                        </ScrollArea>
+                    )}
                 </div>
 
             {orgSwitching && (
