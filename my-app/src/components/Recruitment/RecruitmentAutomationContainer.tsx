@@ -610,6 +610,7 @@ interface PositionCandidatesViewProps {
     positionDetail: PositionDetail;
     positionCandidatesData: CandidateSummary[];
     positionCandidatesLoading: boolean;
+    positionCandidatesInitialLoaded: boolean;
     positionCandidatesTotal: number;
     positionCandidateDetailOpen: boolean;
     positionCandidateStatusFilter: string;
@@ -639,6 +640,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
         positionDetail,
         positionCandidatesData,
         positionCandidatesLoading,
+        positionCandidatesInitialLoaded,
         positionCandidatesTotal,
         positionCandidateDetailOpen,
         positionCandidateStatusFilter,
@@ -721,7 +723,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
             </div>
             {/* 候选人列表 */}
             <div className="min-h-0 flex-1 overflow-y-auto">
-            {positionCandidatesLoading ? (
+            {positionCandidatesLoading || !positionCandidatesInitialLoaded ? (
                 <div className="flex items-center justify-center py-12">
                     <LoadingPanel label={isZh ? "加载候选人..." : "Loading candidates..."} />
                 </div>
@@ -1326,6 +1328,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     const [positionCandidatesData, setPositionCandidatesData] = useState<CandidateSummary[]>([]);
     const [positionCandidatesLoading, setPositionCandidatesLoading] = useState(false);
+    const [positionCandidatesInitialLoaded, setPositionCandidatesInitialLoaded] = useState(false);
     const [positionCandidatesTotal, setPositionCandidatesTotal] = useState(0);
     const [isLoadingMorePositionCandidates, setIsLoadingMorePositionCandidates] = useState(false);
     const loadingMorePositionCandidatesRef = useRef(false);
@@ -2264,16 +2267,24 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionCandidateStatusFilter("");
         setPositionCandidatesData([]);
         setPositionCandidatesTotal(0);
+        setPositionCandidatesInitialLoaded(false);
     }, [selectedPositionId]);
 
     // 搜索候选人（服务端搜索，防抖 300ms）
+    // 只在岗位页面且工作区视图为candidates时才加载
     useEffect(() => {
         if (!selectedPositionId) return;
+        if (activePage !== "positions") return; // 只在岗位页面加载
+        if (positionWorkspaceView !== "candidates") return; // 只在候选人视图加载
+        
+        // 如果正在加载，跳过重复请求
+        if (positionCandidatesLoading) return;
+        
         const timer = window.setTimeout(() => {
             void loadPositionCandidates(selectedPositionId, positionCandidateSearch || undefined);
         }, 300);
         return () => window.clearTimeout(timer);
-    }, [positionCandidateSearch, positionWorkspaceView, selectedPositionId]);
+    }, [positionCandidateSearch, positionWorkspaceView, selectedPositionId, activePage]);
 
 
     useEffect(() => {
@@ -2445,6 +2456,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
         async function loadCandidatesFirstPage(): Promise<void> {
             try {
+                // 设置 loading 状态，防止显示空状态
+                setCandidatesLoading(true);
                 const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
                 const url = orgCodeParam ? `/candidates?limit=25&offset=0&${orgCodeParam}` : "/candidates?limit=25&offset=0";
                 const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
@@ -2452,10 +2465,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     setAllCandidates(deduplicateCandidates(data?.items || []));
                     setCandidateTotal(data?.total || 0);
                     setCandidatesInitialLoaded(true);
+                    setCandidatesLoading(false);
                 }
             } catch (error) {
                 if (!cancelled) {
                     setCandidatesInitialLoaded(true);
+                    setCandidatesLoading(false);
                 }
                 toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidates, formatActionError(error)));
             }
@@ -2498,8 +2513,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setPositionDetail(null);
             return;
         }
+        // 只有在岗位页面时才加载岗位详情，避免不必要的请求
+        if (activePage !== "positions") {
+            return;
+        }
         void loadPositionDetail(selectedPositionId);
-    }, [selectedPositionId]);
+    }, [selectedPositionId, activePage]);
 
     useEffect(() => {
         jdGenerationInFlightRef.current = false;
@@ -2508,13 +2527,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         jdActiveTaskIdRef.current = null;
         setJdGenerationStatus("idle");
         setJdGenerationError("");
-    }, [selectedPositionId]);
+    }, [selectedPositionId, activePage]);
 
     useEffect(() => {
         if (!selectedCandidateId) {
             setCandidateDetail(null);
             return;
         }
+        // 在候选人页面或岗位页面（查看候选人详情时）都需要加载候选人详情
         void loadCandidateDetail(selectedCandidateId);
     }, [selectedCandidateId]);
 
@@ -4456,10 +4476,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === requestId) {
                 setPositionCandidatesData(data?.items || []);
                 setPositionCandidatesTotal(data?.total || 0);
+                setPositionCandidatesInitialLoaded(true);
             }
         } catch {
             if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === requestId && positionDetail) {
                 setPositionCandidatesData(positionDetail.candidates);
+                setPositionCandidatesInitialLoaded(true);
             }
         } finally {
             if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === requestId) {
@@ -8446,6 +8468,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 positionDetail={positionDetail}
                                                 positionCandidatesData={positionCandidatesData}
                                                 positionCandidatesLoading={positionCandidatesLoading}
+                                                positionCandidatesInitialLoaded={positionCandidatesInitialLoaded}
                                                 positionCandidatesTotal={positionCandidatesTotal}
                                                 positionCandidateDetailOpen={positionCandidateDetailOpen}
                                                 positionCandidateStatusFilter={positionCandidateStatusFilter}

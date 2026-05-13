@@ -3350,7 +3350,11 @@ export function CandidatesPage({
 
                                     <Field label={tr.recentCandidates}>
                                         <div className="space-y-3">
-                                            {recentVisibleCandidates.length ? recentVisibleCandidates.map((candidate) => (
+                                            {candidatesLoading || !candidatesInitialLoaded ? (
+                                                <div className="flex items-center justify-center py-8">
+                                                    <LoadingPanel label={tr.loadingCandidateList}/>
+                                                </div>
+                                            ) : recentVisibleCandidates.length ? recentVisibleCandidates.map((candidate) => (
                                                 <button
                                                     key={candidate.id}
                                                     type="button"
