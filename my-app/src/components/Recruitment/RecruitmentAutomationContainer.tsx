@@ -3167,7 +3167,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         try {
             const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
-            const url = orgCodeParam ? `/candidates?limit=25&offset=0&${orgCodeParam}` : "/candidates?limit=25&offset=0";
+            const refreshLimit = Math.max(25, allCandidates.length);
+            const url = orgCodeParam ? `/candidates?limit=${refreshLimit}&offset=0&${orgCodeParam}` : `/candidates?limit=${refreshLimit}&offset=0`;
             const request = () => recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
             const result = options?.force
                 ? await request()
@@ -3516,7 +3517,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 : companyScope
                     ? `org_code=${encodeURIComponent(companyScope)}`
                     : "";
-            const url = orgCodeParam ? `/candidates?limit=25&offset=0&${orgCodeParam}` : "/candidates?limit=25&offset=0";
+            const refreshLimit = Math.max(25, allCandidates.length);
+            const url = orgCodeParam ? `/candidates?limit=${refreshLimit}&offset=0&${orgCodeParam}` : `/candidates?limit=${refreshLimit}&offset=0`;
             const d = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
             setAllCandidates(deduplicateCandidates(d?.items || []));
             setCandidateTotal(d?.total || 0);
@@ -5632,14 +5634,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         use_position_skills: true,
                     }),
                 });
+                // 只对真正新入队或仍在运行的任务挂载 monitor，已完成的复用任务不挂载
                 response.tasks.forEach((task) => {
-                    if (!task.related_candidate_id || !task.task_id) {
-                        return;
+                    if (!task.related_candidate_id || !task.task_id) return;
+                    if (task.status && isLiveTaskStatus(task.status)) {
+                        attachScreeningTaskMonitor(task.related_candidate_id, task.task_id, {
+                            batch: true,
+                            suppressFinishToast: true,
+                        });
                     }
-                    attachScreeningTaskMonitor(task.related_candidate_id, task.task_id, {
-                        batch: true,
-                        suppressFinishToast: true,
-                    });
                 });
                 if (response.queued_count || response.skipped_existing_live_task_count) {
                     toast.success(
@@ -5662,10 +5665,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         use_position_skills: true,
                     }),
                 });
-                attachScreeningTaskMonitor(candidateId, task.task_id, {
-                    suppressFinishToast: false,
-                });
-                toast.success(task.reused_existing_task ? recruitmentToast.screeningTaskReused : recruitmentUiText.queueJoined);
+                if (task.status && isLiveTaskStatus(task.status)) {
+                    // 新入队或仍在运行的任务：挂载 monitor 轮询
+                    attachScreeningTaskMonitor(candidateId, task.task_id, {
+                        suppressFinishToast: false,
+                    });
+                    toast.success(task.reused_existing_task ? recruitmentToast.screeningTaskReused : recruitmentUiText.queueJoined);
+                } else {
+                    // 已完成的复用任务：不挂载 monitor，直接提示已完成
+                    toast.success(recruitmentToast.screeningCompleted(false));
+                }
             }
         } catch (error) {
             toast.error(recruitmentToast.screeningStartFailed(formatActionError(error)));
