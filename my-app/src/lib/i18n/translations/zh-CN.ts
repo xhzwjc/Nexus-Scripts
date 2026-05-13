@@ -2360,6 +2360,9 @@ export const zhCN: Translations = {
         noCandidatesDesc: '上传简历并关联到这个岗位后，这里会出现最新候选人列表。',
         loadingMoreCandidates: '加载中…',
         allCandidatesLoaded: '已加载全部候选人',
+        positionCandidates: '候选人',
+        viewInCandidatePage: '在候选人页中完整查看',
+        positionCandidatesSearch: '搜索候选人...',
         // Skill
         newSkill: '新增 Skill',
         aiGenerate: 'AI 生成',

@@ -2361,6 +2361,9 @@ export const enUS: Translations = {
         noCandidatesDesc: 'Upload resumes and link them to this position to see candidates here.',
         loadingMoreCandidates: 'Loading more…',
         allCandidatesLoaded: 'All candidates loaded',
+        positionCandidates: 'Candidates',
+        viewInCandidatePage: 'View in Candidates',
+        positionCandidatesSearch: 'Search candidates...',
         // Skill
         newSkill: 'New Skill',
         aiGenerate: 'AI Generate',

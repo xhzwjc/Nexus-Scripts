@@ -76,6 +76,7 @@ import {
 import {useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
 import {Badge} from "@/components/ui/badge";
+import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip";
 import {Button} from "@/components/ui/button";
 import {
     Card,
@@ -190,7 +191,7 @@ import {ModelSettingsPage} from "./pages/ModelSettingsPage";
 import {SkillSettingsPage} from "./pages/SkillSettingsPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
 import { useOptimizedStats, useCachedListData, useCachedObjectData, useTaskSSE } from "./hooks";
-import { recruitmentNavBus } from '@/lib/recruitmentNavBus';
+import { recruitmentNavBus, navigateToRecruitmentPage } from '@/lib/recruitmentNavBus';
 
 const PAGE_ACTIVITY_POLL_VISIBLE_INTERVAL_MS = 15_000;
 const PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS = 60_000;
@@ -413,6 +414,106 @@ function getPollingDelay(
 interface RecruitmentAutomationContainerProps {
     onBack: () => void;
     initialPage?: RecruitmentPage;
+}
+
+// ---- 岗位内嵌候选人列表：行组件（模块级，稳定引用） ----
+const POSITION_CANDIDATE_ROW_HEIGHT = 48;
+
+const PositionCandidateRow = React.memo(function PositionCandidateRow({
+    candidate,
+    isSelected,
+    onSelect,
+}: {
+    candidate: CandidateSummary;
+    isSelected: boolean;
+    onSelect: () => void;
+}) {
+    const displayStatus = resolveCandidateDisplayStatus(candidate);
+    return (
+        <button
+            type="button"
+            className={cn(
+                "grid w-full items-center gap-6 px-4 text-left transition-colors border-b border-slate-100 dark:border-slate-800/50",
+                isSelected
+                    ? "bg-teal-50/80 dark:bg-teal-900/20"
+                    : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
+            )}
+            style={{ height: POSITION_CANDIDATE_ROW_HEIGHT, gridTemplateColumns: "1.2fr 1.5fr 0.8fr 0.5fr 0.8fr 0.7fr 0.5fr 0.8fr" }}
+            onClick={onSelect}
+        >
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="min-w-0 truncate text-sm font-medium text-slate-900 dark:text-slate-100">{candidate.name}</span>
+                </TooltipTrigger>
+                <TooltipContent side="top"><p>{candidate.name}</p></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="truncate text-xs text-slate-500">{candidate.phone || candidate.email || "-"}</span>
+                </TooltipTrigger>
+                <TooltipContent side="top"><p>{candidate.phone || candidate.email || ""}</p></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="truncate text-xs text-slate-500">{candidate.city || "-"}</span>
+                </TooltipTrigger>
+                <TooltipContent side="top"><p>{candidate.city || ""}</p></TooltipContent>
+            </Tooltip>
+            <span className="text-xs text-slate-500">{candidate.age ?? "-"}</span>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="truncate text-xs text-slate-500">{candidate.education || "-"}</span>
+                </TooltipTrigger>
+                <TooltipContent side="top"><p>{candidate.education || ""}</p></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="truncate text-xs text-slate-500">{candidate.years_of_experience || "-"}</span>
+                </TooltipTrigger>
+                <TooltipContent side="top"><p>{candidate.years_of_experience || ""}</p></TooltipContent>
+            </Tooltip>
+            <span className="text-right text-xs text-slate-500">{formatPercent(candidate.match_percent)}</span>
+            <Badge className={cn("rounded-full border shrink-0 text-[10px] w-fit", statusBadgeClass("candidate", displayStatus))}>
+                {labelForCandidateStatus(displayStatus)}
+            </Badge>
+        </button>
+    );
+}, (prev, next) => {
+    return prev.candidate.id === next.candidate.id
+        && prev.candidate.name === next.candidate.name
+        && prev.candidate.status === next.candidate.status
+        && prev.candidate.display_status === next.candidate.display_status
+        && prev.candidate.active_screening_task_status === next.candidate.active_screening_task_status
+        && prev.candidate.match_percent === next.candidate.match_percent
+        && prev.candidate.phone === next.candidate.phone
+        && prev.candidate.email === next.candidate.email
+        && prev.candidate.city === next.candidate.city
+        && prev.candidate.age === next.candidate.age
+        && prev.candidate.education === next.candidate.education
+        && prev.candidate.years_of_experience === next.candidate.years_of_experience
+        && prev.isSelected === next.isSelected;
+});
+
+// ---- 岗位内嵌候选人列表：无限滚动哨兵组件 ----
+function PositionCandidatesLoadMoreSentinel({ onVisible, label }: { onVisible: () => void; label: string }) {
+    const ref = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        const observer = new IntersectionObserver(([entry]) => {
+            if (entry.isIntersecting) {
+                observer.disconnect();
+                onVisible();
+            }
+        }, { rootMargin: "200px" });
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [onVisible]);
+    return (
+        <div ref={ref} className="flex items-center justify-center py-3 text-xs text-slate-400">
+            {label}
+        </div>
+    );
 }
 
 export default function RecruitmentAutomationContainer({onBack, initialPage}: RecruitmentAutomationContainerProps) {
@@ -738,6 +839,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         noCandidatesDesc: isZh ? "上传简历并关联到这个岗位后，这里会出现最新候选人列表。" : "Upload resumes and link them to this position to see candidates here.",
         loadingMoreCandidates: isZh ? "加载中…" : "Loading more…",
         allCandidatesLoaded: isZh ? "已加载全部候选人" : "All candidates loaded",
+        positionCandidates: isZh ? "候选人" : "Candidates",
+        viewInCandidatePage: isZh ? "在候选人页中完整查看" : "View in Candidates",
+        positionCandidatesSearch: isZh ? "搜索候选人..." : "Search candidates...",
         positionDialogNew: isZh ? "新建岗位" : "New Position",
         positionDialogEdit: isZh ? "编辑岗位" : "Edit Position",
         uploadResumeAutoScreenHint: isZh ? "上传简历后自动进入初筛" : "Auto-enter screening after upload",
@@ -861,8 +965,19 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     const [assistantOpen, setAssistantOpen] = useState(false);
     const [positionListCollapsed, setPositionListCollapsed] = useState(false);
-    const [positionWorkspaceView, setPositionWorkspaceView] = useState<"jd" | "config">("jd");
+    const [positionWorkspaceView, setPositionWorkspaceView] = useState<"jd" | "config" | "candidates">("jd");
     const [positionSecondaryPanelOpen, setPositionSecondaryPanelOpen] = useState(false);
+    // 岗位内嵌候选人列表状态
+    const [positionCandidateSearch, setPositionCandidateSearch] = useState("");
+    const [positionCandidateStatusFilter, setPositionCandidateStatusFilter] = useState<string>("");
+    const [positionCandidateDetailOpen, setPositionCandidateDetailOpen] = useState(false);
+    const [positionCandidateDetailMode] = useState<"drawer">("drawer");
+    const [positionCandidatesData, setPositionCandidatesData] = useState<CandidateSummary[]>([]);
+    const [positionCandidatesLoading, setPositionCandidatesLoading] = useState(false);
+    const [positionCandidatesTotal, setPositionCandidatesTotal] = useState(0);
+    const [isLoadingMorePositionCandidates, setIsLoadingMorePositionCandidates] = useState(false);
+    const loadingMorePositionCandidatesRef = useRef(false);
+    const positionCandidatesLoadRequestIdRef = useRef(0);
     const [auditFiltersCollapsed, setAuditFiltersCollapsed] = useState(true);
     const [bootstrapping, setBootstrapping] = useState(true);
     const [pageVisible, setPageVisible] = useState(() => (
@@ -1788,7 +1903,26 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     useEffect(() => {
         setPositionWorkspaceView("jd");
         setPositionSecondaryPanelOpen(false);
+        setPositionCandidateDetailOpen(false);
+        setPositionCandidateSearch("");
+        setPositionCandidateStatusFilter("");
+        setPositionCandidatesData([]);
+        setPositionCandidatesTotal(0);
     }, [selectedPositionId]);
+
+    // 搜索候选人（服务端搜索，防抖 300ms）
+    useEffect(() => {
+        if (positionWorkspaceView !== "candidates" || !selectedPositionId) return;
+        // 数据已加载且无搜索关键词时跳过，避免重复请求
+        if (positionCandidatesData.length > 0 && !positionCandidateSearch) return;
+        // 正在加载中时跳过，避免与 loadPositionDetail 中的调用重复
+        if (positionCandidatesLoading) return;
+        const timer = setTimeout(() => {
+            loadPositionCandidates(selectedPositionId, positionCandidateSearch || undefined);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [positionCandidateSearch, positionWorkspaceView, selectedPositionId]);
+
 
     useEffect(() => {
         selectedCandidateIdRef.current = selectedCandidateId;
@@ -2637,6 +2771,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 return data;
             }
             setPositionDetail(data);
+            // 始终加载候选人总数（用于 Tab badge 和岗位信息栏）
+            loadPositionCandidatesCount(data.position.id);
+            // 智能默认 Tab：有 JD 时默认候选人，无 JD 时默认 JD
+            if (data.current_jd_version) {
+                setPositionWorkspaceView("candidates");
+                loadPositionCandidates(data.position.id);
+            } else {
+                setPositionWorkspaceView("jd");
+            }
             return data;
         } catch (error) {
             toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.positionDetail, formatActionError(error)));
@@ -3111,16 +3254,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     function navigateToSettingsPage(page: Extract<RecruitmentPage, "settings-skills" | "settings-models" | "settings-mail">) {
         setSettingsPopoverOpen(false);
-        startTransition(() => {
-            setActivePage(page);
-        });
+        navigateToRecruitmentPage(page);
     }
 
     function openTaskLogDetail(logId?: number | null) {
         if (!logId) {
             return;
         }
-        setActivePage("audit");
+        navigateToRecruitmentPage("audit");
         setSelectedLogId(logId);
     }
 
@@ -3419,7 +3560,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (mode === "page") {
             setAssistantOpen(false);
             setAssistantDisplayMode("page");
-            setActivePage("assistant");
+            navigateToRecruitmentPage("assistant");
             return;
         }
         setAssistantDisplayMode(mode);
@@ -3953,6 +4094,74 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
+    // 仅加载总数，不拉数据（选中岗位时调用）
+    async function loadPositionCandidatesCount(positionId: number) {
+        const requestId = ++positionCandidatesLoadRequestIdRef.current;
+        try {
+            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(
+                `/candidates?position_id=${positionId}&limit=1&offset=0`
+            );
+            if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === requestId) {
+                setPositionCandidatesTotal(data?.total || 0);
+            }
+        } catch {
+            // ignore
+        }
+    }
+
+    // 加载候选人列表数据（点击候选人 Tab 时调用，支持服务端搜索）
+    async function loadPositionCandidates(positionId: number, query?: string) {
+        const requestId = ++positionCandidatesLoadRequestIdRef.current;
+        setPositionCandidatesLoading(true);
+        try {
+            const queryParam = query ? `&query=${encodeURIComponent(query)}` : "";
+            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(
+                `/candidates?position_id=${positionId}&limit=25&offset=0${queryParam}`
+            );
+            if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === requestId) {
+                setPositionCandidatesData(data?.items || []);
+                setPositionCandidatesTotal(data?.total || 0);
+            }
+        } catch {
+            if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === requestId && positionDetail) {
+                setPositionCandidatesData(positionDetail.candidates);
+            }
+        } finally {
+            if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === requestId) {
+                setPositionCandidatesLoading(false);
+            }
+        }
+    }
+
+    async function loadMorePositionCandidates(positionId: number) {
+        if (positionCandidatesLoading || loadingMorePositionCandidatesRef.current || positionCandidatesData.length >= positionCandidatesTotal) return;
+        loadingMorePositionCandidatesRef.current = true;
+        setIsLoadingMorePositionCandidates(true);
+        const currentRequestId = positionCandidatesLoadRequestIdRef.current;
+        try {
+            const queryParam = positionCandidateSearch ? `&query=${encodeURIComponent(positionCandidateSearch)}` : "";
+            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(
+                `/candidates?position_id=${positionId}&limit=25&offset=${positionCandidatesData.length}${queryParam}`
+            );
+            if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === currentRequestId) {
+                setPositionCandidatesData(prev => [...prev, ...(data?.items || [])]);
+                setPositionCandidatesTotal(data?.total || positionCandidatesTotal);
+            }
+        } catch {
+            // ignore
+        } finally {
+            loadingMorePositionCandidatesRef.current = false;
+            if (mountedRef.current) {
+                setIsLoadingMorePositionCandidates(false);
+            }
+        }
+    }
+
+    function handlePositionCandidateSelect(candidateId: number) {
+        setSelectedCandidateId(candidateId);
+        setPositionCandidateDetailOpen(true);
+    }
+
     function openCreatePosition() {
         setPositionDialogMode("create");
         setPositionForm({
@@ -4316,7 +4525,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (targetPositionId) {
                 await loadPositionDetail(targetPositionId);
             }
-            setActivePage("positions");
+            navigateToRecruitmentPage("positions");
         } catch (error) {
             setPositionFormSubmitError(recruitmentToast.saveFailed(recruitmentToastEntities.position, error instanceof Error ? error.message : recruitmentToast.unknownError));
         } finally {
@@ -4690,7 +4899,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 setAllCandidates((prev) => deduplicateCandidates([...optimisticItems, ...prev]));
                 setCandidateTotal((prev) => prev + optimisticItems.length);
             }
-            setActivePage("candidates");
+            navigateToRecruitmentPage("candidates");
             // Background refresh (don't block UI)
             void refreshCoreData();
         } catch (error) {
@@ -7179,6 +7388,296 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         );
     }
 
+    function renderPositionCandidatesView() {
+        if (!positionDetail) return null;
+        // 使用 positionCandidatesData（通过 /candidates?position_id= 加载）
+        const candidates = positionCandidatesData;
+        // 加载中状态
+        if (positionCandidatesLoading) {
+            return (
+                <div className="flex items-center justify-center rounded-2xl border border-slate-200/80 bg-white/95 py-12 shadow-sm dark:border-slate-800 dark:bg-slate-950/85">
+                    <LoadingPanel label={isZh ? "加载候选人..." : "Loading candidates..."} />
+                </div>
+            );
+        }
+        // 状态筛选（客户端，搜索已由服务端处理）
+        const filteredCandidates = candidates.filter((c) => {
+            if (positionCandidateStatusFilter && c.status !== positionCandidateStatusFilter) return false;
+            return true;
+        });
+        // 按更新时间降序
+        const sortedCandidates = [...filteredCandidates].sort((a, b) => {
+            const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+            const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+            return tb - ta;
+        });
+        const statusOptions = [
+            { value: "", label: isZh ? "全部" : "All" },
+            ...Object.entries(candidateStatusLabels).map(([k, v]) => ({ value: k, label: v })),
+        ];
+        // 详情内容（抽屉共用）
+        const detailContent = candidateDetailLoading ? (
+            <LoadingPanel label={isZh ? "加载中..." : "Loading..."} />
+        ) : candidateDetail ? (() => {
+            const c = candidateDetail.candidate;
+            const score = candidateDetail.score;
+            const resumeFiles = candidateDetail.resume_files || [];
+            const statusHistory = candidateDetail.status_history || [];
+            return (
+                <div className="flex h-full min-h-0 flex-col">
+                    {/* 头部 */}
+                    <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3 dark:border-slate-800">
+                        <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{c.name}</p>
+                            <p className="mt-0.5 text-[11px] text-slate-500">{c.candidate_code}</p>
+                        </div>
+                        <button
+                            type="button"
+                            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                            onClick={() => setPositionCandidateDetailOpen(false)}
+                        >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-5">
+                        {/* 状态 & 匹配度 */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(c)))}>
+                                {labelForCandidateStatus(resolveCandidateDisplayStatus(c))}
+                            </Badge>
+                            <Badge variant="outline" className="rounded-full">
+                                {isZh ? "匹配度" : "Match"} {formatPercent(c.match_percent)}
+                            </Badge>
+                            {c.position_title && (
+                                <Badge variant="outline" className="rounded-full">
+                                    {c.position_title}
+                                </Badge>
+                            )}
+                        </div>
+
+                        {/* 基本信息 */}
+                        <div className="space-y-1.5 text-sm">
+                            <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "基本信息" : "Basic Info"}</p>
+                            {[
+                                { label: isZh ? "手机号" : "Phone", value: c.phone },
+                                { label: isZh ? "邮箱" : "Email", value: c.email },
+                                { label: isZh ? "城市" : "City", value: c.city },
+                                { label: isZh ? "年龄" : "Age", value: c.age != null ? String(c.age) : null },
+                                { label: isZh ? "公司" : "Company", value: c.current_company },
+                                { label: isZh ? "工作年限" : "Experience", value: c.years_of_experience },
+                                { label: isZh ? "学历" : "Education", value: c.education },
+                                { label: isZh ? "来源" : "Source", value: c.source },
+                            ].filter((f) => f.value).map((f) => (
+                                <div key={f.label} className="flex items-center justify-between">
+                                    <span className="text-slate-500">{f.label}</span>
+                                    <span className="font-medium text-slate-900 dark:text-slate-100">{f.value}</span>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* 评分详情 */}
+                        {score && (
+                            <div className="space-y-2">
+                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "评分详情" : "Score Details"}</p>
+                                {score.dimensions && score.dimensions.length > 0 && (
+                                    <div className="space-y-1.5">
+                                        {score.dimensions.map((dim, i) => (
+                                            <div key={i} className="flex items-center gap-2">
+                                                <span className="min-w-0 flex-1 truncate text-xs text-slate-600 dark:text-slate-400">{dim.label || `维度${i + 1}`}</span>
+                                                <div className="flex items-center gap-1">
+                                                    <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                        <div
+                                                            className="h-full rounded-full bg-teal-500"
+                                                            style={{ width: `${dim.max_score ? Math.min(100, (dim.score ?? 0) / dim.max_score * 100) : 0}%` }}
+                                                        />
+                                                    </div>
+                                                    <span className="w-8 text-right text-[11px] text-slate-500">{dim.score ?? "-"}/{dim.max_score ?? "-"}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {score.advantages && score.advantages.length > 0 && (
+                                    <div>
+                                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400">{isZh ? "优势" : "Advantages"}</p>
+                                        <ul className="mt-1 space-y-0.5">
+                                            {score.advantages.map((a, i) => (
+                                                <li key={i} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{a}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                                {score.concerns && score.concerns.length > 0 && (
+                                    <div>
+                                        <p className="text-[11px] text-amber-600 dark:text-amber-400">{isZh ? "风险" : "Concerns"}</p>
+                                        <ul className="mt-1 space-y-0.5">
+                                            {score.concerns.map((a, i) => (
+                                                <li key={i} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{a}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                                {score.recommendation && (
+                                    <div>
+                                        <p className="text-[11px] text-slate-400">{isZh ? "推荐意见" : "Recommendation"}</p>
+                                        <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">{score.recommendation}</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* 简历文件 */}
+                        {resumeFiles.length > 0 && (
+                            <div className="space-y-1.5">
+                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "简历文件" : "Resumes"}</p>
+                                {resumeFiles.map((rf) => (
+                                    <div key={rf.id} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs dark:border-slate-800">
+                                        <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">{rf.original_name}</span>
+                                        <Badge variant="outline" className={cn("shrink-0 text-[10px]", rf.parse_status === "completed" ? "text-emerald-600" : "text-slate-400")}>
+                                            {rf.parse_status}
+                                        </Badge>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* 状态变更历史 */}
+                        {statusHistory.length > 0 && (
+                            <div className="space-y-1.5">
+                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "状态变更" : "Status History"}</p>
+                                {statusHistory.slice(0, 8).map((h) => (
+                                    <div key={h.id} className="flex items-center gap-2 text-xs">
+                                        <span className="text-slate-400">{h.created_at ? formatDateTime(h.created_at) : ""}</span>
+                                        <span className="text-slate-500">{h.from_status ? labelForCandidateStatus(h.from_status) : "-"}</span>
+                                        <span className="text-slate-300">{"→"}</span>
+                                        <span className="font-medium text-slate-700 dark:text-slate-300">{labelForCandidateStatus(h.to_status)}</span>
+                                        {h.reason && <span className="truncate text-slate-400">{h.reason}</span>}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* 跳转完整页面 */}
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full rounded-lg"
+                            onClick={() => {
+                                setPositionCandidateDetailOpen(false);
+                                setSelectedCandidateId(c.id);
+                                navigateToRecruitmentPage("candidates");
+                            }}
+                        >
+                            {recruitmentUiText.viewInCandidatePage}
+                        </Button>
+                    </div>
+                </div>
+            );
+        })() : null;
+
+        return (
+            <div className="rounded-2xl border border-slate-200/80 bg-white/95 shadow-sm dark:border-slate-800 dark:bg-slate-950/85">
+                {/* 工具栏 */}
+                <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
+                    <div className="relative min-w-0 flex-1">
+                        <Input
+                            className="h-8 rounded-lg text-xs pl-8"
+                            placeholder={recruitmentUiText.positionCandidatesSearch}
+                            value={positionCandidateSearch}
+                            onChange={(e) => setPositionCandidateSearch(e.target.value)}
+                        />
+                        <svg className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="11" cy="11" r="8" strokeWidth="2"/><path d="m21 21-4.35-4.35" strokeWidth="2" strokeLinecap="round"/></svg>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                        {statusOptions.map((opt) => (
+                            <button
+                                key={opt.value}
+                                type="button"
+                                className={cn(
+                                    "rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors",
+                                    positionCandidateStatusFilter === opt.value
+                                        ? "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300"
+                                        : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                )}
+                                onClick={() => setPositionCandidateStatusFilter(opt.value)}
+                            >
+                                {opt.label}
+                            </button>
+                        ))}
+                    </div>
+                    {positionCandidatesTotal > 0 && (
+                        <span className="shrink-0 text-[11px] text-slate-400">
+                            {positionCandidatesTotal}{isZh ? "人" : " total"}
+                        </span>
+                    )}
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 shrink-0 rounded-lg px-2 text-[10px]"
+                        onClick={() => {
+                            setCandidatePositionFilter([String(positionDetail.position.id)]);
+                            navigateToRecruitmentPage("candidates");
+                        }}
+                    >
+                        {recruitmentUiText.viewInCandidatePage}
+                    </Button>
+                </div>
+                {/* 列头 */}
+                <div className="grid items-center gap-6 border-b border-slate-200/80 px-4 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500" style={{ height: 32, gridTemplateColumns: "1.2fr 1.5fr 0.8fr 0.5fr 0.8fr 0.7fr 0.5fr 0.8fr" }}>
+                    <span>{isZh ? "姓名" : "Name"}</span>
+                    <span>{isZh ? "手机/邮箱" : "Phone/Email"}</span>
+                    <span>{isZh ? "城市" : "City"}</span>
+                    <span>{isZh ? "年龄" : "Age"}</span>
+                    <span>{isZh ? "学历" : "Education"}</span>
+                    <span>{isZh ? "年限" : "Exp"}</span>
+                    <span className="text-right">{isZh ? "匹配" : "Match"}</span>
+                    <span>{isZh ? "状态" : "Status"}</span>
+                </div>
+                {/* 候选人列表 */}
+                {sortedCandidates.length > 0 ? (
+                    <>
+                        {sortedCandidates.map((c) => (
+                            <PositionCandidateRow
+                                key={c.id}
+                                candidate={c}
+                                isSelected={selectedCandidateId === c.id}
+                                onSelect={() => handlePositionCandidateSelect(c.id)}
+                            />
+                        ))}
+                        {/* 加载更多指示器 */}
+                        {positionCandidatesData.length < positionCandidatesTotal && (
+                            <PositionCandidatesLoadMoreSentinel
+                                onVisible={() => { if (selectedPositionId) void loadMorePositionCandidates(selectedPositionId); }}
+                                label={isLoadingMorePositionCandidates
+                                    ? (isZh ? "加载中..." : "Loading...")
+                                    : (isZh ? "滚动加载更多" : "Scroll to load more")}
+                            />
+                        )}
+                    </>
+                ) : (
+                    <div className="flex items-center justify-center py-12">
+                        <EmptyState
+                            title={candidates.length ? (isZh ? "没有匹配的候选人" : "No matching candidates") : recruitmentUiText.noCandidates}
+                            description={candidates.length ? (isZh ? "尝试调整筛选条件" : "Try adjusting filters") : recruitmentUiText.noCandidatesDesc}
+                        />
+                    </div>
+                )}
+                {/* 详情面板 - 抽屉模式（窄屏） */}
+                {positionCandidateDetailOpen && positionCandidateDetailMode === "drawer" && (
+                    <div className="absolute inset-0 z-30 flex justify-end" onClick={() => setPositionCandidateDetailOpen(false)}>
+                        <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" />
+                        <div
+                            className="relative h-full w-full max-w-[630px] overflow-hidden border-l border-slate-200/80 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 animate-in slide-in-from-right"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {detailContent}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     function renderPositionsPage() {
         return (
             <div
@@ -7318,7 +7817,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     </Button>
                 </div>
 
-                <div className="min-h-0 overflow-hidden">
+                <div className="relative min-h-0 overflow-hidden">
                     {positionDetailLoading ? <LoadingPanel label={isZh ? "正在加载岗位详情" : "Loading position details"}/> : positionDetail ? (
                         <div className="flex h-full min-h-0 flex-col gap-3 2xl:gap-5">
                             <div
@@ -7350,6 +7849,23 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             >
                                                 {isZh ? "岗位配置" : "Position Settings"}
                                             </Button>
+                                            <Button
+                                                size="sm"
+                                                className="h-8 rounded-xl px-3 text-xs"
+                                                variant={positionWorkspaceView === "candidates" ? "default" : "outline"}
+                                                onClick={() => {
+                                                    setPositionWorkspaceView("candidates");
+                                                    // 数据已加载或正在加载时跳过重复请求
+                                                    if (selectedPositionId && positionCandidatesData.length === 0 && !positionCandidatesLoading) loadPositionCandidates(selectedPositionId);
+                                                }}
+                                            >
+                                                {recruitmentUiText.positionCandidates}
+                                                {(positionCandidatesTotal || positionCandidatesData.length) > 0 && (
+                                                    <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
+                                                        {positionCandidatesTotal || positionCandidatesData.length}
+                                                    </Badge>
+                                                )}
+                                            </Button>
                                             <span className="min-w-0 truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
                                                 {positionDetail.position.title}
                                             </span>
@@ -7357,7 +7873,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] leading-none text-slate-500 dark:text-slate-400">
                                             <span className="whitespace-nowrap">{isZh ? `招聘人数 ${positionDetail.position.headcount}` : `Headcount ${positionDetail.position.headcount}`}</span>
                                             <span className="whitespace-nowrap">{isZh ? `JD 版本 ${positionDetail.jd_versions.length}` : `JD Versions ${positionDetail.jd_versions.length}`}</span>
-                                            <span className="whitespace-nowrap">{isZh ? `候选人 ${positionDetail.candidates.length}` : `Candidates ${positionDetail.candidates.length}`}</span>
+                                            <span className="whitespace-nowrap">{isZh ? `候选人 ${positionCandidatesTotal || positionDetail.candidates.length}` : `Candidates ${positionCandidatesTotal || positionDetail.candidates.length}`}</span>
                                             <span className="whitespace-nowrap">{isZh ? `最近更新 ${formatDateTime(positionDetail.position.updated_at)}` : `Updated ${formatDateTime(positionDetail.position.updated_at)}`}</span>
                                         </div>
                                         <Button
@@ -7409,7 +7925,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                             variant="outline"
                                                             onClick={() => {
                                                                 setCandidatePositionFilter([String(positionDetail.position.id)]);
-                                                                setActivePage("candidates");
+                                                                navigateToRecruitmentPage("candidates");
                                                             }}
                                                         >
                                                             <Users className="h-4 w-4"/>
@@ -7421,7 +7937,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                             onClick={() => {
                                                                 if (positionDetail.candidates[0]) {
                                                                     setSelectedCandidateId(positionDetail.candidates[0].id);
-                                                                    setActivePage("candidates");
+                                                                    navigateToRecruitmentPage("candidates");
                                                                 } else {
                                                                     toast.error(recruitmentToast.noCandidatesForInterview);
                                                                 }
@@ -7576,6 +8092,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 </div>
                                             </CardContent>
                                         </Card>
+                                    ) : positionWorkspaceView === "candidates" ? (
+                                        renderPositionCandidatesView()
                                     ) : (
                                         <Card className={panelClass}>
                                             <CardHeader className="space-y-3">
@@ -7676,7 +8194,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                             className="flex w-full items-start justify-between rounded-2xl border border-slate-200/80 px-4 py-4 text-left transition hover:border-slate-400 dark:border-slate-800"
                                                             onClick={() => {
                                                                 setSelectedCandidateId(candidate.id);
-                                                                setActivePage("candidates");
+                                                                navigateToRecruitmentPage("candidates");
                                                             }}
                                                         >
                                                             <div>

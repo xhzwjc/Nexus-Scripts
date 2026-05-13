@@ -2329,6 +2329,9 @@ export interface Translations {
     noCandidatesDesc: string;
     loadingMoreCandidates: string;
     allCandidatesLoaded: string;
+    positionCandidates: string;
+    viewInCandidatePage: string;
+    positionCandidatesSearch: string;
     // Skill
     newSkill: string;
     aiGenerate: string;
