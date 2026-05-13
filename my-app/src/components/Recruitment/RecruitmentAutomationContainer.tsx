@@ -188,6 +188,7 @@ import {
     SettingsEntry,
 } from "./components/SharedComponents";
 import {StructuredSkillEditor} from "./components/StructuredSkillEditor";
+import {CandidateRadarChart} from "./components/CandidateRadarChart";
 import {AssistantPage} from "./pages/AssistantPage";
 import {AuditPage} from "./pages/AuditPage";
 import {CandidatesPage} from "./pages/CandidatesPage";
@@ -8367,27 +8368,53 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                             ))}
                                                         </div>
                                                         {/* 评分详情 */}
-                                                        {score && (
+                                                        {score && score.dimensions && score.dimensions.length > 0 && (
                                                             <div className="space-y-2">
                                                                 <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "评分详情" : "Score Details"}</p>
-                                                                {score.dimensions && score.dimensions.length > 0 && (
-                                                                    <div className="space-y-1.5">
-                                                                        {score.dimensions.map((dim, i) => (
-                                                                            <div key={i} className="flex items-center gap-2">
-                                                                                <span className="min-w-0 flex-1 truncate text-xs text-slate-600 dark:text-slate-400">{dim.label || `维度${i + 1}`}</span>
-                                                                                <div className="flex items-center gap-1">
-                                                                                    <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                                                        <div
-                                                                                            className="h-full rounded-full bg-teal-500"
-                                                                                            style={{ width: `${dim.max_score ? Math.min(100, (dim.score ?? 0) / dim.max_score * 100) : 0}%` }}
-                                                                                        />
-                                                                                    </div>
-                                                                                    <span className="w-8 text-right text-[11px] text-slate-500">{dim.score ?? "-"}/{dim.max_score ?? "-"}</span>
+                                                                <CandidateRadarChart
+                                                                    dimensions={score.dimensions}
+                                                                    isZh={isZh}
+                                                                    uiText={{
+                                                                        scoreDetails: isZh ? "评分详情" : "Score Details",
+                                                                        coreSkills: isZh ? "核心能力" : "Core Competencies",
+                                                                        otherSkills: isZh ? "其他维度" : "Other Dimensions",
+                                                                        noData: isZh ? "AI 尚未完成维度评分" : "No evaluation data",
+                                                                        benchmark: isZh ? "岗位基准线" : "Benchmark",
+                                                                    }}
+                                                                />
+                                                                {/* 维度理由列表 - 支持雷达图点击跳转 */}
+                                                                <div className="space-y-3">
+                                                                    {score.dimensions.map((dim, i) => (
+                                                                        <div
+                                                                            key={i}
+                                                                            data-dim-reason={dim.label || `维度${i + 1}`}
+                                                                            className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/30"
+                                                                        >
+                                                                            <div className="mb-1 flex items-center justify-between">
+                                                                                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                                                                                    {dim.label || `维度${i + 1}`}
+                                                                                </span>
+                                                                                <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+                                                                                    <span>{dim.score ?? "-"}/{dim.max_score ?? "-"}</span>
+                                                                                    {dim.is_inferred && (
+                                                                                        <Badge variant="outline" className="px-1 py-0 text-[9px] h-3.5 bg-slate-100">
+                                                                                            {isZh ? "推断" : "Inf"}
+                                                                                        </Badge>
+                                                                                    )}
                                                                                 </div>
                                                                             </div>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
+                                                                            {dim.reason && (
+                                                                                <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                                                                                    {dim.reason}
+                                                                                </p>
+                                                                            )}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {score && (score.advantages?.length || score.concerns?.length || score.recommendation) && (
+                                                            <div className="space-y-2">
                                                                 {score.advantages && score.advantages.length > 0 && (
                                                                     <div>
                                                                         <p className="text-[11px] text-emerald-600 dark:text-emerald-400">{isZh ? "优势" : "Advantages"}</p>
