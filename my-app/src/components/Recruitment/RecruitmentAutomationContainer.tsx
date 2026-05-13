@@ -1318,6 +1318,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [candidateDetailLoading, setCandidateDetailLoading] = useState(false);
     const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
     const [previewPdfLoading, setPreviewPdfLoading] = useState(false);
+    const previewPdfAbortRef = useRef<AbortController | null>(null);
     const [duplicateCandidates, setDuplicateCandidates] = useState<Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>>([]);
     const [logsLoading, setLogsLoading] = useState(false);
     const [logDetailLoading, setLogDetailLoading] = useState(false);
@@ -6322,14 +6323,29 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     async function openResumePreview(file: { id: number; original_name?: string }) {
+        // Abort any in-flight request
+        if (previewPdfAbortRef.current) {
+            previewPdfAbortRef.current.abort();
+            previewPdfAbortRef.current = null;
+        }
         if (previewPdfUrl) {
             URL.revokeObjectURL(previewPdfUrl);
+            setPreviewPdfUrl(null);
         }
         setPreviewPdfLoading(true);
+        const abortController = new AbortController();
+        previewPdfAbortRef.current = abortController;
+        const TIMEOUT_MS = 10_000;
+        let timedOut = false;
+        const timeoutId = window.setTimeout(() => {
+            timedOut = true;
+            abortController.abort();
+        }, TIMEOUT_MS);
         try {
             const response = await authenticatedFetch(`/api/recruitment/resume-files/${file.id}/download`, {
                 method: "GET",
-                cache: "no-store"
+                cache: "no-store",
+                signal: abortController.signal,
             });
             if (!response.ok) {
                 throw new Error(await response.text());
@@ -6338,14 +6354,29 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             const objectUrl = URL.createObjectURL(blob);
             setPreviewPdfUrl(objectUrl);
         } catch (error) {
-            toast.error(recruitmentToast.resumeOpenedFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
-            setPreviewPdfUrl(null);
+            if ((error as Error).name === "AbortError") {
+                if (timedOut) {
+                    toast.error(recruitmentToast.resumePreviewTimeout);
+                    setPreviewPdfUrl(null);
+                }
+                // else: user closed, already cleaned up by closeResumePreview
+            } else {
+                toast.error(recruitmentToast.resumeOpenedFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
+                setPreviewPdfUrl(null);
+            }
         } finally {
+            window.clearTimeout(timeoutId);
+            if (abortController.signal.aborted) return;
             setPreviewPdfLoading(false);
+            previewPdfAbortRef.current = null;
         }
     }
 
     function closeResumePreview() {
+        if (previewPdfAbortRef.current) {
+            previewPdfAbortRef.current.abort();
+            previewPdfAbortRef.current = null;
+        }
         if (previewPdfUrl) {
             URL.revokeObjectURL(previewPdfUrl);
             setPreviewPdfUrl(null);
