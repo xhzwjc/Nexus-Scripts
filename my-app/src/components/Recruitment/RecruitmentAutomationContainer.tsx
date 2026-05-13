@@ -426,7 +426,7 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
 }: {
     candidate: CandidateSummary;
     isSelected: boolean;
-    onSelect: () => void;
+    onSelect: (id: number) => void;
 }) {
     const displayStatus = resolveCandidateDisplayStatus(candidate);
     return (
@@ -438,8 +438,8 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
                     ? "bg-teal-50/80 dark:bg-teal-900/20"
                     : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
             )}
-            style={{ height: POSITION_CANDIDATE_ROW_HEIGHT, gridTemplateColumns: "1.2fr 1.5fr 0.8fr 0.5fr 0.8fr 0.7fr 0.5fr 0.8fr" }}
-            onClick={onSelect}
+            style={{ height: POSITION_CANDIDATE_ROW_HEIGHT, gridTemplateColumns: "minmax(80px,1.2fr) minmax(120px,1.5fr) 90px 56px 90px 80px 72px 96px" }}
+            onClick={() => onSelect(candidate.id)}
         >
             <Tooltip>
                 <TooltipTrigger asChild>
@@ -480,17 +480,9 @@ const PositionCandidateRow = React.memo(function PositionCandidateRow({
     );
 }, (prev, next) => {
     return prev.candidate.id === next.candidate.id
-        && prev.candidate.name === next.candidate.name
         && prev.candidate.status === next.candidate.status
         && prev.candidate.display_status === next.candidate.display_status
-        && prev.candidate.active_screening_task_status === next.candidate.active_screening_task_status
         && prev.candidate.match_percent === next.candidate.match_percent
-        && prev.candidate.phone === next.candidate.phone
-        && prev.candidate.email === next.candidate.email
-        && prev.candidate.city === next.candidate.city
-        && prev.candidate.age === next.candidate.age
-        && prev.candidate.education === next.candidate.education
-        && prev.candidate.years_of_experience === next.candidate.years_of_experience
         && prev.isSelected === next.isSelected;
 });
 
@@ -598,7 +590,7 @@ interface PositionCandidatesViewProps {
     positionCandidateDetailOpen: boolean;
     positionCandidateStatusFilter: string;
     positionFilteredSortedCandidates: CandidateSummary[];
-    positionCandidateOnSelectMap: Map<number, () => void>;
+    onSelectCandidate: (id: number) => void;
     isLoadingMorePositionCandidates: boolean;
     selectedPositionId: number | null;
     selectedCandidateId: number | null;
@@ -626,7 +618,6 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
         positionCandidateDetailOpen,
         positionCandidateStatusFilter,
         positionFilteredSortedCandidates,
-        positionCandidateOnSelectMap,
         isLoadingMorePositionCandidates,
         selectedPositionId,
         selectedCandidateId,
@@ -638,6 +629,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
         onSearchChange,
         onStatusFilterChange,
         onCloseDetail,
+        onSelectCandidate,
         onViewAllCandidates,
         onLoadMore,
     } = props;
@@ -649,11 +641,8 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
 
     return (
         <div className="relative flex h-full min-h-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 shadow-sm dark:border-slate-800 dark:bg-slate-950/85">
-        {/* 左侧列表 */}
-        <div className={cn(
-            "flex min-w-0 flex-col transition-all duration-200",
-            positionCandidateDetailOpen ? "w-[52%]" : "w-full"
-        )}>
+        {/* 左侧列表：永远100%宽度 */}
+        <div className="flex w-full min-w-0 flex-col">
             {/* 工具栏 */}
             <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 px-4 py-2 dark:border-slate-800">
                 <PositionCandidateSearchInput
@@ -693,7 +682,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                 </Button>
             </div>
             {/* 列头 */}
-            <div className="grid items-center gap-6 border-b border-slate-200/80 px-4 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500" style={{ height: 32, gridTemplateColumns: "1.2fr 1.5fr 0.8fr 0.5fr 0.8fr 0.7fr 0.5fr 0.8fr" }}>
+            <div className="grid items-center gap-6 border-b border-slate-200/80 px-4 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500" style={{ height: 32, gridTemplateColumns: "minmax(80px,1.2fr) minmax(120px,1.5fr) 90px 56px 90px 80px 72px 96px" }}>
                 <span>{isZh ? "姓名" : "Name"}</span>
                 <span>{isZh ? "手机/邮箱" : "Phone/Email"}</span>
                 <span>{isZh ? "城市" : "City"}</span>
@@ -716,7 +705,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                             key={c.id}
                             candidate={c}
                             isSelected={selectedCandidateId === c.id}
-                            onSelect={positionCandidateOnSelectMap.get(c.id) ?? (() => {})}
+                            onSelect={onSelectCandidate}
                         />
                     ))}
                     {/* 加载更多指示器 */}
@@ -740,11 +729,17 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
             </div>
         </div>
 
-        {/* 右侧详情面板 */}
+        {/* 右侧详情面板：Absolute Overlay */}
         {positionCandidateDetailOpen && (
-            <div className="flex min-h-0 w-[48%] animate-in slide-in-from-right flex-col border-l border-slate-200/80 duration-200 dark:border-slate-800">
-                {detailContent}
-            </div>
+            <>
+                <div
+                    className="absolute inset-0 z-10 bg-slate-900/5 backdrop-blur-[1px]"
+                    onClick={onCloseDetail}
+                />
+                <div className="absolute right-0 top-0 bottom-0 z-20 flex w-full flex-col bg-white shadow-2xl ring-1 ring-slate-200 animate-in slide-in-from-right duration-300 dark:bg-slate-950 dark:ring-slate-800 sm:w-[480px] md:w-[560px] lg:w-[50%]">
+                    {detailContent}
+                </div>
+            </>
         )}
         </div>
     );
@@ -4387,10 +4382,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    function handlePositionCandidateSelect(candidateId: number) {
+    const handlePositionCandidateSelect = useCallback((candidateId: number) => {
         setSelectedCandidateId(candidateId);
         setPositionCandidateDetailOpen(true);
-    }
+    }, []);
 
     const handlePositionCandidateSearchChange = useCallback((v: string) => {
         setPositionCandidateSearch(v);
@@ -7638,15 +7633,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         });
     }, [positionCandidatesData, positionCandidateStatusFilter]);
 
-    // Memoize onSelect callback map to avoid inline closures
-    const positionCandidateOnSelectMap = useMemo(() => {
-        const map = new Map<number, () => void>();
-        positionCandidatesData.forEach((c) => {
-            map.set(c.id, () => handlePositionCandidateSelect(c.id));
-        });
-        return map;
-    }, [positionCandidatesData, handlePositionCandidateSelect]);
-
     function renderPositionsPage() {
         return (
             <div
@@ -8228,7 +8214,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 positionCandidateDetailOpen={positionCandidateDetailOpen}
                                                 positionCandidateStatusFilter={positionCandidateStatusFilter}
                                                 positionFilteredSortedCandidates={positionFilteredSortedCandidates}
-                                                positionCandidateOnSelectMap={positionCandidateOnSelectMap}
+                                                onSelectCandidate={handlePositionCandidateSelect}
                                                 isLoadingMorePositionCandidates={isLoadingMorePositionCandidates}
                                                 selectedPositionId={selectedPositionId}
                                                 selectedCandidateId={selectedCandidateId}
