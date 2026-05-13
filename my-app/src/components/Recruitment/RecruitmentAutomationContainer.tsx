@@ -3027,8 +3027,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 return data;
             }
             setPositionDetail(data);
-            // 始终加载候选人总数（用于 Tab badge 和岗位信息栏）
-            loadPositionCandidatesCount(data.position.id);
             // 智能默认 Tab：有 JD 时默认候选人，无 JD 时默认 JD
             // 候选人数据由搜索 useEffect 统一加载，避免重复请求
             if (data.current_jd_version) {
@@ -4347,21 +4345,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             toast.success(recruitmentToast.copied("发布文案"));
         } catch (error) {
             toast.error(recruitmentToast.copyFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
-        }
-    }
-
-    // 仅加载总数，不拉数据（选中岗位时调用）
-    async function loadPositionCandidatesCount(positionId: number) {
-        const requestId = ++positionCandidatesLoadRequestIdRef.current;
-        try {
-            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(
-                `/candidates?position_id=${positionId}&limit=1&offset=0`
-            );
-            if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === requestId) {
-                setPositionCandidatesTotal(data?.total || 0);
-            }
-        } catch {
-            // ignore
         }
     }
 
@@ -7927,11 +7910,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 }}
                                             >
                                                 {recruitmentUiText.positionCandidates}
-                                                {(positionCandidatesTotal || positionCandidatesData.length) > 0 && (
-                                                    <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
-                                                        {positionCandidatesTotal || positionCandidatesData.length}
-                                                    </Badge>
-                                                )}
                                             </Button>
                                             <span className="min-w-0 truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
                                                 {positionDetail.position.title}
@@ -7940,7 +7918,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] leading-none text-slate-500 dark:text-slate-400">
                                             <span className="whitespace-nowrap">{isZh ? `招聘人数 ${positionDetail.position.headcount}` : `Headcount ${positionDetail.position.headcount}`}</span>
                                             <span className="whitespace-nowrap">{isZh ? `JD 版本 ${positionDetail.jd_versions.length}` : `JD Versions ${positionDetail.jd_versions.length}`}</span>
-                                            <span className="whitespace-nowrap">{isZh ? `候选人 ${positionCandidatesTotal || positionDetail.candidates.length}` : `Candidates ${positionCandidatesTotal || positionDetail.candidates.length}`}</span>
+                                            <span className="whitespace-nowrap">{isZh ? `候选人 ${positionDetail.candidates.length}` : `Candidates ${positionDetail.candidates.length}`}</span>
                                             <span className="whitespace-nowrap">{isZh ? `最近更新 ${formatDateTime(positionDetail.position.updated_at)}` : `Updated ${formatDateTime(positionDetail.position.updated_at)}`}</span>
                                         </div>
                                         <Button
