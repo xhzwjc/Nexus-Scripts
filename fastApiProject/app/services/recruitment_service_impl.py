@@ -8423,6 +8423,8 @@ class RecruitmentService:
             "email": row.email,
             "age": getattr(row, "age", None),
             "city": getattr(row, "city", None),
+            "education": getattr(row, "education", None),
+            "years_of_experience": getattr(row, "years_of_experience", None),
             "source": row.source,
             "status": row.status,
             "display_status": display_status,
