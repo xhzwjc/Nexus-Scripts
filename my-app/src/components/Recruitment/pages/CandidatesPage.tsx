@@ -15,6 +15,7 @@ import {
     Copy,
     Download,
     ExternalLink,
+    Eye,
     LayoutGrid,
     List,
     Loader2,
@@ -461,6 +462,8 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         startScreening: isZh ? "开始初筛" : "Start Screening",
         stopScreening: isZh ? "停止初筛" : "Stop Screening",
         viewResume: isZh ? "查看简历" : "View Resume",
+        previewResume: isZh ? "预览简历" : "Preview Resume",
+        previewOriginal: isZh ? "预览原件" : "Preview Original",
         sendResume: isZh ? "发送简历" : "Send Resume",
         interviewQuestions: isZh ? "面试题" : "Interview Questions",
         stopGeneration: isZh ? "停止生成" : "Stop",
@@ -540,7 +543,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         noResumeFile: isZh ? "暂无简历文件" : "No resume file",
         resumeFileDesc: (fileExt: string, size: number, status: string) => (isZh ? `${fileExt} · ${size} bytes · 解析状态 ${status}` : `${fileExt} · ${size} bytes · Parse status ${status}`),
         resumeFileEmptyDesc: isZh ? "上传简历后，这里会显示当前文件、类型与解析状态。" : "After a resume is uploaded, its file info, type, and parse status will appear here.",
-        viewOriginal: isZh ? "查看原件" : "View Original",
+        viewOriginal: isZh ? "预览原件" : "Preview Original",
         downloadResume: isZh ? "下载简历" : "Download Resume",
         deleteResume: isZh ? "删除简历" : "Delete Resume",
         parseErrorLine: (message: string) => (isZh ? `解析异常：${message}` : `Parse error: ${message}`),
@@ -1474,6 +1477,7 @@ type CandidatesPageProps = {
     isSelectedCandidateScreeningCancelling: boolean;
     selectedCandidateScreeningTaskId: number | null;
     openResumeFile: (file: ResumeFile, download?: boolean) => Promise<void>;
+    previewResumeFile: (file: { id: number; original_name?: string }) => void;
     requestDeleteResumeFile: (file: ResumeFile) => void;
     requestDeleteCandidate: (candidate: CandidateSummary) => void;
     generateInterviewQuestions: () => Promise<void>;
@@ -1576,6 +1580,7 @@ export function CandidatesPage({
     isSelectedCandidateScreeningCancelling,
     selectedCandidateScreeningTaskId,
     openResumeFile,
+    previewResumeFile,
     requestDeleteResumeFile,
     requestDeleteCandidate,
     generateInterviewQuestions,
@@ -2607,9 +2612,9 @@ export function CandidatesPage({
                                                 {isSelectedCandidateScreeningCancelling ? tr.stopping : selectedCandidateScreeningTaskId ? tr.stopScreening : screeningSubmitting ? tr.queueing : tr.startScreening}
                                             </Button>
                                             {primaryResumeFile ? (
-                                                <Button className="shrink-0" size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile)}>
-                                                    <ExternalLink className="h-4 w-4"/>
-                                                    {tr.viewResume}
+                                                <Button className="shrink-0" size="sm" variant="outline" onClick={() => previewResumeFile({ id: primaryResumeFile.id, original_name: primaryResumeFile.original_name })}>
+                                                    <Eye className="h-4 w-4"/>
+                                                    {tr.previewResume}
                                                 </Button>
                                             ) : null}
                                             <Button className="shrink-0" size="sm" variant="outline" onClick={() => openResumeMailDialog([candidateDetail.candidate.id])}>
@@ -3276,7 +3281,10 @@ export function CandidatesPage({
                                                     </div>
                                                     {primaryResumeFile ? (
                                                         <div className="flex flex-wrap gap-2">
-                                                            <Button size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile)}>{tr.viewOriginal}</Button>
+                                                            <Button size="sm" variant="outline" onClick={() => previewResumeFile({ id: primaryResumeFile.id, original_name: primaryResumeFile.original_name })}>
+                                                                <Eye className="mr-1 h-4 w-4"/>
+                                                                {tr.viewOriginal}
+                                                            </Button>
                                                             <Button size="sm" variant="outline" onClick={() => void openResumeFile(primaryResumeFile, true)}>{tr.downloadResume}</Button>
                                                             <Button
                                                                 size="sm"

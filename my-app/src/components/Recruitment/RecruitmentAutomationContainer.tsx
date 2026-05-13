@@ -8546,6 +8546,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 isSelectedCandidateScreeningCancelling={isSelectedCandidateScreeningCancelling}
                 selectedCandidateScreeningTaskId={selectedCandidateScreeningTaskId}
                 openResumeFile={openResumeFile}
+                previewResumeFile={openResumePreview}
                 generateInterviewQuestions={generateInterviewQuestions}
                 isCurrentInterviewTaskCancelling={isCurrentInterviewTaskCancelling}
                 currentCandidateInterviewTaskId={currentCandidateInterviewTaskId}
