@@ -134,6 +134,15 @@ SCREENING_OUTPUT_SCHEMA = """{
         "is_inferred": false,
       "radar_category": "专业能力|学习潜力|工作经验|综合素质|岗位匹配度"
       }
+    ],
+    "radar_scores": [
+      {
+        "category": "",
+        "score": 0.0,
+        "max_score": 2.0,
+        "reason": "",
+        "evidence": ""
+      }
     ]
   }
 }"""
@@ -154,6 +163,15 @@ SCORE_ONLY_OUTPUT_SCHEMA = """{
       "evidence": "",
       "is_inferred": false,
       "radar_category": "专业能力|学习潜力|工作经验|综合素质|岗位匹配度"
+    }
+  ],
+  "radar_scores": [
+    {
+      "category": "",
+      "score": 0.0,
+      "max_score": 2.0,
+      "reason": "",
+      "evidence": ""
     }
   ]
 }"""
@@ -178,7 +196,8 @@ SCREENING_OUTPUT_SCHEMA_V3 = """{
     "concerns": ["string"],
     "recommendation": "string",
     "suggested_status": "screening_passed | talent_pool | screening_rejected",
-    "dimensions": [{"label":"string","score":0.0,"max_score":0.0,"reason":"string","evidence":"string","is_inferred":false,"radar_category":"专业能力|学习潜力|工作经验|综合素质|岗位匹配度"}]
+    "dimensions": [{"label":"string","score":0.0,"max_score":0.0,"reason":"string","evidence":"string","is_inferred":false,"radar_category":"专业能力|学习潜力|工作经验|综合素质|岗位匹配度"}],
+    "radar_scores": [{"category":"专业能力|学习潜力|工作经验|综合素质|岗位匹配度","score":0.0,"max_score":2.0,"reason":"string","evidence":"string"}]
   }
 }"""
 
@@ -189,7 +208,8 @@ SCORE_ONLY_OUTPUT_SCHEMA_V3 = """{
   "concerns": ["string"],
   "recommendation": "string",
   "suggested_status": "screening_passed | talent_pool | screening_rejected",
-  "dimensions": [{"label":"string","score":0.0,"max_score":0.0,"reason":"string","evidence":"string","is_inferred":false,"radar_category":"专业能力|学习潜力|工作经验|综合素质|岗位匹配度"}]
+  "dimensions": [{"label":"string","score":0.0,"max_score":0.0,"reason":"string","evidence":"string","is_inferred":false,"radar_category":"专业能力|学习潜力|工作经验|综合素质|岗位匹配度"}],
+  "radar_scores": [{"category":"专业能力|学习潜力|工作经验|综合素质|岗位匹配度","score":0.0,"max_score":2.0,"reason":"string","evidence":"string"}]
 }"""
 
 RESUME_SCREENING_SYSTEM_PROMPT_V3 = """你是 ATS 初筛引擎。读取简历原文，一次性输出 parsed_resume + score 的 JSON。
@@ -206,7 +226,8 @@ RESUME_SCREENING_SYSTEM_PROMPT_V3 = """你是 ATS 初筛引擎。读取简历原
 9. parsed_resume 必须简洁：项目经历每段最多 2 句，技能列表最多 15 项，个人总结最多 100 字。
 10. 每个维度的 reason 必须具体说明：满分情况解释为什么满分，扣分情况逐项说明扣了多少、为什么扣。不要笼统概括。
 11. 每个维度必须包含 radar_category 字段，值为以下之一："专业能力"、"学习潜力"、"工作经验"、"综合素质"、"岗位匹配度"。分类规则：专业能力=技术/专业技能/工具框架/测试能力/协议知识；学习潜力=教育背景/成长轨迹/学习能力/项目复杂度；工作经验=年限/行业匹配/岗位相关性/职业发展；综合素质=沟通/团队/稳定性/领导力/软技能/文化适配；岗位匹配度=JD整体契合/领域知识/生态熟悉度/需求覆盖。
-12. 禁止输出 JSON 以外的内容。
+12. 必须输出 radar_scores，包含恰好 5 个类别（专业能力、学习潜力、工作经验、综合素质、岗位匹配度），每项 max_score=2.0，总分 10.0。这是基于整体简历和各维度评分的综合评估，不是简单平均 — 要结合简历全局信息给出判断。reason 一句话说明核心依据，evidence 引用简历关键片段。与各维度评分不得出现严重矛盾。
+13. 禁止输出 JSON 以外的内容。
 
 输出 schema：
 """ + SCREENING_OUTPUT_SCHEMA_V3
@@ -221,10 +242,11 @@ RESUME_SCORE_SYSTEM_PROMPT_V3 = """你是 ATS 评分引擎。基于已有 parsed
 5. suggested_status 必须是 screening_passed / talent_pool / screening_rejected，由维度分数推导。
 6. advantages 汇总正分维度；concerns 汇总零分/缺失维度。两者都不得全空。
 7. recommendation 用一句话给 HR 结论。
-8. 顶层只返回 score 字段（total_score, match_percent, advantages, concerns, recommendation, suggested_status, dimensions）。
+8. 顶层只返回 score 字段（total_score, match_percent, advantages, concerns, recommendation, suggested_status, dimensions, radar_scores）。
 9. 每个维度的 reason 必须具体说明：满分情况解释为什么满分，扣分情况逐项说明扣了多少、为什么扣。不要笼统概括。
 10. 每个维度必须包含 radar_category 字段，值为以下之一："专业能力"、"学习潜力"、"工作经验"、"综合素质"、"岗位匹配度"。分类规则：专业能力=技术/专业技能/工具框架/测试能力/协议知识；学习潜力=教育背景/成长轨迹/学习能力/项目复杂度；工作经验=年限/行业匹配/岗位相关性/职业发展；综合素质=沟通/团队/稳定性/领导力/软技能/文化适配；岗位匹配度=JD整体契合/领域知识/生态熟悉度/需求覆盖。
-11. 禁止输出 JSON 以外的内容。
+11. 必须输出 radar_scores，包含恰好 5 个类别（专业能力、学习潜力、工作经验、综合素质、岗位匹配度），每项 max_score=2.0，总分 10.0。这是基于整体简历和各维度评分的综合评估，不是简单平均 — 要结合简历全局信息给出判断。reason 一句话说明核心依据，evidence 引用简历关键片段。与各维度评分不得出现严重矛盾。
+12. 禁止输出 JSON 以外的内容。
 
 输出 schema：
 """ + SCORE_ONLY_OUTPUT_SCHEMA_V3
@@ -258,6 +280,7 @@ Scoring Rules:
 - Treat screening skills and custom hard requirements as mandatory high-priority constraints.
 - Every dimension must include label, score, max_score, reason, evidence, and is_inferred.
 - Every dimension must include a "radar_category" field, one of: "专业能力", "学习潜力", "工作经验", "综合素质", "岗位匹配度". Classification: 专业能力=technical skills/professional expertise/tool proficiency/testing ability/protocol knowledge; 学习潜力=education/growth trajectory/learning ability/project complexity; 工作经验=years of experience/industry match/position relevance/career progression; 综合素质=communication/teamwork/stability/leadership/soft skills/cultural fit; 岗位匹配度=overall JD fit/domain knowledge/ecosystem familiarity/requirement coverage.
+- Must output "radar_scores" with exactly 5 categories (专业能力, 学习潜力, 工作经验, 综合素质, 岗位匹配度), each max_score=2.0, total 10.0. This is a holistic assessment based on the full resume and all dimension scores — not a simple average. reason: one sentence with core justification. evidence: key resume excerpt. Must not contradict individual dimension scores.
 - Every dimension listed in DIMENSION_RULES must appear in your output dimensions array; missing any dimension results in invalid output.
 - Each dimension's reason must explain the score in detail: if full score, explain why; if deducted, state exactly how much was deducted and why. Do not give vague summaries.
 - Every numeric field must be an exact JSON number. Never output ranges, formulas, or percentages with symbols.
@@ -289,6 +312,7 @@ Scoring Rules:
 - Treat screening skills and custom hard requirements as mandatory hard constraints with the highest priority.
 - Every dimension must include label, score, max_score, reason, evidence, and is_inferred.
 - Every dimension must include a "radar_category" field, one of: "专业能力", "学习潜力", "工作经验", "综合素质", "岗位匹配度". Classification: 专业能力=technical skills/professional expertise/tool proficiency/testing ability/protocol knowledge; 学习潜力=education/growth trajectory/learning ability/project complexity; 工作经验=years of experience/industry match/position relevance/career progression; 综合素质=communication/teamwork/stability/leadership/soft skills/cultural fit; 岗位匹配度=overall JD fit/domain knowledge/ecosystem familiarity/requirement coverage.
+- Must output "radar_scores" with exactly 5 categories (专业能力, 学习潜力, 工作经验, 综合素质, 岗位匹配度), each max_score=2.0, total 10.0. This is a holistic assessment based on the full resume and all dimension scores — not a simple average. reason: one sentence with core justification. evidence: key resume excerpt. Must not contradict individual dimension scores.
 - Every dimension listed in DIMENSION_RULES must appear in your output dimensions array; missing any dimension results in invalid output.
 - Each dimension's reason must explain the score in detail: if full score, explain why; if deducted, state exactly how much was deducted and why. Do not give vague summaries.
 - Every numeric field must be an exact JSON number. Never output ranges, formulas, or percentages with symbols.
@@ -410,4 +434,5 @@ N. 加分项：满分 0.2 分。{加分评估重点}
 - 核心维度的评估说明必须以"核心第一优先，"开头
 - 每个维度的评估说明要具体、可操作，明确指出看什么证据
 - 硬性规则要结合岗位特点设计，不要只写通用规则
+- 五个评估类别必须全部覆盖，每个类别至少包含一个维度：专业能力（技术/专业技能）、学习潜力（教育/成长）、工作经验（年限/行业）、综合素质（沟通/团队/软技能）、岗位匹配度（JD契合/领域知识）。可适当合并，但不得遗漏任何类别。
 """

@@ -44,6 +44,7 @@ import {
 import {getCurrentLanguage, useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
 import {Badge} from "@/components/ui/badge";
+import {CandidateRadarChart} from "../components/CandidateRadarChart";
 import {Button} from "@/components/ui/button";
 import {
     Card,
@@ -1635,6 +1636,7 @@ export function CandidatesPage({
     deleteFollowUp,
 }: CandidatesPageProps) {
     const {language} = useI18n();
+    const isZh = language !== "en-US";
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
     const [candidateListViewportEl, setCandidateListViewportEl] = React.useState<HTMLDivElement | null>(null);
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
@@ -2938,7 +2940,34 @@ export function CandidatesPage({
                                                             )}
                                                         </div>
                                                         <div className="space-y-2">
-                                                            <p className="font-medium text-slate-900 dark:text-slate-100">{tr.dimensionScores}</p>
+                                                            <p className="font-medium text-slate-900 dark:text-slate-100">{isZh ? "综合能力概览" : "Competency Overview"}</p>
+                                                            <CandidateRadarChart
+                                                                dimensions={readScoreDimensions(candidateDetail.score?.dimensions)}
+                                                                radarScores={candidateDetail.score?.radar_scores}
+                                                                isZh={isZh}
+                                                                mode="aggregated"
+                                                                uiText={{
+                                                                    scoreDetails: isZh ? "评分详情" : "Score Details",
+                                                                    coreSkills: isZh ? "核心能力" : "Core Competencies",
+                                                                    otherSkills: isZh ? "其他维度" : "Other Dimensions",
+                                                                    noData: isZh ? "AI 尚未完成维度评分" : "No evaluation data",
+                                                                    benchmark: isZh ? "岗位基准线" : "Benchmark",
+                                                                }}
+                                                            />
+                                                            <p className="font-medium text-slate-900 dark:text-slate-100 mt-4">{isZh ? "各维度得分" : "Dimension Scores"}</p>
+                                                            <CandidateRadarChart
+                                                                dimensions={readScoreDimensions(candidateDetail.score?.dimensions)}
+                                                                isZh={isZh}
+                                                                mode="individual"
+                                                                uiText={{
+                                                                    scoreDetails: isZh ? "评分详情" : "Score Details",
+                                                                    coreSkills: isZh ? "核心能力" : "Core Competencies",
+                                                                    otherSkills: isZh ? "其他维度" : "Other Dimensions",
+                                                                    noData: isZh ? "AI 尚未完成维度评分" : "No evaluation data",
+                                                                    benchmark: isZh ? "岗位基准线" : "Benchmark",
+                                                                }}
+                                                            />
+                                                            <p className="font-medium text-slate-900 dark:text-slate-100 mt-4">{tr.dimensionScores}</p>
                                                             {readScoreDimensions(candidateDetail.score?.dimensions).length > 0 ? (
                                                                 <ul className="space-y-2">
                                                                     {readScoreDimensions(candidateDetail.score?.dimensions).map((item, index) => {

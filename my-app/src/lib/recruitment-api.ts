@@ -203,6 +203,14 @@ export interface CandidateScoreDimension {
   [key: string]: unknown;
 }
 
+export interface RadarScore {
+  category?: string | null;
+  score?: number | null;
+  max_score?: number | null;
+  reason?: string | null;
+  evidence?: string | null;
+}
+
 export interface CandidateScore {
   id: number;
   candidate_id: number;
@@ -215,6 +223,7 @@ export interface CandidateScore {
   recommendation?: string | null;
   suggested_status?: string | null;
   dimensions?: CandidateScoreDimension[];
+  radar_scores?: RadarScore[];
   score_validation_passed?: boolean | null;
   validation_warnings?: string[];
   manual_override_score?: number | null;

@@ -878,6 +878,26 @@ def _sanitize_radar_category(value: Any) -> str:
     return s if s in VALID_RADAR_CATEGORIES else ""
 
 
+def _sanitize_radar_scores(value: Any) -> List[Dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        category = _sanitize_radar_category(item.get("category"))
+        if not category:
+            continue
+        result.append({
+            "category": category,
+            "score": sanitize_number(item.get("score"), default=0.0),
+            "max_score": sanitize_number(item.get("max_score"), default=2.0),
+            "reason": sanitize_string(item.get("reason")),
+            "evidence": sanitize_string(item.get("evidence")),
+        })
+    return result
+
+
 def _sanitize_dimensions_with_meta(value: Any, schema_config: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[str]]:
     if not isinstance(value, list):
         return [], []
@@ -1012,6 +1032,7 @@ def _sanitize_screening_payload_structure(
         sanitized_score[field] = sanitize_enum(score_payload.get(field), allowed_values)
     sanitized_dimensions, dimension_warnings = _sanitize_dimensions_with_meta(score_payload.get("dimensions"), score_config)
     sanitized_score["dimensions"] = sanitized_dimensions
+    sanitized_score["radar_scores"] = _sanitize_radar_scores(score_payload.get("radar_scores"))
 
     return {
         "parsed_resume": sanitized_parsed_resume,
@@ -4389,6 +4410,9 @@ def _validate_screening_dimension_item(value: Any, *, index: int) -> Dict[str, A
         normalized["weight_text"] = value.get("weight_text")
     if "is_core" in value:
         normalized["is_core"] = bool(value.get("is_core"))
+    radar_category = _sanitize_radar_category(value.get("radar_category"))
+    if radar_category:
+        normalized["radar_category"] = radar_category
     return normalized
 
 
@@ -4434,6 +4458,7 @@ def _validate_screening_score_payload(value: Any) -> Dict[str, Any]:
         "recommendation": recommendation,
         "suggested_status": suggested_status,
         "dimensions": normalized_dimensions,
+        "radar_scores": _sanitize_radar_scores(value.get("radar_scores")),
     }
 
 
@@ -8067,6 +8092,7 @@ class RecruitmentService:
                 "recommendation": row.recommendation if row.recommendation is not None else raw_score.get("recommendation"),
                 "suggested_status": _normalize_suggested_status(row.suggested_status or raw_score.get("suggested_status")) or row.suggested_status or raw_score.get("suggested_status"),
                 "dimensions": sanitize_dimensions(raw_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
+                "radar_scores": _sanitize_radar_scores(raw_score.get("radar_scores")),
                 "score_validation_passed": debug_payload.get("score_validation_passed"),
                 "validation_warnings": _normalize_score_warning_items(debug_payload.get("validation_warnings"), limit=8),
                 "manual_override_score": row.manual_override_score,
@@ -8116,6 +8142,7 @@ class RecruitmentService:
             "recommendation": row.recommendation or compatibility_score.get("recommendation"),
             "suggested_status": _normalize_suggested_status(row.suggested_status or compatibility_score.get("suggested_status")) or row.suggested_status or compatibility_score.get("suggested_status"),
             "dimensions": sanitize_dimensions(compatibility_score.get("dimensions"), SCREENING_PAYLOAD_SCHEMA_CONFIG.get("score") or {}),
+            "radar_scores": _sanitize_radar_scores(compatibility_score.get("radar_scores") or payload.get("radar_scores")),
             "manual_override_score": row.manual_override_score,
             "manual_override_reason": row.manual_override_reason,
             "hr_feedback": row.hr_feedback,

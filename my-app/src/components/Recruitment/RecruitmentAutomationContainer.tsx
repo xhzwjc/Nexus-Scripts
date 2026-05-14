@@ -8370,10 +8370,25 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                         {/* 评分详情 */}
                                                         {score && score.dimensions && score.dimensions.length > 0 && (
                                                             <div className="space-y-2">
-                                                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "评分详情" : "Score Details"}</p>
+                                                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "综合能力概览" : "Competency Overview"}</p>
+                                                                <CandidateRadarChart
+                                                                    dimensions={score.dimensions}
+                                                                    radarScores={score.radar_scores}
+                                                                    isZh={isZh}
+                                                                    mode="aggregated"
+                                                                    uiText={{
+                                                                        scoreDetails: isZh ? "评分详情" : "Score Details",
+                                                                        coreSkills: isZh ? "核心能力" : "Core Competencies",
+                                                                        otherSkills: isZh ? "其他维度" : "Other Dimensions",
+                                                                        noData: isZh ? "AI 尚未完成维度评分" : "No evaluation data",
+                                                                        benchmark: isZh ? "岗位基准线" : "Benchmark",
+                                                                    }}
+                                                                />
+                                                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400 mt-4">{isZh ? "各维度得分" : "Dimension Scores"}</p>
                                                                 <CandidateRadarChart
                                                                     dimensions={score.dimensions}
                                                                     isZh={isZh}
+                                                                    mode="individual"
                                                                     uiText={{
                                                                         scoreDetails: isZh ? "评分详情" : "Score Details",
                                                                         coreSkills: isZh ? "核心能力" : "Core Competencies",
