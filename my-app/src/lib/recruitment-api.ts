@@ -199,6 +199,7 @@ export interface CandidateScoreDimension {
   reason?: string | null;
   evidence?: string | string[] | null;
   is_inferred?: boolean | null;
+  radar_category?: string | null;
   [key: string]: unknown;
 }
 

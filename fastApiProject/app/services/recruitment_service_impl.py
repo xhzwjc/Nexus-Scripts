@@ -121,7 +121,7 @@ SCREENING_PAYLOAD_SCHEMA_CONFIG = {
         "enum_fields": {
             "suggested_status": VALID_SCREENING_SUGGESTED_STATUSES,
         },
-        "dimension_fields": ("label", "score", "max_score", "reason", "evidence", "is_inferred"),
+        "dimension_fields": ("label", "score", "max_score", "reason", "evidence", "is_inferred", "radar_category"),
     },
 }
 MAIL_AUTO_PUSH_GLOBAL_CONFIG_KEY = "mail_auto_push_defaults"
@@ -870,6 +870,14 @@ def sanitize_enum(value: Any, allowed_values: Sequence[str] | set[str]) -> str:
     return normalized if normalized in set(allowed_values) else ""
 
 
+VALID_RADAR_CATEGORIES = {"专业能力", "学习潜力", "工作经验", "综合素质", "岗位匹配度"}
+
+
+def _sanitize_radar_category(value: Any) -> str:
+    s = sanitize_string(value)
+    return s if s in VALID_RADAR_CATEGORIES else ""
+
+
 def _sanitize_dimensions_with_meta(value: Any, schema_config: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[str]]:
     if not isinstance(value, list):
         return [], []
@@ -897,6 +905,7 @@ def _sanitize_dimensions_with_meta(value: Any, schema_config: Dict[str, Any]) ->
             "reason": sanitize_string(item.get("reason")),
             "evidence": evidence,
             "is_inferred": item.get("is_inferred") is True,
+            "radar_category": _sanitize_radar_category(item.get("radar_category")),
         }
         sanitized = {key: normalized.get(key) for key in allowed_fields}
         if _is_meaningful_sanitized_value(sanitized.get("label")):
@@ -12040,18 +12049,8 @@ class RecruitmentService:
                 flow_state["primary_model_call_succeeded"] = validation_meta.get("primary_model_call_succeeded")
             source_log = score_log or parse_log or root_log
             source_output_snapshot = _decode_ai_task_json_text(getattr(source_log, "output_snapshot", None), {}) if source_log else {}
-            resolved_provider = str(
-                getattr(score_log, "model_provider", None)
-                or getattr(parse_log, "model_provider", None)
-                or getattr(root_log, "model_provider", None)
-                or ""
-            ).strip() or None
-            resolved_model_name = str(
-                getattr(score_log, "model_name", None)
-                or getattr(parse_log, "model_name", None)
-                or getattr(root_log, "model_name", None)
-                or ""
-            ).strip() or None
+            resolved_provider = str(getattr(source_log, "model_provider", None) or "").strip() or None
+            resolved_model_name = str(getattr(source_log, "model_name", None) or "").strip() or None
             resolved_prompt_snapshot = getattr(source_log, "prompt_snapshot", None) if source_log else None
             resolved_full_request_snapshot = getattr(source_log, "full_request_snapshot", None) if source_log else None
             resolved_input_summary = getattr(source_log, "input_summary", None) if source_log else None
