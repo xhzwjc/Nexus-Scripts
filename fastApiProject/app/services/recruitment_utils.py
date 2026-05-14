@@ -429,7 +429,6 @@ SCREENING_RULE_IGNORE_MARKERS = (
     "json",
     "system:",
     "user:",
-    "评分细则",
 )
 
 SCREENING_DIMENSION_SECTION_MARKERS = (
@@ -1991,7 +1990,6 @@ def _extract_prompt_style_screening_dimension_rules(
     seen_labels: set[str] = set()
     in_dimension_section = False
     current_rule: Optional[Dict[str, Any]] = None
-    in_rubric = False
 
     for raw_line in body.splitlines():
         plain = strip_markdown(raw_line).strip()
@@ -2011,26 +2009,6 @@ def _extract_prompt_style_screening_dimension_rules(
                 break
             continue
 
-        # Check for rubric header (评分细则：)
-        if re.match(r"^\s*评分细则\s*[：:]\s*$", raw_line):
-            in_rubric = True
-            continue
-
-        # Check for rubric level line (e.g., "- 3.0 分：5年以上经验")
-        # Use raw_line instead of plain because strip_markdown removes leading "- "
-        if in_rubric:
-            rubric_match = re.match(r"^\s*[-•]\s*(.+?)\s*分[：:]\s*(.+)$", raw_line)
-            if rubric_match and current_rule:
-                if "rubric" not in current_rule:
-                    current_rule["rubric"] = []
-                current_rule["rubric"].append({
-                    "score_range": rubric_match.group(1).strip(),
-                    "criteria": rubric_match.group(2).strip(),
-                })
-                continue
-            # Non-rubric line means rubric section ended
-            in_rubric = False
-
         rule = _parse_prompt_style_screening_dimension_line(plain, iot_context=iot_context)
         if not rule:
             continue
@@ -2040,7 +2018,6 @@ def _extract_prompt_style_screening_dimension_rules(
         seen_labels.add(label)
         rules.append(rule)
         current_rule = rule
-        in_rubric = False
         if len(rules) >= limit:
             break
 

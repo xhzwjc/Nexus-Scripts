@@ -2452,14 +2452,6 @@ export interface Translations {
     skillDimensionPlaceholder: string;
     skillEvaluationFocus: string;
     skillEvaluationPlaceholder: string;
-    skillRubricTitle: string;
-    skillRubricScoreRange: string;
-    skillRubricScoreRangePlaceholder: string;
-    skillRubricCriteria: string;
-    skillRubricCriteriaPlaceholder: string;
-    skillRubricAdd: string;
-    skillRubricRemove: string;
-    skillRubricEmpty: string;
     skillUnnamed: string;
     skillSave: string;
     skillUpdate: string;

@@ -63,11 +63,6 @@ export type SkillFormState = {
     isEnabled: boolean;
 };
 
-export type ScoringRubricLevel = {
-    scoreRange: string;   // e.g. "3.0", "2.0-2.9", "1.0-1.9", "0"
-    criteria: string;     // e.g. "5年以上同类岗位经验，且有大厂背景"
-};
-
 export type ScreeningSkillDimension = {
     id: string;
     name: string;
@@ -75,7 +70,6 @@ export type ScreeningSkillDimension = {
     priority: "core" | "secondary" | "auxiliary" | "bonus";
     description: string;
     isHardRequirement: boolean;
-    scoringRubric: ScoringRubricLevel[];
 };
 
 export type ScreeningSkillFormData = {

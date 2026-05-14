@@ -4715,13 +4715,6 @@ def _distill_dimension_rules(
             "is_core": bool(item.get("is_core")),
             "note": str(item.get("note") or "").strip(),
         }
-        rubric = item.get("rubric")
-        if isinstance(rubric, list) and rubric:
-            entry["rubric"] = [
-                {"score_range": str(r.get("score_range") or "").strip(), "criteria": str(r.get("criteria") or "").strip()}
-                for r in rubric
-                if isinstance(r, dict) and str(r.get("score_range") or "").strip()
-            ]
         distilled.append(entry)
         if len(distilled) >= limit:
             break
@@ -4758,13 +4751,6 @@ def _build_score_rule_snapshot(
                 "is_core": bool(item.get("is_core")),
                 "note": str(item.get("note") or "").strip(),
             }
-            rubric = item.get("rubric")
-            if isinstance(rubric, list) and rubric:
-                entry["rubric"] = [
-                    {"score_range": str(r.get("score_range") or "").strip(), "criteria": str(r.get("criteria") or "").strip()}
-                    for r in rubric
-                    if isinstance(r, dict) and str(r.get("score_range") or "").strip()
-                ]
             snapshots.append(entry)
             if len(snapshots) >= limit:
                 return snapshots[:limit]
@@ -7905,7 +7891,7 @@ class RecruitmentService:
             user_prompt += f"\n\n岗位 JD 原文如下：\n{position_jd}"
         if extra_requirements:
             user_prompt += f"\n\n补充评估条件：{extra_requirements}"
-        user_prompt += "\n\n请根据以上信息生成完整的初筛评分 Skill，维度总分必须恰好 10.0 分。每个维度必须包含评分细则（3-5个分档），确保扣分和满分都有明确标准。"
+        user_prompt += "\n\n请根据以上信息生成完整的初筛评分评估方案，维度总分必须恰好 10.0 分。每个维度的评估说明要具体、可操作，明确指出看什么证据。"
         request_hash = self._build_request_hash("skill_content_generation", 0, user_prompt, [])
         log_row = self._create_ai_task_log("skill_content_generation", created_by=actor_id, request_hash=request_hash)
         if on_task_created:
