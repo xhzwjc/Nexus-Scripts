@@ -128,7 +128,9 @@ export function buildScreeningFlowAuditView(rootLog: AITaskLog | null, runLogs: 
         ? retrySummary
         : (String(rootValidation?.screening_result_state || rootFailureCode) === "screening_total_timeout"
             ? "初筛总耗时超过 300 秒，已终止"
-            : null);
+            : rootFailureCode === "quota_exceeded"
+                ? "模型额度不足，请充值或更换模型后重试"
+                : null);
     const parseChild = pickLatestChildLog(runLogs, "resume_parse", rootLog.id);
     const scoreChild = pickLatestChildLog(runLogs, "resume_score", rootLog.id);
     const reusedExistingParse = rootOutput?.reused_existing_parse === true || rootValidation?.reused_existing_parse === true;

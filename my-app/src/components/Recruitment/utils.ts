@@ -98,6 +98,7 @@ const zhRecruitmentUiLocale: RecruitmentUiLocale = {
         invalid_result: "结果无效",
         json_parse_failed: "JSON 失败",
         rate_limited: "接口限流",
+        quota_exceeded: "额度不足",
         upstream_timeout: "接口超时",
         request_failed: "请求失败",
         timeout: "超时",
@@ -1063,7 +1064,7 @@ export function isLiveTaskStatus(status?: string | null) {
 }
 
 export function isTerminalTaskStatus(status?: string | null) {
-    return ["success", "fallback", "failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "cancelled"].includes(status || "");
+    return ["success", "fallback", "failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "cancelled", "quota_exceeded"].includes(status || "");
 }
 
 export function labelForMemorySource(source?: string | null) {
@@ -1258,6 +1259,7 @@ export function statusBadgeClass(kind: "position" | "candidate" | "task", value?
         if (value === "cancelling") return "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200";
         if (value === "cancelled") return "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300";
         if (value === "invalid_result") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
+        if (value === "quota_exceeded") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
         if (value === "json_parse_failed" || value === "timeout" || value === "retry_exhausted" || value === "rate_limited" || value === "upstream_timeout" || value === "request_failed") return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
         if (value === "failed") return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
     }

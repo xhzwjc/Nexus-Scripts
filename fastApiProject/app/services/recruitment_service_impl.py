@@ -214,7 +214,7 @@ CANDIDATE_DETAIL_ACTIVITY_LIMIT = max(10, int(os.getenv("CANDIDATE_DETAIL_ACTIVI
 CANDIDATE_DETAIL_TEXT_PREVIEW_BYTES = max(1024, int(os.getenv("CANDIDATE_DETAIL_TEXT_PREVIEW_BYTES", "16000")))
 CANDIDATE_DETAIL_JSON_PREVIEW_BYTES = max(2048, int(os.getenv("CANDIDATE_DETAIL_JSON_PREVIEW_BYTES", "24000")))
 CANDIDATE_DETAIL_COLLECTION_LIMIT = max(5, int(os.getenv("CANDIDATE_DETAIL_COLLECTION_LIMIT", "24")))
-TERMINAL_AI_TASK_STATUSES = {"success", "fallback", "failed", "invalid_result", "json_parse_failed", "invalid_json_variant_conflict", "timeout", "retry_exhausted", "cancelled", "rate_limited", "upstream_timeout", "request_failed", "screening_total_timeout"}
+TERMINAL_AI_TASK_STATUSES = {"success", "fallback", "failed", "invalid_result", "json_parse_failed", "invalid_json_variant_conflict", "timeout", "retry_exhausted", "cancelled", "rate_limited", "upstream_timeout", "request_failed", "screening_total_timeout", "quota_exceeded"}
 TERMINAL_SCREENING_STAGES = {"parsed", "completed", "failed", "cancelled"}
 
 class RecruitmentConflictError(RuntimeError):
@@ -300,11 +300,19 @@ def _is_rate_limited_error(exc: Exception) -> bool:
     return "429" in text or "rate limit" in text or "速率限制" in text or "too many requests" in text
 
 
+def _is_quota_exceeded_error(exc: Exception) -> bool:
+    """额度耗尽（订阅到期/余额不足），不应重试"""
+    text = str(exc or "").lower()
+    return "usage limit exceeded" in text or "quota exceeded" in text or "insufficient_quota" in text
+
+
 def _is_timeout_error(exc: Exception) -> bool:
     return isinstance(exc, (httpx.TimeoutException, TimeoutError, RecruitmentAITimeoutError))
 
 
 def _classify_infra_failure(exc: Exception) -> Tuple[str, str]:
+    if _is_quota_exceeded_error(exc):
+        return ("quota_exceeded", f"模型额度不足：{exc}")
     if _is_rate_limited_error(exc):
         return ("rate_limited", f"上游模型接口限流：{exc}")
     if _is_timeout_error(exc):
@@ -4935,7 +4943,7 @@ class RecruitmentService:
             # rate_limited 不发 task_completed，任务会自动重试，前端不应刷新列表
             if row.status == "rate_limited":
                 return
-            is_terminal = row.status in ("success", "failed", "cancelled", "fallback", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "upstream_timeout")
+            is_terminal = row.status in ("success", "failed", "cancelled", "fallback", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "upstream_timeout", "quota_exceeded")
             event_type = "task_completed" if is_terminal else "task_progress"
             payload = {
                 "task_id": row.id,
@@ -6233,6 +6241,30 @@ class RecruitmentService:
                             "failure_code": failure_status,
                         },
                     )
+                    # 额度耗尽等不可恢复错误，立即结束父 screening_flow 任务，不等宽限期
+                    if failure_status in {"quota_exceeded"} and log_row.parent_task_id:
+                        try:
+                            parent_log = service._get_ai_task_log_row(log_row.parent_task_id)
+                            if parent_log.task_type == SCREENING_FLOW_TASK_TYPE and parent_log.status not in TERMINAL_AI_TASK_STATUSES:
+                                service._finish_ai_task_log(
+                                    parent_log,
+                                    status=failure_status,
+                                    stage="failed",
+                                    output_summary=failure_message,
+                                    output_snapshot=_build_screening_task_progress_snapshot(
+                                        "failed",
+                                        message=failure_message,
+                                        extra={"failure_status": failure_status, "child_task_id": log_row.id},
+                                    ),
+                                    error_message=failure_message,
+                                    validation_meta={
+                                        "screening_result_valid": False,
+                                        "screening_result_state": failure_status,
+                                        "failure_code": failure_status,
+                                    },
+                                )
+                        except Exception:
+                            logger.exception("Failed to finalize parent screening_flow task for quota_exceeded")
                 except Exception:
                     db.rollback()
                 logger.exception("Queued screening task %s failed", task_id)
@@ -8356,6 +8388,16 @@ class RecruitmentService:
                 display_status_reason = "已复用解析结果，初筛流程执行中"
             else:
                 display_status_reason = "存在未结束的 screening_flow 任务"
+        elif latest_completed_score_task and latest_completed_score_task.status in {"quota_exceeded", "retry_exhausted", "failed"}:
+            latest_validation = _decode_ai_task_json_text(getattr(latest_completed_score_task, "validation_meta_json", None), {}) if latest_completed_score_task.validation_meta_json else {}
+            latest_failure_code = str(
+                ((latest_validation or {}).get("failure_code"))
+                or ""
+            ).strip()
+            if latest_failure_code == "quota_exceeded":
+                display_status_reason = "模型额度不足，请充值或更换模型后重试"
+            elif latest_failure_code == "retry_exhausted":
+                display_status_reason = "上游模型接口持续不可用，自动重试已达上限"
 
         return {
             "active_screening_run_id": active_root.screening_run_id if active_root else None,
