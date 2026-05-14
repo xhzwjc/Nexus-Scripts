@@ -118,6 +118,14 @@ const DimensionRow = React.memo(function DimensionRow({
     skillEvaluationFocus,
     skillEvaluationPlaceholder,
     skillHardRequirement,
+    skillRubricTitle,
+    skillRubricScoreRange,
+    skillRubricScoreRangePlaceholder,
+    skillRubricCriteria,
+    skillRubricCriteriaPlaceholder,
+    skillRubricAdd,
+    skillRubricRemove,
+    skillRubricEmpty,
 }: {
     dim: ScreeningSkillDimension;
     index: number;
@@ -137,6 +145,14 @@ const DimensionRow = React.memo(function DimensionRow({
     skillEvaluationFocus: string;
     skillEvaluationPlaceholder: string;
     skillHardRequirement: string;
+    skillRubricTitle: string;
+    skillRubricScoreRange: string;
+    skillRubricScoreRangePlaceholder: string;
+    skillRubricCriteria: string;
+    skillRubricCriteriaPlaceholder: string;
+    skillRubricAdd: string;
+    skillRubricRemove: string;
+    skillRubricEmpty: string;
 }) {
     const [localName, setLocalName] = useState(dim.name);
     const [localDesc, setLocalDesc] = useState(dim.description);
@@ -212,6 +228,60 @@ const DimensionRow = React.memo(function DimensionRow({
                         <div className="mt-3 flex items-center gap-2">
                             <Checkbox checked={dim.isHardRequirement} onCheckedChange={(v) => onUpdate({isHardRequirement: !!v})} />
                             <Label className="text-xs cursor-pointer">{skillHardRequirement}</Label>
+                        </div>
+                        <div className="mt-4 space-y-2">
+                            <Label className="text-xs font-semibold">{skillRubricTitle}</Label>
+                            {dim.scoringRubric.length > 0 ? (
+                                <div className="space-y-2">
+                                    {dim.scoringRubric.map((level, levelIdx) => (
+                                        <div key={levelIdx} className="flex items-start gap-2">
+                                            <Input
+                                                className="w-28 shrink-0 text-xs"
+                                                value={level.scoreRange}
+                                                onChange={(e) => {
+                                                    const next = [...dim.scoringRubric];
+                                                    next[levelIdx] = {...next[levelIdx], scoreRange: e.target.value};
+                                                    onUpdate({scoringRubric: next});
+                                                }}
+                                                placeholder={skillRubricScoreRangePlaceholder}
+                                            />
+                                            <Input
+                                                className="flex-1 text-xs"
+                                                value={level.criteria}
+                                                onChange={(e) => {
+                                                    const next = [...dim.scoringRubric];
+                                                    next[levelIdx] = {...next[levelIdx], criteria: e.target.value};
+                                                    onUpdate({scoringRubric: next});
+                                                }}
+                                                placeholder={skillRubricCriteriaPlaceholder}
+                                            />
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 shrink-0 text-red-500 hover:text-red-600"
+                                                onClick={() => {
+                                                    const next = dim.scoringRubric.filter((_, j) => j !== levelIdx);
+                                                    onUpdate({scoringRubric: next});
+                                                }}
+                                            >
+                                                <X className="h-3.5 w-3.5" />
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-xs text-slate-400">{skillRubricEmpty}</p>
+                            )}
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="mt-1"
+                                onClick={() => {
+                                    onUpdate({scoringRubric: [...dim.scoringRubric, {scoreRange: "", criteria: ""}]});
+                                }}
+                            >
+                                <Plus className="h-3.5 w-3.5 mr-1" /> {skillRubricAdd}
+                            </Button>
                         </div>
                     </td>
                 </tr>
@@ -469,6 +539,14 @@ export function StructuredSkillEditor({
                                             skillEvaluationFocus={t.recruitment.skillEvaluationFocus}
                                             skillEvaluationPlaceholder={t.recruitment.skillEvaluationPlaceholder}
                                             skillHardRequirement={t.recruitment.skillHardRequirement}
+                                            skillRubricTitle={t.recruitment.skillRubricTitle}
+                                            skillRubricScoreRange={t.recruitment.skillRubricScoreRange}
+                                            skillRubricScoreRangePlaceholder={t.recruitment.skillRubricScoreRangePlaceholder}
+                                            skillRubricCriteria={t.recruitment.skillRubricCriteria}
+                                            skillRubricCriteriaPlaceholder={t.recruitment.skillRubricCriteriaPlaceholder}
+                                            skillRubricAdd={t.recruitment.skillRubricAdd}
+                                            skillRubricRemove={t.recruitment.skillRubricRemove}
+                                            skillRubricEmpty={t.recruitment.skillRubricEmpty}
                                         />
                                     ))}
                                     {form.dimensions.length === 0 && (

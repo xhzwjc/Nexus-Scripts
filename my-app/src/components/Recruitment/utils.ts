@@ -373,6 +373,7 @@ export function newDimension(): ScreeningSkillDimension {
         priority: "secondary",
         description: "",
         isHardRequirement: false,
+        scoringRubric: [],
     };
 }
 
@@ -406,11 +407,21 @@ export function generateSkillContent(form: ScreeningSkillFormData): string {
         }
     }
     lines.push(`${ruleIdx++}. 不得给拍脑袋圆整分，总分必须严格等于所有维度分数之和。`);
+    const hasAnyRubric = form.dimensions.some((d) => d.scoringRubric.length > 0);
+    if (hasAnyRubric) {
+        lines.push(`${ruleIdx++}. 必须严格按照各维度的评分细则打分，不得脱离细则自由裁量。reason 必须引用评分细则中对应的档位描述，说明为什么落入该档。`);
+    }
 
     lines.push("评分维度与满分：");
     form.dimensions.forEach((dim, i) => {
         const prefix = dim.priority === "core" ? "核心第一优先，" : "";
         lines.push(`${i + 1}. ${dim.name || "{维度名}"}：满分 ${dim.maxScore} 分。${prefix}${dim.description || "{评估重点}"}`);
+        if (dim.scoringRubric.length > 0) {
+            lines.push("   评分细则：");
+            for (const level of dim.scoringRubric) {
+                lines.push(`   - ${level.scoreRange} 分：${level.criteria}`);
+            }
+        }
     });
 
     lines.push("判定规则：");
@@ -448,7 +459,8 @@ export function parseSkillContent(content: string): Partial<ScreeningSkillFormDa
         const customRules = rules.filter((r) =>
             r !== "必须逐维度评分，不得跳过任何维度。" &&
             !r.includes("不得给拍脑袋圆整分") &&
-            !r.includes("缺失时，concerns")
+            !r.includes("缺失时，concerns") &&
+            !r.includes("严格按照各维度的评分细则打分")
         );
         result.hardRules = customRules.join("\n");
     }
@@ -456,19 +468,42 @@ export function parseSkillContent(content: string): Partial<ScreeningSkillFormDa
     const dimSection = content.match(/评分维度与满分[：:]\n([\s\S]+?)(?=\n判定规则[：:])/);
     if (dimSection) {
         const dims: ScreeningSkillDimension[] = [];
-        for (const line of dimSection[1].split("\n")) {
+        const dimLines = dimSection[1].split("\n");
+        let currentDim: ScreeningSkillDimension | null = null;
+        let inRubric = false;
+        for (const line of dimLines) {
             const m = line.match(/^\d+\.\s*(.+?)[：:]\s*满分\s*([\d.]+)\s*分[。.]\s*(.*)/);
             if (m) {
                 const desc = m[3].trim();
                 const isCore = desc.startsWith("核心第一优先");
-                dims.push({
+                currentDim = {
                     id: newDimId(),
                     name: m[1].trim(),
                     maxScore: parseFloat(m[2]),
                     priority: isCore ? "core" : (parseFloat(m[2]) >= 1.0 ? "secondary" : parseFloat(m[2]) >= 0.3 ? "auxiliary" : "bonus"),
                     description: isCore ? desc.replace(/^核心第一优先[，,]\s*/, "") : desc,
                     isHardRequirement: false,
+                    scoringRubric: [],
+                };
+                dims.push(currentDim);
+                inRubric = false;
+                continue;
+            }
+            const rubricHeader = line.match(/^\s+评分细则[：:]\s*$/);
+            if (rubricHeader && currentDim) {
+                inRubric = true;
+                continue;
+            }
+            const rubricLine = line.match(/^\s+-\s*(.+?)\s*分[：:]\s*(.*)/);
+            if (rubricLine && currentDim && inRubric) {
+                currentDim.scoringRubric.push({
+                    scoreRange: rubricLine[1].trim(),
+                    criteria: rubricLine[2].trim(),
                 });
+                continue;
+            }
+            if (inRubric && !rubricLine && line.trim()) {
+                inRubric = false;
             }
         }
         result.dimensions = dims;

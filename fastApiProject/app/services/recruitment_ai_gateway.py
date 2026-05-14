@@ -947,7 +947,7 @@ def _build_request_snapshot(config: "RecruitmentLLMRuntimeConfig", *, response_m
     elif config.runtime_provider == "anthropic":
         request_body = {
             "model": config.model_name,
-            "max_tokens": 4000,
+            "max_tokens": 16000,
             "temperature": temperature,
             "system": system_prompt,
             "messages": [{"role": "user", "content": json_user_prompt}],
@@ -1994,7 +1994,7 @@ class RecruitmentAIGateway:
                 headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
                 json={
                     "model": config.model_name,
-                    "max_tokens": 4000,
+                    "max_tokens": 16000,
                     "temperature": 0.3,
                     "system": system_prompt,
                     "messages": [{"role": "user", "content": user_prompt}],
@@ -2076,7 +2076,7 @@ class RecruitmentAIGateway:
                 headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
                 json={
                     "model": config.model_name,
-                    "max_tokens": 4000,
+                    "max_tokens": 16000,
                     "temperature": 0,
                     "system": system_prompt,
                     "messages": [{"role": "user", "content": _compose_json_user_prompt(user_prompt)}],
@@ -2132,7 +2132,7 @@ class RecruitmentAIGateway:
         base_url = (config.base_url or "https://api.anthropic.com").rstrip("/")
         client = self._build_httpx_client(config, cancel_control=cancel_control)
         try:
-            response = client.post(f"{base_url}/v1/messages", headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json={"model": config.model_name, "max_tokens": 4000, "temperature": 0.3, "system": system_prompt, "messages": [{"role": "user", "content": user_prompt}]})
+            response = client.post(f"{base_url}/v1/messages", headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, json={"model": config.model_name, "max_tokens": 16000, "temperature": 0.3, "system": system_prompt, "messages": [{"role": "user", "content": user_prompt}]})
             response.raise_for_status()
             if cancel_control:
                 cancel_control.raise_if_cancelled()
