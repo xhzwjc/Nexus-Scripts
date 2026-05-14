@@ -4911,6 +4911,8 @@ def _classify_screening_task_failure(exc: Exception) -> Tuple[str, str]:
             return "json_parse_failed", str(exc) or "AI 返回了空响应内容。"
         return "json_parse_failed", str(exc) or "AI 返回了无法解析的 JSON。"
     failure_code, failure_message = _classify_infra_failure(exc)
+    if failure_code == "quota_exceeded":
+        return "quota_exceeded", failure_message
     if failure_code == "rate_limited":
         return "rate_limited", failure_message
     if failure_code == "upstream_timeout":
@@ -10470,6 +10472,7 @@ class RecruitmentService:
         self.db.add(candidate)
         self.db.add(resume_file)
         save_started_at = time.perf_counter()
+        prev_ai_recommended_status = candidate.ai_recommended_status
         score_row = self._save_score_result(
             candidate,
             parse_row,
@@ -10477,6 +10480,9 @@ class RecruitmentService:
             storage_payload,
             allow_status_advance=screening_result_valid,
         )
+        if not screening_result_valid:
+            candidate.ai_recommended_status = prev_ai_recommended_status
+            self.db.add(candidate)
         final_task_status = "success" if screening_result_valid else "invalid_result"
         final_response_source = "primary_screening_model" if screening_result_valid else "primary_screening_model_invalid"
         final_output_summary = _build_screening_output_summary(
@@ -11323,6 +11329,7 @@ class RecruitmentService:
                     extra=score_task_snapshot_base,
                 ),
             )
+            prev_ai_recommended_status = candidate.ai_recommended_status
             score_row = self._save_score_result(
                 candidate,
                 parse_row,
@@ -11330,6 +11337,9 @@ class RecruitmentService:
                 storage_payload,
                 allow_status_advance=screening_result_valid,
             )
+            if not screening_result_valid:
+                candidate.ai_recommended_status = prev_ai_recommended_status
+                self.db.add(candidate)
             final_task_status = "success"
             final_response_source = "primary_score_model"
             final_output_summary = _build_screening_output_summary(

@@ -1871,8 +1871,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const selectedCandidateScreeningTaskId = selectedCandidateId
         ? (
             activeScreeningTaskMap[selectedCandidateId]
-            || (candidateDetail?.candidate.id === selectedCandidateId ? candidateDetail?.candidate.active_screening_task_id : null)
             || candidateMap.get(selectedCandidateId)?.active_screening_task_id
+            || (candidateDetail?.candidate.id === selectedCandidateId ? candidateDetail?.candidate.active_screening_task_id : null)
             || null
         )
         : null;
@@ -3755,10 +3755,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     useEffect(() => {
+        const liveIds = new Set<number>();
         candidates.forEach((candidate) => {
             if (!candidate.active_screening_task_id || !candidate.active_screening_task_status || !isLiveTaskStatus(candidate.active_screening_task_status)) {
                 return;
             }
+            liveIds.add(candidate.id);
             if (taskMonitorTokensRef.current.has(candidate.active_screening_task_id)) {
                 return;
             }
@@ -3769,6 +3771,22 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 batch: true,
                 suppressFinishToast: true,
             });
+        });
+        // Clean up stale entries: candidates whose tasks are no longer live
+        setActiveScreeningTaskMap((current) => {
+            const staleIds = Object.keys(current)
+                .map(Number)
+                .filter((id) => !liveIds.has(id));
+            if (staleIds.length === 0) return current;
+            const next = { ...current };
+            staleIds.forEach((id) => {
+                const staleTaskId = next[id];
+                delete next[id];
+                if (staleTaskId) {
+                    setActiveBatchScreeningTaskIds((batch) => batch.filter((taskId) => taskId !== staleTaskId));
+                }
+            });
+            return next;
         });
     }, [candidates]);
 

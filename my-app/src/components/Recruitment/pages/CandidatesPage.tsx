@@ -2523,14 +2523,18 @@ export function CandidatesPage({
                                             <div className="flex flex-wrap items-center justify-between gap-2">
                                                 <div className="min-w-0">
                                                     <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.currentScreeningTask}</p>
-                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                        {currentScreeningTaskLog?.output_summary || currentScreeningTaskLog?.error_message || candidateDetail?.candidate.display_status_reason || tr.taskRunning}
-                                                    </p>
-                                                    {candidateDetail?.candidate.display_status_reason ? (
-                                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                                            {candidateDetail.candidate.display_status_reason}
-                                                        </p>
-                                                    ) : null}
+                                                    {(() => {
+                                                        const logMsg = currentScreeningTaskLog?.output_summary || currentScreeningTaskLog?.error_message || "";
+                                                        const displayReason = candidateDetail?.candidate.display_status_reason || "";
+                                                        const primary = displayReason || logMsg || tr.taskRunning;
+                                                        const secondary = displayReason && logMsg && logMsg !== displayReason ? logMsg : null;
+                                                        return (
+                                                            <>
+                                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{primary}</p>
+                                                                {secondary ? <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{secondary}</p> : null}
+                                                            </>
+                                                        );
+                                                    })()}
                                                 </div>
                                                 <div className="flex flex-wrap items-center gap-2">
                                                     {currentScreeningTaskType ? (
