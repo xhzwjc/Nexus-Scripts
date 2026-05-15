@@ -4476,7 +4476,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
         try {
-            await navigator.clipboard.writeText(currentPublishText);
+            // 优先使用 Clipboard API（需要HTTPS或localhost）
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(currentPublishText);
+            } else {
+                // Fallback：使用临时 textarea（兼容HTTP环境）
+                const textarea = document.createElement("textarea");
+                textarea.value = currentPublishText;
+                textarea.style.position = "fixed";
+                textarea.style.left = "-9999px";
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand("copy");
+                document.body.removeChild(textarea);
+            }
             toast.success(recruitmentToast.copied("发布文案"));
         } catch (error) {
             toast.error(recruitmentToast.copyFailed(error instanceof Error ? error.message : recruitmentToast.unknownError));
