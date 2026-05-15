@@ -7922,15 +7922,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 className={cn(
                     "grid h-full min-h-0 items-stretch gap-4 2xl:gap-6 overflow-hidden transition-all duration-300",
                     positionListCollapsed
-                        ? "xl:grid-cols-[104px_minmax(0,1fr)] 2xl:grid-cols-[116px_minmax(0,1fr)]"
+                        ? "xl:grid-cols-[56px_minmax(0,1fr)] 2xl:grid-cols-[60px_minmax(0,1fr)]"
                         : "xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)]",
                 )}
             >
                 <div className="position-panel relative min-h-0">
                     <div className={cn("position-panel-header", positionListCollapsed && "collapsed")}>
                         {positionListCollapsed ? (
-                            <div className="flex items-center justify-center">
-                                <span className="position-panel-title">{isZh ? "岗位" : "Positions"}</span>
+                            <div className="flex items-center justify-center py-1">
+                                <BriefcaseBusiness className="h-4 w-4 text-slate-400 dark:text-slate-500"/>
                             </div>
                         ) : (
                             <div>
@@ -7996,19 +7996,28 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             isSelected
                                                 ? "border-slate-300 bg-slate-100/90 shadow-sm dark:border-slate-700 dark:bg-slate-900/90"
                                                 : "border-slate-200/70 bg-white/65 hover:border-slate-300 hover:bg-white/95 dark:border-slate-800 dark:bg-slate-950/45 dark:hover:border-slate-700 dark:hover:bg-slate-900/60",
-                                            positionListCollapsed && "px-2.5 py-2.5",
+                                            positionListCollapsed && "flex items-center justify-center px-0 py-2.5 border-transparent bg-transparent hover:bg-slate-100/80 dark:hover:bg-slate-800/60",
+                                            positionListCollapsed && isSelected && "border-transparent bg-slate-100 dark:bg-slate-900",
                                         )}
                                     >
-                                        {isSelected ? <span className="absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-slate-900 dark:bg-slate-100"/> : null}
+                                        {isSelected && !positionListCollapsed ? <span className="absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-slate-900 dark:bg-slate-100"/> : null}
                                         {positionListCollapsed ? (
-                                            <div className="min-w-0 space-y-1 pl-1">
-                                                <p className="truncate text-[12px] font-semibold leading-5 text-slate-900 dark:text-slate-100">{position.title}</p>
-                                                <div className="flex min-w-0 items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400">
-                                                    <span className="truncate">{position.location || position.department || (isZh ? "岗位" : "Position")}</span>
-                                                    <span className="h-1 w-1 shrink-0 rounded-full bg-current/45"/>
-                                                    <span className="shrink-0">{labelForPositionStatus(position.status)}</span>
-                                                </div>
-                                            </div>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <div className="flex items-center justify-center">
+                                                        <span className={cn(
+                                                            "h-2.5 w-2.5 rounded-full",
+                                                            isSelected
+                                                                ? "bg-slate-900 dark:bg-slate-100"
+                                                                : "bg-slate-300 dark:bg-slate-600"
+                                                        )}/>
+                                                    </div>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="right">
+                                                    <p className="text-xs font-medium">{position.title}</p>
+                                                    <p className="text-[11px] opacity-70">{labelForPositionStatus(position.status)}</p>
+                                                </TooltipContent>
+                                            </Tooltip>
                                         ) : (
                                             <div className="min-w-0 space-y-2">
                                                 <p className="line-clamp-2 text-[13px] font-semibold leading-5 text-slate-900 dark:text-slate-100">{position.title}</p>
@@ -8040,6 +8049,22 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 );
                             }) : (
                                 <EmptyState title={isZh ? "暂无岗位" : "No Positions Yet"} description={isZh ? "先新建一个岗位，再由 AI 生成 JD 并进入招聘流程。" : "Create a position first, then generate a JD and enter the recruiting workflow."}/>
+                            )}
+                            {positionListCollapsed && (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button
+                                            type="button"
+                                            className="flex w-full items-center justify-center py-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+                                            onClick={openCreatePosition}
+                                        >
+                                            <Plus className="h-4 w-4"/>
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right">
+                                        <p className="text-xs">{isZh ? "新增岗位" : "Add Position"}</p>
+                                    </TooltipContent>
+                                </Tooltip>
                             )}
                         </div>
                     </div>
@@ -8120,53 +8145,43 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     </div>
 
                                     {positionWorkspaceView === "jd" ? (
-                                        <Card className={panelClass}>
-                                            <CardHeader className="space-y-3">
-                                                <div className="flex flex-wrap items-start justify-between gap-3">
-                                                    <div className="space-y-2">
-                                                        <CardTitle className="text-lg">{isZh ? "当前 JD" : "Current JD"}</CardTitle>
-                                                        <div className="flex flex-wrap gap-2">
-                                                            <Badge className={cn("rounded-full border", statusBadgeClass("task", currentJDGenerationStatus === "syncing" ? "running" : currentJDGenerationStatus))}>
-                                                                {labelForJDGenerationStatus(currentJDGenerationStatus)}
-                                                            </Badge>
-                                                            <Badge variant="outline" className="rounded-full">
-                                                                {isZh ? `当前版本 ${currentJDVersion ? `V${currentJDVersion.version_no}` : "未生成"}` : `Current Version ${currentJDVersion ? `V${currentJDVersion.version_no}` : "Not generated"}`}
-                                                            </Badge>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {isJDGenerating ? (
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                onClick={() => void stopJDGeneration()}
-                                                            >
-                                                                <Square className="h-4 w-4"/>
-                                                                {isZh ? "停止生成" : "Stop"}
-                                                            </Button>
-                                                        ) : (
-                                                            <Button
-                                                                size="sm"
-                                                                onClick={() => void generateJD()}
-                                                            >
-                                                                <Wand2 className="h-4 w-4"/>
-                                                                {isZh ? "AI 生成 JD" : "Generate JD"}
-                                                            </Button>
-                                                        )}
+                                        <div className="flex min-h-0 flex-1 flex-col gap-3 2xl:gap-4">
+
+                                            {/* ① 顶部状态条 */}
+                                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white/70 px-4 py-2.5 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/60">
+                                                <div className="flex flex-wrap items-center gap-2.5">
+                                                    <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                        {positionDetail.position.title}
+                                                    </span>
+                                                    <Badge className={cn("rounded-full border text-[10px]", statusBadgeClass("task", currentJDGenerationStatus === "syncing" ? "running" : currentJDGenerationStatus))}>
+                                                        {labelForJDGenerationStatus(currentJDGenerationStatus)}
+                                                    </Badge>
+                                                    <Badge variant="outline" className="rounded-full text-[10px]">
+                                                        {currentJDVersion ? `V${currentJDVersion.version_no} 生效中` : (isZh ? "未生成" : "Not generated")}
+                                                    </Badge>
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                    <span>{isZh ? `招聘人数 ${positionDetail.position.headcount}` : `Headcount ${positionDetail.position.headcount}`}</span>
+                                                    <span>{isZh ? `JD 版本 ${positionDetail.jd_versions.length}` : `JD Versions ${positionDetail.jd_versions.length}`}</span>
+                                                    <span>{isZh ? `候选人 ${positionDetail.candidates.length}` : `Candidates ${positionDetail.candidates.length}`}</span>
+                                                    <span>{isZh ? `最近更新 ${formatDateTime(positionDetail.position.updated_at)}` : `Updated ${formatDateTime(positionDetail.position.updated_at)}`}</span>
+                                                    <div className="flex items-center gap-2">
                                                         <Button
                                                             size="sm"
                                                             variant="outline"
+                                                            className="h-7 rounded-xl px-2.5 text-xs"
                                                             onClick={() => {
                                                                 setCandidatePositionFilter([String(positionDetail.position.id)]);
                                                                 navigateToRecruitmentPage("candidates");
                                                             }}
                                                         >
-                                                            <Users className="h-4 w-4"/>
-                                                            {isZh ? "查看候选人" : "View Candidates"}
+                                                            <Users className="mr-1 h-3.5 w-3.5"/>
+                                                            {isZh ? "候选人" : "Candidates"}
                                                         </Button>
                                                         <Button
                                                             size="sm"
                                                             variant="outline"
+                                                            className="h-7 rounded-xl px-2.5 text-xs"
                                                             onClick={() => {
                                                                 if (positionDetail.candidates[0]) {
                                                                     setSelectedCandidateId(positionDetail.candidates[0].id);
@@ -8176,155 +8191,235 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                                 }
                                                             }}
                                                         >
-                                                            <NotebookText className="h-4 w-4"/>
-                                                            {isZh ? "生成面试题模板" : "Generate Interview Template"}
+                                                            <NotebookText className="mr-1 h-3.5 w-3.5"/>
+                                                            {isZh ? "面试题" : "Interview Q"}
                                                         </Button>
                                                     </div>
                                                 </div>
-                                                <div className="grid gap-3 md:grid-cols-3">
-                                                    <InfoTile label={isZh ? "最近生成时间" : "Last Generated"} value={formatLongDateTime(positionDetail.jd_generation?.last_generated_at || currentJDVersion?.created_at)}/>
-                                                    <InfoTile label={isZh ? "当前生效版本" : "Active Version"} value={currentJDVersion ? `${currentJDVersion.title} · V${currentJDVersion.version_no}` : (isZh ? "暂无生效版本" : "No active version")}/>
-                                                    <InfoTile label={isZh ? "最近使用模型" : "Last Model"} value={positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider || (isZh ? "暂未记录" : "Unrecorded")}/>
-                                                </div>
-                                            </CardHeader>
-                                            <CardContent className="space-y-4">
-                                                <Field label={isZh ? "AI 生成附加要求" : "AI Generation Notes"}>
-                                                    <Textarea
-                                                        value={jdExtraPrompt}
-                                                        onChange={(event) => setJdExtraPrompt(event.target.value)}
-                                                        rows={3}
-                                                        placeholder={isZh ? "补充本次 JD 生成时的个性化要求，例如强调 IoT 场景、自动化测试、设备联调经验等。" : "Add generation-specific requirements, for example emphasizing IoT scenarios, automation testing, or device integration experience."}
-                                                    />
-                                                </Field>
+                                            </div>
 
-                                                <div className="grid gap-4 lg:grid-cols-2">
-                                                    <Field label={isZh ? "版本标题" : "Version Title"}>
-                                                        <Input
-                                                            value={jdDraft.title}
-                                                            onChange={(event) => setJdDraft((current) => ({
-                                                                ...current,
-                                                                title: event.target.value,
-                                                            }))}
-                                                        />
-                                                    </Field>
-                                                    <Field label={isZh ? "版本备注" : "Version Notes"}>
-                                                        <Input
-                                                            value={jdDraft.notes}
-                                                            onChange={(event) => setJdDraft((current) => ({
-                                                                ...current,
-                                                                notes: event.target.value,
-                                                            }))}
-                                                            placeholder={isZh ? "例如：偏向 IoT 自动化测试" : "For example: focused on IoT automation testing"}
-                                                        />
-                                                    </Field>
-                                                </div>
-
-                                                {latestJDGenerationError ? (
-                                                    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
-                                                        {isZh ? `最近一次生成失败：${latestJDGenerationError}` : `Latest generation failed: ${latestJDGenerationError}`}
-                                                    </div>
-                                                ) : null}
-
-                                                {isJDGenerating ? (
-                                                    <div className="rounded-[22px] border border-sky-200 bg-sky-50/80 px-5 py-5 dark:border-sky-900 dark:bg-sky-950/30">
-                                                        <div className="flex items-center gap-2 text-sm font-medium text-sky-700 dark:text-sky-200">
-                                                            <Loader2 className="h-4 w-4 animate-spin"/>
-                                                            {jdGenerationStatus === "syncing"
-                                                                ? (isZh ? "正在同步最新 JD 到页面..." : "Syncing the latest JD back to the page...")
-                                                                : (isZh ? "正在生成 JD..." : "Generating JD...")}
+                                            {/* ② AI 生成区 */}
+                                            <div className="rounded-2xl border border-slate-200/80 bg-white/70 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/60">
+                                                        {/* 区块标题行 */}
+                                                        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5 dark:border-slate-800/80">
+                                                            <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
+                                                                <Sparkles className="h-3.5 w-3.5"/>
+                                                                {isZh ? "AI 生成 JD" : "AI Generate JD"}
+                                                            </span>
+                                                            <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                                                                {isZh ? "可填写个性化要求，也可直接点击生成" : "Optionally add requirements, or generate directly"}
+                                                            </span>
                                                         </div>
-                                                        {jdStreamingContent ? (
-                                                            <div className="mt-4 whitespace-pre-wrap rounded-[18px] border bg-white/80 px-4 py-3 text-sm leading-7 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200 max-h-[400px] overflow-y-auto">
-                                                                {jdStreamingContent}
+                                                        <div className="space-y-3 px-4 py-3">
+                                                            <Textarea
+                                                                value={jdExtraPrompt}
+                                                                onChange={(event) => setJdExtraPrompt(event.target.value)}
+                                                                rows={2}
+                                                                placeholder={isZh
+                                                                    ? "补充本次生成要求（选填），例如：强调 IoT 场景、自动化测试、设备联调经验等"
+                                                                    : "Add generation-specific requirements (optional)"}
+                                                                className="text-xs resize-none"
+                                                            />
+                                                            {/* 错误提示 */}
+                                                            {latestJDGenerationError ? (
+                                                                <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
+                                                                    <span className="shrink-0">⚠</span>
+                                                                    <span>{isZh ? `上次生成失败：${latestJDGenerationError}` : `Last generation failed: ${latestJDGenerationError}`}</span>
+                                                                </div>
+                                                            ) : null}
+                                                            {/* 操作行 */}
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                                                                    {positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider
+                                                                        ? (isZh ? `模型：${positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider}` : `Model: ${positionDetail.jd_generation?.model_name || positionDetail.jd_generation?.model_provider}`)
+                                                                        : ""}
+                                                                    {positionDetail.jd_generation?.last_generated_at
+                                                                        ? (isZh ? `　上次生成：${formatDateTime(positionDetail.jd_generation.last_generated_at)}` : `　Last: ${formatDateTime(positionDetail.jd_generation.last_generated_at)}`)
+                                                                        : ""}
+                                                                </span>
+                                                                <div className="flex shrink-0 gap-2">
+                                                                    {isJDGenerating ? (
+                                                                        <Button variant="outline" size="sm" onClick={() => void stopJDGeneration()} className="rounded-xl text-xs">
+                                                                            <Square className="mr-1 h-3.5 w-3.5"/>
+                                                                            {isZh ? "停止生成" : "Stop"}
+                                                                        </Button>
+                                                                    ) : (
+                                                                        <>
+                                                                            {currentJDVersion && (
+                                                                                <Button variant="outline" size="sm" onClick={() => void generateJD()} className="rounded-xl text-xs">
+                                                                                    <RefreshCw className="mr-1 h-3.5 w-3.5"/>
+                                                                                    {isZh ? "重新生成" : "Regenerate"}
+                                                                                </Button>
+                                                                            )}
+                                                                            <Button size="sm" onClick={() => void generateJD()} className="rounded-xl text-xs">
+                                                                                <Wand2 className="mr-1 h-3.5 w-3.5"/>
+                                                                                {isZh ? "AI 生成 JD" : "Generate JD"}
+                                                                            </Button>
+                                                                        </>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                        ) : (
-                                                            <div className="mt-4 grid gap-3">
-                                                                <div className="h-4 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
-                                                                <div className="h-4 w-11/12 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
-                                                                <div className="h-24 rounded-[18px] bg-white/80 dark:bg-slate-900/70"/>
+                                                            {/* 生成进度区（生成中时展示） */}
+                                                            {isJDGenerating ? (
+                                                                <div className="rounded-xl border border-sky-200 bg-sky-50/80 px-4 py-3.5 dark:border-sky-900 dark:bg-sky-950/30">
+                                                                    <div className="flex items-center gap-2 text-xs font-medium text-sky-700 dark:text-sky-200">
+                                                                        <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0"/>
+                                                                        {jdGenerationStatus === "syncing"
+                                                                            ? (isZh ? "正在同步最新 JD 到页面…" : "Syncing the latest JD to page…")
+                                                                            : (isZh ? "正在生成 JD…" : "Generating JD…")}
+                                                                    </div>
+                                                                    {jdStreamingContent ? (
+                                                                        <div className="mt-3 max-h-[200px] overflow-y-auto whitespace-pre-wrap rounded-xl border bg-white/80 px-3 py-2.5 text-xs leading-7 text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
+                                                                            {jdStreamingContent}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="mt-3 grid gap-2">
+                                                                            <div className="h-3 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
+                                                                            <div className="h-3 w-10/12 rounded-full bg-sky-100 dark:bg-sky-900/60"/>
+                                                                            <div className="h-16 rounded-xl bg-white/80 dark:bg-slate-900/70"/>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            ) : null}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* ④ JD 内容区 */}
+                                                    <div className="flex flex-col rounded-2xl border border-slate-200/80 bg-white/70 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-950/60">
+                                                        {/* 视图切换 + 复制按钮 */}
+                                                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5 dark:border-slate-800/80">
+                                                            <div className="flex gap-1.5">
+                                                                <Button
+                                                                    variant={jdViewMode === "publish" ? "default" : "outline"}
+                                                                    size="sm"
+                                                                    className="h-7 rounded-xl px-3 text-xs"
+                                                                    onClick={() => setJdViewMode("publish")}
+                                                                >
+                                                                    {isZh ? "可发布版" : "Publish Copy"}
+                                                                </Button>
+                                                                <Button
+                                                                    variant={jdViewMode === "markdown" ? "default" : "outline"}
+                                                                    size="sm"
+                                                                    className="h-7 rounded-xl px-3 text-xs"
+                                                                    onClick={() => setJdViewMode("markdown")}
+                                                                >
+                                                                    {isZh ? "编辑源文本" : "Edit Source"}
+                                                                </Button>
+                                                                <Button
+                                                                    variant={jdViewMode === "preview" ? "default" : "outline"}
+                                                                    size="sm"
+                                                                    className="h-7 rounded-xl px-3 text-xs"
+                                                                    onClick={() => setJdViewMode("preview")}
+                                                                >
+                                                                    {isZh ? "排版预览" : "Preview"}
+                                                                </Button>
                                                             </div>
-                                                        )}
-                                                    </div>
-                                                ) : null}
+                                                            {jdViewMode === "publish" && (
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    className="h-7 rounded-xl px-3 text-xs"
+                                                                    onClick={() => void copyPublishJDText()}
+                                                                    disabled={!currentPublishText.trim()}
+                                                                >
+                                                                    <ClipboardCheck className="mr-1 h-3.5 w-3.5"/>
+                                                                    {isZh ? "复制发布文案" : "Copy Publish Copy"}
+                                                                </Button>
+                                                            )}
+                                                        </div>
 
-                                                <div className="flex flex-wrap items-center justify-between gap-3">
-                                                    <div className="flex flex-wrap gap-2">
-                                                        <Button variant={jdViewMode === "publish" ? "default" : "outline"} size="sm" onClick={() => setJdViewMode("publish")}>
-                                                            {isZh ? "可直接发布版" : "Publish Copy"}
-                                                        </Button>
-                                                        <Button variant={jdViewMode === "markdown" ? "default" : "outline"} size="sm" onClick={() => setJdViewMode("markdown")}>
-                                                            {isZh ? "Markdown 源文本" : "Markdown Source"}
-                                                        </Button>
-                                                        <Button variant={jdViewMode === "preview" ? "default" : "outline"} size="sm" onClick={() => setJdViewMode("preview")}>
-                                                            {isZh ? "预览版" : "Preview"}
-                                                        </Button>
-                                                    </div>
-                                                    <Button variant="outline" size="sm" onClick={() => void copyPublishJDText()} disabled={!currentPublishText.trim()}>
-                                                        <ClipboardCheck className="h-4 w-4"/>
-                                                        {isZh ? "一键复制发布文案" : "Copy Publish Copy"}
-                                                    </Button>
-                                                </div>
+                                                        {/* 内容区 */}
+                                                        {jdViewMode === "publish" ? (
+                                                            <div className="min-h-[300px] whitespace-pre-wrap px-5 py-4 text-sm leading-7 text-slate-700 dark:text-slate-200">
+                                                                {currentPublishText || (
+                                                                    <span className="text-slate-400 dark:text-slate-500">
+                                                                        {isZh
+                                                                            ? '暂无可发布的 JD 文案，点击"AI 生成 JD"后将在此展示。'
+                                                                            : 'No publish-ready JD yet. Click "Generate JD" and it will appear here.'}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        ) : null}
 
-                                                {jdViewMode === "publish" ? (
-                                                    <div className="min-h-[360px] whitespace-pre-wrap rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-                                                        {currentPublishText || (isZh ? '当前还没有可直接发布的 JD 文案，点击"AI 生成 JD"后会在这里展示。' : 'There is no publish-ready JD copy yet. Click "Generate JD" and it will appear here.')}
-                                                    </div>
-                                                ) : null}
+                                                        {jdViewMode === "markdown" ? (
+                                                            <div className="px-4 py-3">
+                                                                <Textarea
+                                                                    value={jdDraft.jdMarkdown}
+                                                                    onChange={(event) => setJdDraft((current) => ({
+                                                                        ...current,
+                                                                        jdMarkdown: event.target.value,
+                                                                    }))}
+                                                                    rows={18}
+                                                                    className="font-mono text-xs"
+                                                                />
+                                                                <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                                                                    {isZh ? "编辑完成后点击下方「保存新版本」即可更新" : "Edit and click 'Save New Version' below to update"}
+                                                                </p>
+                                                            </div>
+                                                        ) : null}
 
-                                                {jdViewMode === "markdown" ? (
-                                                    <Field label={isZh ? "JD Markdown 源文本" : "JD Markdown Source"}>
-                                                        <Textarea
-                                                            value={jdDraft.jdMarkdown}
-                                                            onChange={(event) => setJdDraft((current) => ({
-                                                                ...current,
-                                                                jdMarkdown: event.target.value,
-                                                            }))}
-                                                            rows={20}
-                                                        />
-                                                    </Field>
-                                                ) : null}
+                                                        {jdViewMode === "preview" ? (
+                                                            <div
+                                                                className="min-h-[300px] px-5 py-4 text-sm leading-7 text-slate-700 dark:text-slate-200"
+                                                                dangerouslySetInnerHTML={{__html: currentPreviewHtml}}
+                                                            />
+                                                        ) : null}
 
-                                                {jdViewMode === "preview" ? (
-                                                    <Field label={isZh ? "预览版" : "Preview"}>
-                                                        <div
-                                                            className="min-h-[360px] rounded-2xl border border-slate-200/80 bg-slate-50 px-5 py-4 text-sm leading-7 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
-                                                            dangerouslySetInnerHTML={{__html: currentPreviewHtml}}
-                                                        />
-                                                    </Field>
-                                                ) : null}
-
-                                                <div className="flex flex-wrap items-center justify-between gap-3">
-                                                    <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={jdDraft.autoActivate}
-                                                            onChange={(event) => setJdDraft((current) => ({
-                                                                ...current,
-                                                                autoActivate: event.target.checked,
-                                                            }))}
-                                                        />
-                                                        {isZh ? "保存后设为生效版本" : "Set as Active Version After Saving"}
-                                                    </label>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {isJDGenerating ? (
-                                                            <Button variant="outline" onClick={() => void stopJDGeneration()}>
-                                                                <Square className="h-4 w-4"/>
-                                                                {isZh ? "停止生成" : "Stop"}
+                                                        {/* 底部操作栏 */}
+                                                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-4 py-2.5 dark:border-slate-800/80 dark:bg-slate-900/30">
+                                                            <div className="flex flex-wrap items-center gap-3">
+                                                                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={jdDraft.autoActivate}
+                                                                        onChange={(event) => setJdDraft((current) => ({
+                                                                            ...current,
+                                                                            autoActivate: event.target.checked,
+                                                                        }))}
+                                                                    />
+                                                                    {isZh ? "保存后设为生效版本" : "Set as Active After Saving"}
+                                                                </label>
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "版本标题" : "Title"}</span>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={jdDraft.title}
+                                                                        onChange={(event) => setJdDraft((current) => ({
+                                                                            ...current,
+                                                                            title: event.target.value,
+                                                                        }))}
+                                                                        className="h-7 w-40 rounded-lg border border-slate-200/80 bg-white/80 px-2 text-xs text-slate-700 outline-none focus:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                                    />
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className="text-xs text-slate-400 dark:text-slate-500">{isZh ? "备注" : "Notes"}</span>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={jdDraft.notes}
+                                                                        onChange={(event) => setJdDraft((current) => ({
+                                                                            ...current,
+                                                                            notes: event.target.value,
+                                                                        }))}
+                                                                        placeholder={isZh ? "选填" : "Optional"}
+                                                                        className="h-7 w-36 rounded-lg border border-slate-200/80 bg-white/80 px-2 text-xs text-slate-700 outline-none focus:border-slate-300 placeholder:text-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-600"
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            <Button
+                                                                onClick={() => void saveJDVersion()}
+                                                                disabled={jdVersionSaving}
+                                                                size="sm"
+                                                                className="rounded-xl text-xs"
+                                                            >
+                                                                <Save className="mr-1 h-3.5 w-3.5"/>
+                                                                {jdVersionSaving
+                                                                    ? (isZh ? "保存中…" : "Saving…")
+                                                                    : (isZh ? "保存新版本" : "Save New Version")}
                                                             </Button>
-                                                        ) : (
-                                                            <Button variant="outline" onClick={() => void generateJD()}>
-                                                                <Sparkles className="h-4 w-4"/>
-                                                                {isZh ? "重新生成" : "Regenerate"}
-                                                            </Button>
-                                                        )}
-                                                        <Button onClick={() => void saveJDVersion()} disabled={jdVersionSaving}>
-                                                            <Save className="h-4 w-4"/>
-                                                            {jdVersionSaving ? (isZh ? "保存中..." : "Saving...") : (isZh ? "保存新版本" : "Save New Version")}
-                                                        </Button>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </CardContent>
-                                        </Card>
+
+                                            </div>
                                     ) : positionWorkspaceView === "candidates" && positionDetail ? (() => {
                                         const candidates = positionCandidatesData;
                                         const detailContent = positionCandidateDetailOpen ? (
