@@ -894,6 +894,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const positionsLoadRequestIdRef = useRef(0);
     const candidatesLoadRequestIdRef = useRef(0);
     const positionDetailLoadRequestIdRef = useRef(0);
+    const defaultTabSetForPositionRef = useRef<number | null>(null);
     const mountedRef = useRef(true);
     const [candidateListScrollEl, setCandidateListScrollEl] = useState<HTMLDivElement | null>(null);
     const candidateListScrollRef = useCallback((node: HTMLDivElement | null) => {
@@ -2260,6 +2261,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     useEffect(() => {
         setPositionWorkspaceView("jd");
+        defaultTabSetForPositionRef.current = null;
         setPositionSecondaryPanelOpen(false);
         setPositionCandidateDetailOpen(false);
         setPositionCandidateSearch("");
@@ -3142,12 +3144,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 return data;
             }
             setPositionDetail(data);
-            // 智能默认 Tab：有 JD 时默认候选人，无 JD 时默认 JD
-            // 候选人数据由搜索 useEffect 统一加载，避免重复请求
-            if (data.current_jd_version) {
-                setPositionWorkspaceView("candidates");
-            } else {
-                setPositionWorkspaceView("jd");
+            // 智能默认 Tab：仅首次加载时设置，后续刷新不重置
+            if (defaultTabSetForPositionRef.current !== positionId) {
+                defaultTabSetForPositionRef.current = positionId;
+                setPositionWorkspaceView(data.current_jd_version ? "candidates" : "jd");
             }
             return data;
         } catch (error) {
@@ -8980,19 +8980,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         ]
     );
 
-    const positionsPageNode = useMemo(
-        () => renderPositionsPage(),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [
-            visiblePositions, positions, positionsLoading, selectedPositionId,
-            positionListCollapsed, positionStatusFilter,
-            positionDetail, positionDetailLoading, positionWorkspaceView,
-            positionSecondaryPanelOpen, positionCandidatesData, positionCandidatesTotal,
-            positionCandidatesLoading, positionCandidateStatusFilter,
-            positionCandidateDetailOpen, selectedCandidateId, candidateDetail,
-            candidateDetailLoading, isZh,
-        ]
-    );
+    const positionsPageNode = renderPositionsPage();
 
     const auditPageNode = useMemo(
         () => renderAuditPage(),

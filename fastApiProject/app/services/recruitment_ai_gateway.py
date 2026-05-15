@@ -1746,6 +1746,43 @@ class RecruitmentAIGateway:
         on_delta: Callable[[str], None],
         cancel_control: Optional[RecruitmentTaskControl] = None,
     ) -> Dict[str, Any]:
+        # Stateful filter to strip <think>...</think> reasoning blocks from streaming deltas,
+        # since they may span multiple chunks.
+        _think_buffer = ""
+        _in_think = False
+
+        def _filtered_on_delta(delta: str) -> None:
+            nonlocal _think_buffer, _in_think
+            text = _think_buffer + delta
+            _think_buffer = ""
+            if _in_think:
+                end_match = re.search(r"</think>", text, flags=re.IGNORECASE)
+                if end_match:
+                    _in_think = False
+                    remainder = text[end_match.end():]
+                    if remainder:
+                        on_delta(remainder)
+                return
+            start_match = re.search(r"<think\b[^>]*>", text, flags=re.IGNORECASE)
+            if start_match:
+                _in_think = True
+                before = text[:start_match.start()]
+                after_tag = text[start_match.end():]
+                end_match = re.search(r"</think>", after_tag, flags=re.IGNORECASE)
+                if end_match:
+                    _in_think = False
+                    remainder = after_tag[end_match.end():]
+                    if before:
+                        on_delta(before)
+                    if remainder:
+                        on_delta(remainder)
+                else:
+                    if before:
+                        on_delta(before)
+                    _think_buffer = after_tag
+                return
+            on_delta(delta)
+
         config = self.resolve_config(task_type)
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
         full_request_snapshot = _build_request_snapshot(config, response_mode="text", system_prompt=system_prompt, user_prompt=user_prompt)
@@ -1753,6 +1790,8 @@ class RecruitmentAIGateway:
         retry_delay = float(config.extra_config.get("retry_delay_seconds") or 1.0)
         last_error: Exception | None = None
         for attempt in range(max_retries + 1):
+            _think_buffer = ""
+            _in_think = False
             try:
                 if config.runtime_provider == "openai-compatible":
                     response_payload = self._stream_openai_compatible_completion(
@@ -1760,13 +1799,13 @@ class RecruitmentAIGateway:
                         system_prompt=system_prompt,
                         user_prompt=user_prompt,
                         response_mode="text",
-                        on_delta=on_delta,
+                        on_delta=_filtered_on_delta,
                         cancel_control=cancel_control,
                     )
                 elif config.runtime_provider == "gemini":
-                    response_payload = self._stream_gemini_text(config, system_prompt, user_prompt, on_delta, cancel_control=cancel_control)
+                    response_payload = self._stream_gemini_text(config, system_prompt, user_prompt, _filtered_on_delta, cancel_control=cancel_control)
                 else:
-                    response_payload = self._stream_anthropic_text(config, system_prompt, user_prompt, on_delta, cancel_control=cancel_control)
+                    response_payload = self._stream_anthropic_text(config, system_prompt, user_prompt, _filtered_on_delta, cancel_control=cancel_control)
                 content = response_payload["content"]
                 output_summary = content.get("markdown") if isinstance(content, dict) else content
                 return {
