@@ -75,6 +75,16 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         aiNoMatch: isZh ? "AI 未能匹配到系统现有岗位，请手动分配" : "AI could not match to existing positions, please assign manually",
         aiStillNoMatch: isZh ? "重新识别后仍未找到匹配岗位" : "Still no match after re-identification",
         stopMatch: isZh ? "停止匹配" : "Stop",
+        pendingGroup: isZh ? "待处理" : "Pending",
+        archivedGroup: isZh ? "归档候选人" : "Archived",
+        pendingGroupDesc: isZh ? "需要手动分配或重新识别" : "Need manual assignment or re-identification",
+        archivedGroupDesc: isZh ? "已存档，可在有合适岗位时分配" : "Archived, can be assigned when suitable positions are available",
+        archived: isZh ? "归档" : "Archived",
+        aiErrorDesc: isZh ? "AI 识别异常，请重新识别" : "AI error, please re-identify",
+        autoArchivedDesc: isZh ? "初筛完成，系统自动归入" : "Auto-archived after screening",
+        movedByHRDesc: (by: string, date: string, from: string) => isZh
+            ? `由 ${by} 于 ${date} 归入，来自：${from}`
+            : `Moved by ${by} on ${date}, from: ${from}`,
         candidatesCount: (count: number) => isZh ? `${count} 人` : `${count}`,
         noCandidates: isZh ? "人才库暂无候选人" : "No candidates in talent pool",
         noCandidatesDesc: isZh ? '上传简历时选择「暂不选择岗位」或「AI智能匹配」，未匹配的候选人将出现在这里' : 'Candidates will appear here when uploaded with "No Position" or "AI Smart Match" mode',
@@ -154,22 +164,38 @@ function sourceLabel(source: string | null | undefined, tr: ReturnType<typeof ge
 }
 
 function groupCandidatesByAIMatch(candidates: CandidateSummary[]) {
-    const groups: Record<string, { positionTitle: string; positionId: number | null; candidates: CandidateSummary[] }> = {};
-    const noMatchGroup: CandidateSummary[] = [];
     const matchingGroup: CandidateSummary[] = [];
+    const pendingGroup: CandidateSummary[] = [];
+    const archivedGroup: CandidateSummary[] = [];
     for (const candidate of candidates) {
         if (candidate.status === "matching") {
             matchingGroup.push(candidate);
-        } else if (candidate.ai_match_position_title) {
-            const key = candidate.ai_match_position_title;
-            if (!groups[key]) groups[key] = { positionTitle: key, positionId: candidate.ai_match_position_id || null, candidates: [] };
-            groups[key].candidates.push(candidate);
+        } else if (candidate.talent_pool_reason === "unmatched_by_ai" || candidate.talent_pool_reason === "ai_error") {
+            pendingGroup.push(candidate);
         } else {
-            noMatchGroup.push(candidate);
+            // auto_archived, moved_by_hr, 或无 reason 的旧数据（status=talent_pool）
+            archivedGroup.push(candidate);
         }
     }
-    return { groups: Object.values(groups), noMatchGroup, matchingGroup };
+    return { pendingGroup, archivedGroup, matchingGroup };
 }
+
+const STATUS_LABEL_MAP: Record<string, string> = {
+    pending_screening: "待初筛",
+    screening_running: "初筛中",
+    screening_passed: "初筛通过",
+    screening_rejected: "初筛淘汰",
+    pending_interview: "待面试",
+    interview_passed: "面试通过",
+    interview_rejected: "面试淘汰",
+    pending_offer: "待发offer",
+    offer_sent: "已发offer",
+    hired: "已入职",
+    new_imported: "新导入",
+    matching: "匹配中",
+    unmatched: "待识别",
+    talent_pool: "人才库",
+};
 
 /* ════════════════════════════════════════════════════════════════
  * 主组件
@@ -261,20 +287,20 @@ export function TalentPoolPage({
         return result;
     }, [candidates, searchQuery, sourceFilter, tagFilter, sortBy]);
 
-    const { groups, noMatchGroup, matchingGroup } = React.useMemo(
+    const { pendingGroup, archivedGroup, matchingGroup } = React.useMemo(
         () => groupCandidatesByAIMatch(filteredCandidates),
         [filteredCandidates]
     );
 
-    // 当候选人离开 noMatchGroup（SSE驱动进入 matchingGroup 或匹配成功被移除），清除 reIdentifying 标记
+    // 当候选人离开待处理分组（SSE驱动进入匹配中或从人才库移除），清除 reIdentifying 标记
     React.useEffect(() => {
         const allCurrentIds = new Set(filteredCandidates.map(c => c.id));
         setReIdentifyingIds(prev => {
             if (prev.size === 0) return prev;
             const next = new Set<number>();
             for (const id of prev) {
-                // 只保留在 noMatchGroup 中且不是 matching 状态的候选人
-                // 如果候选人已进入 matchingGroup 或已从人才库移除，清除标记
+                // 只保留在人才库中且是 unmatched 状态的候选人
+                // 如果候选人已进入 matching 或已从人才库移除，清除标记
                 const candidate = filteredCandidates.find(c => c.id === id);
                 if (candidate && candidate.status === "unmatched") {
                     next.add(id);
@@ -343,7 +369,7 @@ export function TalentPoolPage({
             }
             // API立即返回，匹配在后台执行
             // 不清除 reIdentifyingIds，由 SSE candidate_updated 事件驱动状态变更
-            // 候选人会从 noMatchGroup 移入 matchingGroup（isMatching=true 显示 loading）
+            // 候选人会从待处理分组移入匹配中分组（isMatching=true 显示 loading）
         } catch {
             setReIdentifyFailedIds(prev => new Set(prev).add(candidateId));
             setReIdentifyingIds(prev => { const next = new Set(prev); next.delete(candidateId); return next; });
@@ -490,33 +516,21 @@ export function TalentPoolPage({
                             </div>
                         )}
 
-                        {groups.map(group => (
-                            <div key={group.positionTitle}>
+                        {/* 待处理分组 */}
+                        {pendingGroup.length > 0 && (
+                            <div>
                                 <div className="mb-2.5 flex items-center justify-between">
                                     <div className="flex items-center gap-2 text-[13px] font-medium text-slate-500 dark:text-slate-400">
-                                        <span>{tr.aiRecognized}：{group.positionTitle}</span>
-                                        <span className="inline-flex items-center rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">{tr.candidatesCount(group.candidates.length)}</span>
+                                        <span>{tr.pendingGroup}</span>
+                                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{tr.candidatesCount(pendingGroup.length)}</span>
                                     </div>
-                                    <div className="flex items-center gap-2.5">
-                                        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                                            <input type="checkbox" className="h-3.5 w-3.5 accent-sky-600" checked={group.candidates.every(c => selectedIds.has(c.id))} onChange={() => selectGroup(group.candidates.map(c => c.id))}/>
-                                            {tr.selectAllGroup}
-                                        </label>
-                                        {group.positionId ? (
-                                            <Button size="sm" variant="outline" className="h-7 rounded-md border-sky-300 px-2.5 text-xs text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300 dark:hover:bg-sky-900/30" onClick={async () => { await onAssignPosition(group.candidates.map(c => c.id), group.positionId!); }}>
-                                                <Briefcase className="mr-1 h-3 w-3"/>
-                                                {tr.oneClickAssign}
-                                            </Button>
-                                        ) : (
-                                            <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => onCreatePosition(group.positionTitle)}>
-                                                <Plus className="mr-1 h-3 w-3"/>
-                                                {tr.oneClickAssign}
-                                            </Button>
-                                        )}
-                                    </div>
+                                    <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                                        <input type="checkbox" className="h-3.5 w-3.5 accent-sky-600" checked={pendingGroup.every(c => selectedIds.has(c.id))} onChange={() => selectGroup(pendingGroup.map(c => c.id))}/>
+                                        {tr.selectAllGroup}
+                                    </label>
                                 </div>
                                 <div className="flex flex-col gap-2">
-                                    {group.candidates.map(candidate => (
+                                    {pendingGroup.map(candidate => (
                                         <CandidateCard
                                             key={candidate.id}
                                             candidate={candidate}
@@ -524,8 +538,6 @@ export function TalentPoolPage({
                                             reIdentifying={reIdentifyingIds.has(candidate.id)}
                                             reIdentifyFailed={reIdentifyFailedIds.has(candidate.id)}
                                             onToggleSelect={() => toggleSelect(candidate.id)}
-                                            onConfirmMatch={async () => { await onAssignPosition([candidate.id], candidate.ai_match_position_id!); if (onRefresh) await onRefresh(); }}
-                                            onChangePosition={() => openSingleAssign(candidate.id)}
                                             onReIdentify={() => handleReIdentify(candidate.id)}
                                             onManualAssign={() => openSingleAssign(candidate.id)}
                                             onView={() => openDrawer(candidate.id)}
@@ -534,34 +546,35 @@ export function TalentPoolPage({
                                     ))}
                                 </div>
                             </div>
-                        ))}
+                        )}
 
-                        {noMatchGroup.length > 0 && (
+                        {/* 归档分组 */}
+                        {archivedGroup.length > 0 && (
                             <div>
-                                {groups.length > 0 && <div className="my-5 h-px bg-slate-200 dark:bg-slate-800"/>}
+                                {pendingGroup.length > 0 && <div className="my-5 h-px bg-slate-200 dark:bg-slate-800"/>}
                                 <div className="mb-2.5 flex items-center justify-between">
                                     <div className="flex items-center gap-2 text-[13px] font-medium text-slate-500 dark:text-slate-400">
-                                        <span>{tr.unmatchedGroup}</span>
-                                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{tr.candidatesCount(noMatchGroup.length)}</span>
+                                        <span>{tr.archivedGroup}</span>
+                                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">{tr.candidatesCount(archivedGroup.length)}</span>
                                     </div>
                                     <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                                        <input type="checkbox" className="h-3.5 w-3.5 accent-sky-600" checked={noMatchGroup.every(c => selectedIds.has(c.id))} onChange={() => selectGroup(noMatchGroup.map(c => c.id))}/>
+                                        <input type="checkbox" className="h-3.5 w-3.5 accent-sky-600" checked={archivedGroup.every(c => selectedIds.has(c.id))} onChange={() => selectGroup(archivedGroup.map(c => c.id))}/>
                                         {tr.selectAllGroup}
                                     </label>
                                 </div>
                                 <div className="flex flex-col gap-2">
-                                    {noMatchGroup.map(candidate => (
+                                    {archivedGroup.map(candidate => (
                                         <CandidateCard
                                             key={candidate.id}
                                             candidate={candidate}
                                             selected={selectedIds.has(candidate.id)}
-                                            reIdentifying={reIdentifyingIds.has(candidate.id)}
-                                            reIdentifyFailed={reIdentifyFailedIds.has(candidate.id)}
+                                            reIdentifying={false}
+                                            reIdentifyFailed={false}
                                             onToggleSelect={() => toggleSelect(candidate.id)}
-                                            onReIdentify={() => handleReIdentify(candidate.id)}
                                             onManualAssign={() => openSingleAssign(candidate.id)}
                                             onView={() => openDrawer(candidate.id)}
                                             tr={tr}
+                                            isArchived={true}
                                         />
                                     ))}
                                 </div>
@@ -694,7 +707,7 @@ function StatCard({label, value, hint}: {label: string; value: number; hint: str
 function CandidateCard({
     candidate, selected, reIdentifying, reIdentifyFailed,
     onToggleSelect, onConfirmMatch, onChangePosition, onReIdentify, onCancelMatch, onManualAssign, onView, tr,
-    isMatching,
+    isMatching, isArchived,
 }: {
     candidate: CandidateSummary;
     selected: boolean;
@@ -709,10 +722,44 @@ function CandidateCard({
     onView: () => void;
     tr: ReturnType<typeof getTalentPoolLocale>;
     isMatching?: boolean;
+    isArchived?: boolean;
 }) {
     const hasAIMatch = !!candidate.ai_match_position_title;
     const colorIdx = avatarColorIndex(candidate.name);
     const initial = avatarInitial(candidate.name);
+
+    // 根据 talent_pool_reason 决定描述文案
+    const getDescription = () => {
+        if (isMatching) {
+            return (
+                <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                    <Loader2 className="h-3 w-3 animate-spin"/>
+                    {tr.aiMatchingHint}
+                </div>
+            );
+        }
+        if (isArchived) {
+            if (candidate.talent_pool_reason === "auto_archived") {
+                return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.autoArchivedDesc}</div>;
+            }
+            if (candidate.talent_pool_reason === "moved_by_hr") {
+                const sourceLabel = STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""] || candidate.talent_pool_source_status || "";
+                const moveDate = candidate.talent_pool_moved_at ? new Date(candidate.talent_pool_moved_at).toLocaleDateString() : "";
+                return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.movedByHRDesc(candidate.talent_pool_moved_by || "", moveDate, sourceLabel)}</div>;
+            }
+            // 旧数据（status=talent_pool 无 reason）
+            return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.archivedGroupDesc}</div>;
+        }
+        // 待处理分组
+        if (candidate.talent_pool_reason === "ai_error") {
+            return <div className="text-xs text-amber-500 dark:text-amber-400">{tr.aiErrorDesc}</div>;
+        }
+        // unmatched_by_ai 或无 reason
+        if (reIdentifyFailed) {
+            return <div className="text-xs text-rose-500 dark:text-rose-400">{tr.aiStillNoMatch}</div>;
+        }
+        return <div className="text-xs text-slate-400 dark:text-slate-500">{tr.aiNoMatch}</div>;
+    };
 
     return (
         <div className={cn(
@@ -731,8 +778,8 @@ function CandidateCard({
                             <Loader2 className="h-3 w-3 animate-spin"/>
                             {tr.matching}
                         </span>
-                    ) : hasAIMatch ? (
-                        <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{tr.aiIdentified}</span>
+                    ) : isArchived ? (
+                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">{tr.archived}</span>
                     ) : (
                         <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{tr.pendingIdentify}</span>
                     )}
@@ -744,21 +791,7 @@ function CandidateCard({
                     {candidate.city && <span className="inline-flex items-center gap-1"><Building2 className="h-3 w-3"/>{candidate.city}</span>}
                     {candidate.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3"/>{candidate.phone}</span>}
                 </div>
-                {isMatching ? (
-                    <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-                        <Loader2 className="h-3 w-3 animate-spin"/>
-                        {tr.aiMatchingHint}
-                    </div>
-                ) : hasAIMatch ? (
-                    <div className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-sky-300 bg-sky-50 px-2.5 py-1 text-[11px] text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
-                        <Sparkles className="h-3 w-3"/>
-                        {tr.aiRecommendInto(candidate.ai_match_position_title!)}
-                    </div>
-                ) : reIdentifyFailed ? (
-                    <div className="text-xs text-rose-500 dark:text-rose-400">{tr.aiStillNoMatch}</div>
-                ) : (
-                    <div className="text-xs text-slate-400 dark:text-slate-500">{tr.aiNoMatch}</div>
-                )}
+                {getDescription()}
             </div>
             <div className="flex flex-shrink-0 items-center gap-1.5">
                 {hasAIMatch && onConfirmMatch && (

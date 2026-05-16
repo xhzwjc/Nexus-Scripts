@@ -167,6 +167,11 @@ export interface CandidateSummary {
   ai_match_confidence?: number | null;
   ai_match_reason?: string | null;
   ai_match_alternatives?: Array<{ position_id: number; position_title: string; confidence: number }> | null;
+  // 人才库归档字段
+  talent_pool_reason?: "unmatched_by_ai" | "ai_error" | "auto_archived" | "moved_by_hr" | null;
+  talent_pool_source_status?: string | null;
+  talent_pool_moved_by?: string | null;
+  talent_pool_moved_at?: string | null;
 }
 
 export interface ResumeFile {

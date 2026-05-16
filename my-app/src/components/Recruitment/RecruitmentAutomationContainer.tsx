@@ -9293,6 +9293,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 exportCandidates={exportCandidates}
                 requestBatchDelete={requestBatchDelete}
                 batchBindPosition={batchBindPosition}
+                onMoveToTalentPool={async (candidateIds) => {
+                    await recruitmentApi("/candidates/batch-move-to-talent-pool", {
+                        method: "POST",
+                        body: JSON.stringify({ candidate_ids: candidateIds }),
+                    });
+                    await loadCandidates();
+                    await loadTalentPoolCandidates();
+                }}
                 batchUpdateStatus={batchUpdateStatus}
                 duplicateCandidates={duplicateCandidates}
                 followUps={followUps}

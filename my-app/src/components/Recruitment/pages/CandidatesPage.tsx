@@ -1554,6 +1554,7 @@ type CandidatesPageProps = {
     exportCandidates: (candidateIds: number[], includeResumes?: boolean) => Promise<void>;
     requestBatchDelete: (candidateIds: number[]) => void;
     batchBindPosition: (candidateIds: number[], positionId: number | null) => Promise<void>;
+    onMoveToTalentPool?: (candidateIds: number[]) => Promise<void>;
     batchUpdateStatus: (candidateIds: number[], status: string, reason: string) => Promise<void>;
     duplicateCandidates: Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>;
     interviewSchedules: Array<{id: number; candidate_id: number; round_name: string; interviewer_name?: string | null; scheduled_at?: string | null; duration_minutes?: number | null; location?: string | null; meeting_link?: string | null; notes?: string | null; status: string; created_at?: string | null}>;
@@ -1657,6 +1658,7 @@ export function CandidatesPage({
     exportCandidates,
     requestBatchDelete,
     batchBindPosition,
+    onMoveToTalentPool,
     batchUpdateStatus,
     duplicateCandidates,
     interviewSchedules,
@@ -2188,7 +2190,11 @@ export function CandidatesPage({
                                     variant="outline"
                                     className="h-7 rounded-md px-2.5 text-xs"
                                     onClick={async () => {
-                                        await batchBindPosition(selectedCandidateIds, null);
+                                        if (onMoveToTalentPool) {
+                                            await onMoveToTalentPool(selectedCandidateIds);
+                                        } else {
+                                            await batchBindPosition(selectedCandidateIds, null);
+                                        }
                                     }}
                                     disabled={!selectedCandidateIds.length}
                                 >
@@ -2561,7 +2567,11 @@ export function CandidatesPage({
                                                 size="sm"
                                                 variant="outline"
                                                 onClick={async () => {
-                                                    await batchBindPosition([candidateDetail.candidate.id], null);
+                                                    if (onMoveToTalentPool) {
+                                                        await onMoveToTalentPool([candidateDetail.candidate.id]);
+                                                    } else {
+                                                        await batchBindPosition([candidateDetail.candidate.id], null);
+                                                    }
                                                 }}
                                             >
                                                 <Users className="h-4 w-4"/>

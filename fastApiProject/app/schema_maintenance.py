@@ -770,7 +770,23 @@ def ensure_recruitment_schema() -> None:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN ai_match_at DATETIME NULL"))
                 logger.info("Added recruitment_candidates.ai_match_at column")
-    
+            if "talent_pool_reason" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN talent_pool_reason VARCHAR(50) NULL"))
+                logger.info("Added recruitment_candidates.talent_pool_reason column")
+            if "talent_pool_source_status" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN talent_pool_source_status VARCHAR(50) NULL"))
+                logger.info("Added recruitment_candidates.talent_pool_source_status column")
+            if "talent_pool_moved_by" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN talent_pool_moved_by VARCHAR(64) NULL"))
+                logger.info("Added recruitment_candidates.talent_pool_moved_by column")
+            if "talent_pool_moved_at" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN talent_pool_moved_at DATETIME NULL"))
+                logger.info("Added recruitment_candidates.talent_pool_moved_at column")
+
             # Widen phone column to handle encrypted/masked values from resume platforms
             try:
                 phone_col = next((c for c in inspector.get_columns("recruitment_candidates") if c["name"] == "phone"), None)

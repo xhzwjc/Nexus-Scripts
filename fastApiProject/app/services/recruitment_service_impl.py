@@ -6937,13 +6937,21 @@ class RecruitmentService:
                 position = None
         if position and not position_auto_advance:
             return
-        self._create_status_history(
-            candidate,
-            suggested_status,
-            "AI 初筛完成，按 AI 建议自动更新候选人状态。",
-            actor_id,
-            "ai_screening",
-        )
+        if suggested_status == "talent_pool":
+            # 初筛建议归入人才库 → 设置 unmatched + auto_archived
+            candidate.status = "unmatched"
+            candidate.talent_pool_reason = "auto_archived"
+            candidate.talent_pool_moved_at = datetime.now()
+            candidate.updated_by = actor_id
+            self.db.flush()
+        else:
+            self._create_status_history(
+                candidate,
+                suggested_status,
+                "AI 初筛完成，按 AI 建议自动更新候选人状态。",
+                actor_id,
+                "ai_screening",
+            )
 
     def _mark_candidate_screening_failed_if_needed(
         self,
@@ -8450,7 +8458,7 @@ class RecruitmentService:
             position_screening_skill_rows = self._get_position_task_skill_rows(position.id, "screening") if position and self._is_business_row_visible(position) else []
             position_interview_skill_rows = self._get_position_task_skill_rows(position.id, "interview") if position and self._is_business_row_visible(position) else []
             position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
-        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "owner_id": row.owner_id, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "owner_id": row.owner_id, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at), "talent_pool_reason": getattr(row, "talent_pool_reason", None), "talent_pool_source_status": getattr(row, "talent_pool_source_status", None), "talent_pool_moved_by": getattr(row, "talent_pool_moved_by", None), "talent_pool_moved_at": isoformat_or_none(getattr(row, "talent_pool_moved_at", None))}
 
     def _serialize_candidate_list_item(
         self,
@@ -8525,6 +8533,10 @@ class RecruitmentService:
             "latest_total_score": display_total_score,
             "created_at": isoformat_or_none(row.created_at),
             "updated_at": isoformat_or_none(row.updated_at),
+            "talent_pool_reason": getattr(row, "talent_pool_reason", None),
+            "talent_pool_source_status": getattr(row, "talent_pool_source_status", None),
+            "talent_pool_moved_by": getattr(row, "talent_pool_moved_by", None),
+            "talent_pool_moved_at": isoformat_or_none(getattr(row, "talent_pool_moved_at", None)),
         }
 
     def _get_org_and_descendant_codes(self, org_code: str) -> List[str]:
@@ -8708,7 +8720,7 @@ class RecruitmentService:
             builder = self._apply_business_org_filter(self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)), RecruitmentCandidate)
         # 排除待归岗候选人（这些候选人在人才库中显示）
         if not status:
-            builder = builder.filter(RecruitmentCandidate.status.notin_(["matching", "unmatched"]))
+            builder = builder.filter(RecruitmentCandidate.status.notin_(["matching", "unmatched", "talent_pool"]))
         if position_id:
             builder = builder.filter(RecruitmentCandidate.position_id == position_id)
         if query:
@@ -9414,9 +9426,11 @@ class RecruitmentService:
         logger.info("[AI_MATCH] After filtering: %d candidates eligible (from %d requested)", len(candidates), len(candidate_ids))
 
         # 将候选人状态设为 matching（持久化到数据库，刷新页面后仍保持）
+        # 清除之前的取消标记，允许重新识别
         for c in candidates:
             if c.status != "matching":
                 c.status = "matching"
+            scheduler.clear_cancelled(c.id)
         self.db.commit()
 
         if not candidates:
@@ -9592,6 +9606,8 @@ class RecruitmentService:
                     candidate.ai_match_at = datetime.now()
                     candidate.updated_by = actor_id
                     candidate.status = "unmatched"
+                    candidate.talent_pool_reason = "unmatched_by_ai"
+                    candidate.talent_pool_moved_at = datetime.now()
                 db.commit()
 
                 # 写审计日志（直接用 db，不走 self._create_ai_task_log）
@@ -9685,6 +9701,8 @@ class RecruitmentService:
                     if candidate:
                         candidate.status = "unmatched"
                         candidate.ai_match_reason = "用户手动停止匹配"
+                        candidate.talent_pool_reason = "ai_error"
+                        candidate.talent_pool_moved_at = datetime.now()
                         candidate.updated_by = actor_id
                         db.commit()
 
@@ -9769,6 +9787,8 @@ class RecruitmentService:
                     candidate.status = "unmatched"
                     candidate.ai_match_reason = f"匹配异常（重试{MATCH_MAX_RETRIES}次后失败）：{str(error)[:200]}"
                     candidate.ai_match_at = now
+                    candidate.talent_pool_reason = "ai_error"
+                    candidate.talent_pool_moved_at = now
                     candidate.updated_by = actor_id
                     db.commit()
 
@@ -9841,6 +9861,8 @@ class RecruitmentService:
             for c in stuck:
                 c.status = "unmatched"
                 c.ai_match_reason = "匹配超时，已自动重置"
+                c.talent_pool_reason = "ai_error"
+                c.talent_pool_moved_at = datetime.now()
             self.db.commit()
             logger.warning("[AI_MATCH] Recovered %d stuck matching candidates (timeout > %ds)", len(stuck), MATCH_TIMEOUT_SECONDS)
 
@@ -9861,6 +9883,8 @@ class RecruitmentService:
 
         candidate.status = "unmatched"
         candidate.ai_match_reason = "用户手动停止匹配"
+        candidate.talent_pool_reason = "ai_error"
+        candidate.talent_pool_moved_at = datetime.now()
         candidate.updated_by = actor_id
         self.db.commit()
 
@@ -9878,6 +9902,57 @@ class RecruitmentService:
         self.db.add(log_row)
         self.db.commit()
         logger.info("[AI_MATCH] User cancelled match for candidate=%d", candidate_id)
+
+    def move_to_talent_pool(self, candidate_id: int, actor_id: str):
+        """将候选人移入人才库（人工操作）"""
+        candidate = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.id == candidate_id,
+            RecruitmentCandidate.deleted.is_(False),
+        ).first()
+        if not candidate:
+            raise ValueError("Candidate not found")
+
+        source_status = candidate.status
+        candidate.status = "unmatched"
+        candidate.talent_pool_reason = "moved_by_hr"
+        candidate.talent_pool_source_status = source_status
+        candidate.talent_pool_moved_by = actor_id
+        candidate.talent_pool_moved_at = datetime.now()
+        candidate.updated_by = actor_id
+        self.db.commit()
+
+        now = datetime.now()
+        log_row = RecruitmentAITaskLog(
+            task_type="move_to_talent_pool",
+            org_code=normalize_org_code(getattr(candidate, "org_code", None)),
+            status="success",
+            related_candidate_id=candidate_id,
+            output_summary=f"从 {source_status} 移入人才库",
+            created_by=actor_id,
+            created_at=now,
+            updated_at=now,
+        )
+        self.db.add(log_row)
+        self.db.commit()
+        logger.info("[TALENT_POOL] Moved candidate=%d from %s to talent pool", candidate_id, source_status)
+
+    def batch_move_to_talent_pool(self, candidate_ids: List[int], actor_id: str) -> Dict[str, Any]:
+        """批量移入人才库"""
+        candidates = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.id.in_(candidate_ids),
+            RecruitmentCandidate.deleted.is_(False),
+        ).all()
+        for c in candidates:
+            source_status = c.status
+            c.status = "unmatched"
+            c.talent_pool_reason = "moved_by_hr"
+            c.talent_pool_source_status = source_status
+            c.talent_pool_moved_by = actor_id
+            c.talent_pool_moved_at = datetime.now()
+            c.updated_by = actor_id
+        self.db.commit()
+        logger.info("[TALENT_POOL] Batch moved %d candidates to talent pool", len(candidates))
+        return {"moved_count": len(candidates)}
 
     def get_talent_pool_candidates(self, org_code: Optional[str] = None) -> List[Dict[str, Any]]:
         """获取人才库候选人（无岗位或状态为talent_pool）"""
@@ -9912,6 +9987,11 @@ class RecruitmentService:
             if position:
                 position_org_code = position.org_code
 
+        # 查询岗位是否开启自动初筛
+        auto_screen = False
+        if position_id and position:
+            auto_screen = bool(position.auto_screen_on_upload)
+
         updated_count = 0
         for candidate in candidates:
             candidate.position_id = position_id
@@ -9921,12 +10001,29 @@ class RecruitmentService:
                 candidate.org_code = position_org_code
             if update_status:
                 if position_id:
-                    # 分配到具体岗位 → 待初筛
+                    # 分配到具体岗位 → 重置状态
                     if candidate.status in ["matching", "unmatched", "talent_pool"]:
-                        candidate.status = "pending_screening"
+                        candidate.status = "screening_running" if auto_screen else "pending_screening"
+                    # 清除人才库标记和旧的初筛数据（无论原状态是什么）
+                    candidate.talent_pool_reason = None
+                    candidate.talent_pool_source_status = None
+                    candidate.talent_pool_moved_by = None
+                    candidate.talent_pool_moved_at = None
+                    candidate.ai_recommended_status = None
+                    candidate.match_percent = None
+                    candidate.ai_match_position_id = None
+                    candidate.ai_match_position_title = None
+                    candidate.ai_match_confidence = None
+                    candidate.ai_match_reason = None
+                    candidate.ai_match_at = None
                 else:
                     # 归入人才库（无岗位）
-                    candidate.status = "talent_pool"
+                    source_status = candidate.status
+                    candidate.status = "unmatched"
+                    candidate.talent_pool_reason = "moved_by_hr"
+                    candidate.talent_pool_source_status = source_status
+                    candidate.talent_pool_moved_by = actor_id
+                    candidate.talent_pool_moved_at = datetime.now()
             updated_count += 1
 
         self.db.commit()

@@ -878,6 +878,36 @@ async def cancel_match(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@recruitment_router.post("/candidates/{candidate_id}/move-to-talent-pool")
+async def move_to_talent_pool(
+    candidate_id: int,
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service)
+):
+    """将候选人移入人才库"""
+    try:
+        service.move_to_talent_pool(candidate_id, _session.get("id") or "unknown")
+        return {"success": True, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.post("/candidates/batch-move-to-talent-pool")
+async def batch_move_to_talent_pool(
+    payload: CandidateBatchDeleteRequest,
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service)
+):
+    """批量移入人才库"""
+    try:
+        data = service.batch_move_to_talent_pool(payload.candidate_ids, _session.get("id") or "unknown")
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @recruitment_router.post("/candidates/{candidate_id}/parse")
 async def trigger_candidate_parse(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
