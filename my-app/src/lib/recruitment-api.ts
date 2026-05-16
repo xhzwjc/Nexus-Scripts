@@ -161,6 +161,12 @@ export interface CandidateSummary {
   updated_by?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  // AI 岗位匹配相关字段
+  ai_match_position_id?: number | null;
+  ai_match_position_title?: string | null;
+  ai_match_confidence?: number | null;
+  ai_match_reason?: string | null;
+  ai_match_alternatives?: Array<{ position_id: number; position_title: string; confidence: number }> | null;
 }
 
 export interface ResumeFile {
@@ -536,6 +542,7 @@ export interface ResumeUploadResponse {
   auto_screen_failed_count: number;
   auto_screen_task_ids: number[];
   auto_screen_tasks: RecruitmentTaskStartResponse[];
+  ai_match_result?: { matched_count: number; total_candidates: number; message?: string; error?: string } | null;
 }
 
 export interface CandidateExportRequest {
@@ -734,4 +741,48 @@ export function splitTags(value: string) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+// 获取待归岗候选人
+export async function getPendingMatchCandidates(orgCode?: string): Promise<CandidateSummary[]> {
+  const params = new URLSearchParams();
+  if (orgCode) params.set("org_code", orgCode);
+  const query = params.toString();
+  return recruitmentApi<CandidateSummary[]>(`/candidates/pending-match${query ? `?${query}` : ""}`);
+}
+
+// 获取人才库候选人
+export async function getTalentPoolCandidates(orgCode?: string): Promise<CandidateSummary[]> {
+  const params = new URLSearchParams();
+  if (orgCode) params.set("org_code", orgCode);
+  const query = params.toString();
+  return recruitmentApi<CandidateSummary[]>(`/candidates/talent-pool${query ? `?${query}` : ""}`);
+}
+
+// 批量分配岗位并更新状态
+export async function batchAssignPosition(
+  candidateIds: number[],
+  positionId: number | null,
+  updateStatus: boolean = true
+): Promise<{ updated_count: number }> {
+  return recruitmentApi<{ updated_count: number }>(
+    `/candidates/batch-assign-position?update_status=${updateStatus}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ candidate_ids: candidateIds, position_id: positionId }),
+    }
+  );
+}
+
+// 触发AI智能岗位匹配
+export async function triggerAIPositionMatch(
+  candidateIds: number[]
+): Promise<{ matched_count: number; total_candidates: number; message: string }> {
+  return recruitmentApi<{ matched_count: number; total_candidates: number; message: string }>(
+    "/candidates/ai-match-positions",
+    {
+      method: "POST",
+      body: JSON.stringify(candidateIds),
+    }
+  );
 }

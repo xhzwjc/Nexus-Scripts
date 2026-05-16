@@ -11,6 +11,7 @@ export type RecruitmentPage =
     | "workspace"
     | "positions"
     | "candidates"
+    | "talent-pool"
     | "audit"
     | "assistant"
     | "settings-skills"
@@ -49,6 +50,7 @@ export type PositionFormState = {
     jdSkillIds: number[];
     screeningSkillIds: number[];
     interviewSkillIds: number[];
+    pendingTalentPoolCandidates?: number[]; // 从人才库选中的候选人ID列表
 };
 
 export type SkillTaskKind = "jd" | "screening" | "interview";
@@ -336,6 +338,10 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
             title: "邮件中心",
             description: "统一维护发件箱、收件人和发送记录，并支持候选人简历单发与批量发送。",
         },
+        "talent-pool": {
+            title: "人才库",
+            description: "未分配岗位的候选人，可按 AI 识别的岗位标签批量分配到目标岗位。",
+        },
     },
     positionStatusLabels: {
         draft: "草稿",
@@ -345,6 +351,8 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
     },
     candidateStatusLabels: {
         new_imported: "新导入",
+        matching: "匹配中",
+        unmatched: "待识别",
         pending_screening: "待初筛",
         screening_running: "初筛中",
         screening_failed: "初筛失败",
@@ -527,6 +535,10 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
             title: "Mail Center",
             description: "Manage senders, recipients, and delivery history, with single and batch resume sending.",
         },
+        "talent-pool": {
+            title: "Talent Pool",
+            description: "Candidates without assigned positions, batch assign to target positions by AI-recognized tags.",
+        },
     },
     positionStatusLabels: {
         draft: "Draft",
@@ -536,6 +548,8 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
     },
     candidateStatusLabels: {
         new_imported: "New",
+        matching: "Matching",
+        unmatched: "Unmatched",
         pending_screening: "To Screen",
         screening_running: "Screening",
         screening_failed: "Screen Fail",

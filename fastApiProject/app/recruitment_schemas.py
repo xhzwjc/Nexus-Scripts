@@ -278,6 +278,8 @@ class RecruitmentLLMConfigUpsertRequest(BaseModel):
     api_key_env: Optional[str] = None
     api_key_value: Optional[str] = None
     extra_config: Optional[Dict[str, Any]] = None
+    max_concurrent: int = Field(4, ge=1, le=100, description="该key最大并发数")
+    max_qps: int = Field(10, ge=0, le=1000, description="该key每秒最大请求数，0表示不限制")
     is_active: bool = True
     priority: int = Field(99, ge=0, le=999)
 

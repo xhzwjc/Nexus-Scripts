@@ -29,6 +29,7 @@ from .routers import (
 )
 from .routers.recruitment import recover_orphaned_tasks_on_startup
 from .services.recruitment_service import RecruitmentService
+from .services.match_scheduler import key_rotator, scheduler
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -62,6 +63,33 @@ def _resume_recruitment_screening_queue() -> None:
     finally:
         db.close()
 
+
+async def _init_match_scheduler() -> None:
+    """从DB加载LLM key配置，初始化匹配调度器并启动worker"""
+    from .recruitment_models import RecruitmentLLMConfig
+    db = SessionLocal()
+    try:
+        configs = db.query(RecruitmentLLMConfig).filter(
+            RecruitmentLLMConfig.is_active == True
+        ).all()
+        key_configs = [
+            {
+                "key_id": f"config_{cfg.id}",
+                "config_id": cfg.id,
+                "max_concurrent": cfg.max_concurrent or 4,
+                "max_qps": cfg.max_qps or 10,
+            }
+            for cfg in configs
+        ]
+        key_rotator.reload(key_configs)
+        await scheduler.start()
+        logger.info("Match scheduler initialized: %d keys, %d workers",
+                     len(key_configs), scheduler.stats().get("worker_count", 0))
+    except Exception as exc:
+        logger.error("Failed to init match scheduler: %s", exc, exc_info=True)
+    finally:
+        db.close()
+
 @app.on_event("startup")
 async def startup_event():
     """启动时初始化"""
@@ -69,6 +97,7 @@ async def startup_event():
         await run_in_threadpool(ensure_script_hub_schema)
         await recover_orphaned_tasks_on_startup()
         await run_in_threadpool(_resume_recruitment_screening_queue)
+        await _init_match_scheduler()
     except Exception as exc:
         logger.error("Failed to initialize schemas or recruitment queue on startup: %s", exc, exc_info=True)
     logger.info("Starting background tasks...")

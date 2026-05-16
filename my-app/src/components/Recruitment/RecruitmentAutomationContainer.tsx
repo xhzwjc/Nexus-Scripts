@@ -76,6 +76,7 @@ import {
     type ResumeFile,
     type ResumeUploadResponse,
     type RecruitmentTaskStartResponse,
+    triggerAIPositionMatch,
 } from "@/lib/recruitment-api";
 import {useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
@@ -195,6 +196,7 @@ import {CandidatesPage} from "./pages/CandidatesPage";
 import {MailSettingsPage} from "./pages/MailSettingsPage";
 import {ModelSettingsPage} from "./pages/ModelSettingsPage";
 import {SkillSettingsPage} from "./pages/SkillSettingsPage";
+import {TalentPoolPage} from "./pages/TalentPoolPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
 import { useOptimizedStats, useCachedListData, useCachedObjectData, useTaskSSE } from "./hooks";
 import { recruitmentNavBus, navigateToRecruitmentPage } from '@/lib/recruitmentNavBus';
@@ -869,6 +871,169 @@ const ResumePreviewModal = React.memo(function ResumePreviewModal({
     );
 });
 
+// 人才库搜索组件
+function TalentPoolSearch({
+    positions,
+    onAssignCandidates,
+}: {
+    positions: PositionSummary[];
+    onAssignCandidates: (candidateIds: number[]) => void;
+}) {
+    const {language} = useI18n();
+    const isZh = language === "zh-CN";
+    const [searchQuery, setSearchQuery] = useState("");
+    const [talentPoolCandidates, setTalentPoolCandidates] = useState<CandidateSummary[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+    const [showDropdown, setShowDropdown] = useState(false);
+
+    // 加载人才库候选人
+    const loadTalentPoolCandidates = useCallback(async () => {
+        setLoading(true);
+        try {
+            const response = await authenticatedFetch("/api/recruitment/candidates/talent-pool");
+            const data = await response.json();
+            if (data.success && data.data) {
+                setTalentPoolCandidates(data.data);
+            }
+        } catch (error) {
+            console.error("Failed to load talent pool candidates:", error);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    // 搜索过滤
+    const filteredCandidates = useMemo(() => {
+        if (!searchQuery.trim()) return talentPoolCandidates.slice(0, 20); // 最多显示20个
+        const query = searchQuery.toLowerCase();
+        return talentPoolCandidates.filter(c =>
+            c.name.toLowerCase().includes(query) ||
+            c.phone?.toLowerCase().includes(query) ||
+            c.email?.toLowerCase().includes(query) ||
+            c.current_company?.toLowerCase().includes(query) ||
+            c.ai_match_position_title?.toLowerCase().includes(query)
+        ).slice(0, 20);
+    }, [talentPoolCandidates, searchQuery]);
+
+    // 切换选择
+    const toggleSelect = useCallback((id: number) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    }, []);
+
+    // 确认选择
+    const handleConfirm = useCallback(() => {
+        if (selectedIds.size > 0) {
+            onAssignCandidates(Array.from(selectedIds));
+            setSelectedIds(new Set());
+            setShowDropdown(false);
+            setSearchQuery("");
+        }
+    }, [selectedIds, onAssignCandidates]);
+
+    return (
+        <div className="relative">
+            <div className="flex gap-2">
+                <Input
+                    value={searchQuery}
+                    onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        if (!showDropdown) {
+                            setShowDropdown(true);
+                            if (talentPoolCandidates.length === 0) {
+                                loadTalentPoolCandidates();
+                            }
+                        }
+                    }}
+                    onFocus={() => {
+                        setShowDropdown(true);
+                        if (talentPoolCandidates.length === 0) {
+                            loadTalentPoolCandidates();
+                        }
+                    }}
+                    placeholder={isZh ? "搜索人才库候选人..." : "Search talent pool candidates..."}
+                    className="flex-1"
+                />
+                {selectedIds.size > 0 && (
+                    <Button
+                        size="sm"
+                        onClick={handleConfirm}
+                        className="rounded-xl"
+                    >
+                        {isZh ? `已选 ${selectedIds.size} 人` : `Selected ${selectedIds.size}`}
+                    </Button>
+                )}
+            </div>
+
+            {/* 下拉列表 */}
+            {showDropdown && (
+                <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-950">
+                    {loading ? (
+                        <div className="flex items-center justify-center p-4">
+                            <Loader2 className="h-4 w-4 animate-spin text-slate-400"/>
+                            <span className="ml-2 text-sm text-slate-500">{isZh ? "加载中..." : "Loading..."}</span>
+                        </div>
+                    ) : filteredCandidates.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-slate-500">
+                            {isZh ? "人才库暂无候选人" : "No candidates in talent pool"}
+                        </div>
+                    ) : (
+                        filteredCandidates.map(candidate => (
+                            <div
+                                key={candidate.id}
+                                className={cn(
+                                    "flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900",
+                                    selectedIds.has(candidate.id) && "bg-sky-50 dark:bg-sky-950/30"
+                                )}
+                                onClick={() => toggleSelect(candidate.id)}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={selectedIds.has(candidate.id)}
+                                    onChange={() => toggleSelect(candidate.id)}
+                                    className="h-4 w-4 rounded border-slate-300"
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-medium text-slate-900 dark:text-slate-100">{candidate.name}</span>
+                                        {candidate.ai_match_position_title && (
+                                            <span className="text-xs text-sky-600 dark:text-sky-400">
+                                                <Sparkles className="inline h-3 w-3 mr-0.5"/>
+                                                {candidate.ai_match_position_title}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                        {candidate.current_company && <span>{candidate.current_company}</span>}
+                                        {candidate.phone && <span>{candidate.phone}</span>}
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            )}
+
+            {/* 点击外部关闭下拉 */}
+            {showDropdown && (
+                <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowDropdown(false)}
+                />
+            )}
+        </div>
+    );
+}
+
 export default function RecruitmentAutomationContainer({onBack, initialPage}: RecruitmentAutomationContainerProps) {
     const {language} = useI18n();
     const isZh = language === "zh-CN";
@@ -1348,6 +1513,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [allCandidates, setAllCandidates] = useState<CandidateSummary[]>([]);
     const [candidates, setCandidates] = useState<CandidateSummary[]>([]);
     const [candidateDetail, setCandidateDetail] = useState<CandidateDetail | null>(null);
+    const [talentPoolCandidates, setTalentPoolCandidates] = useState<CandidateSummary[]>([]);
+    const [talentPoolLoading, setTalentPoolLoading] = useState(false);
     const [allSkills, setAllSkills] = useState<RecruitmentSkill[]>([]);
     const [skills, setSkills] = useState<RecruitmentSkill[]>([]);
     const [allAiLogs, setAllAiLogs] = useState<AITaskLog[]>([]);
@@ -1464,10 +1631,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [resumeUploadOpen, setResumeUploadOpen] = useState(false);
     const [uploadingResume, setUploadingResume] = useState(false);
     const [resumeUploadFileList, setResumeUploadFileList] = useState<FileList | null>(null);
+    const [resumeUploadMode, setResumeUploadMode] = useState<"position" | "none" | "smart">("smart");
     const [resumeUploadPositionId, setResumeUploadPositionId] = useState("all");
     const [resumeUploadOrgCode, setResumeUploadOrgCode] = useState(defaultOrgScope);
     const [resumeUploadCity, setResumeUploadCity] = useState("");
     const [resumeUploadCitySource, setResumeUploadCitySource] = useState<"manual" | "auto">("auto");
+    const [resumeUploadSource, setResumeUploadSource] = useState<"manual" | "boss" | "liepin" | "headhunter" | "other">("manual");
+    const [resumeUploadDuplicateStrategy, setResumeUploadDuplicateStrategy] = useState<"skip" | "overwrite" | "prompt">("skip");
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadCompletedCount, setUploadCompletedCount] = useState(0);
     const [resumeUploadError, setResumeUploadError] = useState<string | null>(null);
@@ -2222,6 +2392,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSettingsPopoverOpen(false);
     }, [activePage]);
 
+    // 进入人才库页面时加载数据
+    useEffect(() => {
+        if (activePage === "talent-pool") {
+            loadTalentPoolCandidates();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activePage]);
+
     // 监听顶栏侧边栏的导航事件
     useEffect(() => {
         const handler = (e: Event) => {
@@ -2566,7 +2744,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, []);
 
     useTaskSSE(
-        activePage === "candidates" || activePage === "audit" || activePage === "workspace",
+        activePage === "candidates" || activePage === "audit" || activePage === "workspace" || activePage === "talent-pool",
         {
             onTaskCompleted: (event) => {
                 if (event.task_id) {
@@ -2583,6 +2761,29 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     void loadCandidates({ silent: true, force: true });
                 }, 500);
             },
+            onCandidateUpdated: (event) => {
+                if (event.candidate_id && event.task_type?.startsWith("ai_position")) {
+                    const newStatus = event.status;
+                    // 匹配成功（pending_screening/screening_running）：从人才池移除，加入候选人列表
+                    if (newStatus === "pending_screening" || newStatus === "screening_running") {
+                        setTalentPoolCandidates(prev => prev.filter(c => c.id !== event.candidate_id));
+                        // 触发候选人列表刷新
+                        void loadCandidates({ silent: true, force: true });
+                    } else {
+                        // unmatched 或 matching：更新人才池中的匹配信息
+                        setTalentPoolCandidates(prev => prev.map(c =>
+                            c.id === event.candidate_id
+                                ? {
+                                    ...c,
+                                    status: newStatus ?? c.status,
+                                    ai_match_position_id: event.ai_match_position_id ?? c.ai_match_position_id,
+                                    ai_match_position_title: event.ai_match_position_title ?? c.ai_match_position_title,
+                                }
+                                : c
+                        ));
+                    }
+                }
+            },
             onBatchSummary: () => {
                 // 批次结束：清掉 onTaskCompleted 残留的 debounce timer，直接刷新
                 if (pendingRefreshRef.current) {
@@ -2591,6 +2792,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
                 void loadCandidates({ silent: true, force: true });
                 void refreshCandidateStats();
+                // AI匹配批次完成后刷新人才池
+                void loadTalentPoolCandidates();
             },
             onReconnect: () => {
                 // 重连只刷新列表
@@ -2602,7 +2805,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }, 500);
             },
             // onTaskProgress 移除：审计日志不在初筛过程中实时更新
-            // onCandidateUpdated 移除：不做单条详情刷新
         },
     );
 
@@ -3214,6 +3416,23 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         } finally {
             loadingMoreCandidatesRef.current = false;
             setIsLoadingMoreCandidates(false);
+        }
+    }
+
+    async function loadTalentPoolCandidates() {
+        setTalentPoolLoading(true);
+        try {
+            const data = await recruitmentApi<CandidateSummary[]>("/candidates/talent-pool");
+            if (mountedRef.current) {
+                setTalentPoolCandidates(data || []);
+            }
+        } catch (error) {
+            console.error("Failed to load talent pool candidates:", error);
+            toast.error(isZh ? "加载人才库失败" : "Failed to load talent pool");
+        } finally {
+            if (mountedRef.current) {
+                setTalentPoolLoading(false);
+            }
         }
     }
 
@@ -4929,6 +5148,25 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 setSelectedPositionId(created.id);
                 targetPositionId = created.id;
                 toast.success(recruitmentToast.created(recruitmentToastEntities.position));
+
+                // 如果有选中的人才库候选人，批量分配到新创建的岗位
+                if (positionForm.pendingTalentPoolCandidates && positionForm.pendingTalentPoolCandidates.length > 0 && targetPositionId) {
+                    try {
+                        await batchBindPosition(positionForm.pendingTalentPoolCandidates, targetPositionId);
+                        toast.success(
+                            isZh
+                                ? `已将 ${positionForm.pendingTalentPoolCandidates.length} 位候选人分配到新岗位`
+                                : `Assigned ${positionForm.pendingTalentPoolCandidates.length} candidates to the new position`
+                        );
+                    } catch (assignError) {
+                        console.error("Failed to assign talent pool candidates:", assignError);
+                        toast.error(
+                            isZh
+                                ? `岗位创建成功，但分配候选人失败：${formatActionError(assignError)}`
+                                : `Position created, but failed to assign candidates: ${formatActionError(assignError)}`
+                        );
+                    }
+                }
             } else if (selectedPositionId) {
                 await recruitmentApi<PositionSummary>(`/positions/${selectedPositionId}`, {
                     method: "PATCH",
@@ -5166,18 +5404,40 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setResumeUploadError(recruitmentToast.noResumeSelected);
             return;
         }
-        if (resumeUploadPositionId === "all" && !resumeUploadOrgCode.trim()) {
+        // 指定岗位模式需要选择岗位
+        if (resumeUploadMode === "position" && !resumeUploadPositionId) {
+            setResumeUploadError(isZh ? "请选择目标岗位" : "Please select a target position");
+            return;
+        }
+        // 暂不选择和智能匹配模式需要组织归属
+        if ((resumeUploadMode === "none" || resumeUploadMode === "smart") && !resumeUploadOrgCode.trim()) {
             setResumeUploadError(recruitmentUiText.chooseTargetOrganization);
             return;
         }
 
         const files = resumeUploadFileList;
         const total = files.length;
+
+        // 根据模式构建请求参数
+        let positionId: string | null = null;
+        let orgCode: string | null = null;
+
+        if (resumeUploadMode === "position") {
+            positionId = resumeUploadPositionId || null;
+        } else if (resumeUploadMode === "none") {
+            orgCode = resumeUploadOrgCode;
+        } else if (resumeUploadMode === "smart") {
+            orgCode = resumeUploadOrgCode;
+        }
+
         const query = buildQuery({
-            position_id: resumeUploadPositionId === "all" ? null : resumeUploadPositionId,
-            org_code: resumeUploadPositionId === "all" ? resumeUploadOrgCode : null,
+            position_id: positionId,
+            org_code: orgCode,
             city: resumeUploadCitySource === "manual" ? (resumeUploadCity || null) : null,
             city_source: resumeUploadCitySource,
+            match_mode: resumeUploadMode === "smart" ? "smart" : undefined,
+            source: resumeUploadSource,
+            duplicate_strategy: resumeUploadDuplicateStrategy,
         });
 
         const batches: File[][] = [];
@@ -5192,6 +5452,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         abortControllerRef.current = new AbortController();
 
         let uploadedCount = 0, autoScreenQueued = 0, autoScreenSkipped = 0, autoScreenFailed = 0;
+        let aiMatchedCount = 0, aiMatchTotal = 0;
         const allItems: ResumeUploadResponse["items"] = [];
         let batchIndex = 0;
         let completedFiles = 0;
@@ -5273,6 +5534,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 autoScreenQueued += uploaded.auto_screen_queued_count;
                 autoScreenSkipped += uploaded.auto_screen_skipped_existing_live_task_count;
                 autoScreenFailed += uploaded.auto_screen_failed_count;
+                if (uploaded.ai_match_result) {
+                    aiMatchedCount += uploaded.ai_match_result.matched_count || 0;
+                    aiMatchTotal += uploaded.ai_match_result.total_candidates || 0;
+                }
                 allItems.push(...uploaded.items);
                 completedFiles += batch.length;
                 setUploadCompletedCount(completedFiles);
@@ -5291,31 +5556,52 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     });
                 }
             });
+            const aiMatchMsg = aiMatchTotal > 0
+                ? (isZh ? `，AI 岗位匹配进行中（${aiMatchTotal} 份），结果将实时更新` : `, AI position matching in progress (${aiMatchTotal}), results will update in real-time`)
+                : "";
+            const screenMsg = autoScreenQueued > 0 || autoScreenSkipped > 0 || autoScreenFailed > 0
+                ? (isZh
+                    ? `，自动初筛已入队 ${autoScreenQueued} 份，已跳过 ${autoScreenSkipped} 份${autoScreenFailed > 0 ? `，失败 ${autoScreenFailed} 份` : ""}`
+                    : `. Auto-screen queued ${autoScreenQueued}, skipped ${autoScreenSkipped}${autoScreenFailed > 0 ? `, failed ${autoScreenFailed}` : ""}`)
+                : "";
             toast.success(
                 isZh
-                    ? `已上传 ${uploadedCount} 份简历，自动初筛已入队 ${autoScreenQueued} 份，已跳过进行中任务 ${autoScreenSkipped} 份${autoScreenFailed > 0 ? `，失败 ${autoScreenFailed} 份` : ""}。`
-                    : `${uploadedCount} resumes uploaded. Auto-screen queued ${autoScreenQueued}, skipped ${autoScreenSkipped} active task(s)${autoScreenFailed > 0 ? `, failed ${autoScreenFailed}` : ""}.`,
+                    ? `已上传 ${uploadedCount} 份简历${aiMatchMsg}${screenMsg}。`
+                    : `${uploadedCount} resumes uploaded${aiMatchMsg}${screenMsg}.`,
             );
             setResumeUploadOpen(false);
             setResumeUploadError(null);
             setResumeUploadFileList(null);
             setResumeUploadCity("");
             setResumeUploadCitySource("auto");
+            setResumeUploadMode("smart");
+            setResumeUploadSource("manual");
+            setResumeUploadDuplicateStrategy("skip");
             // Optimistic update: immediately add uploaded items to candidate list
+            // 排除 matching/unmatched 状态的候选人（智能匹配模式下未识别的候选人在人才库中显示）
             if (allItems.length > 0) {
-                const optimisticItems = allItems.map((item) =>
-                    item.auto_screen_queued
-                        ? {
-                            ...item,
-                            display_status: "screening_running",
-                            active_screening_task_status: "queued",
-                        }
-                        : item,
-                );
-                setAllCandidates((prev) => deduplicateCandidates([...optimisticItems, ...prev]));
-                setCandidateTotal((prev) => prev + optimisticItems.length);
+                const optimisticItems = allItems
+                    .filter((item) => !["matching", "unmatched"].includes(item.status))
+                    .map((item) =>
+                        item.auto_screen_queued
+                            ? {
+                                ...item,
+                                display_status: "screening_running",
+                                active_screening_task_status: "queued",
+                            }
+                            : item,
+                    );
+                if (optimisticItems.length > 0) {
+                    setAllCandidates((prev) => deduplicateCandidates([...optimisticItems, ...prev]));
+                    setCandidateTotal((prev) => prev + optimisticItems.length);
+                }
             }
-            navigateToRecruitmentPage("candidates");
+            // 智能匹配模式跳人才库，指定岗位模式跳候选人列表
+            if (resumeUploadMode === "smart") {
+                navigateToRecruitmentPage("talent-pool");
+            } else {
+                navigateToRecruitmentPage("candidates");
+            }
             // Background refresh (don't block UI)
             void refreshCoreData();
         } catch (error) {
@@ -5379,25 +5665,43 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, []);
 
     const resumeUploadDialogBody = React.useMemo(() => (
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="flex h-[min(85vh,700px)] max-h-[85vh] flex-col overflow-hidden sm:max-w-xl">
             <DialogHeader>
                 <DialogTitle>{recruitmentUiText.uploadResumeTitle}</DialogTitle>
                 <DialogDescription>{recruitmentUiText.resumeUploadDescription}</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-                <Field label={recruitmentUiText.linkPosition}>
+            <ScrollArea className="min-h-0 flex-1">
+                <div className="space-y-4 px-1 py-1">
+                    {/* 上传模式选择 */}
+                <Field label={isZh ? "上传模式" : "Upload Mode"}>
                     <NativeSelect
-                        value={resumeUploadPositionId}
-                        onChange={(event) => setResumeUploadPositionId(event.target.value)}
-                        disabled={positionsLoading}
+                        value={resumeUploadMode}
+                        onChange={(event) => setResumeUploadMode(event.target.value as typeof resumeUploadMode)}
                     >
-                        <option value="all">{positionsLoading ? recruitmentUiText.loading : recruitmentUiText.noLinkedPosition}</option>
-                        {positions.map((position) => (
-                            <option key={position.id} value={position.id}>{position.title}</option>
-                        ))}
+                        <option value="smart">{isZh ? "AI 智能匹配 - 自动识别简历匹配的岗位" : "AI Smart Match - Auto match resumes to positions"}</option>
+                        <option value="position">{isZh ? "指定岗位 - 手动选择简历归属的岗位" : "Assign Position - Manually select position"}</option>
+                        <option value="none">{isZh ? "暂不选择岗位 - 简历仅归入组织，后续手动分配" : "No Position - Add to organization only"}</option>
                     </NativeSelect>
                 </Field>
-                {resumeUploadPositionId === "all" && showOrganizationFields && organizationSelectOptions.length > 1 ? (
+
+                {/* 指定岗位模式：显示岗位选择 */}
+                {resumeUploadMode === "position" ? (
+                    <Field label={recruitmentUiText.linkPosition}>
+                        <NativeSelect
+                            value={resumeUploadPositionId}
+                            onChange={(event) => setResumeUploadPositionId(event.target.value)}
+                            disabled={positionsLoading}
+                        >
+                            <option value="">{positionsLoading ? recruitmentUiText.loading : isZh ? "请选择岗位" : "Select position"}</option>
+                            {positions.map((position) => (
+                                <option key={position.id} value={position.id}>{position.title}</option>
+                            ))}
+                        </NativeSelect>
+                    </Field>
+                ) : null}
+
+                {/* 暂不选择模式：显示组织选择 */}
+                {resumeUploadMode === "none" && showOrganizationFields && organizationSelectOptions.length > 1 ? (
                     <Field label={recruitmentUiText.targetOrganization}>
                         <NativeSelect
                             value={resumeUploadOrgCode}
@@ -5408,9 +5712,60 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                         </NativeSelect>
-                        <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">{recruitmentUiText.allVisibleUploadHint}</p>
                     </Field>
                 ) : null}
+
+                {/* 智能匹配模式：显示说明 */}
+                {resumeUploadMode === "smart" ? (
+                    <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                        {isZh
+                            ? "系统将分析每份简历内容，自动匹配到最合适的岗位。无法匹配的简历将归入人才库，您可稍后手动分配。"
+                            : "The system will analyze each resume and match it to the best-fitting position. Unmatched resumes will be added to the talent pool for manual assignment later."}
+                    </div>
+                ) : null}
+
+                {/* 组织归属（智能匹配和暂不选择模式都需要） */}
+                {(resumeUploadMode === "smart" || resumeUploadMode === "none") && showOrganizationFields && organizationSelectOptions.length > 1 ? (
+                    <Field label={recruitmentUiText.targetOrganization}>
+                        <NativeSelect
+                            value={resumeUploadOrgCode}
+                            onChange={(event) => setResumeUploadOrgCode(event.target.value)}
+                        >
+                            <option value="">{recruitmentUiText.chooseTargetOrganization}</option>
+                            {organizationSelectOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                        </NativeSelect>
+                    </Field>
+                ) : null}
+
+                {/* 简历来源 */}
+                <Field label={isZh ? "简历来源" : "Resume Source"}>
+                    <NativeSelect
+                        value={resumeUploadSource}
+                        onChange={(event) => setResumeUploadSource(event.target.value as typeof resumeUploadSource)}
+                    >
+                        <option value="manual">{isZh ? "手动上传" : "Manual Upload"}</option>
+                        <option value="boss">{isZh ? "Boss直聘" : "Boss Zhipin"}</option>
+                        <option value="liepin">{isZh ? "猎聘" : "Liepin"}</option>
+                        <option value="headhunter">{isZh ? "猎头推荐" : "Headhunter"}</option>
+                        <option value="other">{isZh ? "其他渠道" : "Other"}</option>
+                    </NativeSelect>
+                </Field>
+
+                {/* 重复处理策略 */}
+                <Field label={isZh ? "重复处理" : "Duplicate Handling"}>
+                    <NativeSelect
+                        value={resumeUploadDuplicateStrategy}
+                        onChange={(event) => setResumeUploadDuplicateStrategy(event.target.value as typeof resumeUploadDuplicateStrategy)}
+                    >
+                        <option value="skip">{isZh ? "跳过重复简历" : "Skip duplicates"}</option>
+                        <option value="overwrite">{isZh ? "覆盖已有记录" : "Overwrite existing"}</option>
+                        <option value="prompt">{isZh ? "提示我确认" : "Prompt me to confirm"}</option>
+                    </NativeSelect>
+                </Field>
+
+                {/* 城市 */}
                 <Field label={recruitmentUiText.city}>
                     <div className="flex flex-col gap-2">
                         <div className="flex gap-1">
@@ -5471,6 +5826,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         ) : null}
                     </div>
                 </Field>
+
+                {/* 文件选择 */}
                 <Field label={recruitmentUiText.selectFiles}>
                     <Input
                         type="file"
@@ -5482,7 +5839,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
                     {recruitmentUiText.filesSelected(resumeUploadFileList?.length ?? 0)}
                 </div>
-            </div>
+                </div>
+            </ScrollArea>
             <DialogFooter className="items-center justify-between gap-3 sm:justify-between">
                 <span className="min-h-[20px] flex-1 text-sm text-rose-600 dark:text-rose-300">
                     {resumeUploadError ?? ""}
@@ -5513,7 +5871,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 </div>
             )}
         </DialogContent>
-    ), [recruitmentUiText, positionsLoading, positions, resumeUploadPositionId, showOrganizationFields, organizationSelectOptions, resumeUploadOrgCode, resumeUploadCitySource, resumeUploadCity, resumeUploadFileList, resumeUploadError, uploadingResume, uploadCompletedCount, uploadProgress]);
+    ), [recruitmentUiText, positionsLoading, positions, resumeUploadPositionId, showOrganizationFields, organizationSelectOptions, resumeUploadOrgCode, resumeUploadCitySource, resumeUploadCity, resumeUploadFileList, resumeUploadError, uploadingResume, uploadCompletedCount, uploadProgress, resumeUploadMode, resumeUploadSource, resumeUploadDuplicateStrategy, isZh]);
 
     function openResumeUploadDialog() {
         if (activePage === "positions" && selectedPositionId) {
@@ -6662,14 +7020,17 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
         try {
-            const result = await recruitmentApi<{ updated_count: number }>("/candidates/batch-update-position", {
-                method: "POST",
-                body: JSON.stringify({ candidate_ids: candidateIds, position_id: positionId }),
-            });
+            const result = await recruitmentApi<{ updated_count: number }>(
+                `/candidates/batch-assign-position?update_status=true`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({ candidate_ids: candidateIds, position_id: positionId }),
+                }
+            );
             toast.success(
                 recruitmentToast.positionUpdated(result.updated_count)
             );
-            await Promise.all([loadCandidates(), refreshCandidateStats()]);
+            await Promise.all([loadCandidates(), refreshCandidateStats(), loadTalentPoolCandidates()]);
             if (selectedCandidateId && candidateIds.includes(selectedCandidateId)) {
                 await loadCandidateDetail(selectedCandidateId);
             }
@@ -8970,6 +9331,62 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         );
     }
 
+    async function deleteTalentPoolCandidates(candidateIds: number[]) {
+        const result = await recruitmentApi<{ deleted_count: number; skipped: { candidate_id: number; reason: string }[] }>("/candidates/batch-delete", {
+            method: "POST",
+            body: JSON.stringify({ candidate_ids: candidateIds }),
+        });
+        const deletedCount = result.deleted_count ?? 0;
+        const skipped = result.skipped ?? [];
+        if (skipped.length > 0) {
+            const names = skipped.map((s) => `ID:${s.candidate_id}`).join(", ");
+            toast.warning(recruitmentToast.candidatesDeletedWithSkipped(deletedCount, skipped.length, names));
+        } else {
+            toast.success(recruitmentToast.candidatesDeleted(deletedCount));
+        }
+        await Promise.all([loadCandidates({ silent: true }), refreshCandidateStats(), loadTalentPoolCandidates()]);
+    }
+
+    function renderTalentPoolPage() {
+        return (
+            <TalentPoolPage
+                candidates={talentPoolCandidates}
+                positions={positions}
+                loading={talentPoolLoading}
+                onAssignPosition={batchBindPosition}
+                onCreatePosition={(suggestedTitle) => {
+                    setPositionForm((prev) => ({ ...prev, title: suggestedTitle }));
+                    setPositionDialogMode("create");
+                    setPositionDialogOpen(true);
+                    navigateToRecruitmentPage("positions");
+                }}
+                onViewCandidate={(candidateId) => {
+                    setSelectedCandidateId(candidateId);
+                    navigateToRecruitmentPage("candidates");
+                }}
+                onUploadResume={openResumeUploadDialog}
+                onDeleteCandidates={deleteTalentPoolCandidates}
+                onRefresh={loadTalentPoolCandidates}
+                onReIdentify={async (candidateId) => {
+                    // 触发AI匹配（后端会将 status 改为 matching）
+                    await triggerAIPositionMatch([candidateId]);
+                    // 乐观更新：立即将候选人状态改为 matching，不等待 SSE
+                    setTalentPoolCandidates(prev => prev.map(c =>
+                        c.id === candidateId ? { ...c, status: "matching" } : c
+                    ));
+                }}
+                onCancelMatch={async (candidateId) => {
+                    await recruitmentApi(`/candidates/${candidateId}/cancel-match`, { method: "POST" });
+                    // 乐观更新：立即将候选人状态改为 unmatched
+                    setTalentPoolCandidates(prev => prev.map(c =>
+                        c.id === candidateId ? { ...c, status: "unmatched" } : c
+                    ));
+                }}
+                panelClass={panelClass}
+            />
+        );
+    }
+
     function renderAssistantPage() {
         return (
             <AssistantPage
@@ -9055,6 +9472,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 return renderPositionsPage();
             case "candidates":
                 return renderCandidatesPage();
+            case "talent-pool":
+                return renderTalentPoolPage();
             case "audit":
                 return renderAuditPage();
             case "assistant":
@@ -9231,6 +9650,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     </div>
 
                     {/* 以下改为条件渲染，切换时重新挂载，无需保持状态 */}
+                    {activePage === "talent-pool" && (
+                        <div className="h-full min-h-0 p-2">
+                            {renderTalentPoolPage()}
+                        </div>
+                    )}
                     {activePage === "assistant" && (
                         <div className="h-full min-h-0 p-2">
                             {renderAssistantPage()}
@@ -9374,6 +9798,28 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 <Field label={recruitmentUiText.bonusPoints}><Textarea value={positionForm.bonusPoints}
                                                                 maxLength={2000}
                                                                 onChange={(event) => updatePositionFormField("bonusPoints", event.target.value.slice(0, 2000))} rows={4}/></Field>
+                                {/* 从人才库检索候选人 */}
+                                {positionDialogMode === "create" && (
+                                    <Field
+                                        label={isZh ? "从人才库检索（可选）" : "Search from Talent Pool (Optional)"}
+                                        className="md:col-span-2"
+                                    >
+                                        <TalentPoolSearch
+                                            positions={positions}
+                                            onAssignCandidates={(candidateIds) => {
+                                                // 将选中的候选人关联到新创建的岗位
+                                                // 这里我们先创建岗位，然后在创建成功后批量分配
+                                                setPositionForm(prev => ({
+                                                    ...prev,
+                                                    pendingTalentPoolCandidates: candidateIds
+                                                }));
+                                            }}
+                                        />
+                                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                            {isZh ? "从人才库中选择候选人直接关联到新岗位" : "Select candidates from talent pool to link to this position"}
+                                        </p>
+                                    </Field>
+                                )}
                                 <Field label={recruitmentUiText.screeningConfig} className="md:col-span-2">
                                     <div
                                         className="space-y-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/60">

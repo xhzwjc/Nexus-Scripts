@@ -89,6 +89,7 @@ const zhRecruitmentUiLocale: RecruitmentUiLocale = {
     },
     taskExecutionStatusLabels: {
         success: "已完成",
+        no_match: "未匹配",
         fallback: "兜底完成",
         running: "执行中",
         cancelling: "停止中",
@@ -179,6 +180,7 @@ const enRecruitmentUiLocale: RecruitmentUiLocale = {
     },
     taskExecutionStatusLabels: {
         success: "Completed",
+        no_match: "No Match",
         fallback: "Fallback Completed",
         running: "Running",
         cancelling: "Stopping",
@@ -330,6 +332,7 @@ export function emptyPositionForm(): PositionFormState {
         jdSkillIds: [],
         screeningSkillIds: [],
         interviewSkillIds: [],
+        pendingTalentPoolCandidates: [],
     };
 }
 
@@ -1253,6 +1256,7 @@ export function withinDays(value?: string | null, days = 7) {
 export function statusBadgeClass(kind: "position" | "candidate" | "task", value?: string | null) {
     if (kind === "task") {
         if (value === "success") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200";
+        if (value === "no_match") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
         if (value === "fallback") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
         if (value === "pending" || value === "queued") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200";
         if (value === "running") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200";
@@ -1278,8 +1282,17 @@ export function statusBadgeClass(kind: "position" | "candidate" | "task", value?
         if (value === "screening_rejected" || value === "interview_rejected") {
             return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200";
         }
-        if (value === "pending_screening" || value === "pending_interview" || value === "pending_offer") {
+        if (value === "matching") {
+            return "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400 animate-pulse";
+        }
+        if (value === "unmatched") {
             return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200";
+        }
+        if (value === "pending_screening" || value === "pending_interview" || value === "pending_offer") {
+            return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-200";
+        }
+        if (value === "talent_pool") {
+            return "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200";
         }
     }
     return "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300";

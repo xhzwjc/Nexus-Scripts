@@ -28,6 +28,8 @@ import {
     Sparkles,
     Square,
     Trash2,
+    UserCheck,
+    Users,
     ZoomIn,
 } from "lucide-react";
 
@@ -148,6 +150,7 @@ const CandidateRow = React.memo(function CandidateRow({
     const isChecked = selectedCandidateIdSet.has(candidate.id);
     const resumeMailSummary = getResumeMailSummary(candidate.id);
     const displayStatus = resolveCandidateDisplayStatus(candidate);
+    const isZh = language !== "en-US";
 
     return (
         <tr
@@ -1268,6 +1271,7 @@ function CandidateFilterBar({
 }) {
     const {language} = useI18n();
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
+    const isZh = language !== "en-US";
     const summaryChips = React.useMemo(() => (
         candidateFilterSummary
             .split("·")
@@ -1341,6 +1345,24 @@ function CandidateFilterBar({
                     </div>
 
                     <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                        {/* 快捷筛选按钮 */}
+                        <div className="flex items-center gap-1">
+                            <Button
+                                size="sm"
+                                variant={candidateStatusFilter.includes("talent_pool") ? "default" : "outline"}
+                                className="rounded-full text-xs"
+                                onClick={() => {
+                                    if (candidateStatusFilter.includes("talent_pool")) {
+                                        setCandidateStatusFilter(candidateStatusFilter.filter(s => s !== "talent_pool"));
+                                    } else {
+                                        setCandidateStatusFilter(["talent_pool"]);
+                                    }
+                                }}
+                            >
+                                <Users className="mr-1 h-3.5 w-3.5"/>
+                                {isZh ? "人才库" : "Talent Pool"}
+                            </Button>
+                        </div>
                         <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
                             <Button size="sm" variant={candidateViewMode === "list" ? "default" : "ghost"} onClick={() => setCandidateViewMode("list")}>
                                 <List className="h-4 w-4"/>
@@ -2160,6 +2182,19 @@ export function CandidatesPage({
                                     <Briefcase className="h-4 w-4"/>
                                     {tr.batchBindPosition}
                                 </Button>
+                                {/* 归入人才库 */}
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 rounded-md px-2.5 text-xs"
+                                    onClick={async () => {
+                                        await batchBindPosition(selectedCandidateIds, null);
+                                    }}
+                                    disabled={!selectedCandidateIds.length}
+                                >
+                                    <Users className="h-4 w-4"/>
+                                    {isZh ? "归入人才库" : "Move to Talent Pool"}
+                                </Button>
                                 <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => { setBatchStatusValue(""); setBatchStatusReason(""); setBatchStatusDialogOpen(true); }} disabled={!selectedCandidateIds.length}>
                                     <ArrowRightLeft className="h-4 w-4"/>
                                     {tr.batchUpdateStatus}
@@ -2519,6 +2554,18 @@ export function CandidatesPage({
                                             >
                                                 {currentCandidateInterviewTaskId ? <Square className="h-4 w-4"/> : <NotebookText className="h-4 w-4"/>}
                                                 {isCurrentInterviewTaskCancelling ? tr.stopping : currentCandidateInterviewTaskId ? tr.stopGeneration : tr.interviewQuestions}
+                                            </Button>
+                                            {/* 归入人才库 */}
+                                            <Button
+                                                className="shrink-0"
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={async () => {
+                                                    await batchBindPosition([candidateDetail.candidate.id], null);
+                                                }}
+                                            >
+                                                <Users className="h-4 w-4"/>
+                                                {isZh ? "人才库" : "Talent Pool"}
                                             </Button>
                                             <Button
                                                 size="sm"

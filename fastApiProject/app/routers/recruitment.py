@@ -491,6 +491,34 @@ async def check_candidate_duplicates(
     return {"success": True, "data": duplicates}
 
 
+@recruitment_router.get("/candidates/pending-match")
+async def get_pending_match_candidates(
+    org_code: Optional[str] = Query(None),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service)
+):
+    """获取待归岗的候选人列表"""
+    try:
+        data = service.get_pending_match_candidates(org_code)
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.get("/candidates/talent-pool")
+async def get_talent_pool_candidates(
+    org_code: Optional[str] = Query(None),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service)
+):
+    """获取人才库候选人（无岗位或状态为talent_pool）"""
+    try:
+        data = service.get_talent_pool_candidates(org_code)
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @recruitment_router.get("/candidates/{candidate_id}")
 async def get_candidate_detail(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
     try:
@@ -658,7 +686,19 @@ async def get_candidate_status_history(candidate_id: int, _session: Dict[str, An
 
 
 @recruitment_router.post("/candidates/upload-resumes")
-async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optional[int] = Query(None), org_code: Optional[str] = Query(None), city: Optional[str] = Query(None), city_source: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")), service: RecruitmentService = Depends(get_recruitment_service)):
+async def upload_resumes(
+    request: Request,
+    files: List[UploadFile] = File(...),
+    position_id: Optional[int] = Query(None),
+    org_code: Optional[str] = Query(None),
+    city: Optional[str] = Query(None),
+    city_source: Optional[str] = Query(None),
+    match_mode: Optional[str] = Query("position", description="匹配模式: position=指定岗位, none=暂不匹配, smart=AI智能匹配"),
+    source: Optional[str] = Query("manual", description="简历来源: manual/boss/liepin/headhunter/other"),
+    duplicate_strategy: Optional[str] = Query("skip", description="重复处理策略: skip/overwrite/prompt"),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service)
+):
     staging_root = RECRUITMENT_UPLOAD_ROOT / "_staging"
     staging_root.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(tempfile.mkdtemp(prefix="resume-batch-", dir=str(staging_root)))
@@ -666,7 +706,34 @@ async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optio
     try:
         for item in files:
             uploaded_files.append(await _stage_upload_file(item, staging_dir))
-        rows = service.upload_resume_files(uploaded_files, position_id, _session.get("id") or "unknown", org_code, city, city_source=city_source)
+
+        # 根据match_mode处理岗位匹配
+        effective_position_id = position_id
+        if match_mode == "none":
+            # 暂不匹配岗位，设置为None让候选人进入人才库
+            effective_position_id = None
+        elif match_mode == "smart":
+            # AI智能匹配，先不设置岗位，后续由AI匹配
+            effective_position_id = None
+
+        rows = service.upload_resume_files(
+            uploaded_files, effective_position_id, _session.get("id") or "unknown",
+            org_code, city, city_source=city_source,
+            source=source, duplicate_strategy=duplicate_strategy
+        )
+
+        # 如果是AI智能匹配模式，异步提交匹配任务（立即返回，匹配在后台执行）
+        ai_match_result = None
+        if match_mode == "smart" and rows:
+            candidate_ids = [row["id"] for row in rows]
+            actor_id = _session.get("id") or "unknown"
+            try:
+                ai_match_result = await service.trigger_ai_position_match(candidate_ids, actor_id)
+                logger.info(f"AI position match dispatched: {ai_match_result}")
+            except Exception as exc:
+                logger.error(f"AI position match dispatch failed: {exc}")
+                ai_match_result = {"matched_count": 0, "error": str(exc)}
+
         auto_screen_queued_count = 0
         auto_screen_skipped_existing_live_task_count = 0
         auto_screen_failed_count = 0
@@ -707,11 +774,108 @@ async def upload_resumes(files: List[UploadFile] = File(...), position_id: Optio
                 auto_screen_failed_count += 1
         if auto_screen_tasks:
             service.process_next_screening_task()
-        return {"success": True, "data": {"items": rows, "uploaded_count": len(rows), "auto_screen_queued_count": auto_screen_queued_count, "auto_screen_skipped_existing_live_task_count": auto_screen_skipped_existing_live_task_count, "auto_screen_failed_count": auto_screen_failed_count, "auto_screen_task_ids": [task.get("task_id") for task in auto_screen_tasks if task.get("task_id")], "auto_screen_tasks": auto_screen_tasks, "batch_id": batch_id}, "request_id": str(uuid.uuid4())}
+
+        # 记录审计日志
+        try:
+            write_audit_log(
+                db=service.db,
+                actor=_session,
+                request=request,
+                action="recruitment.candidate.upload",
+                target_type="recruitment-candidate",
+                target_code=f"batch-{len(rows)}",
+                details={
+                    "uploaded_count": len(rows),
+                    "match_mode": match_mode,
+                    "source": source,
+                    "duplicate_strategy": duplicate_strategy,
+                    "position_id": position_id,
+                    "auto_screen_queued_count": auto_screen_queued_count,
+                    "ai_match_result": ai_match_result,
+                    "candidate_ids": [row["id"] for row in rows],
+                }
+            )
+        except Exception as log_exc:
+            logger.warning(f"Failed to write audit log for upload: {log_exc}")
+
+        return {"success": True, "data": {"items": rows, "uploaded_count": len(rows), "auto_screen_queued_count": auto_screen_queued_count, "auto_screen_skipped_existing_live_task_count": auto_screen_skipped_existing_live_task_count, "auto_screen_failed_count": auto_screen_failed_count, "auto_screen_task_ids": [task.get("task_id") for task in auto_screen_tasks if task.get("task_id")], "auto_screen_tasks": auto_screen_tasks, "batch_id": batch_id, "ai_match_result": ai_match_result}, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     finally:
         await run_in_threadpool(shutil.rmtree, staging_dir, True)
+
+
+@recruitment_router.post("/candidates/batch-assign-position")
+async def batch_assign_position(
+    payload: CandidateBatchUpdatePositionRequest,
+    update_status: bool = Query(True, description="是否同时更新状态为pending_screening"),
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service)
+):
+    """批量分配岗位并可选更新状态"""
+    try:
+        data = service.batch_assign_position_with_status(
+            payload.candidate_ids,
+            payload.position_id,
+            _session.get("id") or "unknown",
+            update_status=update_status
+        )
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.post("/candidates/ai-match-positions")
+async def trigger_ai_position_match(
+    request: Request,
+    candidate_ids: List[int],
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service)
+):
+    """触发AI智能岗位匹配（异步，结果通过SSE推送）"""
+    try:
+        data = await service.trigger_ai_position_match(
+            candidate_ids,
+            _session.get("id") or "unknown",
+            task_type="ai_position_rematch",
+        )
+
+        # 记录审计日志
+        write_audit_log(
+            db=service.db,
+            actor=_session,
+            request=request,
+            action="recruitment.candidate.ai-match",
+            target_type="recruitment-candidate",
+            target_code=f"batch-{len(candidate_ids)}",
+            details={
+                "candidate_ids": candidate_ids,
+                "matched_count": data.get("matched_count", 0),
+                "total_candidates": data.get("total_candidates", 0),
+            }
+        )
+
+        return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@recruitment_router.post("/candidates/{candidate_id}/cancel-match")
+async def cancel_match(
+    candidate_id: int,
+    _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-candidate-manage")),
+    service: RecruitmentService = Depends(get_recruitment_service)
+):
+    """取消正在匹配的候选人"""
+    try:
+        service.cancel_match_for_candidate(candidate_id, _session.get("id") or "unknown")
+        return {"success": True, "request_id": str(uuid.uuid4())}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @recruitment_router.post("/candidates/{candidate_id}/parse")

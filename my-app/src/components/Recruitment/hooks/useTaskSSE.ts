@@ -9,6 +9,10 @@ export type TaskSSEEvent = {
   related_candidate_id?: number;
   candidate_id?: number;
   task_type?: string;
+  // AI 岗位匹配增量推送
+  ai_match_position_id?: number | null;
+  ai_match_position_title?: string | null;
+  batch_id?: string;
 };
 
 export type TaskSSEHandlers = {

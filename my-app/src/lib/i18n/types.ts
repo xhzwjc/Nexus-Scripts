@@ -200,6 +200,7 @@ export interface Translations {
     aiRecruitmentWorkspace: string;
     aiRecruitmentPositions: string;
     aiRecruitmentCandidates: string;
+    aiRecruitmentTalentPool: string;
     aiRecruitmentAudit: string;
     aiRecruitmentAssistant: string;
   };

@@ -30,7 +30,7 @@ OPENAI_STREAM_JSON_TASK_WHITELIST: frozenset[str] = frozenset({
     "resume_parse",
 })
 STRICT_JSON_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass", "interview_question_generation"})
-STRICT_JSON_RECOVERY_RETRY_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass", "interview_question_generation"})
+STRICT_JSON_RECOVERY_RETRY_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass", "interview_question_generation", "ai_position_match"})
 STRICT_SCORE_REQUIRED_FIELDS: tuple[str, ...] = (
     "total_score",
     "match_percent",
@@ -1157,6 +1157,16 @@ class RecruitmentAIGateway:
         resolved_key = (api_key or "").strip() or self._resolve_api_key_from_provider(definition)
         return RecruitmentLLMRuntimeConfig(definition.provider, definition.runtime_provider, resolved_model, resolved_base, resolved_key or None, source, mask_secret(resolved_key or ""), extra_config or {})
 
+    def resolve_config_by_id(self, config_id: int) -> Optional[RecruitmentLLMRuntimeConfig]:
+        """根据数据库 ID 解析运行时配置（供调度器使用）"""
+        row = self.db.query(RecruitmentLLMConfig).filter(
+            RecruitmentLLMConfig.id == config_id,
+            RecruitmentLLMConfig.is_active.is_(True),
+        ).first()
+        if not row:
+            return None
+        return self.resolve_runtime_config_for_row(row)
+
     def resolve_runtime_config_for_row(self, config: RecruitmentLLMConfig) -> RecruitmentLLMRuntimeConfig:
         definition = get_provider_definition(config.provider)
         plaintext_key = decrypt_secret(config.api_key_ciphertext or "")
@@ -1379,6 +1389,9 @@ class RecruitmentAIGateway:
         response_format = _resolve_openai_json_response_format(config, response_mode=response_mode)
         if response_format:
             body["response_format"] = response_format
+        max_tokens_override = config.extra_config.get("max_tokens_override")
+        if max_tokens_override:
+            body["max_tokens"] = max_tokens_override
         return body
 
     def _stream_openai_compatible_completion(
@@ -1855,10 +1868,14 @@ class RecruitmentAIGateway:
             raise RuntimeError("Missing API key for Gemini")
         base_url = (config.base_url or "https://generativelanguage.googleapis.com").rstrip("/")
         url = f"{base_url}/v1beta/models/{config.model_name}:generateContent"
+        generation_config: Dict[str, Any] = {"temperature": 0, "responseMimeType": "application/json"}
+        max_tokens_override = config.extra_config.get("max_tokens_override")
+        if max_tokens_override:
+            generation_config["maxOutputTokens"] = max_tokens_override
         body = {
             "system_instruction": {"parts": [{"text": system_prompt}]},
             "contents": [{"role": "user", "parts": [{"text": _compose_json_user_prompt(user_prompt)}]}],
-            "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
+            "generationConfig": generation_config,
         }
         configured_timeout_seconds = _derive_primary_timeout_seconds(config)
         client = self._build_httpx_client(
@@ -2115,7 +2132,7 @@ class RecruitmentAIGateway:
                 headers={"x-api-key": config.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
                 json={
                     "model": config.model_name,
-                    "max_tokens": 16000,
+                    "max_tokens": config.extra_config.get("max_tokens_override") or 16000,
                     "temperature": 0,
                     "system": system_prompt,
                     "messages": [{"role": "user", "content": _compose_json_user_prompt(user_prompt)}],
@@ -2201,6 +2218,7 @@ class RecruitmentAIGateway:
         timeout_seconds_override: Optional[float] = None,
         screening_total_timeout_seconds: Optional[float] = None,
         remaining_budget_seconds: Optional[float] = None,
+        max_tokens_override: Optional[int] = None,
     ) -> Dict[str, Any]:
         config = _clone_runtime_config_with_task_overrides(
             runtime_config or self.resolve_config(task_type),
@@ -2213,6 +2231,8 @@ class RecruitmentAIGateway:
             configured_timeout_seconds,
         )
         config.extra_config["read_timeout_seconds"] = effective_timeout_seconds
+        if max_tokens_override is not None:
+            config.extra_config["max_tokens_override"] = max_tokens_override
         prompt_snapshot = f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}"
         full_request_snapshot = _build_request_snapshot(config, response_mode="json", system_prompt=system_prompt, user_prompt=user_prompt)
         default_max_retries = 0 if task_type in STRICT_JSON_TASK_TYPES else 2
@@ -2358,7 +2378,7 @@ class RecruitmentAIGateway:
             "output_summary": _truncate(fallback, 600),
             "token_usage": None,
             "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure")),
-            "raw_response_text": None,
+            "raw_response_text": getattr(last_error, "raw_response_text", None) if last_error else None,
         }
 
     def generate_text(self, *, task_type: str, system_prompt: str, user_prompt: str, fallback_builder: Callable[[], Dict[str, str]], cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
@@ -2398,3 +2418,129 @@ class RecruitmentAIGateway:
                 break
         fallback = fallback_builder()
         return {"content": fallback, "provider": config.provider, "model_name": config.model_name, "source": config.source, "used_fallback": True, "prompt_snapshot": prompt_snapshot, "full_request_snapshot": full_request_snapshot, "input_summary": _truncate(user_prompt, 600), "output_summary": _truncate(fallback, 600), "token_usage": None, "error_message": _format_http_error(last_error or RuntimeError("Unknown AI task failure"))}
+
+    def match_position(self, candidate_id: int, resume_content: str, positions: List[Dict[str, Any]], *, key_id: Optional[str] = None, runtime_config: Optional[RecruitmentLLMRuntimeConfig] = None) -> Dict[str, Any]:
+        """
+        使用 AI 匹配最合适的岗位。
+
+        Args:
+            candidate_id: 候选人 ID
+            resume_content: 简历文本
+            positions: 候选岗位列表
+            key_id: 指定使用哪个 key（由调度器传入），为 None 时使用默认 round-robin
+            runtime_config: 预解析的运行时配置（由调度器传入），为 None 时自动解析
+        """
+        if not positions:
+            return {
+                "position_id": None,
+                "position_title": None,
+                "provider": None,
+                "model_name": None,
+                "source": None,
+                "used_fallback": True,
+                "error_message": "No positions available",
+                "prompt_snapshot": None,
+                "full_request_snapshot": None,
+                "input_summary": None,
+                "output_summary": "No positions available",
+                "raw_response_text": None,
+                "parsed_response": {"position_id": None, "position_title": None},
+                "reason": "无可用岗位",
+            }
+
+        # 构建结构化岗位列表（比 JSON 更省 token）
+        position_list = "\n".join(
+            f"{p.get('id')}. {p.get('title')}（{p.get('department') or ''}）：{(p.get('key_requirements') or p.get('summary') or '')[:150]}"
+            for p in positions
+        )
+
+        system_prompt = "你是招聘岗位匹配助手。根据候选人简历，从给定岗位列表中找出最匹配的岗位。\n输出严格遵守JSON格式，禁止输出任何JSON以外的内容。"
+
+        user_prompt = f"""## 系统岗位列表
+{position_list}
+
+## 候选人简历
+{resume_content}
+
+## 规则
+1. 以实际工作经历和技能为主要依据，求职意向仅作参考
+2. 必须从岗位列表中选择，不能创造新岗位
+3. **必须有明确的匹配证据才能返回岗位ID**：候选人的核心技能、工作经历或专业方向与岗位要求有直接关联。"没有明显不匹配"不等于匹配
+4. 岗位描述模糊、无法判断是否匹配时，返回 null
+5. 无匹配时 position_id 返回 null，不要强行匹配
+6. reason 用中文，50字以内，说明匹配或不匹配的原因
+
+## 输出格式
+匹配成功：{{"position_id": 17, "position_title": "税务会计", "reason": "候选人有3年增值税申报经验，与岗位核心要求高度吻合"}}
+无匹配：{{"position_id": null, "position_title": null, "reason": "候选人为产品经理背景，系统现有岗位均为财务和技术类，无对应方向"}}"""
+
+        try:
+            result = self.generate_json(
+                task_type="ai_position_match",
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                runtime_config=runtime_config,
+                max_tokens_override=800,
+                fallback_builder=lambda: {
+                    "position_id": None,
+                    "position_title": None,
+                    "reason": "AI匹配失败",
+                },
+            )
+
+            content = result.get("content") or {}
+            parsed = content if isinstance(content, dict) else {}
+            position_id = parsed.get("position_id")
+            normalized_position_id: Optional[int] = None
+            if position_id not in (None, ""):
+                try:
+                    normalized_position_id = int(position_id)
+                except (TypeError, ValueError):
+                    normalized_position_id = None
+            position_title = parsed.get("position_title")
+            normalized_position_title = str(position_title or "").strip() or None
+            reason = str(parsed.get("reason") or "").strip() or "AI自动匹配"
+
+            return {
+                "position_id": normalized_position_id,
+                "position_title": normalized_position_title,
+                "reason": reason,
+                "provider": result.get("provider"),
+                "model_name": result.get("model_name"),
+                "source": result.get("source"),
+                "used_fallback": bool(result.get("used_fallback")),
+                "error_message": result.get("error_message"),
+                "prompt_snapshot": result.get("prompt_snapshot"),
+                "full_request_snapshot": result.get("full_request_snapshot"),
+                "input_summary": result.get("input_summary"),
+                "output_summary": result.get("output_summary"),
+                "raw_response_text": result.get("raw_response_text"),
+                "parsed_response": {
+                    "position_id": normalized_position_id,
+                    "position_title": normalized_position_title,
+                    "reason": reason,
+                },
+            }
+
+        except Exception as exc:
+            logger.error(f"AI position matching failed for candidate {candidate_id}: {exc}")
+            return {
+                "position_id": None,
+                "position_title": None,
+                "reason": f"匹配异常：{str(exc)[:100]}",
+                "provider": None,
+                "model_name": None,
+                "source": None,
+                "used_fallback": True,
+                "error_message": str(exc),
+                "prompt_snapshot": None,
+                "full_request_snapshot": None,
+                "input_summary": _truncate(resume_content, 600),
+                "output_summary": "AI matching failed",
+                "raw_response_text": None,
+                "parsed_response": {
+                    "position_id": None,
+                    "position_title": None,
+                    "reason": f"匹配异常：{str(exc)[:100]}",
+                },
+            }

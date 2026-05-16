@@ -196,6 +196,7 @@ export const zhCN: Translations = {
         aiRecruitmentWorkspace: '工作台',
         aiRecruitmentPositions: '岗位管理',
         aiRecruitmentCandidates: '候选人',
+        aiRecruitmentTalentPool: '人才库',
         aiRecruitmentAudit: '审计中心',
         aiRecruitmentAssistant: '招聘助手',
     },

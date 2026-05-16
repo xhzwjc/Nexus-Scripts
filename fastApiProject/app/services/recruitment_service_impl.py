@@ -94,7 +94,8 @@ SCREENING_DEBUG_TASK_TYPE = "resume_screening_debug"
 SCREENING_ONE_PASS_TASK_TYPE = "resume_screening_one_pass"
 SCREENING_SCORE_TASK_TYPES = ("resume_score", SCREENING_ONE_PASS_TASK_TYPE)
 KNOWN_AI_TASK_TYPES = [SCREENING_FLOW_TASK_TYPE, "jd_generation", "resume_parse", "resume_score", SCREENING_ONE_PASS_TASK_TYPE, "interview_question_generation", "chat_orchestrator", "resume_mail_dispatch", "publish_task"]
-LLM_TASK_TYPE_OPTIONS = [{"value": "default", "label": "默认模型"}, {"value": "jd_generation", "label": "JD 生成"}, {"value": "resume_parse", "label": "简历解析"}, {"value": "resume_score", "label": "简历评分"}, {"value": SCREENING_ONE_PASS_TASK_TYPE, "label": "一体化初筛"}, {"value": "interview_question_generation", "label": "面试题生成"}, {"value": "chat_orchestrator", "label": "AI 助手"}]
+KNOWN_AI_TASK_TYPES = [SCREENING_FLOW_TASK_TYPE, "jd_generation", "resume_parse", "resume_score", SCREENING_ONE_PASS_TASK_TYPE, "interview_question_generation", "chat_orchestrator", "ai_position_match", "resume_mail_dispatch", "publish_task"]
+LLM_TASK_TYPE_OPTIONS = [{"value": "default", "label": "默认模型"}, {"value": "jd_generation", "label": "JD 生成"}, {"value": "resume_parse", "label": "简历解析"}, {"value": "resume_score", "label": "简历评分"}, {"value": SCREENING_ONE_PASS_TASK_TYPE, "label": "一体化初筛"}, {"value": "interview_question_generation", "label": "面试题生成"}, {"value": "chat_orchestrator", "label": "AI 助手"}, {"value": "ai_position_match", "label": "岗位匹配"}]
 SCREENING_STATUS_LABELS = {item["value"]: item["label"] for item in CANDIDATE_STATUS_OPTIONS}
 STRICT_RESUME_SCORE_FIELDS = (
     "total_score",
@@ -153,6 +154,11 @@ logger = logging.getLogger(__name__)
 PROCESS_BOOTED_AT = datetime.now()
 SCREENING_WORKER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_WORKER_MAX_CONCURRENCY", "8")))
 SCREENING_PROVIDER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_PROVIDER_MAX_CONCURRENCY", "4")))
+
+# 匹配超时/重试常量
+MATCH_TIMEOUT_SECONDS = 180  # 3 分钟超时（从 worker 开始执行算起）
+MATCH_MAX_RETRIES = 2  # 最多重试 2 次
+MATCH_RETRY_DELAYS = [10, 30]  # 重试间隔（秒）
 
 
 class RecruitmentInterviewResultValidationError(Exception):
@@ -5932,7 +5938,7 @@ class RecruitmentService:
 
         if candidate and final_status == "success" and score_row:
             normalized_status = _normalize_suggested_status(getattr(score_row, "suggested_status", None))
-            if normalized_status and candidate.status in {"pending_screening", "screening_failed"} and normalized_status != candidate.status:
+            if normalized_status and candidate.status in {"pending_screening", "screening_failed", "matching"} and normalized_status != candidate.status:
                 if not candidate.latest_score_id:
                     candidate.latest_score_id = score_row.id
                 if not candidate.ai_recommended_status:
@@ -6947,7 +6953,7 @@ class RecruitmentService:
         reason: str,
         source: str,
     ) -> None:
-        if candidate.status not in {"pending_screening", "screening_running", "screening_failed", "talent_pool"}:
+        if candidate.status not in {"pending_screening", "screening_running", "screening_failed", "talent_pool", "matching"}:
             return
         self._create_status_history(
             candidate,
@@ -8700,6 +8706,9 @@ class RecruitmentService:
                 builder = builder.filter(RecruitmentCandidate.created_by == self.permission_context.actor_user_code)
         else:
             builder = self._apply_business_org_filter(self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)), RecruitmentCandidate)
+        # 排除待归岗候选人（这些候选人在人才库中显示）
+        if not status:
+            builder = builder.filter(RecruitmentCandidate.status.notin_(["matching", "unmatched"]))
         if position_id:
             builder = builder.filter(RecruitmentCandidate.position_id == position_id)
         if query:
@@ -8923,6 +8932,9 @@ class RecruitmentService:
             if next_position_id:
                 next_position = self._get_position(int(next_position_id))
                 candidate.position_id = next_position.id
+                # 分配岗位后，待归岗/人才库候选人自动转为待初筛
+                if candidate.status in ("matching", "unmatched", "talent_pool"):
+                    candidate.status = "pending_screening"
                 next_org_code = normalize_org_code(getattr(next_position, "org_code", None))
                 if normalize_org_code(getattr(candidate, "org_code", None)) != next_org_code:
                     self.db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.candidate_id == candidate.id).update({RecruitmentResumeFile.org_code: next_org_code}, synchronize_session=False)
@@ -8970,6 +8982,9 @@ class RecruitmentService:
             except ValueError:
                 continue
             candidate.position_id = position.id if position else None
+            # 分配岗位后，待归岗/人才库候选人自动转为待初筛
+            if position and candidate.status in ("matching", "unmatched", "talent_pool"):
+                candidate.status = "pending_screening"
             if position:
                 next_org_code = normalize_org_code(getattr(position, "org_code", None))
                 if normalize_org_code(getattr(candidate, "org_code", None)) != next_org_code:
@@ -9227,7 +9242,18 @@ class RecruitmentService:
         rows = self.db.query(RecruitmentCandidateStatusHistory).filter(RecruitmentCandidateStatusHistory.candidate_id == candidate_id).order_by(RecruitmentCandidateStatusHistory.created_at.desc(), RecruitmentCandidateStatusHistory.id.desc()).all()
         return [self._serialize_status_history(row) for row in rows]
 
-    def upload_resume_files(self, uploaded_files: List[Dict[str, Any]], position_id: Optional[int], actor_id: str, target_org_code: Optional[str] = None, city: Optional[str] = None, city_source: Optional[str] = None) -> List[Dict[str, Any]]:
+    def _find_duplicate_candidate(self, name: str, org_code: str, position_id: Optional[int]) -> Optional["RecruitmentCandidate"]:
+        """查找重复候选人（按姓名+组织，可选岗位）"""
+        query = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.name == name,
+            RecruitmentCandidate.org_code == org_code,
+            RecruitmentCandidate.deleted.is_(False),
+        )
+        if position_id:
+            query = query.filter(RecruitmentCandidate.position_id == position_id)
+        return query.order_by(RecruitmentCandidate.id.desc()).first()
+
+    def upload_resume_files(self, uploaded_files: List[Dict[str, Any]], position_id: Optional[int], actor_id: str, target_org_code: Optional[str] = None, city: Optional[str] = None, city_source: Optional[str] = None, source: Optional[str] = "manual", duplicate_strategy: Optional[str] = "skip") -> List[Dict[str, Any]]:
         position = self._get_position(position_id) if position_id else None
         fallback_org_code = normalize_org_code(target_org_code or self._current_org_code())
         if not position:
@@ -9266,7 +9292,65 @@ class RecruitmentService:
                 resolved_city = extract_city_from_filename(file_name) or None
             else:
                 resolved_city = city
-            candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=candidate_org_code, position_id=position.id if position else None, name=safe_file_stem(file_name), source="manual_upload", source_detail=file_name, status="pending_screening", city=resolved_city, tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
+            # 根据match_mode确定初始状态
+            initial_status = "pending_screening"
+            if position_id is None:
+                # 没有指定岗位，进入待归岗状态
+                initial_status = "matching"
+            # 映射source参数到实际的source值
+            source_mapping = {
+                "manual": "manual_upload",
+                "boss": "boss_zhipin",
+                "liepin": "liepin",
+                "headhunter": "headhunter",
+                "other": "other"
+            }
+            actual_source = source_mapping.get(source, "manual_upload")
+            candidate_name = safe_file_stem(file_name)
+
+            # 重复检测（按姓名+组织+岗位）
+            if duplicate_strategy in ("skip", "overwrite"):
+                existing = self._find_duplicate_candidate(candidate_name, candidate_org_code, position.id if position else None)
+                if existing:
+                    if duplicate_strategy == "skip":
+                        # 跳过重复，不创建新记录
+                        # 清理已暂存的文件
+                        try:
+                            storage_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        results.append({
+                            "id": existing.id,
+                            "candidate_code": existing.candidate_code,
+                            "name": existing.name,
+                            "status": existing.status,
+                            "skipped_duplicate": True,
+                        })
+                        continue
+                    elif duplicate_strategy == "overwrite":
+                        # 覆盖：更新已有候选人的基础信息，保留状态和评分
+                        existing.source = actual_source
+                        existing.source_detail = file_name
+                        existing.city = resolved_city or existing.city
+                        existing.updated_by = actor_id
+                        # 创建新的简历文件记录
+                        upload_mime_type = str(item.get("content_type") or "").strip()
+                        if not upload_mime_type or upload_mime_type in {"application/octet-stream", "binary/octet-stream"}:
+                            upload_mime_type = mimetypes.guess_type(file_name)[0] or None
+                        relative_storage_path = str(storage_path.relative_to(RECRUITMENT_UPLOAD_ROOT))
+                        resume_file = RecruitmentResumeFile(org_code=candidate_org_code, candidate_id=existing.id, original_name=file_name, stored_name=stored_name, file_ext=ext, mime_type=upload_mime_type or None, file_size=file_size, storage_path=relative_storage_path, parse_status="pending", uploaded_by=actor_id)
+                        self.db.add(resume_file)
+                        self.db.flush()
+                        existing.latest_resume_file_id = resume_file.id
+                        self.db.commit()
+                        self.db.refresh(existing)
+                        payload = self._serialize_candidate_summary(existing)
+                        payload["auto_screen_enabled"] = bool(position.auto_screen_on_upload) if position else False
+                        payload["overwritten"] = True
+                        results.append(payload)
+                        continue
+
+            candidate = RecruitmentCandidate(candidate_code=f"TMP-{uuid.uuid4().hex[:8]}", org_code=candidate_org_code, position_id=position.id if position else None, name=candidate_name, source=actual_source, source_detail=file_name, status=initial_status, city=resolved_city, tags_json=json_dumps_safe([]), created_by=actor_id, updated_by=actor_id, deleted=False)
             self.db.add(candidate)
             upload_mime_type = str(item.get("content_type") or "").strip()
             if not upload_mime_type or upload_mime_type in {"application/octet-stream", "binary/octet-stream"}:
@@ -9298,6 +9382,555 @@ class RecruitmentService:
             results.append(payload)
 
         return results
+
+    async def trigger_ai_position_match(self, candidate_ids: List[int], actor_id: str, task_type: str = "ai_position_match") -> Dict[str, Any]:
+        """
+        触发AI智能岗位匹配（异步并发版本）
+
+        通过 FairMatchScheduler 入队，调度器自动控制并发和公平调度。
+        每个候选人匹配完成后实时写入审计日志 + 推送 SSE 事件。
+        """
+        import asyncio
+        import uuid
+        import time as _time
+        from .match_scheduler import scheduler
+        from .task_event_bus import TaskEventBus
+        from ..recruitment_models import RecruitmentPosition
+
+        batch_id = str(uuid.uuid4())
+        session_token = self._session_token
+
+        logger.info("[AI_MATCH] trigger_ai_position_match called: candidate_ids=%s, actor_id=%s, task_type=%s, batch_id=%s",
+                    candidate_ids, actor_id, task_type, batch_id)
+
+        # 查询待匹配候选人
+        candidates = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.id.in_(candidate_ids),
+            RecruitmentCandidate.deleted.is_(False),
+        ).all()
+
+        # 也包含 talent_pool 状态的候选人（重新识别场景）
+        candidates = [c for c in candidates if c.status in ("matching", "unmatched", "talent_pool")]
+        logger.info("[AI_MATCH] After filtering: %d candidates eligible (from %d requested)", len(candidates), len(candidate_ids))
+
+        # 将候选人状态设为 matching（持久化到数据库，刷新页面后仍保持）
+        for c in candidates:
+            if c.status != "matching":
+                c.status = "matching"
+        self.db.commit()
+
+        if not candidates:
+            logger.warning("[AI_MATCH] No eligible candidates found, returning early")
+            return {"batch_id": batch_id, "matched_count": 0, "total_candidates": 0, "message": "No candidates found"}
+
+        # 获取当前组织的活跃岗位（只构建一次，所有候选人复用）
+        # 从候选人中提取 org_code，确保只匹配本组织岗位
+        candidate_org_codes = {c.org_code for c in candidates if c.org_code}
+        if len(candidate_org_codes) == 1:
+            match_org_code = candidate_org_codes.pop()
+        elif len(candidate_org_codes) > 1:
+            # 多个组织的候选人混在一起，取第一个候选人的 org_code
+            match_org_code = candidates[0].org_code
+            logger.warning("[AI_MATCH] Multiple org_codes in batch: %s, using %s", candidate_org_codes, match_org_code)
+        else:
+            match_org_code = None
+
+        position_query = self.db.query(RecruitmentPosition).filter(
+            RecruitmentPosition.status.in_(["recruiting", "draft"]),
+            RecruitmentPosition.deleted.is_(False),
+        )
+        if match_org_code:
+            position_query = position_query.filter(RecruitmentPosition.org_code == match_org_code)
+        positions = position_query.all()
+
+        if not positions:
+            return {"batch_id": batch_id, "matched_count": 0, "total_candidates": 0, "message": "No active positions available for this organization"}
+
+        position_summaries = []
+        for pos in positions:
+            summary = f"{pos.title}"
+            if pos.department:
+                summary += f" ({pos.department})"
+            if pos.key_requirements:
+                summary += f" - {pos.key_requirements[:100]}"
+            position_summaries.append({
+                "id": pos.id,
+                "title": pos.title,
+                "department": pos.department or "",
+                "key_requirements": pos.key_requirements or "",
+                "summary": summary,
+            })
+
+        # 每次请求都重新注入回调（service 是按请求创建的，session 会过期）
+        logger.info("[AI_MATCH] Injecting callbacks into scheduler")
+        scheduler.set_callbacks(
+            match_callback=self._create_match_callback(session_token, task_type, actor_id, position_summaries),
+            error_callback=self._create_match_error_callback(session_token, task_type, actor_id, batch_id),
+        )
+
+        logger.info("[AI_MATCH] Enqueuing %d candidates to scheduler, positions=%d", len(candidates), len(position_summaries))
+
+        # 提取简历内容的函数
+        def _extract_resume(candidate: RecruitmentCandidate) -> str:
+            resume_content = ""
+            if candidate.latest_resume_file_id:
+                resume_file = self.db.query(RecruitmentResumeFile).filter(
+                    RecruitmentResumeFile.id == candidate.latest_resume_file_id,
+                ).first()
+                if resume_file and resume_file.parse_status == "done":
+                    try:
+                        parse_result = self.db.query(RecruitmentResumeParseResult).filter(
+                            RecruitmentResumeParseResult.resume_file_id == resume_file.id,
+                        ).order_by(RecruitmentResumeParseResult.id.desc()).first()
+                        if parse_result and parse_result.content_json:
+                            parsed = json.loads(parse_result.content_json)
+                            basic = parsed.get("basic_info", {})
+                            works = parsed.get("work_experiences", [])
+                            edu = parsed.get("education_experiences", [])
+                            skills = parsed.get("skills", [])
+                            summary = parsed.get("summary", "")
+                            resume_content = (
+                                f"姓名: {basic.get('name', candidate.name)}\n"
+                                f"职位: {basic.get('current_title', '')}\n"
+                                f"公司: {basic.get('current_company', candidate.current_company or '')}\n"
+                                f"学历: {edu[0].get('school', '') + ' ' + edu[0].get('major', '') if edu else candidate.education or ''}\n"
+                                f"工作经验: {len(works)}段工作经历\n"
+                                f"技能: {', '.join(skills[:10]) if skills else ''}\n"
+                                f"摘要: {summary[:500] if summary else ''}"
+                            )
+                    except Exception as parse_exc:
+                        logger.warning(f"Failed to parse resume for candidate {candidate.id}: {parse_exc}")
+            if not resume_content.strip():
+                resume_content = (
+                    f"姓名: {candidate.name}\n"
+                    f"公司: {candidate.current_company or '未知'}\n"
+                    f"学历: {candidate.education or '未知'}\n"
+                    f"工作经验: {candidate.years_of_experience or '未知'}\n"
+                    f"城市: {candidate.city or '未知'}"
+                )
+            return resume_content
+
+        # 入队到调度器
+        await scheduler.enqueue_batch(
+            user_id=actor_id,
+            batch_id=batch_id,
+            candidates=candidates,
+            position_summaries=position_summaries,
+            resume_extractor=_extract_resume,
+        )
+
+        logger.info("[AI_MATCH] Enqueue complete: batch_id=%s, %d candidates queued, scheduler running=%s",
+                    batch_id, len(candidates), scheduler.running)
+
+        return {
+            "batch_id": batch_id,
+            "matched_count": 0,
+            "total_candidates": len(candidates),
+            "message": f"AI匹配已启动，{len(candidates)}份简历排队处理中",
+        }
+
+    def _create_match_callback(self, session_token: str, task_type: str, actor_id: str, position_summaries: List[Dict]):
+        """创建匹配完成回调（供调度器 worker 调用）"""
+        ai_gateway = self.ai_gateway
+
+        async def _on_match_done(task, slot):
+            import asyncio
+            import time as _time
+            from ..database import SessionLocal
+            from .task_event_bus import TaskEventBus
+
+            # 创建独立的 DB session（请求结束后 self.db 已关闭）
+            db = SessionLocal()
+            start_time = _time.time()
+
+            logger.info("[AI_MATCH] _on_match_done called: candidate_id=%d, slot_key=%s, batch_id=%s",
+                        task.candidate_id, slot.key_id, task.batch_id)
+
+            candidate = None
+            match_result = None
+            try:
+                # 解析调度器分配的 key 的运行时配置
+                runtime_config = ai_gateway.resolve_config_by_id(slot.config_id)
+
+                # 在线程池中调用同步的 gateway
+                match_result = await asyncio.to_thread(
+                    ai_gateway.match_position,
+                    task.candidate_id,
+                    task.resume_content,
+                    position_summaries,
+                    runtime_config=runtime_config,
+                )
+                duration_ms = int((_time.time() - start_time) * 1000)
+
+                # 用独立 session 重新查询候选人
+                candidate = db.query(RecruitmentCandidate).filter(
+                    RecruitmentCandidate.id == task.candidate_id,
+                ).first()
+                if not candidate:
+                    logger.error("[AI_MATCH] Candidate %d not found in DB, skipping", task.candidate_id)
+                    return
+                if match_result and match_result.get("position_id"):
+                    candidate.ai_match_position_id = match_result["position_id"]
+                    candidate.ai_match_position_title = match_result.get("position_title", "")
+                    candidate.ai_match_reason = match_result.get("reason", "")
+                    candidate.ai_match_at = datetime.now()
+                    candidate.updated_by = actor_id
+                    # 匹配成功：分配岗位
+                    candidate.position_id = match_result["position_id"]
+                    # 检查岗位是否开启 auto_screen
+                    from ..recruitment_models import RecruitmentPosition
+                    position = db.query(RecruitmentPosition).filter(
+                        RecruitmentPosition.id == match_result["position_id"]
+                    ).first()
+                    if position and position.auto_screen_on_upload:
+                        candidate.status = "screening_running"
+                    else:
+                        candidate.status = "pending_screening"
+                else:
+                    # 无匹配：标记为待识别
+                    candidate.ai_match_reason = match_result.get("reason", "无匹配") if match_result else "无匹配"
+                    candidate.ai_match_at = datetime.now()
+                    candidate.updated_by = actor_id
+                    candidate.status = "unmatched"
+                db.commit()
+
+                # 写审计日志（直接用 db，不走 self._create_ai_task_log）
+                try:
+                    now = datetime.now()
+                    org_code = normalize_org_code(getattr(candidate, "org_code", None))
+
+                    # Text 列只能存字符串，dict/list 需要 JSON 序列化
+                    def _to_text(val):
+                        if val is None:
+                            return None
+                        if isinstance(val, (dict, list)):
+                            return json.dumps(val, ensure_ascii=False)
+                        return str(val)
+
+                    log_row = RecruitmentAITaskLog(
+                        task_type=task_type,
+                        org_code=org_code,
+                        batch_id=task.batch_id,
+                        status="success" if match_result and match_result.get("position_id") else "no_match",
+                        related_candidate_id=task.candidate_id,
+                        related_position_id=match_result.get("position_id") if match_result else None,
+                        model_provider=match_result.get("provider") if match_result else None,
+                        model_name=match_result.get("model_name") if match_result else None,
+                        duration_ms=duration_ms,
+                        input_summary=f"candidate={task.candidate_id}, positions={len(position_summaries)}",
+                        output_summary=match_result.get("reason", "") if match_result else "",
+                        prompt_snapshot=_to_text(match_result.get("prompt_snapshot")) if match_result else None,
+                        full_request_snapshot=_to_text(match_result.get("full_request_snapshot")) if match_result else None,
+                        raw_response_text=_to_text(match_result.get("raw_response_text")) if match_result else None,
+                        parsed_response_json=_to_text(match_result.get("parsed_response")) if match_result else None,
+                        created_by=actor_id,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    db.add(log_row)
+                    db.commit()
+                    db.refresh(log_row)
+                    logger.info("[AI_MATCH] Audit log created: candidate_id=%d, log_id=%d, status=%s",
+                                task.candidate_id, log_row.id, log_row.status)
+                except Exception as log_exc:
+                    logger.error("[AI_MATCH] Failed to write audit log for candidate %d: %s",
+                                 task.candidate_id, log_exc, exc_info=True)
+                    db.rollback()
+
+            except Exception as e:
+                logger.error("[AI_MATCH] _on_match_done failed for candidate %d: %s",
+                             task.candidate_id, e, exc_info=True)
+                raise
+            finally:
+                # 在关闭 session 前捕获状态，避免 DetachedInstanceError
+                final_status = candidate.status if candidate else "unmatched"
+                db.close()
+
+            # 推送 SSE 增量更新
+            if session_token:
+                TaskEventBus.emit(session_token, "candidate_updated", {
+                    "candidate_id": task.candidate_id,
+                    "batch_id": task.batch_id,
+                    "task_type": task_type,
+                    "status": final_status,
+                    "ai_match_position_id": match_result.get("position_id") if match_result else None,
+                    "ai_match_position_title": match_result.get("position_title") if match_result else None,
+                })
+
+        return _on_match_done
+
+    def _create_match_error_callback(self, session_token: str, task_type: str, actor_id: str, batch_id: str):
+        """创建匹配失败回调（供调度器 worker 调用）
+
+        重试逻辑：最多重试 MATCH_MAX_RETRIES 次，间隔 MATCH_RETRY_DELAYS 秒。
+        被用户取消的任务不重试，直接标记 cancelled。
+        """
+        async def _on_match_error(task, error):
+            import asyncio
+            from ..database import SessionLocal
+            from .match_scheduler import scheduler
+            from .task_event_bus import TaskEventBus
+
+            logger.warning("[AI_MATCH] _on_match_error called: candidate_id=%d, error=%s, retry_count=%d",
+                           task.candidate_id, error, task.retry_count)
+
+            # 检查是否被用户取消
+            if scheduler.is_cancelled(task.candidate_id):
+                scheduler.clear_cancelled(task.candidate_id)
+                db = SessionLocal()
+                try:
+                    candidate = db.query(RecruitmentCandidate).filter(
+                        RecruitmentCandidate.id == task.candidate_id,
+                    ).first()
+                    if candidate:
+                        candidate.status = "unmatched"
+                        candidate.ai_match_reason = "用户手动停止匹配"
+                        candidate.updated_by = actor_id
+                        db.commit()
+
+                    log_row = RecruitmentAITaskLog(
+                        task_type=task_type,
+                        org_code=None,
+                        batch_id=task.batch_id,
+                        status="cancelled",
+                        related_candidate_id=task.candidate_id,
+                        input_summary=f"candidate={task.candidate_id}",
+                        output_summary="用户手动停止匹配",
+                        created_by=actor_id,
+                        created_at=datetime.now(),
+                        updated_at=datetime.now(),
+                    )
+                    db.add(log_row)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                finally:
+                    db.close()
+
+                if session_token:
+                    TaskEventBus.emit(session_token, "candidate_updated", {
+                        "candidate_id": task.candidate_id,
+                        "batch_id": task.batch_id,
+                        "task_type": task_type,
+                        "status": "unmatched",
+                        "ai_match_position_id": None,
+                        "ai_match_position_title": None,
+                    })
+                return
+
+            # 检查重试次数
+            if task.retry_count < MATCH_MAX_RETRIES:
+                task.retry_count += 1
+                delay = MATCH_RETRY_DELAYS[task.retry_count - 1]
+                logger.info("[AI_MATCH] Retrying candidate=%d (attempt %d/%d) after %ds",
+                            task.candidate_id, task.retry_count, MATCH_MAX_RETRIES, delay)
+
+                # 写重试审计日志
+                db = SessionLocal()
+                try:
+                    log_row = RecruitmentAITaskLog(
+                        task_type=task_type,
+                        org_code=None,
+                        batch_id=task.batch_id,
+                        status="retrying",
+                        related_candidate_id=task.candidate_id,
+                        input_summary=f"candidate={task.candidate_id}",
+                        output_summary=f"第{task.retry_count}次重试，等待{delay}s：{str(error)[:200]}",
+                        error_message=str(error)[:500],
+                        created_by=actor_id,
+                        created_at=datetime.now(),
+                        updated_at=datetime.now(),
+                    )
+                    db.add(log_row)
+                    db.commit()
+                    self._emit_task_event(log_row)
+                except Exception:
+                    db.rollback()
+                finally:
+                    db.close()
+
+                # 延迟后重新入队
+                await asyncio.sleep(delay)
+                await scheduler.reenqueue(task)
+                return
+
+            # 重试耗尽，标记 unmatched
+            logger.warning("[AI_MATCH] Retry exhausted for candidate=%d, marking unmatched", task.candidate_id)
+
+            db = SessionLocal()
+            log_row = None
+            try:
+                now = datetime.now()
+
+                candidate = db.query(RecruitmentCandidate).filter(
+                    RecruitmentCandidate.id == task.candidate_id,
+                ).first()
+                if candidate:
+                    candidate.status = "unmatched"
+                    candidate.ai_match_reason = f"匹配异常（重试{MATCH_MAX_RETRIES}次后失败）：{str(error)[:200]}"
+                    candidate.ai_match_at = now
+                    candidate.updated_by = actor_id
+                    db.commit()
+
+                log_row = RecruitmentAITaskLog(
+                    task_type=task_type,
+                    org_code=None,
+                    batch_id=task.batch_id,
+                    status="failed",
+                    related_candidate_id=task.candidate_id,
+                    input_summary=f"candidate={task.candidate_id}",
+                    output_summary=f"匹配异常（重试{MATCH_MAX_RETRIES}次后失败）：{str(error)[:200]}",
+                    error_message=str(error)[:500],
+                    created_by=actor_id,
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.add(log_row)
+                db.commit()
+                db.refresh(log_row)
+                logger.info("[AI_MATCH] Error audit log created: candidate_id=%d, log_id=%d", task.candidate_id, log_row.id)
+            except Exception as log_exc:
+                logger.error("[AI_MATCH] Failed to write error audit log for candidate %d: %s",
+                             task.candidate_id, log_exc, exc_info=True)
+                db.rollback()
+            finally:
+                db.close()
+
+            if log_row:
+                self._emit_task_event(log_row)
+
+            # 推送 SSE
+            if session_token:
+                TaskEventBus.emit(session_token, "candidate_updated", {
+                    "candidate_id": task.candidate_id,
+                    "batch_id": task.batch_id,
+                    "task_type": task_type,
+                    "status": "unmatched",
+                    "ai_match_position_id": None,
+                    "ai_match_position_title": None,
+                })
+
+        return _on_match_error
+
+    def get_pending_match_candidates(self, org_code: Optional[str] = None) -> List[Dict[str, Any]]:
+        """获取待归岗的候选人列表"""
+        query = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.status == "unmatched",
+            RecruitmentCandidate.deleted.is_(False)
+        )
+        if org_code:
+            query = query.filter(RecruitmentCandidate.org_code == org_code)
+
+        candidates = query.order_by(RecruitmentCandidate.created_at.desc()).all()
+        return [self._serialize_candidate_summary(c) for c in candidates]
+
+    def _recover_stuck_matching_candidates(self):
+        """恢复卡在 matching 状态的候选人（服务重启/断网等导致任务丢失）
+
+        超时逻辑：worker 开始执行时会更新 updated_at，所以超时从实际开始匹配算起。
+        如果任务还在排队（未开始匹配），updated_at 是入队时间，不会被误判。
+        """
+        from datetime import timedelta
+        timeout_threshold = datetime.now() - timedelta(seconds=MATCH_TIMEOUT_SECONDS)
+        stuck = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.status == "matching",
+            RecruitmentCandidate.updated_at < timeout_threshold,
+            RecruitmentCandidate.deleted.is_(False),
+        ).all()
+        if stuck:
+            for c in stuck:
+                c.status = "unmatched"
+                c.ai_match_reason = "匹配超时，已自动重置"
+            self.db.commit()
+            logger.warning("[AI_MATCH] Recovered %d stuck matching candidates (timeout > %ds)", len(stuck), MATCH_TIMEOUT_SECONDS)
+
+    def cancel_match_for_candidate(self, candidate_id: int, actor_id: str):
+        """取消正在匹配的候选人（用户手动停止）"""
+        from .match_scheduler import scheduler
+
+        candidate = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.id == candidate_id,
+            RecruitmentCandidate.status == "matching",
+            RecruitmentCandidate.deleted.is_(False),
+        ).first()
+        if not candidate:
+            raise ValueError("Candidate not found or not in matching status")
+
+        # 标记到 scheduler 的 cancelled 集合，worker 执行前会检查并跳过
+        scheduler.cancel_match(candidate_id)
+
+        candidate.status = "unmatched"
+        candidate.ai_match_reason = "用户手动停止匹配"
+        candidate.updated_by = actor_id
+        self.db.commit()
+
+        # 审计日志
+        now = datetime.now()
+        log_row = RecruitmentAITaskLog(
+            task_type="ai_position_match",
+            status="cancelled",
+            related_candidate_id=candidate_id,
+            output_summary="用户手动停止匹配",
+            created_by=actor_id,
+            created_at=now,
+            updated_at=now,
+        )
+        self.db.add(log_row)
+        self.db.commit()
+        logger.info("[AI_MATCH] User cancelled match for candidate=%d", candidate_id)
+
+    def get_talent_pool_candidates(self, org_code: Optional[str] = None) -> List[Dict[str, Any]]:
+        """获取人才库候选人（无岗位或状态为talent_pool）"""
+        # 懒恢复：每次查询人才库时检查并恢复卡死的 matching 候选人
+        self._recover_stuck_matching_candidates()
+
+        query = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.deleted.is_(False),
+            RecruitmentCandidate.status.in_(["matching", "unmatched", "talent_pool"])
+        )
+        if org_code:
+            query = query.filter(RecruitmentCandidate.org_code == org_code)
+
+        candidates = query.order_by(RecruitmentCandidate.created_at.desc()).all()
+        return [self._serialize_candidate_summary(c) for c in candidates]
+
+    def batch_assign_position_with_status(self, candidate_ids: List[int], position_id: Optional[int], actor_id: str, update_status: bool = True) -> Dict[str, Any]:
+        """批量分配岗位并更新状态"""
+        candidates = self.db.query(RecruitmentCandidate).filter(
+            RecruitmentCandidate.id.in_(candidate_ids),
+            RecruitmentCandidate.deleted.is_(False)
+        ).all()
+
+        if not candidates:
+            raise ValueError("No candidates found")
+
+        # 如果分配了岗位，查询岗位的 org_code
+        position_org_code = None
+        if position_id:
+            from ..recruitment_models import RecruitmentPosition
+            position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == position_id).first()
+            if position:
+                position_org_code = position.org_code
+
+        updated_count = 0
+        for candidate in candidates:
+            candidate.position_id = position_id
+            candidate.updated_by = actor_id
+            # 分配岗位时同步更新 org_code 到岗位所属组织
+            if position_org_code:
+                candidate.org_code = position_org_code
+            if update_status:
+                if position_id:
+                    # 分配到具体岗位 → 待初筛
+                    if candidate.status in ["matching", "unmatched", "talent_pool"]:
+                        candidate.status = "pending_screening"
+                else:
+                    # 归入人才库（无岗位）
+                    candidate.status = "talent_pool"
+            updated_count += 1
+
+        self.db.commit()
+        return {"updated_count": updated_count}
 
     def export_candidates(self, candidate_ids: List[int], include_resumes: bool = True) -> str:
         import zipfile
@@ -13909,7 +14542,7 @@ class RecruitmentService:
 
     def _serialize_llm_config(self, row: RecruitmentLLMConfig) -> Dict[str, Any]:
         runtime = self.ai_gateway.resolve_runtime_config_for_row(row)
-        return {"id": row.id, "config_key": row.config_key, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "task_type": row.task_type, "provider": row.provider, "model_name": row.model_name, "base_url": row.base_url, "api_key_env": row.api_key_env, "api_key_masked": runtime.api_key_masked, "has_stored_api_key": bool(row.api_key_ciphertext), "has_runtime_api_key": bool(runtime.api_key), "extra_config": json_loads_safe(row.extra_config_json, None), "is_active": bool(row.is_active), "is_enabled": bool(row.is_active), "priority": row.priority, "resolved_provider": runtime.provider, "resolved_model_name": runtime.model_name, "resolved_base_url": runtime.base_url, "resolved_source": runtime.source, "created_by": getattr(row, "created_by", None), "updated_by": getattr(row, "updated_by", None), "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        return {"id": row.id, "config_key": row.config_key, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "task_type": row.task_type, "provider": row.provider, "model_name": row.model_name, "base_url": row.base_url, "api_key_env": row.api_key_env, "api_key_masked": runtime.api_key_masked, "has_stored_api_key": bool(row.api_key_ciphertext), "has_runtime_api_key": bool(runtime.api_key), "extra_config": json_loads_safe(row.extra_config_json, None), "max_concurrent": int(getattr(row, "max_concurrent", 4) or 4), "max_qps": int(getattr(row, "max_qps", 10) or 10), "is_active": bool(row.is_active), "is_enabled": bool(row.is_active), "priority": row.priority, "resolved_provider": runtime.provider, "resolved_model_name": runtime.model_name, "resolved_base_url": runtime.base_url, "resolved_source": runtime.source, "created_by": getattr(row, "created_by", None), "updated_by": getattr(row, "updated_by", None), "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def list_llm_configs(self) -> List[Dict[str, Any]]:
         rows = self.db.query(RecruitmentLLMConfig).order_by(RecruitmentLLMConfig.task_type.asc(), RecruitmentLLMConfig.priority.asc(), RecruitmentLLMConfig.id.asc()).all()
@@ -13926,11 +14559,30 @@ class RecruitmentService:
             raise ValueError("LLM config key already exists")
         return normalized
 
+    def _reload_match_scheduler_keys(self) -> None:
+        """key 配置变更后热重载调度器，无需重启服务"""
+        try:
+            from .match_scheduler import key_rotator
+            configs = self.db.query(RecruitmentLLMConfig).filter(
+                RecruitmentLLMConfig.is_active == True
+            ).all()
+            key_rotator.reload([
+                {
+                    "key_id": f"config_{cfg.id}",
+                    "config_id": cfg.id,
+                    "max_concurrent": cfg.max_concurrent or 4,
+                    "max_qps": cfg.max_qps or 10,
+                }
+                for cfg in configs
+            ])
+        except Exception as exc:
+            logger.warning("Failed to reload match scheduler keys: %s", exc)
+
     def create_llm_config(self, payload: Dict[str, Any], actor_id: str = "unknown") -> Dict[str, Any]:
         org_code = normalize_org_code(payload.get("org_code") or self._current_org_code())
         self._assert_can_create_in_org(org_code)
         config_key = self._ensure_llm_config_key_available(payload.get("config_key"))
-        row = RecruitmentLLMConfig(config_key=config_key, org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), task_type=payload.get("task_type") or "default", provider=str(payload.get("provider") or "openai-compatible").strip(), model_name=str(payload.get("model_name") or "").strip(), base_url=payload.get("base_url"), api_key_env=payload.get("api_key_env"), api_key_ciphertext=self._safe_encrypt_secret(str(payload.get("api_key_value") or "")) if payload.get("api_key_value") else None, extra_config_json=json_dumps_safe(payload.get("extra_config") or {}), is_active=payload.get("is_active") is not False, priority=int(payload.get("priority") or 99), created_by=actor_id, updated_by=actor_id)
+        row = RecruitmentLLMConfig(config_key=config_key, org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), task_type=payload.get("task_type") or "default", provider=str(payload.get("provider") or "openai-compatible").strip(), model_name=str(payload.get("model_name") or "").strip(), base_url=payload.get("base_url"), api_key_env=payload.get("api_key_env"), api_key_ciphertext=self._safe_encrypt_secret(str(payload.get("api_key_value") or "")) if payload.get("api_key_value") else None, extra_config_json=json_dumps_safe(payload.get("extra_config") or {}), max_concurrent=int(payload.get("max_concurrent") or 4), max_qps=int(payload.get("max_qps") or 10), is_active=payload.get("is_active") is not False, priority=int(payload.get("priority") or 99), created_by=actor_id, updated_by=actor_id)
         self.db.add(row)
         try:
             self.db.commit()
@@ -13940,6 +14592,7 @@ class RecruitmentService:
                 raise ValueError("LLM config key already exists") from exc
             raise
         self.db.refresh(row)
+        self._reload_match_scheduler_keys()
         return self._serialize_llm_config(row)
 
     def update_llm_config(self, config_id: int, payload: Dict[str, Any], actor_id: str = "unknown") -> Dict[str, Any]:
@@ -13953,7 +14606,7 @@ class RecruitmentService:
         self._assert_resource_manageable(row, actor_id)
         if "config_key" in payload:
             payload["config_key"] = self._ensure_llm_config_key_available(payload.get("config_key"), exclude_id=config_id)
-        for field in ["config_key", "task_type", "provider", "model_name", "base_url", "api_key_env", "is_active", "priority", "scope_level", "allow_sub_org_use", "allow_copy"]:
+        for field in ["config_key", "task_type", "provider", "model_name", "base_url", "api_key_env", "max_concurrent", "max_qps", "is_active", "priority", "scope_level", "allow_sub_org_use", "allow_copy"]:
             if field in payload:
                 setattr(row, field, payload.get(field))
         if "is_enabled" in payload:
@@ -13979,6 +14632,7 @@ class RecruitmentService:
                 raise ValueError("LLM config key already exists") from exc
             raise
         self.db.refresh(row)
+        self._reload_match_scheduler_keys()
         return self._serialize_llm_config(row)
 
     def copy_llm_config(self, config_id: int, actor_id: str = "unknown", target_org_code: Optional[str] = None) -> Dict[str, Any]:
@@ -14010,6 +14664,7 @@ class RecruitmentService:
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
+        self._reload_match_scheduler_keys()
         return self._serialize_llm_config(row)
 
     def delete_llm_config(self, config_id: int, actor_id: str = "unknown") -> None:
@@ -14023,6 +14678,7 @@ class RecruitmentService:
         self._assert_resource_manageable(row, actor_id)
         self.db.delete(row)
         self.db.commit()
+        self._reload_match_scheduler_keys()
 
     def _serialize_mail_sender(self, row: RecruitmentMailSenderConfig) -> Dict[str, Any]:
         password = decrypt_secret(row.password_ciphertext or "")

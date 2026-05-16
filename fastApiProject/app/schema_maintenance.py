@@ -678,7 +678,15 @@ def ensure_recruitment_schema() -> None:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_llm_configs ADD COLUMN api_key_ciphertext TEXT NULL"))
                 logger.info("Added recruitment_llm_configs.api_key_ciphertext column")
-    
+            if "max_concurrent" not in llm_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_llm_configs ADD COLUMN max_concurrent INTEGER NOT NULL DEFAULT 4 COMMENT '该key最大并发数'"))
+                logger.info("Added recruitment_llm_configs.max_concurrent column")
+            if "max_qps" not in llm_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_llm_configs ADD COLUMN max_qps INTEGER NOT NULL DEFAULT 10 COMMENT '该key每秒最大请求数，0表示不限制'"))
+                logger.info("Added recruitment_llm_configs.max_qps column")
+
             mail_dispatch_columns = {column["name"] for column in inspector.get_columns("recruitment_resume_mail_dispatches")}
             if "position_id" not in mail_dispatch_columns:
                 with engine.begin() as connection:
@@ -738,6 +746,30 @@ def ensure_recruitment_schema() -> None:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN owner_id VARCHAR(100) NULL"))
                 logger.info("Added recruitment_candidates.owner_id column")
+            if "ai_match_position_id" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN ai_match_position_id INTEGER NULL"))
+                logger.info("Added recruitment_candidates.ai_match_position_id column")
+            if "ai_match_position_title" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN ai_match_position_title VARCHAR(200) NULL"))
+                logger.info("Added recruitment_candidates.ai_match_position_title column")
+            if "ai_match_confidence" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN ai_match_confidence FLOAT NULL"))
+                logger.info("Added recruitment_candidates.ai_match_confidence column")
+            if "ai_match_reason" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN ai_match_reason TEXT NULL"))
+                logger.info("Added recruitment_candidates.ai_match_reason column")
+            if "ai_match_alternatives" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN ai_match_alternatives TEXT NULL"))
+                logger.info("Added recruitment_candidates.ai_match_alternatives column")
+            if "ai_match_at" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN ai_match_at DATETIME NULL"))
+                logger.info("Added recruitment_candidates.ai_match_at column")
     
             # Widen phone column to handle encrypted/masked values from resume platforms
             try:

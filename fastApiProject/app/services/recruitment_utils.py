@@ -26,6 +26,8 @@ CHAT_CONTEXT_STORE: Dict[str, Dict[str, Any]] = {}
 
 CANDIDATE_STATUS_OPTIONS = [
     {"value": "new_imported", "label": "新导入"},
+    {"value": "matching", "label": "匹配中"},
+    {"value": "unmatched", "label": "待识别"},
     {"value": "pending_screening", "label": "待初筛"},
     {"value": "screening_failed", "label": "初筛失败"},
     {"value": "screening_passed", "label": "初筛通过"},
