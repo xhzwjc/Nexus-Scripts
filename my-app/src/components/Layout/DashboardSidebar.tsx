@@ -24,7 +24,11 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n';
-import { recruitmentNavBus, navigateToRecruitmentPage } from '@/lib/recruitmentNavBus';
+import {
+    navigateToRecruitmentPage,
+    recruitmentNavBus,
+    resolveRecruitmentPageDetail,
+} from '@/lib/recruitmentNavBus';
 import type { User, ViewType } from '@/lib/types';
 
 interface SidebarProps {
@@ -67,10 +71,14 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
     // 监听来自 RecruitmentAutomationContainer 的页面切换事件
     React.useEffect(() => {
         const handler = (e: Event) => {
-            setActiveRecruitmentPage((e as CustomEvent).detail as string);
+            setActiveRecruitmentPage(resolveRecruitmentPageDetail((e as CustomEvent).detail));
         };
         recruitmentNavBus.addEventListener('navigate', handler);
-        return () => recruitmentNavBus.removeEventListener('navigate', handler);
+        recruitmentNavBus.addEventListener('page-sync', handler);
+        return () => {
+            recruitmentNavBus.removeEventListener('navigate', handler);
+            recruitmentNavBus.removeEventListener('page-sync', handler);
+        };
     }, []);
 
     // 离开 AI 招聘时重置展开状态和选中子项；挂载时若已在 AI 招聘也重置（热更新后同步）
@@ -236,6 +244,7 @@ export const DashboardSidebar: React.FC<SidebarProps> = ({
                                                                 setCurrentView('ai-recruitment');
                                                                 setActiveRecruitmentPage(item.key);
                                                                 setAiRecruitmentExpanded(true);
+                                                                navigateToRecruitmentPage(item.key);
                                                             }}
                                                             className={cn(
                                                                 'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors',

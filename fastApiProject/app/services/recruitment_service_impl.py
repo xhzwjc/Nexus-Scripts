@@ -5038,11 +5038,59 @@ class RecruitmentService:
         self.ai_gateway.set_permission_context(self.permission_context)
         return self
 
+    def _normalize_task_session_token(self, session_token: Optional[Any]) -> Optional[str]:
+        from .task_event_bus import normalize_session_channel_key
+        return normalize_session_channel_key(str(session_token or "").strip())
+
+    def _resolve_task_session_token(
+        self,
+        row: Optional["RecruitmentAITaskLog"] = None,
+        *,
+        fallback: Optional[str] = None,
+    ) -> Optional[str]:
+        for candidate in (
+            getattr(row, "session_token", None) if row is not None else None,
+            fallback,
+            self._session_token,
+        ):
+            normalized = self._normalize_task_session_token(candidate)
+            if normalized:
+                return normalized
+        return None
+
+    def _restore_session_token_from_task(
+        self,
+        task_id: int,
+        *,
+        fallback: Optional[str] = None,
+        persist_if_missing: bool = True,
+    ) -> Optional[str]:
+        row = self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.id == task_id).first()
+        if not row:
+            normalized_fallback = self._normalize_task_session_token(fallback)
+            if normalized_fallback:
+                self._session_token = normalized_fallback
+            return normalized_fallback
+        resolved = self._resolve_task_session_token(row, fallback=fallback)
+        if resolved:
+            self._session_token = resolved
+            if persist_if_missing and getattr(row, "session_token", None) != resolved:
+                row.session_token = resolved
+                self.db.add(row)
+                try:
+                    self.db.commit()
+                    self.db.refresh(row)
+                except SQLAlchemyError:
+                    self.db.rollback()
+                    logger.warning("Failed to persist session token backfill for task_id=%s", task_id, exc_info=True)
+        return resolved
+
     def _emit_task_event(self, row: "RecruitmentAITaskLog"):
         """将任务状态变化发布到 SSE 总线，不抛异常（旁路逻辑）"""
         try:
             from .task_event_bus import TaskEventBus
-            if not self._session_token:
+            token = self._resolve_task_session_token(row)
+            if not token:
                 return
             # rate_limited 不发 task_completed，任务会自动重试，前端不应刷新列表
             if row.status == "rate_limited":
@@ -5055,9 +5103,9 @@ class RecruitmentService:
                 "related_candidate_id": row.related_candidate_id,
                 "task_type": row.task_type,
             }
-            TaskEventBus.emit(self._session_token, event_type, payload)
+            TaskEventBus.emit(token, event_type, payload)
             if is_terminal and row.related_candidate_id:
-                TaskEventBus.emit(self._session_token, "candidate_updated", {
+                TaskEventBus.emit(token, "candidate_updated", {
                     "candidate_id": row.related_candidate_id,
                 })
         except Exception:
@@ -5094,7 +5142,7 @@ class RecruitmentService:
         if not TaskEventBus:
             return
 
-        token = self._session_token
+        summary_tokens: set[str] = set()
         # 为所有批次中的每个候选人发送 task_completed 事件，触发前端 stopTaskMonitor + clearActiveScreeningTask
         try:
             batch_tasks = (
@@ -5119,20 +5167,34 @@ class RecruitmentService:
                         "related_candidate_id": cid,
                         "task_type": task.task_type,
                     }
-                    if token:
-                        TaskEventBus.emit(token, "task_completed", payload)
+                    task_token = self._resolve_task_session_token(task)
+                    if task_token:
+                        summary_tokens.add(task_token)
+                        TaskEventBus.emit(task_token, "task_completed", payload)
                     else:
-                        TaskEventBus.emit_to_all("task_completed", payload)
+                        logger.info(
+                            "Skipped task_completed SSE push without session token in _emit_batch_summary_if_needed: "
+                            "task_id=%s candidate_id=%s task_type=%s",
+                            task.id,
+                            cid,
+                            task.task_type,
+                        )
         except Exception:
             logger.exception("Failed to emit task_completed events in _emit_batch_summary_if_needed")
 
         # batch_summary 事件：独立发送，不依赖邮件逻辑
         try:
             summary_payload = {"message": "all_tasks_completed"}
-            if token:
-                TaskEventBus.emit(token, "batch_summary", summary_payload)
+            fallback_token = self._normalize_task_session_token(self._session_token)
+            if fallback_token:
+                summary_tokens.add(fallback_token)
+            if summary_tokens:
+                for token in sorted(summary_tokens):
+                    TaskEventBus.emit(token, "batch_summary", summary_payload)
             else:
-                TaskEventBus.emit_to_all("batch_summary", summary_payload)
+                logger.info(
+                    "Skipped batch_summary SSE push without session token in _emit_batch_summary_if_needed",
+                )
         except Exception:
             logger.exception("Failed to emit batch_summary event")
 
@@ -6256,22 +6318,14 @@ class RecruitmentService:
             validation_meta=validation_meta,
             persisted_result_refs=persisted_result_refs,
             timing_breakdown=timing_breakdown,
+            emit_sse=False,
         )
-        if not self._session_token:
-            try:
-                from .task_event_bus import TaskEventBus
-                TaskEventBus.emit_to_all("task_completed", {
-                    "task_id": row.id,
-                    "status": final_status,
-                    "related_candidate_id": row.related_candidate_id,
-                    "task_type": row.task_type,
-                })
-                if row.related_candidate_id:
-                    TaskEventBus.emit_to_all("candidate_updated", {
-                        "candidate_id": row.related_candidate_id,
-                    })
-            except Exception:
-                pass
+        logger.info(
+            "Skipped orphan screening SSE by design during recovery: task_id=%s candidate_id=%s status=%s",
+            row.id,
+            row.related_candidate_id,
+            final_status,
+        )
         logger.warning(
             "screening_flow orphan settled run_id=%s task_id=%s old_status=%s new_status=%s",
             row.screening_run_id,
@@ -6410,7 +6464,11 @@ class RecruitmentService:
             if captured_permission_context is not None:
                 service.permission_context = captured_permission_context
                 service.ai_gateway.set_permission_context(captured_permission_context)
-            service._session_token = captured_session_token
+            service._restore_session_token_from_task(
+                task_id,
+                fallback=captured_session_token,
+                persist_if_missing=True,
+            )
             try:
                 service._run_queued_screening_task(task_id, actor_id, cancel_control=control)
             except RecruitmentTaskCancelled:
@@ -7540,6 +7598,8 @@ class RecruitmentService:
         timing_breakdown: Optional[Dict[str, Any]] = None,
         provider: Optional[str] = None,
         model_name: Optional[str] = None,
+        session_token: Optional[str] = None,
+        emit_sse: bool = True,
     ) -> RecruitmentAITaskLog:
         now = datetime.now()
         org_code = self._current_org_code()
@@ -7573,21 +7633,25 @@ class RecruitmentService:
             score_rule_snapshot_json=_prepare_ai_task_json_text(score_rule_snapshot),
             timing_breakdown_json=_prepare_ai_task_json_text(timing_breakdown),
             request_hash=request_hash,
+            session_token=self._normalize_task_session_token(session_token or self._session_token),
             model_provider=provider if provider is not None else None,
             model_name=model_name if model_name is not None else None,
             status=status,
             created_by=created_by,
         )
         self.db.add(row)
-        self._commit_ai_task_log(row)
+        self._commit_ai_task_log(row, emit_sse=emit_sse)
         if row.root_task_id in {None, 0} and parent_task_id is None:
             row.root_task_id = row.id
-            self._commit_ai_task_log(row)
+            self._commit_ai_task_log(row, emit_sse=emit_sse)
         return row
 
-    def _commit_ai_task_log(self, row: RecruitmentAITaskLog) -> RecruitmentAITaskLog:
+    def _commit_ai_task_log(self, row: RecruitmentAITaskLog, *, emit_sse: bool = True) -> RecruitmentAITaskLog:
         import random as _rnd
         import time as _time
+        resolved_token = self._resolve_task_session_token(row)
+        if resolved_token and getattr(row, "session_token", None) != resolved_token:
+            row.session_token = resolved_token
         self.db.add(row)
         # 失败/超时终态加抖动，避免大量任务同时超时→同时写库→死锁
         # success 不抖动，不阻塞正常完成的任务
@@ -7596,11 +7660,13 @@ class RecruitmentService:
         try:
             self.db.commit()
             self.db.refresh(row)
-            self._emit_task_event(row)
+            if emit_sse:
+                self._emit_task_event(row)
             return row
         except DataError as exc:
             self.db.rollback()
             logger.warning("AI task log payload exceeded current column capacity, retrying with compacted fields: %s", exc)
+            row.session_token = _truncate_utf8_text(getattr(row, "session_token", None), 1024)
             row.prompt_snapshot = _truncate_utf8_text(row.prompt_snapshot, 60000)
             row.full_request_snapshot = _truncate_utf8_text(row.full_request_snapshot, 60000)
             row.output_summary = _truncate_utf8_text(row.output_summary, 60000)
@@ -7618,6 +7684,8 @@ class RecruitmentService:
             try:
                 self.db.commit()
                 self.db.refresh(row)
+                if emit_sse:
+                    self._emit_task_event(row)
                 return row
             except SQLAlchemyError as retry_exc:
                 self.db.rollback()
@@ -7659,6 +7727,8 @@ class RecruitmentService:
         validation_meta: Optional[Any] = None,
         persisted_result_refs: Optional[Any] = None,
         timing_breakdown: Optional[Any] = None,
+        session_token: Optional[str] = None,
+        emit_sse: bool = True,
     ) -> RecruitmentAITaskLog:
         try:
             self.db.refresh(row)
@@ -7726,11 +7796,14 @@ class RecruitmentService:
             row.persisted_result_refs_json = _prepare_ai_task_json_text(persisted_result_refs)
         if timing_breakdown is not None:
             row.timing_breakdown_json = _prepare_ai_task_json_text(timing_breakdown)
+        resolved_token = self._normalize_task_session_token(session_token) or self._resolve_task_session_token(row)
+        if resolved_token:
+            row.session_token = resolved_token
         if row.status in TERMINAL_AI_TASK_STATUSES:
             row.stage_completed_at = row.stage_completed_at or now
             anchor = row.stage_started_at or row.created_at or now
             row.duration_ms = max(0, int((row.stage_completed_at - anchor).total_seconds() * 1000))
-        return self._commit_ai_task_log(row)
+        return self._commit_ai_task_log(row, emit_sse=emit_sse)
 
     def _finish_ai_task_log(
         self,
@@ -7764,6 +7837,8 @@ class RecruitmentService:
         persisted_result_refs: Optional[Any] = None,
         timing_breakdown: Optional[Any] = None,
         model_source: Optional[str] = None,
+        session_token: Optional[str] = None,
+        emit_sse: bool = True,
     ) -> RecruitmentAITaskLog:
         try:
             self.db.refresh(row)
@@ -7827,7 +7902,10 @@ class RecruitmentService:
             row.persisted_result_refs_json = _prepare_ai_task_json_text(persisted_result_refs)
         if timing_breakdown is not None:
             row.timing_breakdown_json = _prepare_ai_task_json_text(timing_breakdown)
-        return self._commit_ai_task_log(row)
+        resolved_token = self._normalize_task_session_token(session_token) or self._resolve_task_session_token(row)
+        if resolved_token:
+            row.session_token = resolved_token
+        return self._commit_ai_task_log(row, emit_sse=emit_sse)
 
     def _append_ai_task_warning(self, row: RecruitmentAITaskLog, warning: str) -> RecruitmentAITaskLog:
         text = str(warning or "").strip()
@@ -10226,6 +10304,7 @@ class RecruitmentService:
                     return
                 if match_result and match_result.get("position_id"):
                     callback_service = RecruitmentService(db)
+                    callback_service._session_token = callback_service._normalize_task_session_token(session_token)
                     position = db.query(RecruitmentPosition).filter(
                         RecruitmentPosition.id == match_result["position_id"]
                     ).first()
@@ -10294,6 +10373,7 @@ class RecruitmentService:
                         full_request_snapshot=_to_text(match_result.get("full_request_snapshot")) if match_result else None,
                         raw_response_text=_to_text(match_result.get("raw_response_text")) if match_result else None,
                         parsed_response_json=_to_text(match_result.get("parsed_response")) if match_result else None,
+                        session_token=self._normalize_task_session_token(session_token),
                         created_by=actor_id,
                         created_at=now,
                         updated_at=now,
@@ -10371,6 +10451,7 @@ class RecruitmentService:
                         related_candidate_id=task.candidate_id,
                         input_summary=f"candidate={task.candidate_id}",
                         output_summary="用户手动停止匹配",
+                        session_token=self._normalize_task_session_token(session_token),
                         created_by=actor_id,
                         created_at=datetime.now(),
                         updated_at=datetime.now(),
@@ -10412,6 +10493,7 @@ class RecruitmentService:
                         input_summary=f"candidate={task.candidate_id}",
                         output_summary=f"第{task.retry_count}次重试，等待{delay}s：{str(error)[:200]}",
                         error_message=str(error)[:500],
+                        session_token=self._normalize_task_session_token(session_token),
                         created_by=actor_id,
                         created_at=datetime.now(),
                         updated_at=datetime.now(),
@@ -10458,6 +10540,7 @@ class RecruitmentService:
                     input_summary=f"candidate={task.candidate_id}",
                     output_summary=f"匹配异常（重试{MATCH_MAX_RETRIES}次后失败）：{str(error)[:200]}",
                     error_message=str(error)[:500],
+                    session_token=self._normalize_task_session_token(session_token),
                     created_by=actor_id,
                     created_at=now,
                     updated_at=now,
@@ -14835,6 +14918,8 @@ class RecruitmentService:
         }
 
     def generate_interview_questions(self, candidate_id: int, round_name: str, custom_requirements: str, skill_ids: Optional[Iterable[Any]], actor_id: str, use_candidate_memory: bool = True, use_position_skills: bool = True, *, existing_task_id: Optional[int] = None, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
+        if existing_task_id:
+            self._restore_session_token_from_task(existing_task_id, fallback=self._session_token, persist_if_missing=True)
         candidate = self._get_candidate(candidate_id)
         if not candidate.position_id:
             raise ValueError("候选人未绑定岗位，无法生成面试题。请先为候选人分配岗位后再生成面试题。")
@@ -15010,6 +15095,7 @@ class RecruitmentService:
         def _runner(control: RecruitmentTaskControl) -> None:
             db = SessionLocal()
             service = RecruitmentService(db)
+            service._restore_session_token_from_task(log_row.id, fallback=self._session_token, persist_if_missing=True)
             try:
                 service.generate_interview_questions(candidate_id, round_name, custom_requirements, skill_ids, actor_id, use_candidate_memory=use_candidate_memory, use_position_skills=use_position_skills, existing_task_id=log_row.id, cancel_control=control)
             except RecruitmentTaskCancelled:
@@ -15055,6 +15141,7 @@ class RecruitmentService:
         return {"file_name": resume_file.original_name, "content": path.read_bytes(), "media_type": media_type}
 
     def _run_generate_jd_task(self, task_id: int, position_id: int, extra_prompt: str, actor_id: str, auto_activate: bool, cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
+        self._restore_session_token_from_task(task_id, fallback=self._session_token, persist_if_missing=True)
         log_row = self._get_ai_task_log_row(task_id)
         try:
             position = self._get_position(position_id)
@@ -15133,6 +15220,7 @@ class RecruitmentService:
         def _runner(control: RecruitmentTaskControl) -> None:
             db = SessionLocal()
             service = RecruitmentService(db)
+            service._restore_session_token_from_task(log_row.id, fallback=self._session_token, persist_if_missing=True)
             try:
                 service._run_generate_jd_task(log_row.id, position_id, extra_prompt, actor_id, auto_activate, cancel_control=control)
             except RecruitmentTaskCancelled:
@@ -16970,6 +17058,7 @@ class RecruitmentService:
             return {"reply": fallback_reply, "context": current_context, "actions": [], "log_id": finished_log.id, "memory_source": "manual", "model_provider": resolved.provider, "model_name": resolved.model_name, "used_skill_ids": related_skill_ids, "used_skills": used_skill_snapshots, "used_fallback": True, "fallback_error": str(exc), "timing": {"service_started_at_ms": int(started_at * 1000), "completed_at_ms": int(time.perf_counter() * 1000)}}
 
     def _run_generic_chat_task(self, task_id: int, user_id: str, user_name: str, message: str, current_context: Dict[str, Any], used_skill_snapshots: Sequence[Dict[str, Any]], cancel_control: Optional[RecruitmentTaskControl] = None) -> Dict[str, Any]:
+        self._restore_session_token_from_task(task_id, fallback=self._session_token, persist_if_missing=True)
         log_row = self._get_ai_task_log_row(task_id)
         related_skill_ids = self._extract_related_skill_ids(used_skill_snapshots)
         prompt = json_dumps_safe({"user": user_name, "message": message, "context": current_context, "guardrail": "Only handle recruitment-related requests. Refuse unrelated queries briefly and redirect the user to a general assistant."})
@@ -17036,6 +17125,7 @@ class RecruitmentService:
         def _runner(control: RecruitmentTaskControl) -> None:
             db = SessionLocal()
             service = RecruitmentService(db)
+            service._restore_session_token_from_task(log_row.id, fallback=self._session_token, persist_if_missing=True)
             try:
                 service._run_generic_chat_task(log_row.id, user_id, user_name, message, current_context, used_skill_snapshots, cancel_control=control)
             except RecruitmentTaskCancelled:

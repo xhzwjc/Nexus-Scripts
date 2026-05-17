@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Toaster } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
@@ -99,6 +99,13 @@ function AppContent() {
     const [scriptQuery, setScriptQuery] = useState('');
     const HEALTH_CHECK_CACHE_KEY = 'health_check_result_v2';
     const SERVICE_WORKER_CLEANUP_KEY = 'script_hub_sw_cleanup_v1';
+    type AppViewSnapshot = {
+        view: ViewType;
+        selectedSystem: string;
+        selectedScript: string;
+    };
+    const previousViewSnapshotRef = useRef<AppViewSnapshot | null>(null);
+    const recruitmentSourceSnapshotRef = useRef<AppViewSnapshot | null>(null);
 
     useEffect(() => {
         if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
@@ -210,8 +217,23 @@ function AppContent() {
             setHomeSearchQuery('');
             setShowSearchResults(false);
             setHealthCheckState(undefined);
+            previousViewSnapshotRef.current = null;
+            recruitmentSourceSnapshotRef.current = null;
         },
     });
+    const landingView: ViewType = currentUser?.landingPage === 'welcome' ? 'welcome' : 'home';
+
+    function restoreAppView(snapshot?: AppViewSnapshot | null) {
+        if (!snapshot) {
+            setSelectedSystem('');
+            setSelectedScript('');
+            setCurrentView(landingView);
+            return;
+        }
+        setSelectedSystem(snapshot.selectedSystem);
+        setSelectedScript(snapshot.selectedScript);
+        setCurrentView(snapshot.view);
+    }
 
     // 根据用户角色配置决定初始页面（登录后/刷新后仅执行一次）
     useEffect(() => {
@@ -222,6 +244,32 @@ function AppContent() {
             setCurrentView('welcome');
         }
     }, [currentUser, landingPageApplied]);
+
+    useEffect(() => {
+        const currentSnapshot: AppViewSnapshot = {
+            view: currentView,
+            selectedSystem,
+            selectedScript,
+        };
+        const previousSnapshot = previousViewSnapshotRef.current;
+        if (
+            currentView === 'ai-recruitment'
+            && previousSnapshot
+            && previousSnapshot.view !== 'ai-recruitment'
+        ) {
+            recruitmentSourceSnapshotRef.current = previousSnapshot;
+        }
+        previousViewSnapshotRef.current = currentSnapshot;
+    }, [currentView, selectedScript, selectedSystem]);
+
+    function handleRecruitmentBack() {
+        const sourceSnapshot = recruitmentSourceSnapshotRef.current;
+        if (sourceSnapshot && sourceSnapshot.view !== 'ai-recruitment') {
+            restoreAppView(sourceSnapshot);
+            return;
+        }
+        restoreAppView(null);
+    }
 
     useEffect(() => {
         if (typeof document === 'undefined') {
@@ -529,7 +577,7 @@ function AppContent() {
                         )}
                         {currentView === 'ai-recruitment' && (
                             <div className="h-full p-0">
-                                <RecruitmentAutomationContainer onBack={() => setCurrentView('home')} initialPage={recruitmentInitialPage as any} />
+                                <RecruitmentAutomationContainer onBack={handleRecruitmentBack} initialPage={recruitmentInitialPage as any} />
                             </div>
                         )}
                         {currentView === 'access-control' && (

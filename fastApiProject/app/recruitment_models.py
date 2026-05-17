@@ -245,6 +245,7 @@ class RecruitmentAITaskLog(Base):
     score_rule_snapshot_json = Column(MediumText())
     timing_breakdown_json = Column(MediumText())
     request_hash = Column(String(120), index=True)
+    session_token = Column(String(1024))
     model_provider = Column(String(80))
     model_name = Column(String(120))
     model_source = Column(String(120))

@@ -88,7 +88,7 @@ async def stream_task_events(
     if not token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    q = TaskEventBus.subscribe(token)
+    subscription_id, q = TaskEventBus.subscribe(token)
 
     async def event_generator():
         try:
@@ -102,7 +102,7 @@ async def stream_task_events(
                 except asyncio.TimeoutError:
                     yield ": heartbeat\n\n"
         finally:
-            TaskEventBus.unsubscribe(token)
+            TaskEventBus.unsubscribe(token, subscription_id)
 
     return StreamingResponse(
         event_generator(),
@@ -158,7 +158,7 @@ async def recover_orphaned_tasks_on_startup():
 
         logger.warning(
             "Marked %d orphaned tasks as failed on startup. "
-            "Manual re-trigger required.",
+            "Manual re-trigger required. No SSE notifications were emitted during startup recovery.",
             len(orphaned)
         )
     except Exception as exc:

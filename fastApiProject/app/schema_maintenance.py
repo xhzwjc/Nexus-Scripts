@@ -608,6 +608,10 @@ def ensure_recruitment_schema() -> None:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN request_hash VARCHAR(120) NULL"))
                 logger.info("Added recruitment_ai_task_logs.request_hash column")
+            if "session_token" not in ai_task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN session_token VARCHAR(1024) NULL"))
+                logger.info("Added recruitment_ai_task_logs.session_token column")
             if "output_snapshot" not in ai_task_columns:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_ai_task_logs ADD COLUMN output_snapshot TEXT NULL"))

@@ -1,33 +1,63 @@
 import asyncio
+import hashlib
 import json
 import logging
-from typing import Dict, Any
+import re
+from itertools import count
+from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
+
+SESSION_CHANNEL_KEY_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+
+def normalize_session_channel_key(session_token: Optional[str]) -> Optional[str]:
+    token = str(session_token or "").strip()
+    if not token:
+        return None
+    if SESSION_CHANNEL_KEY_PATTERN.fullmatch(token):
+        return token
+    if token.endswith("..."):
+        return None
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 class TaskEventBus:
     """
     全局单例事件总线。
-    key = session_token (str)，value = asyncio.Queue
+    key = session_token (str)，value = {connection_id: asyncio.Queue}
     """
-    _queues: Dict[str, asyncio.Queue] = {}
+    _queues: Dict[str, Dict[int, asyncio.Queue]] = {}
+    _subscription_counter = count(1)
     _loop: asyncio.AbstractEventLoop = None  # type: ignore[assignment]
 
     @classmethod
-    def subscribe(cls, session_token: str) -> asyncio.Queue:
+    def subscribe(cls, session_token: str) -> tuple[int, asyncio.Queue]:
+        channel_key = normalize_session_channel_key(session_token)
+        if not channel_key:
+            raise ValueError("Invalid session token for TaskEventBus subscription")
         q = asyncio.Queue(maxsize=2000)
-        cls._queues[session_token] = q
+        subscription_id = next(cls._subscription_counter)
+        token_queues = cls._queues.setdefault(channel_key, {})
+        token_queues[subscription_id] = q
         # 保存当前 event loop，供后台线程 emit 使用
         try:
             cls._loop = asyncio.get_running_loop()
         except RuntimeError:
             pass
-        return q
+        return subscription_id, q
 
     @classmethod
-    def unsubscribe(cls, session_token: str):
-        cls._queues.pop(session_token, None)
+    def unsubscribe(cls, session_token: str, subscription_id: int):
+        channel_key = normalize_session_channel_key(session_token)
+        if not channel_key:
+            return
+        token_queues = cls._queues.get(channel_key)
+        if not token_queues:
+            return
+        token_queues.pop(subscription_id, None)
+        if not token_queues:
+            cls._queues.pop(channel_key, None)
 
     @classmethod
     def _get_loop(cls) -> asyncio.AbstractEventLoop | None:
@@ -47,8 +77,12 @@ class TaskEventBus:
         从同步代码（Worker 线程）安全地向异步 Queue 投递事件。
         使用 call_soon_threadsafe，避免跨线程写 asyncio 对象。
         """
-        q = cls._queues.get(session_token)
-        if q is None:
+        channel_key = normalize_session_channel_key(session_token)
+        if not channel_key:
+            logger.warning("TaskEventBus.emit skipped: invalid session token for event_type=%s", event_type)
+            return
+        token_queues = cls._queues.get(channel_key)
+        if not token_queues:
             return
         loop = cls._get_loop()
         if loop is None:
@@ -56,13 +90,16 @@ class TaskEventBus:
             return
         data = json.dumps({"type": event_type, **payload}, ensure_ascii=False)
 
-        def _safe_put():
-            try:
-                q.put_nowait(data)
-            except asyncio.QueueFull:
-                pass
+        queues = list(token_queues.values())
 
-        loop.call_soon_threadsafe(_safe_put)
+        def _safe_put_all():
+            for q in queues:
+                try:
+                    q.put_nowait(data)
+                except asyncio.QueueFull:
+                    pass
+
+        loop.call_soon_threadsafe(_safe_put_all)
 
     @classmethod
     def emit_to_all(cls, event_type: str, payload: Dict[str, Any]):

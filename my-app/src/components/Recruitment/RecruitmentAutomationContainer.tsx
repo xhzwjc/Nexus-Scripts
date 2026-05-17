@@ -199,7 +199,12 @@ import {SkillSettingsPage} from "./pages/SkillSettingsPage";
 import {TalentPoolPage} from "./pages/TalentPoolPage";
 import {WorkspacePage} from "./pages/WorkspacePage";
 import { useOptimizedStats, useCachedListData, useCachedObjectData, useTaskSSE } from "./hooks";
-import { recruitmentNavBus, navigateToRecruitmentPage } from '@/lib/recruitmentNavBus';
+import {
+    navigateToRecruitmentPage,
+    recruitmentNavBus,
+    resolveRecruitmentNavigationDetail,
+    syncRecruitmentActivePage,
+} from '@/lib/recruitmentNavBus';
 
 const PAGE_ACTIVITY_POLL_VISIBLE_INTERVAL_MS = 15_000;
 const PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS = 60_000;
@@ -1505,13 +1510,70 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, []);
 
     const [activePage, setActivePage] = useState<RecruitmentPage>(initialPage || "workspace");
+    const recruitmentPageHistoryRef = useRef<RecruitmentPage[]>([initialPage || "workspace"]);
+    const lastInitialPageRef = useRef<RecruitmentPage | null>(null);
 
-    // 从侧边栏切换时同步 initialPage prop
-    useEffect(() => {
-        if (initialPage && initialPage !== activePage) {
-            setActivePage(initialPage);
+    const applyRecruitmentPageChange = useCallback((
+        page: RecruitmentPage,
+        mode: "push" | "replace" = "push",
+    ) => {
+        setActivePage((current) => {
+            const baseHistory = recruitmentPageHistoryRef.current.length
+                ? recruitmentPageHistoryRef.current
+                : [current];
+            let nextHistory = baseHistory;
+
+            if (mode === "replace") {
+                nextHistory = [...baseHistory.slice(0, -1), page];
+                if (!nextHistory.length) {
+                    nextHistory = [page];
+                } else if (nextHistory.length > 1 && nextHistory[nextHistory.length - 1] === nextHistory[nextHistory.length - 2]) {
+                    nextHistory = nextHistory.slice(0, -1);
+                }
+            } else if (baseHistory[baseHistory.length - 1] !== page) {
+                nextHistory = [...baseHistory, page];
+            }
+
+            recruitmentPageHistoryRef.current = nextHistory;
+            return current === page ? current : page;
+        });
+    }, []);
+
+    const handleSmartBack = useCallback(() => {
+        const history = recruitmentPageHistoryRef.current;
+        if (history.length > 1) {
+            const nextHistory = history.slice(0, -1);
+            const previousPage = nextHistory[nextHistory.length - 1];
+            recruitmentPageHistoryRef.current = nextHistory;
+            setActivePage(previousPage);
+            return;
         }
-    }, [initialPage]);
+        onBack();
+    }, [onBack]);
+
+    // 从侧边栏切换时同步 initialPage prop，并将其作为模块内导航的一部分纳入历史栈。
+    useEffect(() => {
+        const targetPage = initialPage || "workspace";
+        if (lastInitialPageRef.current === null) {
+            lastInitialPageRef.current = targetPage;
+            recruitmentPageHistoryRef.current = [targetPage];
+            if (activePage !== targetPage) {
+                setActivePage(targetPage);
+            }
+            return;
+        }
+        if (lastInitialPageRef.current === targetPage) {
+            return;
+        }
+        lastInitialPageRef.current = targetPage;
+        if (activePage !== targetPage) {
+            applyRecruitmentPageChange(targetPage, "push");
+        }
+    }, [activePage, applyRecruitmentPageChange, initialPage]);
+
+    useEffect(() => {
+        syncRecruitmentActivePage(activePage);
+    }, [activePage]);
 
     const [assistantOpen, setAssistantOpen] = useState(false);
     const [positionListCollapsed, setPositionListCollapsed] = useState(false);
@@ -2517,19 +2579,31 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     useEffect(() => {
         if (activePage === "positions" && !canManagePosition) {
-            setActivePage("workspace");
+            applyRecruitmentPageChange("workspace", "replace");
         } else if (activePage === "candidates" && !canManageCandidate) {
-            setActivePage("workspace");
+            applyRecruitmentPageChange("workspace", "replace");
         } else if (activePage === "audit" && !canViewLog) {
-            setActivePage("workspace");
+            applyRecruitmentPageChange("workspace", "replace");
         } else if (activePage === "settings-skills" && !canViewSkill && !canManageSkill) {
-            setActivePage("workspace");
+            applyRecruitmentPageChange("workspace", "replace");
         } else if (activePage === "settings-models" && !canViewLLMConfig && !canManageLLMConfig) {
-            setActivePage("workspace");
+            applyRecruitmentPageChange("workspace", "replace");
         } else if (activePage === "settings-mail" && !canViewMail && !canManageMailConfig) {
-            setActivePage("workspace");
+            applyRecruitmentPageChange("workspace", "replace");
         }
-    }, [activePage, canManagePosition, canManageCandidate, canViewLog, canViewSkill, canManageSkill, canViewLLMConfig, canManageLLMConfig, canViewMail, canManageMailConfig]);
+    }, [
+        activePage,
+        applyRecruitmentPageChange,
+        canManagePosition,
+        canManageCandidate,
+        canViewLog,
+        canViewSkill,
+        canManageSkill,
+        canViewLLMConfig,
+        canManageLLMConfig,
+        canViewMail,
+        canManageMailConfig,
+    ]);
 
     useEffect(() => {
         setSettingsPopoverOpen(false);
@@ -2546,12 +2620,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     // 监听顶栏侧边栏的导航事件
     useEffect(() => {
         const handler = (e: Event) => {
-            const page = (e as CustomEvent).detail as RecruitmentPage;
-            setActivePage(page);
+            const { page, replace } = resolveRecruitmentNavigationDetail((e as CustomEvent).detail);
+            applyRecruitmentPageChange(page as RecruitmentPage, replace ? "replace" : "push");
         };
         recruitmentNavBus.addEventListener('navigate', handler);
         return () => recruitmentNavBus.removeEventListener('navigate', handler);
-    }, []);
+    }, [applyRecruitmentPageChange]);
 
     useEffect(() => {
         setSelectedCandidateIds((current) => current.filter((candidateId) => visibleCandidates.some((candidate) => candidate.id === candidateId)));
@@ -9924,7 +9998,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 className="border-b border-slate-200/80 bg-white/85 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
                 <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5 lg:px-5 2xl:px-6">
                     <div className="flex min-w-0 items-center gap-3">
-                        <Button variant="outline" size="sm" onClick={onBack} className="rounded-xl px-3">
+                        <Button variant="outline" size="sm" onClick={handleSmartBack} className="rounded-xl px-3">
                             <ArrowLeft className="h-4 w-4"/>
                             {recruitmentUiText.back}
                         </Button>
