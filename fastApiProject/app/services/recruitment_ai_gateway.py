@@ -2434,6 +2434,7 @@ class RecruitmentAIGateway:
             return {
                 "position_id": None,
                 "position_title": None,
+                "confidence": None,
                 "provider": None,
                 "model_name": None,
                 "source": None,
@@ -2444,8 +2445,16 @@ class RecruitmentAIGateway:
                 "input_summary": None,
                 "output_summary": "No positions available",
                 "raw_response_text": None,
-                "parsed_response": {"position_id": None, "position_title": None},
+                "parsed_response": {
+                    "position_id": None,
+                    "position_title": None,
+                    "confidence": None,
+                    "potential_position": None,
+                    "potential_reason": None,
+                },
                 "reason": "无可用岗位",
+                "potential_position": None,
+                "potential_reason": None,
             }
 
         # 构建结构化岗位列表（比 JSON 更省 token）
@@ -2454,25 +2463,28 @@ class RecruitmentAIGateway:
             for p in positions
         )
 
-        system_prompt = "你是招聘岗位匹配助手。根据候选人简历，从给定岗位列表中找出最匹配的岗位。\n输出严格遵守JSON格式，禁止输出任何JSON以外的内容。"
+        system_prompt = "你是招聘岗位匹配助手。根据候选人简历原文，从给定岗位列表中找出最匹配的岗位，并判断可培养的转岗潜力方向。\n输出严格遵守JSON格式，禁止输出任何JSON以外的内容。"
 
         user_prompt = f"""## 系统岗位列表
 {position_list}
 
-## 候选人简历
+## 候选人简历（已截取前半段）
 {resume_content}
 
 ## 规则
-1. 以实际工作经历和技能为主要依据，求职意向仅作参考
+1. 以简历原文中的实际工作经历、项目经历、技能和教育背景为主要依据，求职意向仅作参考
 2. 必须从岗位列表中选择，不能创造新岗位
 3. **必须有明确的匹配证据才能返回岗位ID**：候选人的核心技能、工作经历或专业方向与岗位要求有直接关联。"没有明显不匹配"不等于匹配
 4. 岗位描述模糊、无法判断是否匹配时，返回 null
 5. 无匹配时 position_id 返回 null，不要强行匹配
-6. reason 用中文，50字以内，说明匹配或不匹配的原因
+6. confidence 返回 0-100 的整数，表示对“主匹配岗位”的把握；无匹配时返回 0
+7. potential_position 用中文概括候选人的“转岗潜力方向”，可以是岗位列表中的某个岗位名称，也可以是概括性方向；没有明显潜力时返回 null
+8. potential_reason 用中文，50字以内，说明为什么认为候选人具备该转岗潜力；没有明显潜力时返回 null
+9. reason 用中文，50字以内，说明匹配或不匹配的原因
 
 ## 输出格式
-匹配成功：{{"position_id": 17, "position_title": "税务会计", "reason": "候选人有3年增值税申报经验，与岗位核心要求高度吻合"}}
-无匹配：{{"position_id": null, "position_title": null, "reason": "候选人为产品经理背景，系统现有岗位均为财务和技术类，无对应方向"}}"""
+匹配成功：{{"position_id": 17, "position_title": "税务会计", "confidence": 88, "reason": "候选人有3年增值税申报经验，与岗位核心要求高度吻合", "potential_position": "财务分析", "potential_reason": "具备报表和数据分析基础，可向财务分析延展"}}
+无匹配：{{"position_id": null, "position_title": null, "confidence": 0, "reason": "候选人为产品经理背景，系统现有岗位均为财务和技术类，无对应方向", "potential_position": "售前解决方案", "potential_reason": "跨团队沟通和需求分析能力较强，可培养为售前方向"}}"""
 
         try:
             result = self.generate_json(
@@ -2484,7 +2496,10 @@ class RecruitmentAIGateway:
                 fallback_builder=lambda: {
                     "position_id": None,
                     "position_title": None,
+                    "confidence": 0,
                     "reason": "AI匹配失败",
+                    "potential_position": None,
+                    "potential_reason": None,
                 },
             )
 
@@ -2499,12 +2514,24 @@ class RecruitmentAIGateway:
                     normalized_position_id = None
             position_title = parsed.get("position_title")
             normalized_position_title = str(position_title or "").strip() or None
+            confidence = parsed.get("confidence")
+            normalized_confidence: Optional[float] = None
+            if confidence not in (None, ""):
+                try:
+                    normalized_confidence = max(0.0, min(100.0, float(confidence)))
+                except (TypeError, ValueError):
+                    normalized_confidence = None
             reason = str(parsed.get("reason") or "").strip() or "AI自动匹配"
+            potential_position = str(parsed.get("potential_position") or "").strip() or None
+            potential_reason = str(parsed.get("potential_reason") or "").strip() or None
 
             return {
                 "position_id": normalized_position_id,
                 "position_title": normalized_position_title,
+                "confidence": normalized_confidence,
                 "reason": reason,
+                "potential_position": potential_position,
+                "potential_reason": potential_reason,
                 "provider": result.get("provider"),
                 "model_name": result.get("model_name"),
                 "source": result.get("source"),
@@ -2518,7 +2545,10 @@ class RecruitmentAIGateway:
                 "parsed_response": {
                     "position_id": normalized_position_id,
                     "position_title": normalized_position_title,
+                    "confidence": normalized_confidence,
                     "reason": reason,
+                    "potential_position": potential_position,
+                    "potential_reason": potential_reason,
                 },
             }
 
@@ -2527,7 +2557,10 @@ class RecruitmentAIGateway:
             return {
                 "position_id": None,
                 "position_title": None,
+                "confidence": None,
                 "reason": f"匹配异常：{str(exc)[:100]}",
+                "potential_position": None,
+                "potential_reason": None,
                 "provider": None,
                 "model_name": None,
                 "source": None,
@@ -2541,6 +2574,9 @@ class RecruitmentAIGateway:
                 "parsed_response": {
                     "position_id": None,
                     "position_title": None,
+                    "confidence": None,
                     "reason": f"匹配异常：{str(exc)[:100]}",
+                    "potential_position": None,
+                    "potential_reason": None,
                 },
             }

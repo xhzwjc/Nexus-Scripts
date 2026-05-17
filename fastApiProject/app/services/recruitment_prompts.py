@@ -55,7 +55,8 @@ Return this schema exactly:
     "age": "",
     "years_of_experience": "",
     "education": "",
-    "location": ""
+    "location": "",
+    "expected_city": ""
   },
   "work_experiences": [],
   "education_experiences": [],
@@ -67,6 +68,8 @@ Rules:
 - Extract factual information only.
 - If a field is missing, use an empty string or empty list.
 - Keep list items short, deduplicated, and resume-grounded.
+- For basic_info.location, only return a city/location when the resume explicitly states the candidate's current residence / current city / regular city of stay / 籍贯. Never infer from work location, school location, project location, company location, or indirect clues. If not explicit, return an empty string.
+- For basic_info.expected_city, only return a value when the resume explicitly states 期望城市 / 期望工作地点 / 意向城市 / 期望地点 or equivalent intent wording. Do not infer. If multiple cities are explicitly listed, join them with commas. If not explicit, return an empty string.
 - Do not output the same work experience twice in different granularities. If one work experience is already captured as a complete object, do not repeat it again as a simplified duplicate row.
 - Use one unified time-field contract only:
   - start_date
@@ -109,7 +112,8 @@ SCREENING_OUTPUT_SCHEMA = """{
       "age": "",
       "years_of_experience": "",
       "education": "",
-      "location": ""
+      "location": "",
+      "expected_city": ""
     },
     "work_experiences": [],
     "education_experiences": [],
@@ -182,7 +186,7 @@ SCORE_ONLY_OUTPUT_SCHEMA = """{
 
 SCREENING_OUTPUT_SCHEMA_V3 = """{
   "parsed_resume": {
-    "basic_info": {"name":"","phone":"","email":"","age":"","years_of_experience":"","education":"","location":""},
+    "basic_info": {"name":"","phone":"","email":"","age":"","years_of_experience":"","education":"","location":"","expected_city":""},
     "work_experiences": [{"company_name":"","position":"","start_date":"","end_date":"","description":""}],
     "education_experiences": [{"school":"","degree":"","major":"","start_date":"","end_date":""}],
     "skills": ["string"],
@@ -227,7 +231,9 @@ RESUME_SCREENING_SYSTEM_PROMPT_V3 = """你是 ATS 初筛引擎。读取简历原
 10. 每个维度的 reason 必须具体说明：满分情况解释为什么满分，扣分情况逐项说明扣了多少、为什么扣。不要笼统概括。
 11. 每个维度必须包含 radar_category 字段，值为以下之一："专业能力"、"学习潜力"、"工作经验"、"综合素质"、"岗位匹配度"。分类规则：专业能力=技术/专业技能/工具框架/测试能力/协议知识；学习潜力=教育背景/成长轨迹/学习能力/项目复杂度；工作经验=年限/行业匹配/岗位相关性/职业发展；综合素质=沟通/团队/稳定性/领导力/软技能/文化适配；岗位匹配度=JD整体契合/领域知识/生态熟悉度/需求覆盖。
 12. 必须输出 radar_scores，包含恰好 5 个类别（专业能力、学习潜力、工作经验、综合素质、岗位匹配度），每项 max_score=2.0，总分 10.0。这是基于整体简历和各维度评分的综合评估，不是简单平均 — 要结合简历全局信息给出判断。reason 一句话说明核心依据，evidence 引用简历关键片段。与各维度评分不得出现严重矛盾。
-13. 禁止输出 JSON 以外的内容。
+13. parsed_resume.basic_info.location 只有在简历明确写了现居地/现居住地/常驻城市/籍贯等信息时才能返回；不能根据工作地点、学校地点、项目地点等推断。没有明确表述时返回空字符串。
+14. parsed_resume.basic_info.expected_city 只有在简历明确写了期望城市/期望工作地点/意向城市/期望地点时才能返回；不能推断。多个城市用英文逗号连接；没有明确表述时返回空字符串。
+15. 禁止输出 JSON 以外的内容。
 
 输出 schema：
 """ + SCREENING_OUTPUT_SCHEMA_V3
@@ -276,6 +282,8 @@ Evidence Rules:
 Scoring Rules:
 - All textual output fields must be written in Simplified Chinese unless quoting an English proper noun from the resume.
 - Extract parsed_resume factually from the raw resume text; use empty strings or empty lists for missing fields.
+- For parsed_resume.basic_info.location, only return a value when the resume explicitly states current residence / current city / regular city of stay / 籍贯. Never infer from work location, school location, project location, or indirect clues.
+- For parsed_resume.basic_info.expected_city, only return a value when the resume explicitly states 期望城市 / 期望工作地点 / 意向城市 / 期望地点 or equivalent intent wording. If multiple cities are explicit, join them with commas. Do not infer.
 - Score only against the provided position, DIMENSION_RULES, screening skills, and custom hard requirements. Do not add dimensions or extra rubric.
 - Treat screening skills and custom hard requirements as mandatory high-priority constraints.
 - Every dimension must include label, score, max_score, reason, evidence, and is_inferred.

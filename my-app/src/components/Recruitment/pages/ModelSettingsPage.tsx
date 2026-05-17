@@ -66,6 +66,7 @@ export function ModelSettingsPage({
                     <div>
                         <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t.common.modelConfigCenter}</p>
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t.common.modelConfigHint}</p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t.common.sharedModelThrottleHint}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                         <Button variant="outline" onClick={() => void refreshLLMConfigsWithFeedback()} disabled={modelsLoading}>
@@ -116,11 +117,13 @@ export function ModelSettingsPage({
                                             <Badge variant="outline" className="rounded-full">{t.common.priorityLabel} {config.priority}</Badge>
                                         </div>
                                     </div>
-                                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                                         <InfoTile label="Provider" value={labelForProvider(config.provider)}/>
                                         <InfoTile label={t.common.modelName} value={config.model_name}/>
                                         <InfoTile label={t.common.resolvedSource} value={config.resolved_source || "-"}/>
                                         <InfoTile label="Base URL" value={config.resolved_base_url || config.base_url || "-"}/>
+                                        <InfoTile label={t.common.maxConcurrency} value={String(config.max_concurrent || 1)}/>
+                                        <InfoTile label={t.common.maxQps} value={config.max_qps > 0 ? String(config.max_qps) : "-"}/>
                                     </div>
                                     <div className="mt-4 flex flex-wrap gap-2">
                                         {canManageLLMConfig && (

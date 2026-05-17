@@ -224,6 +224,15 @@ type OrgScopedItem = {
     allow_sub_org_use?: boolean | null;
 };
 
+type PositionSkillBindingField = "jdSkillIds" | "screeningSkillIds" | "interviewSkillIds";
+type PositionSkillSectionExpandedState = Record<PositionSkillBindingField, boolean>;
+
+const DEFAULT_POSITION_SKILL_SECTION_EXPANDED_STATE: PositionSkillSectionExpandedState = {
+    jdSkillIds: false,
+    screeningSkillIds: false,
+    interviewSkillIds: false,
+};
+
 type OrganizationSelectOption = {
     value: string;
     label: string;
@@ -233,7 +242,7 @@ type OrganizationSelectOption = {
 
 type PositionFormErrors = Partial<Record<"orgCode" | "title" | "headcount", string>>;
 type SkillFormErrors = Partial<Record<"name" | "content" | "sortOrder", string>>;
-type LLMFormErrors = Partial<Record<"configKey" | "taskType" | "provider" | "modelName" | "priority" | "extraConfigText", string>>;
+type LLMFormErrors = Partial<Record<"configKey" | "taskType" | "provider" | "modelName" | "maxConcurrent" | "maxQps" | "priority" | "extraConfigText", string>>;
 
 function normalizeRecruitmentOrgCode(value?: string | null) {
     const text = String(value || "").trim();
@@ -697,7 +706,9 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                 <div className="ml-auto flex items-center gap-2">
                     {positionCandidatesTotal > 0 && (
                         <span className="shrink-0 text-[11px] text-slate-400">
-                            {positionCandidatesTotal}{isZh ? "人" : " total"}
+                            {positionCandidateStatusFilter !== "__all__"
+                                ? `${positionFilteredSortedCandidates.length}/${positionCandidatesTotal}${isZh ? "人" : " shown"}`
+                                : `${positionCandidatesTotal}${isZh ? "人" : " total"}`}
                         </span>
                     )}
                     <Button
@@ -715,7 +726,7 @@ const PositionCandidatesView = React.memo(function PositionCandidatesView(props:
                 <span>{isZh ? "姓名" : "Name"}</span>
                 <span>{isZh ? "手机/邮箱" : "Phone/Email"}</span>
                 <span>{isZh ? "简历" : "Resume"}</span>
-                <span>{isZh ? "城市" : "City"}</span>
+                <span>{isZh ? "所在城市" : "Current City"}</span>
                 <span>{isZh ? "年龄" : "Age"}</span>
                 <span>{isZh ? "学历" : "Education"}</span>
                 <span>{isZh ? "年限" : "Exp"}</span>
@@ -875,9 +886,13 @@ const ResumePreviewModal = React.memo(function ResumePreviewModal({
 function TalentPoolSearch({
     positions,
     onAssignCandidates,
+    activeOrgCodes,
+    orgCode,
 }: {
     positions: PositionSummary[];
     onAssignCandidates: (candidateIds: number[]) => void;
+    activeOrgCodes: string[];
+    orgCode?: string;
 }) {
     const {language} = useI18n();
     const isZh = language === "zh-CN";
@@ -891,17 +906,26 @@ function TalentPoolSearch({
     const loadTalentPoolCandidates = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await authenticatedFetch("/api/recruitment/candidates/talent-pool");
+            const query = buildQuery({
+                org_code: orgCode || undefined,
+            });
+            const response = await authenticatedFetch(`/api/recruitment/candidates/talent-pool${query}`);
             const data = await response.json();
             if (data.success && data.data) {
-                setTalentPoolCandidates(data.data);
+                setTalentPoolCandidates(filterBusinessRowsByOrgCodes(data.data, activeOrgCodes));
             }
         } catch (error) {
             console.error("Failed to load talent pool candidates:", error);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [activeOrgCodes, orgCode]);
+
+    useEffect(() => {
+        setTalentPoolCandidates([]);
+        setSelectedIds(new Set());
+        setShowDropdown(false);
+    }, [activeOrgCodes, orgCode]);
 
     // 搜索过滤
     const filteredCandidates = useMemo(() => {
@@ -1179,10 +1203,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         baseUrlLabel: "Base URL",
         apiKeyEnvLabel: isZh ? "API Key 环境变量" : "API Key Environment Variable",
         apiKeyValueLabel: isZh ? "API Key 值" : "API Key Value",
+        maxConcurrentLabel: isZh ? "最大并发" : "Max Concurrency",
+        maxQpsLabel: isZh ? "每秒请求数" : "Requests Per Second",
         priorityLabel: isZh ? "优先级" : "Priority",
         extraConfigLabel: "Extra Config",
         apiKeyEnvPlaceholder: isZh ? "例如 GEMINI_API_KEY" : "For example: GEMINI_API_KEY",
         apiKeyValuePlaceholder: isZh ? "可选，留空则使用环境变量" : "Optional. Leave empty to use the environment variable.",
+        maxConcurrentHint: isZh ? "同一模型配置的并发是全局共享的。填 1 表示所有人共用同一串行队列。" : "Concurrency is shared globally for the same model config. Use 1 to force a single serial queue for everyone.",
+        maxQpsHint: isZh ? "同一模型配置的 QPS 也是全局共享。填 0 表示不额外限制。" : "QPS is also shared globally for the same model config. Use 0 to disable the extra cap.",
         modelNameHint: isZh
             ? "这里就是实际调用的大模型标识。如果你要换模型版本，直接编辑这里即可。"
             : "This is the actual model identifier used at runtime. Edit it directly when you want to switch model versions.",
@@ -1198,6 +1226,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         llmProviderTooLong: isZh ? "Provider 不能超过 80 个字符" : "Provider cannot exceed 80 characters",
         llmModelNameRequired: isZh ? "请输入模型名称" : "Please enter a model name",
         llmModelNameTooLong: isZh ? "模型名称不能超过 120 个字符" : "Model name cannot exceed 120 characters",
+        llmMaxConcurrentInvalid: isZh ? "最大并发需为 1 到 100 之间的整数" : "Max concurrency must be an integer between 1 and 100",
+        llmMaxQpsInvalid: isZh ? "每秒请求数需为 0 到 1000 之间的整数" : "Requests per second must be an integer between 0 and 1000",
         llmPriorityInvalid: isZh ? "优先级需为 0 到 999 之间的整数" : "Priority must be an integer between 0 and 999",
         llmExtraConfigInvalidJson: isZh ? "Extra Config 必须是合法 JSON" : "Extra Config must be valid JSON",
         llmExtraConfigObjectOnly: isZh ? "Extra Config 必须是 JSON 对象" : "Extra Config must be a JSON object",
@@ -1383,6 +1413,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         linkPosition: isZh ? "关联岗位" : "Link Position",
         selectFiles: isZh ? "选择文件" : "Select Files",
         city: isZh ? "所在城市" : "City",
+        expectedCity: isZh ? "期望城市" : "Expected City",
         manualCityEntry: isZh ? "手动指定" : "Manual",
         autoDetectCity: isZh ? "自动识别" : "Auto Detect",
         cityPlaceholder: isZh ? "输入或选择城市" : "Enter or select city",
@@ -1490,6 +1521,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [positionCandidateSearch, setPositionCandidateSearch] = useState("");
     const [positionCandidateStatusFilter, setPositionCandidateStatusFilter] = useState<string>("__all__");
     const [positionCandidateDetailOpen, setPositionCandidateDetailOpen] = useState(false);
+    const [talentPoolCandidateDetailOpen, setTalentPoolCandidateDetailOpen] = useState(false);
 
     const [positionCandidatesData, setPositionCandidatesData] = useState<CandidateSummary[]>([]);
     const [positionCandidatesLoading, setPositionCandidatesLoading] = useState(false);
@@ -1513,6 +1545,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [allCandidates, setAllCandidates] = useState<CandidateSummary[]>([]);
     const [candidates, setCandidates] = useState<CandidateSummary[]>([]);
     const [candidateDetail, setCandidateDetail] = useState<CandidateDetail | null>(null);
+    const [allTalentPoolCandidates, setAllTalentPoolCandidates] = useState<CandidateSummary[]>([]);
     const [talentPoolCandidates, setTalentPoolCandidates] = useState<CandidateSummary[]>([]);
     const [talentPoolLoading, setTalentPoolLoading] = useState(false);
     const [allSkills, setAllSkills] = useState<RecruitmentSkill[]>([]);
@@ -1744,10 +1777,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [skillFormErrors, setSkillFormErrors] = useState<SkillFormErrors>({});
     const [skillFormSubmitError, setSkillFormSubmitError] = useState<string | null>(null);
     const [skillEditorData, setSkillEditorData] = useState<ScreeningSkillFormData>(emptyScreeningSkillForm());
+    const [skillDialogMode, setSkillDialogMode] = useState<"structured" | "basic">("structured");
     const [skillEditorDefaultTab, setSkillEditorDefaultTab] = useState<"structured" | "advanced" | "ai">("structured");
     const [skillEditorPositionId, setSkillEditorPositionId] = useState<number | null>(null);
     const [skillGenerating, setSkillGenerating] = useState(false);
     const [skillAutoBindCategory, setSkillAutoBindCategory] = useState<"jdSkillIds" | "screeningSkillIds" | "interviewSkillIds" | null>(null);
+    const [skillBoundPositionId, setSkillBoundPositionId] = useState<string>("");
+    const [skillExtraConditions, setSkillExtraConditions] = useState("");
+    const [positionSkillSearch, setPositionSkillSearch] = useState("");
+    const [positionSkillSectionExpanded, setPositionSkillSectionExpanded] = useState<PositionSkillSectionExpandedState>(DEFAULT_POSITION_SKILL_SECTION_EXPANDED_STATE);
 
     const [llmDialogOpen, setLlmDialogOpen] = useState(false);
     const [llmEditingId, setLlmEditingId] = useState<number | null>(null);
@@ -1875,14 +1913,117 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const activeCreateOrgCode = useMemo(() => (
         showOrganizationFields ? defaultFormOrgCode : (activeBusinessOrgCodes[0] || defaultFormOrgCode)
     ), [activeBusinessOrgCodes, defaultFormOrgCode, showOrganizationFields]);
+    const currentResumeUploadDefaultOrgCode = useMemo(() => {
+        const selectedDepartmentCode = normalizeRecruitmentOrgCode(selectedDepartmentScope);
+        if (
+            selectedDepartmentCode
+            && selectedDepartmentCode !== ALL_COMPANY_DEPARTMENTS_VALUE
+            && organizationSelectOptions.some((option) => option.value === selectedDepartmentCode)
+        ) {
+            return selectedDepartmentCode;
+        }
+        const selectedCompanyCode = normalizeRecruitmentOrgCode(selectedOrgScope);
+        if (organizationSelectOptions.some((option) => option.value === selectedCompanyCode)) {
+            return selectedCompanyCode;
+        }
+        return activeCreateOrgCode;
+    }, [activeCreateOrgCode, organizationSelectOptions, selectedDepartmentScope, selectedOrgScope]);
     const positionMap = useMemo(() => new Map(positions.map((item) => [item.id, item])), [positions]);
     const candidateMap = useMemo(() => new Map(candidates.map((item) => [item.id, item])), [candidates]);
     const skillMap = useMemo(() => new Map(skills.map((item) => [item.id, item])), [skills]);
     const enabledSkills = useMemo(() => skills.filter((skill) => skill.is_enabled !== false), [skills]);
     const enabledSkillMap = useMemo(() => new Map(enabledSkills.map((item) => [item.id, item])), [enabledSkills]);
-    const jdAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills.filter((s) => !s.task_types?.length || s.task_types.includes("jd")), "jd"), [enabledSkills]);
-    const screeningAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills.filter((s) => !s.task_types?.length || s.task_types.includes("screening")), "screening"), [enabledSkills]);
-    const interviewAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(enabledSkills.filter((s) => !s.task_types?.length || s.task_types.includes("interview")), "interview"), [enabledSkills]);
+    const normalizedPositionSkillSearch = positionSkillSearch.trim().toLowerCase();
+    const activePositionSkillBindingId = positionDialogMode === "edit" ? selectedPositionId : null;
+    const positionSkillFieldConfig = useMemo(() => ({
+        jdSkillIds: {
+            taskKind: "jd" as const,
+            label: recruitmentUiText.jdSkillLabel,
+            emptyLabel: isZh ? "未选择" : "Not selected",
+            selectedPrefix: isZh ? "已选：" : "Selected: ",
+            placeholder: isZh ? "搜索可用于当前岗位的 JD 方案" : "Search JD plans for this position",
+        },
+        screeningSkillIds: {
+            taskKind: "screening" as const,
+            label: recruitmentUiText.screeningSkillLabel,
+            emptyLabel: isZh ? "未选择" : "Not selected",
+            selectedPrefix: isZh ? "已选：" : "Selected: ",
+            placeholder: isZh ? "搜索可用于当前岗位的初筛方案" : "Search screening plans for this position",
+        },
+        interviewSkillIds: {
+            taskKind: "interview" as const,
+            label: recruitmentUiText.interviewSkillLabel,
+            emptyLabel: isZh ? "未选择" : "Not selected",
+            selectedPrefix: isZh ? "已选：" : "Selected: ",
+            placeholder: isZh ? "搜索可用于当前岗位的面试题方案" : "Search interview plans for this position",
+        },
+    }), [isZh, recruitmentUiText.interviewSkillLabel, recruitmentUiText.jdSkillLabel, recruitmentUiText.screeningSkillLabel]);
+    const filterBindableSkillsForPosition = useCallback((taskKind: SkillTaskKind) => (
+        enabledSkills.filter((skill) => {
+            const matchesTask = !skill.task_types?.length || skill.task_types.includes(taskKind);
+            const matchesPosition = !skill.bound_position_id || skill.bound_position_id === activePositionSkillBindingId;
+            const searchHaystack = [
+                skill.name,
+                skill.description,
+                skill.bound_position_title,
+                ...(skill.tags || []),
+            ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase();
+            const matchesSearch = !normalizedPositionSkillSearch || searchHaystack.includes(normalizedPositionSkillSearch);
+            return matchesTask && matchesPosition && matchesSearch;
+        })
+    ), [activePositionSkillBindingId, enabledSkills, normalizedPositionSkillSearch]);
+    const jdAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(filterBindableSkillsForPosition("jd"), "jd"), [filterBindableSkillsForPosition]);
+    const screeningAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(filterBindableSkillsForPosition("screening"), "screening"), [filterBindableSkillsForPosition]);
+    const interviewAuthoringSkills = useMemo(() => sortSkillsForTaskPreference(filterBindableSkillsForPosition("interview"), "interview"), [filterBindableSkillsForPosition]);
+    const positionSkillChoicesByField = useMemo<Record<PositionSkillBindingField, RecruitmentSkill[]>>(() => ({
+        jdSkillIds: jdAuthoringSkills,
+        screeningSkillIds: screeningAuthoringSkills,
+        interviewSkillIds: interviewAuthoringSkills,
+    }), [interviewAuthoringSkills, jdAuthoringSkills, screeningAuthoringSkills]);
+    const selectedPositionSkillText = useMemo<Record<PositionSkillBindingField, string>>(() => {
+        const formatSelected = (ids: number[], emptyLabel: string) => (
+            ids.length ? formatSkillNames(ids.slice(0, 1), skillMap, language) : emptyLabel
+        );
+        return {
+            jdSkillIds: formatSelected(positionForm.jdSkillIds, positionSkillFieldConfig.jdSkillIds.emptyLabel),
+            screeningSkillIds: formatSelected(positionForm.screeningSkillIds, positionSkillFieldConfig.screeningSkillIds.emptyLabel),
+            interviewSkillIds: formatSelected(positionForm.interviewSkillIds, positionSkillFieldConfig.interviewSkillIds.emptyLabel),
+        };
+    }, [
+        language,
+        positionForm.interviewSkillIds,
+        positionForm.jdSkillIds,
+        positionForm.screeningSkillIds,
+        positionSkillFieldConfig.interviewSkillIds.emptyLabel,
+        positionSkillFieldConfig.jdSkillIds.emptyLabel,
+        positionSkillFieldConfig.screeningSkillIds.emptyLabel,
+        skillMap,
+    ]);
+    const skillDialogBindingTaskKind = skillDialogMode === "structured" ? "screening" : (skillForm.taskTypes[0] || null);
+    const bindablePositionsForSkillDialog = useMemo(() => {
+        if (!skillDialogBindingTaskKind) {
+            return positions;
+        }
+        const currentBoundPositionId = skillBoundPositionId ? Number(skillBoundPositionId) : null;
+        return positions.filter((position) => {
+            if ((currentBoundPositionId && position.id === currentBoundPositionId) || (skillEditingId && (
+                (skillDialogBindingTaskKind === "jd" && (position.jd_skill_ids || []).includes(skillEditingId))
+                || (skillDialogBindingTaskKind === "screening" && (position.screening_skill_ids || []).includes(skillEditingId))
+                || (skillDialogBindingTaskKind === "interview" && (position.interview_skill_ids || []).includes(skillEditingId))
+            ))) {
+                return true;
+            }
+            const occupiedSkillIds = skillDialogBindingTaskKind === "jd"
+                ? (position.jd_skill_ids || [])
+                : skillDialogBindingTaskKind === "screening"
+                    ? (position.screening_skill_ids || [])
+                    : (position.interview_skill_ids || []);
+            return occupiedSkillIds.length === 0;
+        });
+    }, [positions, skillBoundPositionId, skillDialogBindingTaskKind, skillEditingId]);
     const mailSenderMap = useMemo(() => new Map(mailSenderConfigs.map((item) => [item.id, item])), [mailSenderConfigs]);
     const mailRecipientMap = useMemo(() => new Map(mailRecipients.map((item) => [item.id, item])), [mailRecipients]);
     const currentJDVersion = positionDetail?.current_jd_version || null;
@@ -2325,6 +2466,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     useEffect(() => {
         setPositions(filterBusinessRowsByOrgCodes(allPositions, activeBusinessOrgCodes));
         setCandidates(filterBusinessRowsByOrgCodes(allCandidates, activeBusinessOrgCodes));
+        setTalentPoolCandidates(filterBusinessRowsByOrgCodes(allTalentPoolCandidates, activeBusinessOrgCodes));
         setSkills(filterResourceRowsByOrgCodes(allSkills, activeBusinessOrgCodes, organizationMap));
         setAiLogs(filterBusinessRowsByOrgCodes(allAiLogs, activeBusinessOrgCodes));
         setLlmConfigs(filterResourceRowsByOrgCodes(allLlmConfigs, activeBusinessOrgCodes, organizationMap));
@@ -2335,6 +2477,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         activeBusinessOrgCodes,
         allAiLogs,
         allCandidates,
+        allTalentPoolCandidates,
         allLlmConfigs,
         allMailRecipients,
         allMailSenderConfigs,
@@ -2448,6 +2591,22 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionCandidatesTotal(0);
         setPositionCandidatesInitialLoaded(false);
     }, [selectedPositionId]);
+
+    useEffect(() => {
+        if (activePage !== "talent-pool") {
+            setTalentPoolCandidateDetailOpen(false);
+        }
+    }, [activePage]);
+
+    useEffect(() => {
+        if (
+            talentPoolCandidateDetailOpen
+            && selectedCandidateId
+            && !talentPoolCandidates.some((candidate) => candidate.id === selectedCandidateId)
+        ) {
+            setTalentPoolCandidateDetailOpen(false);
+        }
+    }, [selectedCandidateId, talentPoolCandidateDetailOpen, talentPoolCandidates]);
 
     // 搜索候选人（服务端搜索，防抖 300ms）
     // 只在岗位页面且工作区视图为candidates时才加载
@@ -2766,18 +2925,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     const newStatus = event.status;
                     // 匹配成功（pending_screening/screening_running）：从人才池移除，加入候选人列表
                     if (newStatus === "pending_screening" || newStatus === "screening_running") {
-                        setTalentPoolCandidates(prev => prev.filter(c => c.id !== event.candidate_id));
+                        setAllTalentPoolCandidates(prev => prev.filter(c => c.id !== event.candidate_id));
                         // 触发候选人列表刷新
                         void loadCandidates({ silent: true, force: true });
                     } else {
                         // unmatched 或 matching：更新人才池中的匹配信息
-                        setTalentPoolCandidates(prev => prev.map(c =>
+                        setAllTalentPoolCandidates(prev => prev.map(c =>
                             c.id === event.candidate_id
                                 ? {
                                     ...c,
                                     status: newStatus ?? c.status,
                                     ai_match_position_id: event.ai_match_position_id ?? c.ai_match_position_id,
                                     ai_match_position_title: event.ai_match_position_title ?? c.ai_match_position_title,
+                                    ai_potential_position: event.ai_potential_position ?? c.ai_potential_position,
+                                    ai_potential_reason: event.ai_potential_reason ?? c.ai_potential_reason,
                                 }
                                 : c
                         ));
@@ -2916,6 +3077,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             education: candidate?.education || "",
             age: candidate?.age != null ? String(candidate.age) : "",
             city: candidate?.city || "",
+            expectedCity: candidate?.expected_city || "",
             notes: candidate?.notes || "",
             tagsText: joinTags(candidate?.tags),
             manualOverrideScore: score?.manual_override_score ? String(score.manual_override_score) : "",
@@ -3422,9 +3584,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     async function loadTalentPoolCandidates() {
         setTalentPoolLoading(true);
         try {
-            const data = await recruitmentApi<CandidateSummary[]>("/candidates/talent-pool");
+            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const data = await recruitmentApi<CandidateSummary[]>(`/candidates/talent-pool${orgCodeParam}`);
             if (mountedRef.current) {
-                setTalentPoolCandidates(data || []);
+                setAllTalentPoolCandidates(data || []);
             }
         } catch (error) {
             console.error("Failed to load talent pool candidates:", error);
@@ -4770,6 +4933,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionCandidateDetailOpen(true);
     }, []);
 
+    const handleTalentPoolCandidateSelect = useCallback((candidateId: number) => {
+        setSelectedCandidateId(candidateId);
+        setTalentPoolCandidateDetailOpen(true);
+    }, []);
+
     const handleViewResume = useCallback(async (candidateId: number) => {
         // Use cached resume_files if we already have detail for this candidate
         if (candidateDetail?.candidate.id === candidateId && candidateDetail?.resume_files?.length) {
@@ -4797,12 +4965,243 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setPositionQuery(v);
     }, []);
 
+    function renderSharedCandidateDrawerContent(onClose: () => void) {
+        if (
+            candidateDetailLoading
+            || (selectedCandidateId && candidateDetail?.candidate.id !== selectedCandidateId)
+        ) {
+            return <LoadingPanel label={isZh ? "加载中..." : "Loading..."} />;
+        }
+        if (!candidateDetail) {
+            return (
+                <div className="flex h-full items-center justify-center px-6 text-sm text-slate-500 dark:text-slate-400">
+                    {isZh ? "暂无候选人详情" : "Candidate details are not available yet"}
+                </div>
+            );
+        }
+
+        const c = candidateDetail.candidate;
+        const score = candidateDetail.score;
+        const resumeFiles = candidateDetail.resume_files || [];
+        const statusHistory = candidateDetail.status_history || [];
+
+        return (
+            <div className="flex h-full min-h-0 flex-col">
+                <div className="flex items-center justify-between border-b border-slate-200/80 bg-slate-50/60 px-4 py-3.5 dark:border-slate-800 dark:bg-slate-900/40">
+                    <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{c.name}</p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">{c.candidate_code}</p>
+                    </div>
+                    <button
+                        type="button"
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                        onClick={onClose}
+                    >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto space-y-5 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(c)))}>
+                            {labelForCandidateStatus(resolveCandidateDisplayStatus(c))}
+                        </Badge>
+                        <Badge variant="outline" className="rounded-full">
+                            {isZh ? "匹配度" : "Match"} {formatPercent(c.match_percent)}
+                        </Badge>
+                        {c.position_title && (
+                            <Badge variant="outline" className="rounded-full">
+                                {c.position_title}
+                            </Badge>
+                        )}
+                    </div>
+                    <div className="space-y-1.5 text-sm">
+                        <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "基本信息" : "Basic Info"}</p>
+                        {[
+                            { label: isZh ? "手机号" : "Phone", value: c.phone },
+                            { label: isZh ? "邮箱" : "Email", value: c.email },
+                            { label: isZh ? "所在城市" : "Current City", value: c.city },
+                            { label: isZh ? "期望城市" : "Expected City", value: c.expected_city },
+                            { label: isZh ? "年龄" : "Age", value: c.age != null ? String(c.age) : null },
+                            { label: isZh ? "公司" : "Company", value: c.current_company },
+                            { label: isZh ? "工作年限" : "Experience", value: c.years_of_experience },
+                            { label: isZh ? "学历" : "Education", value: c.education },
+                            { label: isZh ? "来源" : "Source", value: c.source },
+                        ].filter((field) => field.value).map((field) => (
+                            <div key={field.label} className="flex items-center justify-between gap-4">
+                                <span className="text-slate-500">{field.label}</span>
+                                <span className="text-right font-medium text-slate-900 dark:text-slate-100">{field.value}</span>
+                            </div>
+                        ))}
+                    </div>
+                    {(c.screened_position_title || c.ai_match_position_title || c.ai_potential_position) ? (
+                        <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                            {c.screened_position_title ? (
+                                <div className="font-medium">{`${isZh ? "初筛岗位" : "Screening Position"}：${c.screened_position_title}`}</div>
+                            ) : null}
+                            {c.ai_match_position_title ? (
+                                <div className={c.screened_position_title ? "mt-1" : "font-medium"}>{`${isZh ? "AI 主匹配岗位" : "AI Primary Match"}：${c.ai_match_position_title}`}</div>
+                            ) : null}
+                            {c.ai_match_position_title && c.ai_match_reason ? (
+                                <div className="mt-1 text-sky-600 dark:text-sky-200/80">{c.ai_match_reason}</div>
+                            ) : null}
+                            {c.ai_potential_position ? (
+                                <div className={c.screened_position_title || c.ai_match_position_title ? "mt-2 border-t border-sky-200/70 pt-2 dark:border-sky-900/70" : ""}>
+                                    <div className="font-medium">{`${isZh ? "转岗潜力方向" : "Potential Transition"}：${c.ai_potential_position}`}</div>
+                                    {c.ai_potential_reason ? (
+                                        <div className="mt-1 text-sky-600 dark:text-sky-200/80">{c.ai_potential_reason}</div>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
+                    {score && score.dimensions && score.dimensions.length > 0 && (
+                        <div className="space-y-2">
+                            <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "综合能力概览" : "Competency Overview"}</p>
+                            <CandidateRadarChart
+                                dimensions={score.dimensions}
+                                radarScores={score.radar_scores}
+                                isZh={isZh}
+                                mode="aggregated"
+                                uiText={{
+                                    scoreDetails: isZh ? "评分详情" : "Score Details",
+                                    coreSkills: isZh ? "核心能力" : "Core Competencies",
+                                    otherSkills: isZh ? "其他维度" : "Other Dimensions",
+                                    noData: isZh ? "AI 尚未完成维度评分" : "No evaluation data",
+                                    benchmark: isZh ? "岗位基准线" : "Benchmark",
+                                }}
+                            />
+                            <p className="mt-4 text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "各维度得分" : "Dimension Scores"}</p>
+                            <CandidateRadarChart
+                                dimensions={score.dimensions}
+                                isZh={isZh}
+                                mode="individual"
+                                uiText={{
+                                    scoreDetails: isZh ? "评分详情" : "Score Details",
+                                    coreSkills: isZh ? "核心能力" : "Core Competencies",
+                                    otherSkills: isZh ? "其他维度" : "Other Dimensions",
+                                    noData: isZh ? "AI 尚未完成维度评分" : "No evaluation data",
+                                    benchmark: isZh ? "岗位基准线" : "Benchmark",
+                                }}
+                            />
+                            <div className="space-y-3">
+                                {score.dimensions.map((dim, index) => (
+                                    <div
+                                        key={index}
+                                        data-dim-reason={dim.label || `维度${index + 1}`}
+                                        className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/30"
+                                    >
+                                        <div className="mb-1 flex items-center justify-between">
+                                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                                                {dim.label || `维度${index + 1}`}
+                                            </span>
+                                            <div className="flex items-center gap-2 font-mono text-[11px] text-slate-400">
+                                                <span>{dim.score ?? "-"}/{dim.max_score ?? "-"}</span>
+                                                {dim.is_inferred && (
+                                                    <Badge variant="outline" className="h-3.5 bg-slate-100 px-1 py-0 text-[9px]">
+                                                        {isZh ? "推断" : "Inf"}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {dim.reason ? (
+                                            <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                                                {dim.reason}
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                    {score && (score.advantages?.length || score.concerns?.length || score.recommendation) ? (
+                        <div className="space-y-2">
+                            {score.advantages && score.advantages.length > 0 ? (
+                                <div>
+                                    <p className="text-[11px] text-emerald-600 dark:text-emerald-400">{isZh ? "优势" : "Advantages"}</p>
+                                    <ul className="mt-1 space-y-0.5">
+                                        {score.advantages.map((item, index) => (
+                                            <li key={index} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{item}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ) : null}
+                            {score.concerns && score.concerns.length > 0 ? (
+                                <div>
+                                    <p className="text-[11px] text-amber-600 dark:text-amber-400">{isZh ? "风险" : "Concerns"}</p>
+                                    <ul className="mt-1 space-y-0.5">
+                                        {score.concerns.map((item, index) => (
+                                            <li key={index} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{item}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ) : null}
+                            {score.recommendation ? (
+                                <div>
+                                    <p className="text-[11px] text-slate-400">{isZh ? "推荐意见" : "Recommendation"}</p>
+                                    <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">{score.recommendation}</p>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : null}
+                    {resumeFiles.length > 0 ? (
+                        <div className="space-y-1.5">
+                            <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "简历文件" : "Resumes"}</p>
+                            {resumeFiles.map((resumeFile) => (
+                                <div
+                                    key={resumeFile.id}
+                                    onClick={() => openResumePreview(resumeFile)}
+                                    className="group flex cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-slate-800 dark:hover:border-blue-700 dark:hover:bg-blue-900/20"
+                                >
+                                    <FileText className="h-4 w-4 shrink-0 text-red-500" />
+                                    <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">{resumeFile.original_name}</span>
+                                    <Badge variant="outline" className={cn("shrink-0 text-[10px]", resumeFile.parse_status === "completed" ? "text-emerald-600" : "text-slate-400")}>
+                                        {resumeFile.parse_status}
+                                    </Badge>
+                                    <Eye className="h-3.5 w-3.5 shrink-0 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100" />
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
+                    {statusHistory.length > 0 ? (
+                        <div className="space-y-1.5">
+                            <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "状态变更" : "Status History"}</p>
+                            {statusHistory.slice(0, 8).map((item) => (
+                                <div key={item.id} className="flex items-center gap-2 text-xs">
+                                    <span className="text-slate-400">{item.created_at ? formatDateTime(item.created_at) : ""}</span>
+                                    <span className="text-slate-500">{item.from_status ? labelForCandidateStatus(item.from_status) : "-"}</span>
+                                    <span className="text-slate-300">{"→"}</span>
+                                    <span className="font-medium text-slate-700 dark:text-slate-300">{labelForCandidateStatus(item.to_status)}</span>
+                                    {item.reason ? <span className="truncate text-slate-400">{item.reason}</span> : null}
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+                <div className="shrink-0 border-t border-slate-200/80 p-3 dark:border-slate-800">
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full rounded-lg"
+                        onClick={() => {
+                            onClose();
+                            navigateToRecruitmentPage("candidates");
+                        }}
+                    >
+                        {recruitmentUiText.viewInCandidatePage}
+                    </Button>
+                </div>
+            </div>
+        );
+    }
+
     function openCreatePosition() {
         setPositionDialogMode("create");
         setPositionForm({
             ...emptyPositionForm(),
             orgCode: showOrganizationFields ? "" : activeCreateOrgCode,
         });
+        setPositionSkillSearch("");
+        setPositionSkillSectionExpanded(DEFAULT_POSITION_SKILL_SECTION_EXPANDED_STATE);
         setPositionFormErrors({});
         setPositionFormSubmitError(null);
         setPositionDialogOpen(true);
@@ -4837,10 +5236,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             autoMailDedupMode: positionDetail.position.auto_mail_dedup_mode || "once_per_candidate_per_status",
             autoMailCcRecipientIds: positionDetail.position.auto_mail_cc_recipient_ids || [],
             autoMailBccRecipientIds: positionDetail.position.auto_mail_bcc_recipient_ids || [],
-            jdSkillIds: positionDetail.position.jd_skill_ids || [],
-            screeningSkillIds: positionDetail.position.screening_skill_ids || [],
-            interviewSkillIds: positionDetail.position.interview_skill_ids || [],
+            jdSkillIds: (positionDetail.position.jd_skill_ids || []).slice(0, 1),
+            screeningSkillIds: (positionDetail.position.screening_skill_ids || []).slice(0, 1),
+            interviewSkillIds: (positionDetail.position.interview_skill_ids || []).slice(0, 1),
         });
+        setPositionSkillSearch("");
+        setPositionSkillSectionExpanded(DEFAULT_POSITION_SKILL_SECTION_EXPANDED_STATE);
         setPositionFormErrors({});
         setPositionFormSubmitError(null);
         setPositionDialogOpen(true);
@@ -4874,6 +5275,50 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 return next;
             });
         }
+    }
+
+    function updatePositionSkillBinding(
+        field: PositionSkillBindingField,
+        nextIds: number[],
+        options?: { expandSection?: boolean },
+    ) {
+        const dedupedIds = Array.from(new Set(nextIds)).slice(-1);
+        setPositionForm((current) => ({
+            ...current,
+            [field]: dedupedIds,
+            autoScreenOnUpload: field === "screeningSkillIds"
+                ? (dedupedIds.length > 0 ? (current.autoScreenOnUpload || current.screeningSkillIds.length === 0) : false)
+                : current.autoScreenOnUpload,
+        }));
+        if (options?.expandSection) {
+            setPositionSkillSectionExpanded((current) => ({
+                ...current,
+                [field]: true,
+            }));
+        }
+        setPositionFormSubmitError(null);
+    }
+
+    async function refreshSkillBindingViews(affectedPositionIds: Array<number | null | undefined>) {
+        const normalizedIds = Array.from(
+            new Set(
+                affectedPositionIds
+                    .map((value) => Number(value || 0))
+                    .filter((value) => Number.isFinite(value) && value > 0),
+            ),
+        );
+        const tasks: Promise<unknown>[] = [loadSkills(), loadPositions()];
+        if (selectedPositionId && normalizedIds.includes(selectedPositionId)) {
+            tasks.push(loadPositionDetail(selectedPositionId));
+        }
+        await Promise.all(tasks);
+    }
+
+    function upsertSkillInLocalState(skill: RecruitmentSkill) {
+        setAllSkills((current) => [
+            skill,
+            ...current.filter((item) => item.id !== skill.id),
+        ]);
     }
 
     function updateSkillFormField<K extends keyof SkillFormState>(field: K, value: SkillFormState[K]) {
@@ -4928,6 +5373,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 delete next.modelName;
                 changed = true;
             }
+            if (field === "maxConcurrent" && next.maxConcurrent) {
+                delete next.maxConcurrent;
+                changed = true;
+            }
+            if (field === "maxQps" && next.maxQps) {
+                delete next.maxQps;
+                changed = true;
+            }
             if (field === "priority" && next.priority) {
                 delete next.priority;
                 changed = true;
@@ -4970,6 +5423,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const taskType = form.taskType.trim();
         const provider = form.provider.trim();
         const modelName = form.modelName.trim();
+        const maxConcurrent = form.maxConcurrent.trim();
+        const maxQps = form.maxQps.trim();
         const priority = form.priority.trim();
 
         if (!configKey) {
@@ -4996,6 +5451,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             errors.modelName = recruitmentUiText.llmModelNameRequired;
         } else if (modelName.length > 120) {
             errors.modelName = recruitmentUiText.llmModelNameTooLong;
+        }
+
+        if (!/^\d+$/.test(maxConcurrent) || Number(maxConcurrent) < 1 || Number(maxConcurrent) > 100) {
+            errors.maxConcurrent = recruitmentUiText.llmMaxConcurrentInvalid;
+        }
+
+        if (!/^\d+$/.test(maxQps) || Number(maxQps) < 0 || Number(maxQps) > 1000) {
+            errors.maxQps = recruitmentUiText.llmMaxQpsInvalid;
         }
 
         if (priority && (!/^\d+$/.test(priority) || Number(priority) < 0 || Number(priority) > 999)) {
@@ -5053,6 +5516,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         if (/body\.model_name\b/i.test(message)) {
             return {fieldErrors: {modelName: recruitmentUiText.llmModelNameRequired} as LLMFormErrors, submitError: null};
+        }
+        if (/body\.max_concurrent\b/i.test(message)) {
+            return {fieldErrors: {maxConcurrent: recruitmentUiText.llmMaxConcurrentInvalid} as LLMFormErrors, submitError: null};
+        }
+        if (/body\.max_qps\b/i.test(message)) {
+            return {fieldErrors: {maxQps: recruitmentUiText.llmMaxQpsInvalid} as LLMFormErrors, submitError: null};
         }
         return {fieldErrors: null, submitError: message};
     }
@@ -5435,7 +5904,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             org_code: orgCode,
             city: resumeUploadCitySource === "manual" ? (resumeUploadCity || null) : null,
             city_source: resumeUploadCitySource,
-            match_mode: resumeUploadMode === "smart" ? "smart" : undefined,
+            match_mode: resumeUploadMode === "smart" ? "smart" : (resumeUploadMode === "none" ? "none" : undefined),
             source: resumeUploadSource,
             duplicate_strategy: resumeUploadDuplicateStrategy,
         });
@@ -5618,7 +6087,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function exportCandidates(candidateIds: number[], includeResumes = true) {
+    async function exportCandidates(
+        candidateIds: number[],
+        options?: { includeResumes?: boolean; fields?: string[] },
+    ) {
         if (!candidateIds.length) {
             toast.error(recruitmentToast.selectCandidatesToExport);
             return;
@@ -5626,6 +6098,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (exporting) {
             return;
         }
+        const includeResumes = options?.includeResumes ?? true;
+        const fields = options?.fields ?? [];
         setExporting(true);
         const exportToastId = toast.loading(recruitmentToast.exporting);
         try {
@@ -5635,6 +6109,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 body: JSON.stringify({
                     candidate_ids: candidateIds,
                     include_resumes: includeResumes,
+                    fields,
                 }),
                 cache: "no-store",
             });
@@ -5695,21 +6170,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             <option value="">{positionsLoading ? recruitmentUiText.loading : isZh ? "请选择岗位" : "Select position"}</option>
                             {positions.map((position) => (
                                 <option key={position.id} value={position.id}>{position.title}</option>
-                            ))}
-                        </NativeSelect>
-                    </Field>
-                ) : null}
-
-                {/* 暂不选择模式：显示组织选择 */}
-                {resumeUploadMode === "none" && showOrganizationFields && organizationSelectOptions.length > 1 ? (
-                    <Field label={recruitmentUiText.targetOrganization}>
-                        <NativeSelect
-                            value={resumeUploadOrgCode}
-                            onChange={(event) => setResumeUploadOrgCode(event.target.value)}
-                        >
-                            <option value="">{recruitmentUiText.chooseTargetOrganization}</option>
-                            {organizationSelectOptions.map((option) => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                         </NativeSelect>
                     </Field>
@@ -5879,7 +6339,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setResumeUploadOrgCode(normalizeRecruitmentOrgCode(positionMap.get(selectedPositionId)?.org_code || activeCreateOrgCode));
         } else {
             setResumeUploadPositionId("all");
-            setResumeUploadOrgCode(showOrganizationFields ? "" : activeCreateOrgCode);
+            setResumeUploadOrgCode(currentResumeUploadDefaultOrgCode);
         }
         setResumeUploadOpen(true);
     }
@@ -5890,28 +6350,34 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         setCandidateSaving(true);
         try {
+            const originalPositionId = candidateDetail?.candidate.position_id ?? null;
+            const nextPositionId = candidateEditor.positionId ? Number(candidateEditor.positionId) : null;
+            const payload: Record<string, unknown> = {
+                name: candidateEditor.name.trim(),
+                phone: candidateEditor.phone.trim() || null,
+                email: candidateEditor.email.trim() || null,
+                current_company: candidateEditor.currentCompany.trim() || null,
+                years_of_experience: candidateEditor.yearsOfExperience.trim() || null,
+                education: candidateEditor.education.trim() || null,
+                age: (() => { const v = Number(candidateEditor.age.trim()); return v && !isNaN(v) ? v : null; })(),
+                city: candidateEditor.city.trim() || null,
+                expected_city: candidateEditor.expectedCity.trim() || null,
+                notes: candidateEditor.notes.trim() || null,
+                tags: splitTags(candidateEditor.tagsText),
+                manual_override_score: candidateEditor.manualOverrideScore.trim()
+                    ? Number(candidateEditor.manualOverrideScore)
+                    : null,
+                manual_override_reason: candidateEditor.manualOverrideReason.trim() || null,
+                hr_feedback: candidateEditor.hrFeedback || null,
+                hr_feedback_reason: candidateEditor.hrFeedbackReason.trim() || null,
+                owner_id: candidateEditor.ownerId.trim() || null,
+            };
+            if (nextPositionId !== originalPositionId) {
+                payload.position_id = nextPositionId;
+            }
             await recruitmentApi(`/candidates/${selectedCandidateId}`, {
                 method: "PATCH",
-                body: JSON.stringify({
-                    name: candidateEditor.name.trim(),
-                    phone: candidateEditor.phone.trim() || null,
-                    email: candidateEditor.email.trim() || null,
-                    current_company: candidateEditor.currentCompany.trim() || null,
-                    years_of_experience: candidateEditor.yearsOfExperience.trim() || null,
-                    education: candidateEditor.education.trim() || null,
-                    age: (() => { const v = Number(candidateEditor.age.trim()); return v && !isNaN(v) ? v : null; })(),
-                    city: candidateEditor.city.trim() || null,
-                    notes: candidateEditor.notes.trim() || null,
-                    tags: splitTags(candidateEditor.tagsText),
-                    manual_override_score: candidateEditor.manualOverrideScore.trim()
-                        ? Number(candidateEditor.manualOverrideScore)
-                        : null,
-                    manual_override_reason: candidateEditor.manualOverrideReason.trim() || null,
-                    hr_feedback: candidateEditor.hrFeedback || null,
-                    hr_feedback_reason: candidateEditor.hrFeedbackReason.trim() || null,
-                    owner_id: candidateEditor.ownerId.trim() || null,
-                    position_id: candidateEditor.positionId ? Number(candidateEditor.positionId) : null,
-                }),
+                body: JSON.stringify(payload),
             });
             toast.success(recruitmentToast.updated(recruitmentToastEntities.candidate));
             await Promise.all([loadCandidateDetail(selectedCandidateId), loadCandidates(), refreshCandidateStats()]);
@@ -7255,50 +7721,88 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     function openSkillEditor(skill?: RecruitmentSkill) {
         if (skill) {
+            const taskTypes = (skill.task_types || []) as SkillTaskKind[];
+            const isBasicMode = taskTypes.length > 0 && !taskTypes.includes("screening");
+            const contentParts = skill.content.split(/\n{2,}附加条件[:：]\s*\n?/);
+            const basicContent = contentParts[0] || "";
+            const extraConditions = contentParts.slice(1).join("\n\n").trim();
             setSkillEditingId(skill.id);
             setSkillForm({
                 name: skill.name,
                 description: skill.description || "",
-                content: skill.content,
+                content: isBasicMode ? basicContent : skill.content,
                 tagsText: joinTags(skill.tags),
-                taskTypes: (skill.task_types || []) as SkillTaskKind[],
+                taskTypes,
                 sortOrder: String(skill.sort_order ?? 99),
                 isEnabled: skill.is_enabled,
             });
-            const parsed = parseSkillContent(skill.content);
-            setSkillEditorData({
-                roleName: parsed.roleName || "",
-                roleBackground: parsed.roleBackground || "",
-                hardRules: parsed.hardRules || "",
-                dimensions: parsed.dimensions || [],
-                judgmentRules: parsed.judgmentRules || "",
-                name: skill.name,
-                description: skill.description || "",
-                tagsText: joinTags(skill.tags),
-                taskTypes: (skill.task_types || []) as SkillTaskKind[],
-                sortOrder: String(skill.sort_order ?? 99),
-                isEnabled: skill.is_enabled,
-            });
+            if (isBasicMode) {
+                setSkillEditorData(emptyScreeningSkillForm());
+            } else {
+                const parsed = parseSkillContent(skill.content);
+                setSkillEditorData({
+                    roleName: parsed.roleName || "",
+                    roleBackground: parsed.roleBackground || "",
+                    hardRules: parsed.hardRules || "",
+                    dimensions: parsed.dimensions || [],
+                    judgmentRules: parsed.judgmentRules || "",
+                    name: skill.name,
+                    description: skill.description || "",
+                    tagsText: joinTags(skill.tags),
+                    taskTypes,
+                    sortOrder: String(skill.sort_order ?? 99),
+                    isEnabled: skill.is_enabled,
+                });
+            }
+            setSkillDialogMode(isBasicMode ? "basic" : "structured");
+            setSkillExtraConditions(extraConditions);
+            setSkillBoundPositionId(skill.bound_position_id ? String(skill.bound_position_id) : "");
+            setSkillEditorPositionId(skill.bound_position_id ?? null);
         } else {
             setSkillEditingId(null);
             setSkillForm(emptySkillForm());
             setSkillEditorData(emptyScreeningSkillForm());
+            setSkillDialogMode("structured");
+            setSkillExtraConditions("");
+            setSkillBoundPositionId("");
+            setSkillEditorPositionId(null);
         }
         setSkillEditorDefaultTab("structured");
-        setSkillEditorPositionId(null);
         setSkillAutoBindCategory(null);
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
         setSkillDialogOpen(true);
     }
 
-    function openSkillEditorWithAI() {
+    function openSkillEditorByTaskKind(taskKind: SkillTaskKind) {
+        const nextSkillForm = emptySkillForm();
+        nextSkillForm.taskTypes = [taskKind];
+        const nextEditorData = emptyScreeningSkillForm();
+        nextEditorData.taskTypes = [taskKind];
+        setSkillEditingId(null);
+        setSkillForm(nextSkillForm);
+        setSkillEditorData(nextEditorData);
+        setSkillDialogMode(taskKind === "screening" ? "structured" : "basic");
+        setSkillEditorDefaultTab(taskKind === "screening" ? "ai" : "advanced");
+        setSkillEditorPositionId(null);
+        setSkillAutoBindCategory(null);
+        setSkillBoundPositionId("");
+        setSkillExtraConditions("");
+        setSkillFormErrors({});
+        setSkillFormSubmitError(null);
+        setSkillDialogOpen(true);
+    }
+
+    function openSkillEditorWithAI(boundPositionId: number | null = null) {
         setSkillEditingId(null);
         setSkillForm(emptySkillForm());
         setSkillEditorData(emptyScreeningSkillForm());
+        setSkillDialogMode("structured");
         setSkillEditorDefaultTab("ai");
-        setSkillEditorPositionId(null);
+        setSkillEditorPositionId(boundPositionId);
         setSkillAutoBindCategory(null);
+        setSkillBoundPositionId(boundPositionId ? String(boundPositionId) : "");
+        setSkillExtraConditions("");
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
         setSkillDialogOpen(true);
@@ -7306,6 +7810,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     function openSkillEditorForPosition(taskKind: SkillTaskKind, bindCategory: "jdSkillIds" | "screeningSkillIds" | "interviewSkillIds") {
         const roleName = positionForm.title.trim();
+        const bindingPositionId = positionDialogMode === "edit" ? selectedPositionId : null;
         const empty = emptyScreeningSkillForm();
         empty.taskTypes = [taskKind];
         if (roleName) {
@@ -7320,9 +7825,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         setSkillForm(skillFormState);
         setSkillEditorData(empty);
-        setSkillEditorDefaultTab("structured");
-        setSkillEditorPositionId(selectedPositionId);
+        setSkillDialogMode(taskKind === "screening" ? "structured" : "basic");
+        setSkillEditorDefaultTab(taskKind === "screening" ? "ai" : "advanced");
+        setSkillEditorPositionId(bindingPositionId);
         setSkillAutoBindCategory(bindCategory);
+        setSkillBoundPositionId(bindingPositionId ? String(bindingPositionId) : "");
+        setSkillExtraConditions("");
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
         setSkillDialogOpen(true);
@@ -7340,6 +7848,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
         setSkillFormSubmitError(null);
         setSkillSubmitting(true);
+        const previousBoundPositionId = skillEditingId ? (skillMap.get(skillEditingId)?.bound_position_id || null) : null;
+        const nextBoundPositionId = skillBoundPositionId ? Number(skillBoundPositionId) : null;
         try {
             const content = generateSkillContent(data);
             const payload = {
@@ -7348,32 +7858,32 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 content: content.trim(),
                 tags: splitTags(data.tagsText),
                 task_types: data.taskTypes,
+                bound_position_id: skillBoundPositionId ? Number(skillBoundPositionId) : null,
                 sort_order: Number(data.sortOrder || "99"),
                 is_enabled: data.isEnabled,
             };
             if (skillEditingId) {
-                await recruitmentApi(`/skills/${skillEditingId}`, {
+                const updatedSkill = await recruitmentApi<RecruitmentSkill>(`/skills/${skillEditingId}`, {
                     method: "PATCH",
                     body: JSON.stringify(payload),
                 });
+                upsertSkillInLocalState(updatedSkill);
                 toast.success(recruitmentToast.updated(recruitmentToastEntities.skill));
             } else {
-                const result = await recruitmentApi<{data: RecruitmentSkill}>("/skills", {
+                const result = await recruitmentApi<RecruitmentSkill>("/skills", {
                     method: "POST",
                     body: JSON.stringify(payload),
                 });
-                const newSkillId = result?.data?.id;
+                upsertSkillInLocalState(result);
+                const newSkillId = result?.id;
                 if (newSkillId && skillAutoBindCategory) {
-                    setPositionForm((current) => ({
-                        ...current,
-                        [skillAutoBindCategory]: [newSkillId],
-                    }));
+                    updatePositionSkillBinding(skillAutoBindCategory, [newSkillId], {expandSection: true});
                 }
                 toast.success(recruitmentToast.created(recruitmentToastEntities.skill));
             }
             setSkillAutoBindCategory(null);
             setSkillDialogOpen(false);
-            await loadSkills();
+            await refreshSkillBindingViews([previousBoundPositionId, nextBoundPositionId]);
         } catch (error) {
             const resolved = resolveSkillSubmitError(error);
             setSkillFormSubmitError(resolved.submitError);
@@ -7381,12 +7891,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillSubmitting(false);
     }
 
-    async function generateSkillWithAI(roleName: string, extraRequirements: string, positionJd: string | null, onDelta?: (delta: string) => void): Promise<string> {
+    async function generateSkillWithAI(
+        roleName: string,
+        extraRequirements: string,
+        positionJd: string | null,
+        onDelta?: (delta: string) => void,
+    ): Promise<{ content: string; completed: boolean }> {
         const abortController = new AbortController();
         skillAbortControllerRef.current = abortController;
         skillActiveTaskIdRef.current = null;
         setSkillGenerating(true);
         let fullContent = "";
+        let completed = false;
+        let cancelled = false;
+        let streamErrorMessage: string | null = null;
         try {
             const response = await authenticatedFetch("/api/recruitment/skills/generate-content", {
                 method: "POST",
@@ -7415,7 +7933,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             const data = JSON.parse(dataMatch[1]);
                             if (eventType === "task_created") {
                                 skillActiveTaskIdRef.current = data.task_id;
-                            } else if (eventType === "cancelled" || eventType === "error") {
+                            } else if (eventType === "completed") {
+                                completed = true;
+                                if (typeof data.content === "string") {
+                                    fullContent = data.content;
+                                }
+                            } else if (eventType === "cancelled") {
+                                cancelled = true;
+                                break;
+                            } else if (eventType === "error") {
+                                streamErrorMessage = typeof data.message === "string"
+                                    ? data.message
+                                    : (isZh ? "评估方案生成失败" : "Assessment plan generation failed");
                                 break;
                             } else if (data.delta) {
                                 fullContent += data.delta;
@@ -7425,16 +7954,20 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     }
                 }
             }
+            if (streamErrorMessage) {
+                throw new Error(streamErrorMessage);
+            }
         } catch (error) {
             if (!abortController.signal.aborted) {
                 toast.error(formatActionError(error));
             }
+            return {content: fullContent, completed: false};
         } finally {
             setSkillGenerating(false);
             skillAbortControllerRef.current = null;
             skillActiveTaskIdRef.current = null;
         }
-        return fullContent;
+        return {content: fullContent, completed: completed && !cancelled};
     }
 
     async function stopSkillGeneration() {
@@ -7469,30 +8002,44 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSkillFormErrors({});
         setSkillFormSubmitError(null);
         setSkillSubmitting(true);
+        const previousBoundPositionId = skillEditingId ? (skillMap.get(skillEditingId)?.bound_position_id || null) : null;
+        const nextBoundPositionId = skillBoundPositionId ? Number(skillBoundPositionId) : null;
         try {
+            const finalContent = skillExtraConditions.trim()
+                ? `${skillForm.content.trim()}\n\n附加条件：\n${skillExtraConditions.trim()}`
+                : skillForm.content.trim();
             const payload = {
                 name: skillForm.name.trim(),
-                description: skillForm.description.trim() || null,
-                content: skillForm.content.trim(),
+                description: skillExtraConditions.trim() || skillForm.description.trim() || null,
+                content: finalContent,
                 tags: splitTags(skillForm.tagsText),
+                task_types: skillForm.taskTypes,
+                bound_position_id: skillBoundPositionId ? Number(skillBoundPositionId) : null,
                 sort_order: Number(skillForm.sortOrder || "99"),
                 is_enabled: skillForm.isEnabled,
             };
             if (skillEditingId) {
-                await recruitmentApi(`/skills/${skillEditingId}`, {
+                const updatedSkill = await recruitmentApi<RecruitmentSkill>(`/skills/${skillEditingId}`, {
                     method: "PATCH",
                     body: JSON.stringify(payload),
                 });
+                upsertSkillInLocalState(updatedSkill);
                 toast.success(recruitmentToast.updated(recruitmentToastEntities.skill));
             } else {
-                await recruitmentApi(`/skills`, {
+                const result = await recruitmentApi<RecruitmentSkill>(`/skills`, {
                     method: "POST",
                     body: JSON.stringify(payload),
                 });
+                upsertSkillInLocalState(result);
+                const newSkillId = result?.id;
+                if (newSkillId && skillAutoBindCategory) {
+                    updatePositionSkillBinding(skillAutoBindCategory, [newSkillId], {expandSection: true});
+                }
                 toast.success(recruitmentToast.created(recruitmentToastEntities.skill));
             }
+            setSkillAutoBindCategory(null);
             setSkillDialogOpen(false);
-            await loadSkills();
+            await refreshSkillBindingViews([previousBoundPositionId, nextBoundPositionId]);
         } catch (error) {
             const resolved = resolveSkillSubmitError(error);
             if (resolved.fieldErrors) {
@@ -7548,6 +8095,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 baseUrl: config.base_url || "",
                 apiKeyEnv: config.api_key_env || "",
                 apiKeyValue: "",
+                maxConcurrent: String(config.max_concurrent ?? 4),
+                maxQps: String(config.max_qps ?? 10),
                 priority: String(config.priority ?? 99),
                 isActive: config.is_active,
                 extraConfigText: JSON.stringify(config.extra_config || {}, null, 2),
@@ -7571,6 +8120,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             baseUrl: config.base_url || "",
             apiKeyEnv: config.api_key_env || "",
             apiKeyValue: "",
+            maxConcurrent: String(config.max_concurrent ?? 4),
+            maxQps: String(config.max_qps ?? 10),
             priority: String(config.priority ?? 99),
             isActive: config.is_active,
             extraConfigText: JSON.stringify(config.extra_config || {}, null, 2),
@@ -7601,6 +8152,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     llmModelNameInputRef.current?.focus();
                     return;
                 }
+                if (nextErrors.maxConcurrent || nextErrors.maxQps) {
+                    return;
+                }
                 if (nextErrors.extraConfigText) {
                     llmExtraConfigInputRef.current?.focus();
                 }
@@ -7619,6 +8173,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 base_url: llmForm.baseUrl.trim() || null,
                 api_key_env: llmForm.apiKeyEnv.trim() || null,
                 api_key_value: llmForm.apiKeyValue.trim() || null,
+                max_concurrent: Number(llmForm.maxConcurrent || "4"),
+                max_qps: Number(llmForm.maxQps || "10"),
                 priority: Number(llmForm.priority || "99"),
                 is_active: llmForm.isActive,
                 extra_config: llmForm.extraConfigText.trim() ? JSON.parse(llmForm.extraConfigText) : {},
@@ -7653,6 +8209,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     }
                     if (resolved.fieldErrors?.modelName) {
                         llmModelNameInputRef.current?.focus();
+                        return;
+                    }
+                    if (resolved.fieldErrors?.maxConcurrent || resolved.fieldErrors?.maxQps) {
                         return;
                     }
                     if (resolved.fieldErrors?.extraConfigText) {
@@ -8281,7 +8840,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     // Memoize filtered + sorted candidates for position detail view
     const positionFilteredSortedCandidates = useMemo(() => {
         const filtered = positionCandidatesData.filter((c) =>
-            positionCandidateStatusFilter === "__all__" || c.status === positionCandidateStatusFilter
+            positionCandidateStatusFilter === "__all__" || resolveCandidateDisplayStatus(c) === positionCandidateStatusFilter
         );
         return [...filtered].sort((a, b) => {
             const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
@@ -8796,209 +9355,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             </div>
                                     ) : positionWorkspaceView === "candidates" && positionDetail ? (() => {
                                         const candidates = positionCandidatesData;
-                                        const detailContent = positionCandidateDetailOpen ? (
-                                            candidateDetailLoading ? (
-                                                <LoadingPanel label={isZh ? "加载中..." : "Loading..."} />
-                                            ) : candidateDetail ? (() => {
-                                            const c = candidateDetail.candidate;
-                                            const score = candidateDetail.score;
-                                            const resumeFiles = candidateDetail.resume_files || [];
-                                            const statusHistory = candidateDetail.status_history || [];
-                                            return (
-                                                <div className="flex h-full min-h-0 flex-col">
-                                                    {/* 头部 */}
-                                                    <div className="flex items-center justify-between border-b border-slate-200/80 bg-slate-50/60 px-4 py-3.5 dark:border-slate-800 dark:bg-slate-900/40">
-                                                        <div className="min-w-0 flex-1">
-                                                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{c.name}</p>
-                                                            <p className="mt-0.5 text-[11px] text-slate-500">{c.candidate_code}</p>
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
-                                                            onClick={() => setPositionCandidateDetailOpen(false)}
-                                                        >
-                                                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                                        </button>
-                                                    </div>
-                                                    <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-5">
-                                                        {/* 状态 & 匹配度 */}
-                                                        <div className="flex flex-wrap items-center gap-2">
-                                                            <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(c)))}>
-                                                                {labelForCandidateStatus(resolveCandidateDisplayStatus(c))}
-                                                            </Badge>
-                                                            <Badge variant="outline" className="rounded-full">
-                                                                {isZh ? "匹配度" : "Match"} {formatPercent(c.match_percent)}
-                                                            </Badge>
-                                                            {c.position_title && (
-                                                                <Badge variant="outline" className="rounded-full">
-                                                                    {c.position_title}
-                                                                </Badge>
-                                                            )}
-                                                        </div>
-                                                        {/* 基本信息 */}
-                                                        <div className="space-y-1.5 text-sm">
-                                                            <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "基本信息" : "Basic Info"}</p>
-                                                            {[
-                                                                { label: isZh ? "手机号" : "Phone", value: c.phone },
-                                                                { label: isZh ? "邮箱" : "Email", value: c.email },
-                                                                { label: isZh ? "城市" : "City", value: c.city },
-                                                                { label: isZh ? "年龄" : "Age", value: c.age != null ? String(c.age) : null },
-                                                                { label: isZh ? "公司" : "Company", value: c.current_company },
-                                                                { label: isZh ? "工作年限" : "Experience", value: c.years_of_experience },
-                                                                { label: isZh ? "学历" : "Education", value: c.education },
-                                                                { label: isZh ? "来源" : "Source", value: c.source },
-                                                            ].filter((f) => f.value).map((f) => (
-                                                                <div key={f.label} className="flex items-center justify-between">
-                                                                    <span className="text-slate-500">{f.label}</span>
-                                                                    <span className="font-medium text-slate-900 dark:text-slate-100">{f.value}</span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                        {/* 评分详情 */}
-                                                        {score && score.dimensions && score.dimensions.length > 0 && (
-                                                            <div className="space-y-2">
-                                                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "综合能力概览" : "Competency Overview"}</p>
-                                                                <CandidateRadarChart
-                                                                    dimensions={score.dimensions}
-                                                                    radarScores={score.radar_scores}
-                                                                    isZh={isZh}
-                                                                    mode="aggregated"
-                                                                    uiText={{
-                                                                        scoreDetails: isZh ? "评分详情" : "Score Details",
-                                                                        coreSkills: isZh ? "核心能力" : "Core Competencies",
-                                                                        otherSkills: isZh ? "其他维度" : "Other Dimensions",
-                                                                        noData: isZh ? "AI 尚未完成维度评分" : "No evaluation data",
-                                                                        benchmark: isZh ? "岗位基准线" : "Benchmark",
-                                                                    }}
-                                                                />
-                                                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400 mt-4">{isZh ? "各维度得分" : "Dimension Scores"}</p>
-                                                                <CandidateRadarChart
-                                                                    dimensions={score.dimensions}
-                                                                    isZh={isZh}
-                                                                    mode="individual"
-                                                                    uiText={{
-                                                                        scoreDetails: isZh ? "评分详情" : "Score Details",
-                                                                        coreSkills: isZh ? "核心能力" : "Core Competencies",
-                                                                        otherSkills: isZh ? "其他维度" : "Other Dimensions",
-                                                                        noData: isZh ? "AI 尚未完成维度评分" : "No evaluation data",
-                                                                        benchmark: isZh ? "岗位基准线" : "Benchmark",
-                                                                    }}
-                                                                />
-                                                                {/* 维度理由列表 - 支持雷达图点击跳转 */}
-                                                                <div className="space-y-3">
-                                                                    {score.dimensions.map((dim, i) => (
-                                                                        <div
-                                                                            key={i}
-                                                                            data-dim-reason={dim.label || `维度${i + 1}`}
-                                                                            className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/30"
-                                                                        >
-                                                                            <div className="mb-1 flex items-center justify-between">
-                                                                                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-                                                                                    {dim.label || `维度${i + 1}`}
-                                                                                </span>
-                                                                                <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
-                                                                                    <span>{dim.score ?? "-"}/{dim.max_score ?? "-"}</span>
-                                                                                    {dim.is_inferred && (
-                                                                                        <Badge variant="outline" className="px-1 py-0 text-[9px] h-3.5 bg-slate-100">
-                                                                                            {isZh ? "推断" : "Inf"}
-                                                                                        </Badge>
-                                                                                    )}
-                                                                                </div>
-                                                                            </div>
-                                                                            {dim.reason && (
-                                                                                <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
-                                                                                    {dim.reason}
-                                                                                </p>
-                                                                            )}
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                        {score && (score.advantages?.length || score.concerns?.length || score.recommendation) && (
-                                                            <div className="space-y-2">
-                                                                {score.advantages && score.advantages.length > 0 && (
-                                                                    <div>
-                                                                        <p className="text-[11px] text-emerald-600 dark:text-emerald-400">{isZh ? "优势" : "Advantages"}</p>
-                                                                        <ul className="mt-1 space-y-0.5">
-                                                                            {score.advantages.map((a, i) => (
-                                                                                <li key={i} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{a}</li>
-                                                                            ))}
-                                                                        </ul>
-                                                                    </div>
-                                                                )}
-                                                                {score.concerns && score.concerns.length > 0 && (
-                                                                    <div>
-                                                                        <p className="text-[11px] text-amber-600 dark:text-amber-400">{isZh ? "风险" : "Concerns"}</p>
-                                                                        <ul className="mt-1 space-y-0.5">
-                                                                            {score.concerns.map((a, i) => (
-                                                                                <li key={i} className="text-xs text-slate-600 dark:text-slate-400">{"· "}{a}</li>
-                                                                            ))}
-                                                                        </ul>
-                                                                    </div>
-                                                                )}
-                                                                {score.recommendation && (
-                                                                    <div>
-                                                                        <p className="text-[11px] text-slate-400">{isZh ? "推荐意见" : "Recommendation"}</p>
-                                                                        <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">{score.recommendation}</p>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                        {/* 简历文件 */}
-                                                        {resumeFiles.length > 0 && (
-                                                            <div className="space-y-1.5">
-                                                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "简历文件" : "Resumes"}</p>
-                                                                {resumeFiles.map((rf) => (
-                                                                    <div
-                                                                        key={rf.id}
-                                                                        onClick={() => openResumePreview(rf)}
-                                                                        className="group flex cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs transition-colors hover:border-blue-300 hover:bg-blue-50 dark:border-slate-800 dark:hover:border-blue-700 dark:hover:bg-blue-900/20"
-                                                                    >
-                                                                        <FileText className="h-4 w-4 shrink-0 text-red-500" />
-                                                                        <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">{rf.original_name}</span>
-                                                                        <Badge variant="outline" className={cn("shrink-0 text-[10px]", rf.parse_status === "completed" ? "text-emerald-600" : "text-slate-400")}>
-                                                                            {rf.parse_status}
-                                                                        </Badge>
-                                                                        <Eye className="h-3.5 w-3.5 shrink-0 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100" />
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                        {/* 状态变更历史 */}
-                                                        {statusHistory.length > 0 && (
-                                                            <div className="space-y-1.5">
-                                                                <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{isZh ? "状态变更" : "Status History"}</p>
-                                                                {statusHistory.slice(0, 8).map((h) => (
-                                                                    <div key={h.id} className="flex items-center gap-2 text-xs">
-                                                                        <span className="text-slate-400">{h.created_at ? formatDateTime(h.created_at) : ""}</span>
-                                                                        <span className="text-slate-500">{h.from_status ? labelForCandidateStatus(h.from_status) : "-"}</span>
-                                                                        <span className="text-slate-300">{"→"}</span>
-                                                                        <span className="font-medium text-slate-700 dark:text-slate-300">{labelForCandidateStatus(h.to_status)}</span>
-                                                                        {h.reason && <span className="truncate text-slate-400">{h.reason}</span>}
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    {/* 固定底部操作区 */}
-                                                    <div className="shrink-0 border-t border-slate-200/80 p-3 dark:border-slate-800">
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            className="w-full rounded-lg"
-                                                            onClick={() => {
-                                                                setPositionCandidateDetailOpen(false);
-                                                                setSelectedCandidateId(c.id);
-                                                                navigateToRecruitmentPage("candidates");
-                                                            }}
-                                                        >
-                                                            {recruitmentUiText.viewInCandidatePage}
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })() : null) : null;
+                                        const detailContent = positionCandidateDetailOpen
+                                            ? renderSharedCandidateDrawerContent(() => setPositionCandidateDetailOpen(false))
+                                            : null;
                                         return (
                                             <PositionCandidatesView
                                                 positionDetail={positionDetail}
@@ -9357,41 +9716,48 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     function renderTalentPoolPage() {
         return (
-            <TalentPoolPage
-                candidates={talentPoolCandidates}
-                positions={positions}
-                loading={talentPoolLoading}
-                onAssignPosition={batchBindPosition}
-                onCreatePosition={(suggestedTitle) => {
-                    setPositionForm((prev) => ({ ...prev, title: suggestedTitle }));
-                    setPositionDialogMode("create");
-                    setPositionDialogOpen(true);
-                    navigateToRecruitmentPage("positions");
-                }}
-                onViewCandidate={(candidateId) => {
-                    setSelectedCandidateId(candidateId);
-                    navigateToRecruitmentPage("candidates");
-                }}
-                onUploadResume={openResumeUploadDialog}
-                onDeleteCandidates={deleteTalentPoolCandidates}
-                onRefresh={loadTalentPoolCandidates}
-                onReIdentify={async (candidateId) => {
-                    // 触发AI匹配（后端会将 status 改为 matching）
-                    await triggerAIPositionMatch([candidateId]);
-                    // 乐观更新：立即将候选人状态改为 matching，不等待 SSE
-                    setTalentPoolCandidates(prev => prev.map(c =>
-                        c.id === candidateId ? { ...c, status: "matching" } : c
-                    ));
-                }}
-                onCancelMatch={async (candidateId) => {
-                    await recruitmentApi(`/candidates/${candidateId}/cancel-match`, { method: "POST" });
-                    // 乐观更新：立即将候选人状态改为 unmatched
-                    setTalentPoolCandidates(prev => prev.map(c =>
-                        c.id === candidateId ? { ...c, status: "unmatched" } : c
-                    ));
-                }}
-                panelClass={panelClass}
-            />
+            <div className="relative h-full min-h-0 overflow-hidden">
+                <TalentPoolPage
+                    candidates={talentPoolCandidates}
+                    positions={positions}
+                    loading={talentPoolLoading}
+                    onAssignPosition={batchBindPosition}
+                    onCreatePosition={(suggestedTitle) => {
+                        setPositionForm((prev) => ({ ...prev, title: suggestedTitle }));
+                        setPositionDialogMode("create");
+                        setPositionDialogOpen(true);
+                        navigateToRecruitmentPage("positions");
+                    }}
+                    onViewCandidate={handleTalentPoolCandidateSelect}
+                    onUploadResume={openResumeUploadDialog}
+                    onDeleteCandidates={deleteTalentPoolCandidates}
+                    onRefresh={loadTalentPoolCandidates}
+                    onReIdentify={async (candidateId) => {
+                        await triggerAIPositionMatch([candidateId]);
+                        setAllTalentPoolCandidates(prev => prev.map(c =>
+                            c.id === candidateId ? { ...c, status: "matching" } : c
+                        ));
+                    }}
+                    onCancelMatch={async (candidateId) => {
+                        await recruitmentApi(`/candidates/${candidateId}/cancel-match`, { method: "POST" });
+                        setAllTalentPoolCandidates(prev => prev.map(c =>
+                            c.id === candidateId ? { ...c, status: "unmatched" } : c
+                        ));
+                    }}
+                    panelClass={panelClass}
+                />
+                {talentPoolCandidateDetailOpen && (
+                    <>
+                        <div
+                            className="absolute inset-0 z-10 bg-slate-900/5 backdrop-blur-[1px]"
+                            onClick={() => setTalentPoolCandidateDetailOpen(false)}
+                        />
+                        <div className="absolute right-0 top-0 bottom-0 z-20 flex w-full flex-col bg-white shadow-2xl ring-1 ring-slate-200 animate-in slide-in-from-right duration-300 dark:bg-slate-950 dark:ring-slate-800 sm:w-[480px] md:w-[560px] lg:w-[50%]">
+                            {renderSharedCandidateDrawerContent(() => setTalentPoolCandidateDetailOpen(false))}
+                        </div>
+                    </>
+                )}
+            </div>
         );
     }
 
@@ -9414,6 +9780,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 skills={skills}
                 canManageSkill={canManageSkill}
                 openSkillEditor={openSkillEditor}
+                openSkillEditorByTaskKind={openSkillEditorByTaskKind}
                 openSkillEditorWithAI={openSkillEditorWithAI}
                 toggleSkill={toggleSkill}
                 setSkillDeleteTarget={setSkillDeleteTarget}
@@ -9814,6 +10181,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     >
                                         <TalentPoolSearch
                                             positions={positions}
+                                            activeOrgCodes={activeBusinessOrgCodes}
+                                            orgCode={selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? selectedDepartmentScope : undefined}
                                             onAssignCandidates={(candidateIds) => {
                                                 // 将选中的候选人关联到新创建的岗位
                                                 // 这里我们先创建岗位，然后在创建成功后批量分配
@@ -10012,50 +10381,93 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                             </div>
                                         </div>
                                         <div className="space-y-3">
-                                            <p className="text-sm text-slate-600 dark:text-slate-300">{recruitmentUiText.autoMailSkillBindingHint}</p>
-                                            <div className="grid gap-4 xl:grid-cols-3">
-                                                {([["jdAuthoringSkills", "jdSkillIds", "jd", recruitmentUiText.jdSkillLabel], ["screeningAuthoringSkills", "screeningSkillIds", "screening", recruitmentUiText.screeningSkillLabel], ["interviewAuthoringSkills", "interviewSkillIds", "interview", recruitmentUiText.interviewSkillLabel]] as const).map(([skillsKey, formKey, taskKind, label]) => (
-                                                    <div key={formKey} className="space-y-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">{label}</p>
-                                                            <Button
-                                                                type="button"
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-5 w-5"
-                                                                title={recruitmentUiText.newSkillTitle(label)}
-                                                                onClick={() => openSkillEditorForPosition(taskKind, formKey)}
-                                                            >
-                                                                <Plus className="h-3.5 w-3.5"/>
-                                                            </Button>
-                                                        </div>
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {({jdAuthoringSkills, screeningAuthoringSkills, interviewAuthoringSkills}[skillsKey] as RecruitmentSkill[]).length ? (
-                                                                {jdAuthoringSkills, screeningAuthoringSkills, interviewAuthoringSkills}[skillsKey].map((skill: RecruitmentSkill) => (
-                                                                    <button
-                                                                        key={`${formKey}-${skill.id}`}
-                                                                        type="button"
-                                                                        className={cn(
-                                                                            "rounded-full border px-3 py-2 text-xs transition",
-                                                                            (positionForm[formKey] as number[]).includes(skill.id)
-                                                                                ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
-                                                                                : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
-                                                                        )}
-                                                                        onClick={() => setPositionForm((current) => ({
-                                                                            ...current,
-                                                                            [formKey]: toggleSingleSkillId(current[formKey] as number[], skill.id),
-                                                                        }))}
-                                                                    >
-                                                                        {skill.name}
-                                                                    </button>
-                                                                ))
-                                                            ) : (
-                                                                <p className="text-xs text-slate-400">{recruitmentUiText.noSkillsAvailable}</p>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/50">
+                                                <div className="space-y-1">
+                                                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{recruitmentUiText.skillsAutomation}</p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                        {recruitmentUiText.autoMailSkillBindingHint}
+                                                    </p>
+                                                </div>
                                             </div>
+                                            {([
+                                                ["jdSkillIds", positionSkillFieldConfig.jdSkillIds],
+                                                ["screeningSkillIds", positionSkillFieldConfig.screeningSkillIds],
+                                                ["interviewSkillIds", positionSkillFieldConfig.interviewSkillIds],
+                                            ] as const).map(([formKey, config]) => {
+                                                const skillChoices = positionSkillChoicesByField[formKey];
+                                                const isExpanded = positionSkillSectionExpanded[formKey];
+                                                const hasSelected = (positionForm[formKey] as number[]).length > 0;
+                                                return (
+                                                    <div key={formKey} className="rounded-2xl border border-slate-200/80 bg-white px-4 py-4 dark:border-slate-800 dark:bg-slate-950/50">
+                                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                                            <div className="space-y-1">
+                                                                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{config.label}</p>
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                                                    {hasSelected
+                                                                        ? `${config.selectedPrefix}${selectedPositionSkillText[formKey]}`
+                                                                        : (isZh
+                                                                            ? "当前未绑定，系统将自动使用该类型的内置通用基座。"
+                                                                            : "No plan selected. The system will fall back to the built-in base for this task.")}
+                                                                </p>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    title={isZh ? `新建${config.label}` : `Create ${config.label}`}
+                                                                    onClick={() => openSkillEditorForPosition(config.taskKind, formKey)}
+                                                                >
+                                                                    <Plus className="h-4 w-4"/>
+                                                                </Button>
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="gap-1"
+                                                                    onClick={() => setPositionSkillSectionExpanded((current) => ({
+                                                                        ...current,
+                                                                        [formKey]: !current[formKey],
+                                                                    }))}
+                                                                >
+                                                                    {isExpanded ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>}
+                                                                    {isExpanded ? (isZh ? "收起" : "Collapse") : (isZh ? "展开选择" : "Choose")}
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                        {isExpanded ? (
+                                                            <div className="mt-4 space-y-3">
+                                                                <div className="max-w-md">
+                                                                    <Input
+                                                                        value={positionSkillSearch}
+                                                                        placeholder={config.placeholder}
+                                                                        onChange={(event) => setPositionSkillSearch(event.target.value)}
+                                                                    />
+                                                                </div>
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    {skillChoices.length ? skillChoices.map((skill: RecruitmentSkill) => (
+                                                                        <button
+                                                                            key={`${formKey}-${skill.id}`}
+                                                                            type="button"
+                                                                            className={cn(
+                                                                                "rounded-full border px-3 py-2 text-xs transition",
+                                                                                (positionForm[formKey] as number[]).includes(skill.id)
+                                                                                    ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                                                    : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                                            )}
+                                                                            onClick={() => updatePositionSkillBinding(formKey, toggleSingleSkillId(positionForm[formKey] as number[], skill.id), {expandSection: true})}
+                                                                        >
+                                                                            {skill.name}
+                                                                        </button>
+                                                                    )) : (
+                                                                        <p className="text-xs text-slate-400">{recruitmentUiText.noSkillsAvailable}</p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </Field>
@@ -10327,6 +10739,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     setSkillFormErrors({});
                     setSkillFormSubmitError(null);
                     setSkillSubmitting(false);
+                    setSkillDialogMode("structured");
+                    setSkillBoundPositionId("");
+                    setSkillExtraConditions("");
                     skillAbortControllerRef.current?.abort();
                     skillAbortControllerRef.current = null;
                     skillActiveTaskIdRef.current = null;
@@ -10337,20 +10752,151 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         <DialogTitle>{skillEditingId ? recruitmentUiText.skillEditTitle : recruitmentUiText.skillCreateTitle}</DialogTitle>
                         <DialogDescription>{recruitmentUiText.skillDialogDescription}</DialogDescription>
                     </DialogHeader>
-                    <StructuredSkillEditor
-                        initialData={skillEditorData}
-                        editingSkillId={skillEditingId}
-                        onSubmit={submitStructuredSkill}
-                        onCancel={() => setSkillDialogOpen(false)}
-                        submitting={skillSubmitting}
-                        submitError={skillFormSubmitError}
-                        onGenerateAI={generateSkillWithAI}
-                        onStopGeneration={stopSkillGeneration}
-                        aiGenerating={skillGenerating}
-                        defaultTab={skillEditorDefaultTab}
-                        positionId={skillEditorPositionId}
-                        positionJdContent={skillEditorPositionId ? (positionDetail?.current_jd_version?.jd_markdown || null) : null}
-                    />
+                    {skillDialogMode === "structured" ? (
+                        <div className="flex min-h-0 flex-1 flex-col gap-4">
+                            <div className="shrink-0 rounded-2xl border border-slate-200/80 bg-slate-50/70 px-4 py-4 dark:border-slate-800 dark:bg-slate-900/50">
+                                <Field label={isZh ? "关联岗位" : "Bound Position"}>
+                                        <NativeSelect
+                                            value={skillBoundPositionId}
+                                            onChange={(event) => {
+                                                setSkillBoundPositionId(event.target.value);
+                                                setSkillEditorPositionId(event.target.value ? Number(event.target.value) : null);
+                                            }}
+                                        >
+                                            <option value="">{isZh ? "通用方案（未绑定岗位）" : "Generic Plan (Unbound)"}</option>
+                                            {bindablePositionsForSkillDialog.map((position) => (
+                                                <option key={`structured-skill-bound-position-${position.id}`} value={position.id}>
+                                                    {position.title}
+                                                </option>
+                                            ))}
+                                        </NativeSelect>
+                                </Field>
+                            </div>
+                            <StructuredSkillEditor
+                                initialData={skillEditorData}
+                                editingSkillId={skillEditingId}
+                                onSubmit={submitStructuredSkill}
+                                onCancel={() => setSkillDialogOpen(false)}
+                                submitting={skillSubmitting}
+                                submitError={skillFormSubmitError}
+                                onGenerateAI={generateSkillWithAI}
+                                onStopGeneration={stopSkillGeneration}
+                                aiGenerating={skillGenerating}
+                                defaultTab={skillEditorDefaultTab}
+                                positionId={skillEditorPositionId}
+                                positionJdContent={skillEditorPositionId ? (positionDetail?.current_jd_version?.jd_markdown || null) : null}
+                            />
+                        </div>
+                    ) : (
+                        <>
+                            <ScrollArea className="min-h-0 flex-1">
+                                <div className="grid gap-4 px-1 py-1">
+                                    <Field label={isZh ? "方案标题" : "Plan Title"} required error={skillFormErrors.name}>
+                                        <Input
+                                            ref={skillNameInputRef}
+                                            value={skillForm.name}
+                                            maxLength={120}
+                                            aria-invalid={Boolean(skillFormErrors.name)}
+                                            className={cn(skillFormErrors.name ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                            onChange={(event) => setSkillForm((current) => ({...current, name: event.target.value.slice(0, 120)}))}
+                                        />
+                                    </Field>
+                                    <Field label={isZh ? "关联岗位" : "Bound Position"}>
+                                        <NativeSelect
+                                            value={skillBoundPositionId}
+                                            onChange={(event) => {
+                                                setSkillBoundPositionId(event.target.value);
+                                                setSkillEditorPositionId(event.target.value ? Number(event.target.value) : null);
+                                            }}
+                                        >
+                                            <option value="">{isZh ? "通用方案（未绑定岗位）" : "Generic Plan (Unbound)"}</option>
+                                            {bindablePositionsForSkillDialog.map((position) => (
+                                                <option key={`skill-bound-position-${position.id}`} value={position.id}>
+                                                    {position.title}
+                                                </option>
+                                            ))}
+                                        </NativeSelect>
+                                    </Field>
+                                    <div className="space-y-2">
+                                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "适用场景" : "Applies To"}</span>
+                                        <div className="flex flex-wrap gap-2">
+                                            {([["jd", recruitmentUiText.jdSkillLabel], ["interview", recruitmentUiText.interviewSkillLabel]] as const).map(([taskType, label]) => (
+                                                <button
+                                                    key={`basic-skill-task-${taskType}`}
+                                                    type="button"
+                                                    className={cn(
+                                                        "rounded-full border px-3 py-1.5 text-xs transition",
+                                                        skillForm.taskTypes.includes(taskType)
+                                                            ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900"
+                                                            : "border-slate-200 bg-white text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300",
+                                                    )}
+                                                    onClick={() => setSkillForm((current) => ({...current, taskTypes: [taskType]}))}
+                                                >
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <Field label={isZh ? "方案内容" : "Plan Content"} required error={skillFormErrors.content}>
+                                        <Textarea
+                                            ref={skillContentInputRef}
+                                            value={skillForm.content}
+                                            rows={10}
+                                            aria-invalid={Boolean(skillFormErrors.content)}
+                                            className={cn(skillFormErrors.content ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                            onChange={(event) => setSkillForm((current) => ({...current, content: event.target.value}))}
+                                        />
+                                    </Field>
+                                    <Field label={isZh ? "附加条件" : "Additional Conditions"}>
+                                        <Textarea
+                                            value={skillExtraConditions}
+                                            rows={4}
+                                            placeholder={isZh ? "例如：输出语气、补充限制、必须强调的判断标准" : "Optional constraints, tone, or extra criteria"}
+                                            onChange={(event) => setSkillExtraConditions(event.target.value)}
+                                        />
+                                    </Field>
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                        <Field label={isZh ? "标签" : "Tags"}>
+                                            <Input
+                                                value={skillForm.tagsText}
+                                                onChange={(event) => setSkillForm((current) => ({...current, tagsText: event.target.value}))}
+                                            />
+                                        </Field>
+                                        <Field label={recruitmentUiText.sortLabel} error={skillFormErrors.sortOrder}>
+                                            <Input
+                                                type="number"
+                                                value={skillForm.sortOrder}
+                                                aria-invalid={Boolean(skillFormErrors.sortOrder)}
+                                                className={cn(skillFormErrors.sortOrder ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                                onChange={(event) => setSkillForm((current) => ({...current, sortOrder: event.target.value}))}
+                                            />
+                                        </Field>
+                                    </div>
+                                    <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                                        <input
+                                            type="checkbox"
+                                            checked={skillForm.isEnabled}
+                                            onChange={(event) => setSkillForm((current) => ({...current, isEnabled: event.target.checked}))}
+                                        />
+                                        <span>{isZh ? "启用" : "Enabled"}</span>
+                                    </label>
+                                </div>
+                            </ScrollArea>
+                            {skillFormSubmitError ? (
+                                <div className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">
+                                    {skillFormSubmitError}
+                                </div>
+                            ) : null}
+                            <DialogFooter className="shrink-0">
+                                <Button variant="outline" onClick={() => setSkillDialogOpen(false)} disabled={skillSubmitting}>
+                                    {recruitmentUiText.cancel}
+                                </Button>
+                                <Button onClick={() => void submitSkill()} disabled={skillSubmitting}>
+                                    {skillSubmitting ? recruitmentUiText.saving : recruitmentUiText.saveSkill}
+                                </Button>
+                            </DialogFooter>
+                        </>
+                    )}
                 </DialogContent>
             </Dialog>
 
@@ -10431,6 +10977,34 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     onChange={(event) => updateLLMFormField("apiKeyValue", event.target.value)}
                                     placeholder={recruitmentUiText.apiKeyValuePlaceholder}
                                 />
+                            </Field>
+                            <Field label={recruitmentUiText.maxConcurrentLabel} error={llmFormErrors.maxConcurrent}>
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    max={100}
+                                    value={llmForm.maxConcurrent}
+                                    aria-invalid={Boolean(llmFormErrors.maxConcurrent)}
+                                    className={cn(llmFormErrors.maxConcurrent ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    onChange={(event) => updateLLMFormField("maxConcurrent", event.target.value)}
+                                />
+                                <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                    {recruitmentUiText.maxConcurrentHint}
+                                </p>
+                            </Field>
+                            <Field label={recruitmentUiText.maxQpsLabel} error={llmFormErrors.maxQps}>
+                                <Input
+                                    type="number"
+                                    min={0}
+                                    max={1000}
+                                    value={llmForm.maxQps}
+                                    aria-invalid={Boolean(llmFormErrors.maxQps)}
+                                    className={cn(llmFormErrors.maxQps ? "border-rose-500 focus-visible:ring-rose-500/20" : "")}
+                                    onChange={(event) => updateLLMFormField("maxQps", event.target.value)}
+                                />
+                                <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                    {recruitmentUiText.maxQpsHint}
+                                </p>
                             </Field>
                             <Field label={recruitmentUiText.priorityLabel} error={llmFormErrors.priority}>
                                 <Input

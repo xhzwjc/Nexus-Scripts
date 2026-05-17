@@ -24,6 +24,7 @@ import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "@/c
 import {Separator} from "@/components/ui/separator";
 import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs";
 import {Textarea} from "@/components/ui/textarea";
+import {toast} from "@/lib/toast";
 
 type StructuredSkillEditorProps = {
     initialData?: ScreeningSkillFormData;
@@ -32,7 +33,12 @@ type StructuredSkillEditorProps = {
     onCancel: () => void;
     submitting: boolean;
     submitError: string | null;
-    onGenerateAI?: (roleName: string, extraRequirements: string, positionJd: string | null, onDelta?: (delta: string) => void) => Promise<string>;
+    onGenerateAI?: (
+        roleName: string,
+        extraRequirements: string,
+        positionJd: string | null,
+        onDelta?: (delta: string) => void,
+    ) => Promise<{ content: string; completed: boolean }>;
     onStopGeneration?: () => void;
     aiGenerating?: boolean;
     defaultTab?: "structured" | "advanced" | "ai";
@@ -235,7 +241,8 @@ export function StructuredSkillEditor({
     positionId,
     positionJdContent,
 }: StructuredSkillEditorProps) {
-    const { t } = useI18n();
+    const { t, language } = useI18n();
+    const isZh = language === "zh-CN";
 
     const priorityOptions = [
         {value: "core", label: t.recruitment.skillPriorityCore},
@@ -251,6 +258,30 @@ export function StructuredSkillEditor({
     const [aiRoleName, setAiRoleName] = useState("");
     const [aiExtraRequirements, setAiExtraRequirements] = useState("");
     const [aiGeneratedContent, setAiGeneratedContent] = useState("");
+    const [aiAppliedNotice, setAiAppliedNotice] = useState<string | null>(null);
+    const [hasReceivedFirstAiToken, setHasReceivedFirstAiToken] = useState(false);
+    const [streamProgressVisible, setStreamProgressVisible] = useState(false);
+    const [streamProgressPercent, setStreamProgressPercent] = useState(0);
+    const [streamEstimatedTotalChars, setStreamEstimatedTotalChars] = useState(0);
+    const [streamCompleted, setStreamCompleted] = useState(false);
+    const firstTokenReceivedRef = useRef(false);
+    const progressHideTimerRef = useRef<number | null>(null);
+    const aiLoadingMessages = useMemo(() => (
+        isZh
+            ? [
+                "正在分析岗位要求...",
+                "正在设计评估维度...",
+                "正在生成评分标准...",
+                "即将完成，请稍候...",
+            ]
+            : [
+                "Analyzing position requirements...",
+                "Designing evaluation dimensions...",
+                "Generating scoring criteria...",
+                "Almost done, please wait...",
+            ]
+    ), [isZh]);
+    const [aiLoadingIndex, setAiLoadingIndex] = useState(0);
 
     useEffect(() => {
         if (initialData) {
@@ -261,6 +292,25 @@ export function StructuredSkillEditor({
             }
         }
     }, [initialData]);
+
+    useEffect(() => {
+        if (!aiGenerating || hasReceivedFirstAiToken) {
+            setAiLoadingIndex(0);
+            return;
+        }
+        const timer = window.setInterval(() => {
+            setAiLoadingIndex((current) => (current + 1) % aiLoadingMessages.length);
+        }, 3600);
+        return () => window.clearInterval(timer);
+    }, [aiGenerating, aiLoadingMessages.length, hasReceivedFirstAiToken]);
+
+    useEffect(() => {
+        return () => {
+            if (progressHideTimerRef.current) {
+                window.clearTimeout(progressHideTimerRef.current);
+            }
+        };
+    }, []);
 
     const dimValidation = useMemo(() => validateSkillDimensions(form.dimensions), [form.dimensions]);
     const deferredDimValidation = useDeferredValue(dimValidation);
@@ -324,35 +374,67 @@ export function StructuredSkillEditor({
         setAdvancedContent(generateSkillContent(form));
     }, [form]);
 
-    const handleUseAIResult = useCallback(() => {
-        if (!aiGeneratedContent.trim()) return;
-        const parsed = parseSkillContent(aiGeneratedContent);
+    const applyAIResult = useCallback((content: string, { announce }: { announce: boolean }) => {
+        const normalizedContent = content.trim();
+        if (!normalizedContent) return;
+        const parsed = parseSkillContent(normalizedContent);
         if (parsed.dimensions) {
             parsed.dimensions = normalizeDimensionScores(parsed.dimensions);
         }
         setForm((prev) => ({
             ...prev,
             ...parsed,
-            name: prev.name || parsed.name || "",
+            roleName: parsed.roleName || aiRoleName.trim() || prev.roleName,
+            name: parsed.name || aiRoleName.trim() || prev.name,
             description: prev.description || parsed.description || "",
             tagsText: prev.tagsText || parsed.tagsText || "",
+            taskTypes: ["screening"],
             sortOrder: prev.sortOrder || parsed.sortOrder || "99",
             isEnabled: prev.isEnabled ?? parsed.isEnabled ?? true,
         }));
-        setTab("structured");
-    }, [aiGeneratedContent]);
+        setAdvancedContent(normalizedContent);
+        setAiAppliedNotice("AI 已生成评估方案，内容已自动代入“结构化编辑”和“高级模式”，请检查后保存。");
+        if (announce) {
+            toast.success("AI 已生成评估方案，内容已自动代入编辑区，请检查后保存。");
+        }
+    }, [aiRoleName]);
 
     const handleGenerate = useCallback(async () => {
         if (!onGenerateAI || !aiRoleName.trim()) return;
+        if (progressHideTimerRef.current) {
+            window.clearTimeout(progressHideTimerRef.current);
+            progressHideTimerRef.current = null;
+        }
         setAiGeneratedContent("");
-        const content = await onGenerateAI(
+        setAiAppliedNotice(null);
+        setAiLoadingIndex(0);
+        setHasReceivedFirstAiToken(false);
+        setStreamProgressVisible(false);
+        setStreamProgressPercent(0);
+        setStreamEstimatedTotalChars(0);
+        setStreamCompleted(false);
+        firstTokenReceivedRef.current = false;
+        const result = await onGenerateAI(
             aiRoleName.trim(),
             aiExtraRequirements.trim(),
             positionJdContent || null,
-            (delta) => setAiGeneratedContent((prev) => prev + delta),
+            (delta) => {
+                if (delta.length > 0 && !firstTokenReceivedRef.current) {
+                    firstTokenReceivedRef.current = true;
+                    setHasReceivedFirstAiToken(true);
+                    setStreamProgressVisible(true);
+                    setStreamProgressPercent(0);
+                    setStreamEstimatedTotalChars(Math.max(220, delta.length + 140));
+                }
+                setAiGeneratedContent((prev) => prev + delta);
+            },
         );
-        setAiGeneratedContent(content);
-    }, [onGenerateAI, aiRoleName, aiExtraRequirements, positionJdContent]);
+        setAiGeneratedContent(result.content);
+        setStreamCompleted(result.completed);
+        if (result.completed && result.content.trim()) {
+            applyAIResult(result.content, { announce: true });
+        }
+    }, [onGenerateAI, aiRoleName, aiExtraRequirements, positionJdContent, applyAIResult]);
 
     const handleSubmit = useCallback(async () => {
         if (tab === "advanced") {
@@ -372,6 +454,53 @@ export function StructuredSkillEditor({
     }, [tab, form, advancedContent, onSubmit]);
 
     const canSave = form.taskTypes.length > 0 && (tab === "advanced" || deferredDimValidation.valid);
+    const showAiWaitingPhase = aiGenerating && !hasReceivedFirstAiToken;
+    const showAiStreamingPhase = hasReceivedFirstAiToken || Boolean(aiGeneratedContent);
+
+    useEffect(() => {
+        if (!showAiStreamingPhase || !streamProgressVisible) {
+            return;
+        }
+        if (progressHideTimerRef.current) {
+            window.clearTimeout(progressHideTimerRef.current);
+            progressHideTimerRef.current = null;
+        }
+        if (!aiGenerating) {
+            if (streamCompleted) {
+                setStreamProgressPercent(100);
+                progressHideTimerRef.current = window.setTimeout(() => {
+                    setStreamProgressVisible(false);
+                    progressHideTimerRef.current = null;
+                }, 1000);
+            } else {
+                setStreamProgressVisible(false);
+            }
+            return;
+        }
+
+        const currentChars = aiGeneratedContent.length;
+        if (currentChars <= 0) {
+            return;
+        }
+        const nextEstimate = Math.max(
+            streamEstimatedTotalChars,
+            220,
+            currentChars + 120,
+            Math.ceil(currentChars * 1.18),
+        );
+        if (nextEstimate !== streamEstimatedTotalChars) {
+            setStreamEstimatedTotalChars(nextEstimate);
+        }
+        const nextPercent = Math.min(96, Math.floor((currentChars / nextEstimate) * 100));
+        setStreamProgressPercent((previous) => Math.max(previous, nextPercent));
+    }, [
+        aiGeneratedContent.length,
+        aiGenerating,
+        showAiStreamingPhase,
+        streamCompleted,
+        streamEstimatedTotalChars,
+        streamProgressVisible,
+    ]);
 
     return (
         <div className="flex flex-col flex-1 min-h-0">
@@ -380,6 +509,19 @@ export function StructuredSkillEditor({
                 if (v === "advanced" && tab === "structured") handleSwitchToAdvanced();
                 setTab(v);
             }} className="flex flex-col flex-1 min-h-0">
+                {aiAppliedNotice ? (
+                    <div className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
+                        <p>{aiAppliedNotice}</p>
+                        <button
+                            type="button"
+                            className="rounded-full p-1 text-emerald-700 transition hover:bg-emerald-100 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
+                            onClick={() => setAiAppliedNotice(null)}
+                            aria-label="Dismiss AI success notice"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
+                    </div>
+                ) : null}
                 <TabsList className="w-full justify-start shrink-0">
                     <TabsTrigger value="structured">{t.recruitment.skillTabsStructured}</TabsTrigger>
                     <TabsTrigger value="advanced">{t.recruitment.skillTabsAdvanced}</TabsTrigger>
@@ -597,9 +739,13 @@ export function StructuredSkillEditor({
                     </div>
                     <div className="flex gap-2">
                         {aiGenerating ? (
-                            <Button variant="outline" onClick={() => onStopGeneration?.()}>
+                            <Button
+                                variant="outline"
+                                className="border-rose-300 bg-rose-50 text-rose-700 shadow-sm hover:bg-rose-100 hover:text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200 dark:hover:bg-rose-950/50"
+                                onClick={() => onStopGeneration?.()}
+                            >
                                 <Square className="h-4 w-4 mr-1" />
-                                {t.common.cancel}
+                                {isZh ? "停止生成" : "Stop"}
                             </Button>
                         ) : (
                             <Button onClick={() => void handleGenerate()} disabled={!aiRoleName.trim()}>
@@ -607,15 +753,76 @@ export function StructuredSkillEditor({
                                 {t.recruitment.aiGenerate}
                             </Button>
                         )}
-                        {aiGeneratedContent && (
-                            <Button variant="outline" onClick={handleUseAIResult}>
-                                {t.common.edit}
-                            </Button>
-                        )}
                     </div>
-                    {aiGeneratedContent && (
-                        <div className="rounded-lg border bg-slate-50 dark:bg-slate-900 p-4">
-                            <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans">{aiGeneratedContent}</pre>
+                    {showAiWaitingPhase && (
+                        <div className="overflow-hidden rounded-2xl border border-sky-200 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.18),_transparent_45%),linear-gradient(135deg,rgba(248,250,252,0.98),rgba(239,246,255,0.92))] p-4 dark:border-sky-900 dark:bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.18),_transparent_45%),linear-gradient(135deg,rgba(2,6,23,0.95),rgba(15,23,42,0.92))]">
+                            <div className="flex items-start gap-4">
+                                <div className="relative mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/85 shadow-sm dark:bg-slate-900/75">
+                                    <span className="absolute inset-0 animate-ping rounded-full bg-sky-400/25 dark:bg-sky-500/20" />
+                                    <span className="absolute inset-1 animate-pulse rounded-full border border-sky-200/80 dark:border-sky-700/70" />
+                                    <Sparkles className="relative h-5 w-5 text-sky-600 dark:text-sky-300" />
+                                </div>
+                                <div className="space-y-3">
+                                    <div>
+                                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{t.recruitment.aiGenerate}</p>
+                                        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{aiLoadingMessages[aiLoadingIndex]}</p>
+                                    </div>
+                                    <div className="grid gap-2 sm:grid-cols-2">
+                                        <div className="h-2.5 rounded-full bg-sky-200/80 animate-pulse dark:bg-sky-800/70" />
+                                        <div className="h-2.5 rounded-full bg-cyan-100/90 animate-pulse dark:bg-slate-800/80" />
+                                        <div className="h-2.5 rounded-full bg-emerald-100/80 animate-pulse dark:bg-slate-800/80" />
+                                        <div className="h-2.5 rounded-full bg-slate-200/80 animate-pulse dark:bg-slate-800/80" />
+                                    </div>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        {isZh ? "正在等待模型开始输出内容，生成开始后会立即在下方实时展示。" : "Waiting for the model to begin streaming. Live content will appear below as soon as the first token arrives."}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {showAiStreamingPhase && (
+                        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/90 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/60">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                        {isZh ? "AI 生成结果" : "AI generated result"}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                        {aiGenerating
+                                            ? (isZh ? "内容正在实时输出，可随时停止生成。" : "Streaming content live. You can stop generation at any time.")
+                                            : (isZh ? "内容生成完成后已保留在这里，方便你继续检查和编辑。" : "The generated content stays here so you can review and edit it.")}
+                                    </p>
+                                </div>
+                                {streamProgressVisible ? (
+                                    <div className="rounded-full bg-white px-3 py-1 text-xs font-medium text-sky-700 shadow-sm dark:bg-slate-900 dark:text-sky-300">
+                                        {streamProgressPercent}%
+                                    </div>
+                                ) : null}
+                            </div>
+                            {streamProgressVisible ? (
+                                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800/80">
+                                    <div
+                                        className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-emerald-400 transition-all duration-500"
+                                        style={{ width: `${streamProgressPercent}%` }}
+                                    />
+                                </div>
+                            ) : null}
+                            <div className="mt-4 rounded-xl border border-white/80 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+                                <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                    <span className={cn(
+                                        "inline-flex h-2 w-2 rounded-full",
+                                        aiGenerating ? "animate-pulse bg-sky-500" : "bg-emerald-500",
+                                    )} />
+                                    <span>
+                                        {aiGenerating
+                                            ? (isZh ? "正在实时输出内容" : "Streaming content live")
+                                            : (isZh ? "已完成本次生成，可继续检查并保存内容" : "Generation finished. Review and save when ready.")}
+                                    </span>
+                                </div>
+                                <pre className="mt-3 min-h-[180px] whitespace-pre-wrap text-sm leading-relaxed font-sans text-slate-700 dark:text-slate-200">
+                                    {aiGeneratedContent || (isZh ? "请稍候，实时内容将在这里继续更新..." : "Please wait. Live content will continue updating here...")}
+                                </pre>
+                            </div>
                         </div>
                     )}
                     {!aiGeneratedContent && !aiGenerating && (

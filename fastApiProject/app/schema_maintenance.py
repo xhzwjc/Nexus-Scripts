@@ -537,6 +537,10 @@ def ensure_recruitment_schema() -> None:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN task_types_json TEXT NULL"))
                 logger.info("Added recruitment_skills.task_types_json column")
+            if "bound_position_id" not in skill_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_skills ADD COLUMN bound_position_id INTEGER NULL"))
+                logger.info("Added recruitment_skills.bound_position_id column")
     
             ai_task_columns = {column["name"] for column in inspector.get_columns("recruitment_ai_task_logs")}
             if "screening_run_id" not in ai_task_columns:
@@ -742,6 +746,10 @@ def ensure_recruitment_schema() -> None:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN city VARCHAR(100) NULL"))
                 logger.info("Added recruitment_candidates.city column")
+            if "expected_city" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN expected_city VARCHAR(200) NULL"))
+                logger.info("Added recruitment_candidates.expected_city column")
             if "owner_id" not in candidate_columns:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN owner_id VARCHAR(100) NULL"))
@@ -770,6 +778,14 @@ def ensure_recruitment_schema() -> None:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN ai_match_at DATETIME NULL"))
                 logger.info("Added recruitment_candidates.ai_match_at column")
+            if "ai_potential_position" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN ai_potential_position VARCHAR(200) NULL"))
+                logger.info("Added recruitment_candidates.ai_potential_position column")
+            if "ai_potential_reason" not in candidate_columns:
+                with engine.begin() as connection:
+                    connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN ai_potential_reason TEXT NULL"))
+                logger.info("Added recruitment_candidates.ai_potential_reason column")
             if "talent_pool_reason" not in candidate_columns:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN talent_pool_reason VARCHAR(50) NULL"))

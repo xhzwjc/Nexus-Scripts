@@ -8,24 +8,19 @@ import {
     Eye,
     GraduationCap,
     Loader2,
-    Mail,
     Phone,
     Plus,
     RefreshCw,
     Search,
-    Sparkles,
     Square,
     Trash2,
     Upload,
     Users,
-    X,
 } from "lucide-react";
 
 import {
-    type CandidateDetail,
     type CandidateSummary,
     type PositionSummary,
-    recruitmentApi,
     triggerAIPositionMatch,
 } from "@/lib/recruitment-api";
 import {getCurrentLanguage, useI18n} from "@/lib/i18n";
@@ -109,6 +104,10 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         skills: isZh ? "技能" : "Skills",
         resumeContent: isZh ? "简历内容" : "Resume Content",
         noResumeContent: isZh ? "暂无解析内容" : "No parsed content available",
+        screeningPosition: isZh ? "初筛岗位" : "Screening Position",
+        aiRecommendedPosition: isZh ? "AI推荐岗位" : "AI Recommended Position",
+        potentialDirection: isZh ? "转岗潜力方向" : "Potential Transition Direction",
+        potentialReason: isZh ? "潜力原因" : "Potential Reason",
     };
 }
 
@@ -238,11 +237,6 @@ export function TalentPoolPage({
     /* ── 重新识别 loading ── */
     const [reIdentifyingIds, setReIdentifyingIds] = React.useState<Set<number>>(new Set());
     const [reIdentifyFailedIds, setReIdentifyFailedIds] = React.useState<Set<number>>(new Set());
-
-    /* ── 抽屉状态 ── */
-    const [drawerOpen, setDrawerOpen] = React.useState(false);
-    const [drawerCandidate, setDrawerCandidate] = React.useState<CandidateDetail | null>(null);
-    const [drawerLoading, setDrawerLoading] = React.useState(false);
 
     /* ── 统计 ── */
     const stats = React.useMemo(() => {
@@ -389,21 +383,6 @@ export function TalentPoolPage({
         }
     }, [onDeleteCandidates, selectedIds]);
 
-    /* ── 查看抽屉 ── */
-    const openDrawer = React.useCallback(async (candidateId: number) => {
-        setDrawerOpen(true);
-        setDrawerLoading(true);
-        setDrawerCandidate(null);
-        try {
-            const data = await recruitmentApi<CandidateDetail>(`/candidates/${candidateId}`);
-            if (data) setDrawerCandidate(data);
-        } catch {
-            // fallback: 用列表中的 summary 数据
-        } finally {
-            setDrawerLoading(false);
-        }
-    }, []);
-
     if (loading) {
         return (
             <div className="flex h-full items-center justify-center">
@@ -415,7 +394,7 @@ export function TalentPoolPage({
     return (
         <div className="flex h-full overflow-hidden">
             {/* ── 主内容区 ── */}
-            <div className={cn("flex flex-1 flex-col overflow-y-auto p-6", drawerOpen && "mr-0")}>
+            <div className="flex flex-1 flex-col overflow-y-auto p-6">
                 {/* 页面头部 */}
                 <div className="mb-6 flex items-start justify-between">
                     <div>
@@ -507,7 +486,7 @@ export function TalentPoolPage({
                                             reIdentifyFailed={false}
                                             onToggleSelect={() => toggleSelect(candidate.id)}
                                             onCancelMatch={onCancelMatch ? () => onCancelMatch(candidate.id) : undefined}
-                                            onView={() => openDrawer(candidate.id)}
+                                            onView={() => onViewCandidate(candidate.id)}
                                             tr={tr}
                                             isMatching={true}
                                         />
@@ -540,7 +519,7 @@ export function TalentPoolPage({
                                             onToggleSelect={() => toggleSelect(candidate.id)}
                                             onReIdentify={() => handleReIdentify(candidate.id)}
                                             onManualAssign={() => openSingleAssign(candidate.id)}
-                                            onView={() => openDrawer(candidate.id)}
+                                            onView={() => onViewCandidate(candidate.id)}
                                             tr={tr}
                                         />
                                     ))}
@@ -572,7 +551,7 @@ export function TalentPoolPage({
                                             reIdentifyFailed={false}
                                             onToggleSelect={() => toggleSelect(candidate.id)}
                                             onManualAssign={() => openSingleAssign(candidate.id)}
-                                            onView={() => openDrawer(candidate.id)}
+                                            onView={() => onViewCandidate(candidate.id)}
                                             tr={tr}
                                             isArchived={true}
                                         />
@@ -583,51 +562,6 @@ export function TalentPoolPage({
                     </div>
                 )}
             </div>
-
-            {/* ── 右侧抽屉 ── */}
-            {drawerOpen && (
-                <div className="flex w-[400px] flex-shrink-0 flex-col border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
-                    <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-                        <h3 className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.drawerTitle}</h3>
-                        <button onClick={() => setDrawerOpen(false)} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300">
-                            <X className="h-4 w-4"/>
-                        </button>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4">
-                        {drawerLoading ? (
-                            <div className="flex h-40 items-center justify-center">
-                                <Loader2 className="h-5 w-5 animate-spin text-slate-400"/>
-                            </div>
-                        ) : drawerCandidate ? (
-                            <CandidateDrawerContent detail={drawerCandidate} tr={tr} />
-                        ) : (
-                            <div className="text-sm text-slate-500">{tr.noResumeContent}</div>
-                        )}
-                    </div>
-                    {!drawerLoading && drawerCandidate && (
-                        <div className="flex items-center gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
-                            {drawerCandidate.candidate.ai_match_position_id && (
-                                <Button size="sm" className="h-8 rounded-md text-xs" onClick={async () => {
-                                    await onAssignPosition([drawerCandidate.candidate.id], drawerCandidate.candidate.ai_match_position_id!);
-                                    setDrawerOpen(false);
-                                    if (onRefresh) await onRefresh();
-                                }}>
-                                    <Check className="mr-1 h-3 w-3"/>
-                                    {tr.confirmMatch}
-                                </Button>
-                            )}
-                            <Button size="sm" variant="outline" className="h-8 rounded-md text-xs" onClick={() => { setDrawerOpen(false); openSingleAssign(drawerCandidate.candidate.id); }}>
-                                <Briefcase className="mr-1 h-3 w-3"/>
-                                {tr.manualAssign}
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-8 rounded-md text-xs" onClick={() => { setDrawerOpen(false); handleReIdentify(drawerCandidate.candidate.id); }}>
-                                <RefreshCw className="mr-1 h-3 w-3"/>
-                                {tr.reIdentify}
-                            </Button>
-                        </div>
-                    )}
-                </div>
-            )}
 
             {/* ── 批量分配弹窗 ── */}
             {assignDialogOpen && (
@@ -725,6 +659,8 @@ function CandidateCard({
     isArchived?: boolean;
 }) {
     const hasAIMatch = !!candidate.ai_match_position_title;
+    const screeningPositionTitle = candidate.screened_position_title || candidate.position_title;
+    const aiRecommendedTitle = candidate.ai_match_position_title || null;
     const colorIdx = avatarColorIndex(candidate.name);
     const initial = avatarInitial(candidate.name);
 
@@ -792,6 +728,18 @@ function CandidateCard({
                     {candidate.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3"/>{candidate.phone}</span>}
                 </div>
                 {getDescription()}
+                {(screeningPositionTitle || aiRecommendedTitle || candidate.ai_potential_position) ? (
+                    <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/70 px-3 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                        {screeningPositionTitle ? <div className="font-medium">{`${tr.screeningPosition}：${screeningPositionTitle}`}</div> : null}
+                        {aiRecommendedTitle ? <div className={screeningPositionTitle ? "mt-1" : "font-medium"}>{`${tr.aiRecommendedPosition}：${aiRecommendedTitle}`}</div> : null}
+                        {candidate.ai_potential_position ? (
+                            <div className={screeningPositionTitle || aiRecommendedTitle ? "mt-1 border-t border-sky-200/70 pt-2 dark:border-sky-900/70" : ""}>
+                                <div className="font-medium">{`${tr.potentialDirection}：${candidate.ai_potential_position}`}</div>
+                                {candidate.ai_potential_reason ? <div className="mt-1 text-sky-600/90 dark:text-sky-200/80">{candidate.ai_potential_reason}</div> : null}
+                            </div>
+                        ) : null}
+                    </div>
+                ) : null}
             </div>
             <div className="flex flex-shrink-0 items-center gap-1.5">
                 {hasAIMatch && onConfirmMatch && (
@@ -822,78 +770,6 @@ function CandidateCard({
                     <Eye className="mr-1 h-3 w-3"/>{tr.view}
                 </Button>
             </div>
-        </div>
-    );
-}
-
-/* ── 抽屉内容 ── */
-function CandidateDrawerContent({detail, tr}: {detail: CandidateDetail; tr: ReturnType<typeof getTalentPoolLocale>}) {
-    const c = detail.candidate;
-    const hasAIMatch = !!c.ai_match_position_title;
-    const parseResult = detail.parse_result;
-    const parsed = parseResult || null;
-
-    return (
-        <div className="space-y-4">
-            {/* 基本信息 */}
-            <div>
-                <div className="flex items-center gap-2 mb-2">
-                    <span className="text-base font-medium text-slate-900 dark:text-slate-100">{c.name}</span>
-                    {hasAIMatch && (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-sky-300 bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-300">
-                            <Sparkles className="h-3 w-3"/>
-                            {c.ai_match_position_title}
-                        </span>
-                    )}
-                </div>
-                <div className="space-y-1.5 text-[13px] text-slate-600 dark:text-slate-400">
-                    {c.phone && <div className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-slate-400"/>{c.phone}</div>}
-                    {c.email && <div className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-slate-400"/>{c.email}</div>}
-                    {c.education && <div className="flex items-center gap-2"><GraduationCap className="h-3.5 w-3.5 text-slate-400"/>{c.education}</div>}
-                    {c.years_of_experience && <div className="flex items-center gap-2"><Briefcase className="h-3.5 w-3.5 text-slate-400"/>{c.years_of_experience}</div>}
-                    {c.city && <div className="flex items-center gap-2"><Building2 className="h-3.5 w-3.5 text-slate-400"/>{c.city}</div>}
-                </div>
-            </div>
-
-            <div className="h-px bg-slate-200 dark:bg-slate-800"/>
-
-            {/* 简历解析内容 */}
-            {parsed ? (
-                <div className="space-y-3">
-                    {parsed.work_experiences?.length > 0 && (
-                        <div>
-                            <h4 className="mb-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">{tr.workExperience}</h4>
-                            <div className="space-y-2">
-                                {(parsed.work_experiences as Record<string, string>[]).map((w, i) => (
-                                    <div key={i} className="rounded-lg bg-slate-50 px-3 py-2 text-[13px] dark:bg-slate-900">
-                                        <div className="font-medium text-slate-800 dark:text-slate-200">{w.company || ""} {w.title ? `· ${w.title}` : ""}</div>
-                                        {w.period && <div className="text-xs text-slate-500">{w.period}</div>}
-                                        {w.description && <div className="mt-1 text-xs text-slate-600 dark:text-slate-400 whitespace-pre-line">{w.description}</div>}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                    {parsed.skills?.length > 0 && (
-                        <div>
-                            <h4 className="mb-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">{tr.skills}</h4>
-                            <div className="flex flex-wrap gap-1.5">
-                                {(parsed.skills as string[]).map((s, i) => (
-                                    <span key={i} className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-400">{s}</span>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                    {parsed.summary && (
-                        <div>
-                            <h4 className="mb-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">{tr.resumeContent}</h4>
-                            <div className="rounded-lg bg-slate-50 px-3 py-2 text-[13px] text-slate-700 dark:bg-slate-900 dark:text-slate-300 whitespace-pre-line">{parsed.summary}</div>
-                        </div>
-                    )}
-                </div>
-            ) : (
-                <div className="text-center text-sm text-slate-400 py-8">{tr.noResumeContent}</div>
-            )}
         </div>
     );
 }

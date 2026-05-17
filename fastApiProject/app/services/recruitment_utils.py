@@ -1061,7 +1061,8 @@ RESUME_DATE_RANGE_LINE_PATTERN = re.compile(
 RESUME_SCHOOL_KEYWORDS = ("大学", "学院", "学校", "本科", "硕士", "博士", "大专", "专科", "中专", "专业")
 RESUME_CERTIFICATE_KEYWORDS = ("英语四级", "英语六级", "普通话", "证书", "荣誉", "奖项", "资格证", "等级证")
 RESUME_COMPANY_KEYWORDS = ("有限公司", "公司", "集团", "科技", "信息", "软件", "研究院", "实验室", "中心", "银行", "医院")
-RESUME_LOCATION_LABELS = ("期望城市", "意向城市", "现居住地", "现居地", "所在地", "居住地", "工作地点", "居住城市")
+RESUME_CURRENT_LOCATION_LABELS = ("现居住地", "现居地", "常驻城市", "现居城市", "居住城市", "现所在地", "籍贯")
+RESUME_EXPECTED_CITY_LABELS = ("期望城市", "期望工作地点", "意向城市", "期望地点", "意向工作地点", "期望工作城市")
 RESUME_PROJECT_SECTION_NOISE = {
     "项目经历",
     "项目经验",
@@ -1238,25 +1239,48 @@ def _normalize_inline_resume_field(value: Any) -> str:
     return text.strip("：: -")
 
 
-def _extract_resume_location(raw_text: str, lines: Optional[Sequence[str]] = None) -> str:
+def _normalize_inline_resume_city_values(value: Any) -> List[str]:
+    text = _clean_resume_line(value)
+    if not text:
+        return []
+    text = re.split(r"(?:期望城市|期望工作地点|意向城市|期望地点|意向工作地点|期望工作城市|现居住地|现居地|常驻城市|现居城市|居住城市|现所在地|籍贯|工作地点|学校|教育背景|项目地点)\s*[:：]?", text)[0]
+    text = re.split(r"(?:工作经验|工作年限|求职岗位|入职时间|联系电话|电话|邮箱|婚姻状况|出生年月|教育背景|荣誉证书|技能特长)\s*[:：]?", text)[0]
+    result: List[str] = []
+    for item in re.split(r"[，,；;|/、]", text):
+        normalized = item.strip("：: -")
+        if normalized and normalized not in result:
+            result.append(normalized[:24])
+    return result
+
+
+def _extract_resume_values_by_labels(raw_text: str, labels: Sequence[str], lines: Optional[Sequence[str]] = None) -> List[str]:
     text = str(raw_text or "")
-    for label in RESUME_LOCATION_LABELS:
-        match = re.search(rf"{label}\s*[:：]?\s*([^\n\r]{{1,24}})", text)
-        if not match:
-            continue
-        normalized = _normalize_inline_resume_field(match.group(1))
-        if normalized:
-            return normalized[:24]
+    result: List[str] = []
+    for label in labels:
+        for match in re.finditer(rf"{label}\s*[:：]?\s*([^\n\r]{{1,40}})", text):
+            for value in _normalize_inline_resume_city_values(match.group(1)):
+                if value not in result:
+                    result.append(value)
     for line in lines or []:
-        if not any(label in line for label in RESUME_LOCATION_LABELS):
+        if not any(label in line for label in labels):
             continue
-        for label in RESUME_LOCATION_LABELS:
+        for label in labels:
             if label not in line:
                 continue
-            normalized = _normalize_inline_resume_field(line.split(label, 1)[-1])
-            if normalized:
-                return normalized[:24]
-    return ""
+            for value in _normalize_inline_resume_city_values(line.split(label, 1)[-1]):
+                if value not in result:
+                    result.append(value)
+    return result
+
+
+def _extract_resume_location(raw_text: str, lines: Optional[Sequence[str]] = None) -> str:
+    values = _extract_resume_values_by_labels(raw_text, RESUME_CURRENT_LOCATION_LABELS, lines)
+    return values[0] if values else ""
+
+
+def _extract_resume_expected_city(raw_text: str, lines: Optional[Sequence[str]] = None) -> str:
+    values = _extract_resume_values_by_labels(raw_text, RESUME_EXPECTED_CITY_LABELS, lines)
+    return ",".join(values[:6])
 
 
 def _split_company_and_position(text: str) -> Tuple[str, str]:
@@ -1632,6 +1656,7 @@ def extract_basic_info(
         "years_of_experience": years_match.group(1) + "年" if years_match else "",
         "education": education,
         "location": _extract_resume_location(raw_text, normalized_lines),
+        "expected_city": _extract_resume_expected_city(raw_text, normalized_lines),
     }
 
 

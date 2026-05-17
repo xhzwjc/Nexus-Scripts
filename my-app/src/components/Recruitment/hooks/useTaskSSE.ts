@@ -12,6 +12,8 @@ export type TaskSSEEvent = {
   // AI 岗位匹配增量推送
   ai_match_position_id?: number | null;
   ai_match_position_title?: string | null;
+  ai_potential_position?: string | null;
+  ai_potential_reason?: string | null;
   batch_id?: string;
 };
 

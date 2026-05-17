@@ -87,11 +87,25 @@ class KeyRotator:
             key_id = cfg["key_id"]
             if key_id in existing:
                 slot = existing[key_id]
-                # 更新配置（保留 semaphore 状态）
-                slot.max_concurrent = cfg.get("max_concurrent", slot.max_concurrent)
-                slot.max_qps = cfg.get("max_qps", slot.max_qps)
-                slot.config_id = cfg.get("config_id", slot.config_id)
-                new_slots.append(slot)
+                next_max_concurrent = max(1, int(cfg.get("max_concurrent", slot.max_concurrent) or slot.max_concurrent))
+                next_max_qps = int(cfg.get("max_qps", slot.max_qps) or 0)
+                next_config_id = cfg.get("config_id", slot.config_id)
+                if (
+                    next_max_concurrent != slot.max_concurrent
+                    or next_max_qps != slot.max_qps
+                    or next_config_id != slot.config_id
+                ):
+                    # 配置变更后直接替换为新槽，让后续任务立刻使用新并发/QPS。
+                    # 正在执行中的旧任务会自然释放旧槽，不影响新配置生效。
+                    new_slots.append(KeySlot(
+                        key_id=key_id,
+                        config_id=next_config_id,
+                        semaphore=asyncio.Semaphore(next_max_concurrent),
+                        max_concurrent=next_max_concurrent,
+                        max_qps=next_max_qps,
+                    ))
+                else:
+                    new_slots.append(slot)
             else:
                 new_slots.append(KeySlot(
                     key_id=key_id,

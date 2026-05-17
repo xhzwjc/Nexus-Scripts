@@ -86,6 +86,7 @@ class CandidateUpdateRequest(BaseModel):
     education: Optional[str] = None
     age: Optional[int] = None
     city: Optional[str] = None
+    expected_city: Optional[str] = None
     notes: Optional[str] = None
     tags: Optional[List[str]] = None
     manual_override_score: Optional[float] = Field(None, ge=0, le=100)
@@ -103,6 +104,7 @@ class CandidateStatusUpdateRequest(BaseModel):
 class CandidateExportRequest(BaseModel):
     candidate_ids: List[int] = Field(..., min_length=1)
     include_resumes: bool = True
+    fields: List[str] = Field(default_factory=list)
 
 
 class CandidateBatchUpdatePositionRequest(BaseModel):
@@ -170,6 +172,7 @@ class SkillUpsertRequest(BaseModel):
     content: str = Field(..., min_length=1)
     tags: List[str] = Field(default_factory=list)
     task_types: List[str] = Field(default_factory=list)
+    bound_position_id: Optional[int] = Field(None, ge=1)
     sort_order: int = Field(99, ge=0, le=9999)
     is_enabled: bool = True
 

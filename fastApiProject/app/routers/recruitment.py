@@ -457,6 +457,7 @@ async def export_candidates(payload: CandidateExportRequest, _session: Dict[str,
             service.export_candidates,
             payload.candidate_ids,
             payload.include_resumes,
+            payload.fields,
         )
         zip_filename = Path(zip_path).name
         zip_dir = str(Path(zip_path).parent)
@@ -719,6 +720,7 @@ async def upload_resumes(
         rows = service.upload_resume_files(
             uploaded_files, effective_position_id, _session.get("id") or "unknown",
             org_code, city, city_source=city_source,
+            match_mode=match_mode,
             source=source, duplicate_strategy=duplicate_strategy
         )
 

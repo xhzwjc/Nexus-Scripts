@@ -193,6 +193,13 @@ const CandidateRow = React.memo(function CandidateRow({
                                     text={candidate.phone || candidate.email || tr.noContact}
                                     className="text-xs text-slate-500 dark:text-slate-400"
                                 />
+                                {candidate.ai_potential_position ? (
+                                    <HoverRevealText
+                                        text={`${isZh ? "转岗潜力" : "Potential Transition"}: ${candidate.ai_potential_position}${candidate.ai_potential_reason ? ` · ${candidate.ai_potential_reason}` : ""}`}
+                                        className="mt-1 text-xs text-sky-600 dark:text-sky-300"
+                                        tooltipClassName="max-w-md"
+                                    />
+                                ) : null}
                                 {resumeMailSummary ? (
                                     <HoverRevealText
                                         text={resumeMailSummary}
@@ -291,6 +298,21 @@ const CandidateRow = React.memo(function CandidateRow({
                         </td>
                     );
                 }
+                if (columnKey === "expected_city") {
+                    return (
+                        <td
+                            key={columnKey}
+                            style={{
+                                width: columnWidths.expected_city,
+                                minWidth: columnWidths.expected_city,
+                                maxWidth: columnWidths.expected_city,
+                            }}
+                            className="p-2 align-middle"
+                        >
+                            <HoverRevealText text={candidate.expected_city || "-"} className="text-xs text-slate-600 dark:text-slate-300"/>
+                        </td>
+                    );
+                }
                 if (columnKey === "source") {
                     return (
                         <td
@@ -343,6 +365,7 @@ const CandidateRow = React.memo(function CandidateRow({
         && prev.candidate.source === next.candidate.source
         && prev.candidate.age === next.candidate.age
         && prev.candidate.city === next.candidate.city
+        && prev.candidate.expected_city === next.candidate.expected_city
         && prev.language === next.language
         && prev.getResumeMailSummary(prev.candidate.id) === next.getResumeMailSummary(next.candidate.id);
 });
@@ -445,7 +468,8 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         duplicateWarningDesc: (count: number) => isZh ? `检测到 ${count} 位候选人的联系方式与当前候选人相同。` : `${count} candidate(s) have the same contact info.`,
         viewDuplicate: isZh ? "查看" : "View",
         ageSuffix: isZh ? "岁" : "yo",
-        cityLabel: isZh ? "城市" : "City",
+        cityLabel: isZh ? "所在城市" : "Current City",
+        expectedCityLabel: isZh ? "期望城市" : "Expected City",
         selectAllCandidates: isZh ? "全选候选人" : "Select all candidates",
         selectCandidate: (name: string) => (isZh ? `选择候选人 ${name}` : `Select candidate ${name}`),
         stopping: isZh ? "停止中..." : "Stopping...",
@@ -482,7 +506,8 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         experiencePlaceholder: isZh ? "工作年限" : "Years of Experience",
         educationPlaceholder: isZh ? "学历" : "Education",
         agePlaceholder: isZh ? "年龄" : "Age",
-        cityPlaceholder: isZh ? "城市" : "City",
+        cityPlaceholder: isZh ? "所在城市" : "Current City",
+        expectedCityPlaceholder: isZh ? "期望城市" : "Expected City",
         tagsAndNotes: isZh ? "标签与备注" : "Tags & Notes",
         tagsPlaceholder: isZh ? "标签，使用英文逗号分隔" : "Tags, separated by commas",
         notesPlaceholder: isZh ? "例如：沟通不错，但对设备联调经验需要进一步核实" : "Example: strong communication, but device integration experience needs follow-up",
@@ -1551,7 +1576,7 @@ type CandidatesPageProps = {
     skills: RecruitmentSkill[];
     toggleInterviewSkillSelection: (skillId: number) => void;
     downloadInterviewQuestion: (questionId: number) => Promise<void>;
-    exportCandidates: (candidateIds: number[], includeResumes?: boolean) => Promise<void>;
+    exportCandidates: (candidateIds: number[], options?: { includeResumes?: boolean; fields?: string[] }) => Promise<void>;
     requestBatchDelete: (candidateIds: number[]) => void;
     batchBindPosition: (candidateIds: number[], positionId: number | null) => Promise<void>;
     onMoveToTalentPool?: (candidateIds: number[]) => Promise<void>;
@@ -1675,14 +1700,47 @@ export function CandidatesPage({
     const {language} = useI18n();
     const isZh = language !== "en-US";
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
+    const exportFieldOptions = React.useMemo(() => ([
+        { key: "name", label: isZh ? "姓名" : "Name", defaultChecked: true },
+        { key: "phone", label: isZh ? "手机号" : "Phone", defaultChecked: true },
+        { key: "email", label: isZh ? "邮箱" : "Email", defaultChecked: true },
+        { key: "position_title", label: isZh ? "应聘岗位" : "Applied Position", defaultChecked: true },
+        { key: "source", label: isZh ? "简历来源" : "Resume Source", defaultChecked: true },
+        { key: "current_status", label: isZh ? "当前状态" : "Current Status", defaultChecked: true },
+        { key: "screening_score", label: isZh ? "初筛得分" : "Screening Score", defaultChecked: true },
+        { key: "uploaded_at", label: isZh ? "上传时间" : "Uploaded At", defaultChecked: true },
+        { key: "education", label: isZh ? "学历" : "Education", defaultChecked: false },
+        { key: "graduation_school", label: isZh ? "毕业院校" : "Graduation School", defaultChecked: false },
+        { key: "major", label: isZh ? "专业" : "Major", defaultChecked: false },
+        { key: "work_years", label: isZh ? "工作年限" : "Work Years", defaultChecked: false },
+        { key: "expected_salary", label: isZh ? "期望薪资" : "Expected Salary", defaultChecked: false },
+        { key: "current_city", label: isZh ? "所在城市" : "Current City", defaultChecked: false },
+        { key: "expected_city", label: isZh ? "期望城市" : "Expected City", defaultChecked: false },
+        { key: "ai_recommended_position", label: isZh ? "AI推荐岗位" : "AI Recommended Position", defaultChecked: false },
+        { key: "screening_conclusion", label: isZh ? "初筛结论" : "Screening Conclusion", defaultChecked: false },
+        { key: "screening_dimension_scores", label: isZh ? "初筛维度得分" : "Screening Dimension Scores", defaultChecked: false },
+        { key: "audit_operator", label: isZh ? "审计操作人" : "Audit Operator", defaultChecked: false },
+        { key: "last_updated_at", label: isZh ? "最后更新时间" : "Last Updated At", defaultChecked: false },
+    ]), [isZh]);
+    const defaultExportFieldKeys = React.useMemo(
+        () => exportFieldOptions.filter((item) => item.defaultChecked).map((item) => item.key),
+        [exportFieldOptions],
+    );
     const [candidateListViewportEl, setCandidateListViewportEl] = React.useState<HTMLDivElement | null>(null);
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
     const [candidateFilterBarExpanded, setCandidateFilterBarExpanded] = React.useState(false);
     const [candidateAiOutputDialogOpen, setCandidateAiOutputDialogOpen] = React.useState(false);
+    const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
+    const [exportIncludeResumes, setExportIncludeResumes] = React.useState(true);
+    const [exportFieldKeys, setExportFieldKeys] = React.useState<string[]>(defaultExportFieldKeys);
     const [batchBindDialogOpen, setBatchBindDialogOpen] = React.useState(false);
     const [batchBindPositionId, setBatchBindPositionId] = React.useState<string>("");
     const [batchBindSubmitting, setBatchBindSubmitting] = React.useState(false);
     const [batchStatusDialogOpen, setBatchStatusDialogOpen] = React.useState(false);
+
+    useEffect(() => {
+        setExportFieldKeys(defaultExportFieldKeys);
+    }, [defaultExportFieldKeys]);
     const [batchStatusValue, setBatchStatusValue] = React.useState<string>("");
     const [batchStatusReason, setBatchStatusReason] = React.useState<string>("");
     const [batchStatusSubmitting, setBatchStatusSubmitting] = React.useState(false);
@@ -1808,8 +1866,8 @@ export function CandidatesPage({
     const candidateListVisibleColumns = React.useMemo<CandidateListColumnKey[]>(
         () => (
             showOrganizationColumn
-                ? ["candidate", "status", "match", "city", "position", "organization", "source", "updated"]
-                : ["candidate", "status", "match", "city", "position", "source", "updated"]
+                ? ["candidate", "status", "match", "city", "expected_city", "position", "organization", "source", "updated"]
+                : ["candidate", "status", "match", "city", "expected_city", "position", "source", "updated"]
         ),
         [showOrganizationColumn],
     );
@@ -1854,6 +1912,7 @@ export function CandidatesPage({
             case "status": return tr.status;
             case "match": return tr.matchPercent;
             case "city": return tr.cityLabel;
+            case "expected_city": return tr.expectedCityLabel;
             case "source": return tr.source;
             default: return tr.timeLabel;
         }
@@ -1867,21 +1926,8 @@ export function CandidatesPage({
     const zoomHintRef = React.useRef<HTMLDivElement>(null);
 
     // ---- 分栏拖拽调整 (Split Pane Resize) ----
-    const splitRatioRef = React.useRef<number>(35);
-    // 从 localStorage 恢复已保存的分栏宽度
-    React.useEffect(() => {
-        const saved = localStorage.getItem('candidates-split-width');
-        if (saved) {
-            const parsed = Math.min(60, Math.max(20, parseFloat(saved)));
-            splitRatioRef.current = parsed;
-            if (leftPanelRef.current && !detailExpanded) {
-                leftPanelRef.current.style.width = `${parsed}%`;
-            }
-            if (rightPanelRef.current && !detailExpanded) {
-                rightPanelRef.current.style.width = `${100 - parsed}%`;
-            }
-        }
-    }, []);
+    // 默认保留详情区的最小可见宽度，让用户一进来就知道右侧是详情区。
+    const splitRatioRef = React.useRef<number>(60);
     const splitContainerRef = React.useRef<HTMLDivElement>(null);
     const leftPanelRef = React.useRef<HTMLDivElement>(null);
     const rightPanelRef = React.useRef<HTMLDivElement>(null);
@@ -2205,7 +2251,7 @@ export function CandidatesPage({
                                     <ArrowRightLeft className="h-4 w-4"/>
                                     {tr.batchUpdateStatus}
                                 </Button>
-                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => void exportCandidates(selectedCandidateIds)} disabled={!selectedCandidateIds.length || exporting}>
+                                <Button size="sm" variant="outline" className="h-7 rounded-md px-2.5 text-xs" onClick={() => setExportDialogOpen(true)} disabled={!selectedCandidateIds.length || exporting}>
                                     <Download className="h-4 w-4"/>
                                     {exporting ? tr.exporting : tr.exportCandidates}
                                 </Button>
@@ -2491,6 +2537,27 @@ export function CandidatesPage({
                                             <div data-no-zoom className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 cursor-text select-text">
                                                 {candidateDetailIdentityMeta ? <span>{candidateDetailIdentityMeta}</span> : null}
                                             </div>
+                                            {(candidateDetail.candidate.screened_position_title || candidateDetail.candidate.ai_match_position_title || candidateDetail.candidate.ai_potential_position) ? (
+                                                <div data-no-zoom className="mt-2 space-y-1 rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                    {candidateDetail.candidate.screened_position_title ? (
+                                                        <div className="font-medium">{`${isZh ? "初筛岗位" : "Screening Position"}：${candidateDetail.candidate.screened_position_title}`}</div>
+                                                    ) : null}
+                                                    {candidateDetail.candidate.ai_match_position_title ? (
+                                                        <div className={candidateDetail.candidate.screened_position_title ? "mt-1" : "font-medium"}>{`${isZh ? "AI 主匹配岗位" : "AI Primary Match"}：${candidateDetail.candidate.ai_match_position_title}`}</div>
+                                                    ) : null}
+                                                    {candidateDetail.candidate.ai_match_position_title && candidateDetail.candidate.ai_match_reason ? (
+                                                        <div className="text-sky-600 dark:text-sky-200/80">{candidateDetail.candidate.ai_match_reason}</div>
+                                                    ) : null}
+                                                    {candidateDetail.candidate.ai_potential_position ? (
+                                                        <div className="border-t border-sky-200/70 pt-2 dark:border-sky-900/70">
+                                                            <div className="font-medium">{`${isZh ? "转岗潜力方向" : "Potential Transition"}：${candidateDetail.candidate.ai_potential_position}`}</div>
+                                                            {candidateDetail.candidate.ai_potential_reason ? (
+                                                                <div className="mt-1 text-sky-600 dark:text-sky-200/80">{candidateDetail.candidate.ai_potential_reason}</div>
+                                                            ) : null}
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
                                         </div>
                                         <div data-no-zoom className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-900">
                                             <Button size="sm" variant={candidateDetailPanel === "profile" ? "default" : "ghost"} onClick={() => setCandidateDetailPanel("profile")}>
@@ -2676,6 +2743,7 @@ export function CandidatesPage({
                                                     <Input value={candidateEditor.education} onChange={(event) => setCandidateEditor((current) => ({...current, education: event.target.value}))} placeholder={tr.educationPlaceholder}/>
                                                     <Input value={candidateEditor.age} onChange={(event) => setCandidateEditor((current) => ({...current, age: event.target.value}))} placeholder={tr.agePlaceholder}/>
                                                     <Input value={candidateEditor.city} onChange={(event) => setCandidateEditor((current) => ({...current, city: event.target.value}))} placeholder={tr.cityPlaceholder}/>
+                                                    <Input value={candidateEditor.expectedCity} onChange={(event) => setCandidateEditor((current) => ({...current, expectedCity: event.target.value}))} placeholder={tr.expectedCityPlaceholder}/>
                                                 </div>
                                             </Field>
 
@@ -3469,6 +3537,11 @@ export function CandidatesPage({
                                                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                             {candidate.position_title || tr.unassignedPosition} · {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))} · {tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
                                                         </p>
+                                                        {candidate.ai_potential_position ? (
+                                                            <p className="mt-1 text-xs text-sky-600 dark:text-sky-300">
+                                                                {`${isZh ? "转岗潜力" : "Potential Transition"}：${candidate.ai_potential_position}`}
+                                                            </p>
+                                                        ) : null}
                                                     </div>
                                                     <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.updated_at)}</p>
                                                 </button>
@@ -3506,6 +3579,82 @@ export function CandidatesPage({
                 modelLabel={latestResumeScoreLog ? `${labelForProvider(latestResumeScoreLog.model_provider)} / ${latestResumeScoreLog.model_name || tr.unrecorded}` : null}
                 generatedAt={latestResumeScoreLog?.created_at || candidateDetail?.score?.updated_at || candidateDetail?.score?.created_at}
             />
+            <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+                <DialogContent className="sm:max-w-xl">
+                    <DialogHeader>
+                        <DialogTitle>{isZh ? "导出候选人" : "Export Candidates"}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+                            {isZh ? `将导出 ${selectedCandidateIds.length} 位候选人，可自定义字段，并选择是否打包原始简历。` : `Export ${selectedCandidateIds.length} candidates with custom fields and optional resume files.`}
+                        </div>
+                        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                            <input
+                                type="checkbox"
+                                checked={exportIncludeResumes}
+                                onChange={(event) => setExportIncludeResumes(event.target.checked)}
+                            />
+                            <span>{isZh ? "同时导出原始简历文件" : "Include original resume files"}</span>
+                        </label>
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{isZh ? "导出字段" : "Export Fields"}</p>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setExportFieldKeys(defaultExportFieldKeys)}
+                                >
+                                    {isZh ? "恢复默认字段" : "Reset Defaults"}
+                                </Button>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                {exportFieldOptions.map((field) => {
+                                    const checked = exportFieldKeys.includes(field.key);
+                                    return (
+                                        <label key={`export-field-${field.key}`} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300">
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={(event) => {
+                                                    const nextChecked = event.target.checked;
+                                                    setExportFieldKeys((current) => {
+                                                        if (nextChecked) {
+                                                            return Array.from(new Set([...current, field.key]));
+                                                        }
+                                                        if (current.length <= 1) {
+                                                            return current;
+                                                        }
+                                                        return current.filter((item) => item !== field.key);
+                                                    });
+                                                }}
+                                            />
+                                            <span>{field.label}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setExportDialogOpen(false)}>
+                                {tr.batchBindPositionCancel}
+                            </Button>
+                            <Button
+                                disabled={!exportFieldKeys.length || exporting}
+                                onClick={async () => {
+                                    await exportCandidates(selectedCandidateIds, {
+                                        includeResumes: exportIncludeResumes,
+                                        fields: exportFieldKeys,
+                                    });
+                                    setExportDialogOpen(false);
+                                }}
+                            >
+                                {exporting ? <Loader2 className="h-4 w-4 animate-spin"/> : null}
+                                {tr.exportCandidates}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
             <Dialog open={batchBindDialogOpen} onOpenChange={setBatchBindDialogOpen}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>

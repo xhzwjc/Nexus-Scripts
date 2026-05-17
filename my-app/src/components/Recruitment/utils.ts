@@ -459,12 +459,13 @@ export function parseSkillContent(content: string): Partial<ScreeningSkillFormDa
         result.hardRules = customRules.join("\n");
     }
 
-    const dimSection = content.match(/评分维度与满分[：:]\n([\s\S]+?)(?=\n判定规则[：:])/);
+    const dimSection = content.match(/评分维度与满分[：:]?\n([\s\S]+?)(?=\n判定规则[：:]?)/);
     if (dimSection) {
         const dims: ScreeningSkillDimension[] = [];
         const dimLines = dimSection[1].split("\n");
         for (const line of dimLines) {
-            const m = line.match(/^\d+\.\s*(.+?)[：:]\s*满分\s*([\d.]+)\s*分[。.]\s*(.*)/);
+            const normalizedLine = line.trim();
+            const m = normalizedLine.match(/^\d+[.、)]\s*(.+?)[：:]\s*满分\s*([\d.]+)\s*分(?:[。.．]?\s*)(.*)$/);
             if (m) {
                 const desc = m[3].trim();
                 const isCore = desc.startsWith("核心第一优先");
@@ -478,6 +479,24 @@ export function parseSkillContent(content: string): Partial<ScreeningSkillFormDa
                 });
             }
         }
+        const hardRules = (result.hardRules || "")
+            .split("\n")
+            .map((item) => item.trim())
+            .filter(Boolean);
+        const hardDimensionNames = new Set<string>();
+        for (const rule of hardRules) {
+            if (!rule.includes("缺失")) continue;
+            dims.forEach((dim) => {
+                if (dim.name && rule.includes(dim.name)) {
+                    hardDimensionNames.add(dim.name);
+                }
+            });
+        }
+        dims.forEach((dim) => {
+            if (hardDimensionNames.has(dim.name)) {
+                dim.isHardRequirement = true;
+            }
+        });
         result.dimensions = dims;
     }
 
@@ -537,6 +556,8 @@ export function emptyLLMForm(): LLMFormState {
         baseUrl: "",
         apiKeyEnv: "",
         apiKeyValue: "",
+        maxConcurrent: "4",
+        maxQps: "10",
         priority: "99",
         isActive: true,
         extraConfigText: "{}",
@@ -553,6 +574,7 @@ export function emptyCandidateEditor(): CandidateEditorState {
         education: "",
         age: "",
         city: "",
+        expectedCity: "",
         notes: "",
         tagsText: "",
         manualOverrideScore: "",
@@ -966,6 +988,14 @@ export function sortSkillsForTaskPreference(
         const rightOrder = Number.isFinite(Number(right.sort_order)) ? Number(right.sort_order) : 999;
         if (leftOrder !== rightOrder) {
             return leftOrder - rightOrder;
+        }
+        const leftTime = left.created_at ? new Date(left.created_at).getTime() : 0;
+        const rightTime = right.created_at ? new Date(right.created_at).getTime() : 0;
+        if (leftTime !== rightTime) {
+            return rightTime - leftTime;
+        }
+        if (left.id !== right.id) {
+            return right.id - left.id;
         }
         return String(left.name || "").localeCompare(String(right.name || ""), "zh-Hans-CN");
     });

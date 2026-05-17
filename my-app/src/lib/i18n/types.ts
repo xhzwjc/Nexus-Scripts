@@ -59,6 +59,9 @@ export interface Translations {
     priorityLabel: string;
     modelName: string;
     resolvedSource: string;
+    maxConcurrency: string;
+    maxQps: string;
+    sharedModelThrottleHint: string;
     currentlyActive: string;
     setAsCurrent: string;
     noModelConfigs: string;

@@ -97,6 +97,38 @@ KNOWN_AI_TASK_TYPES = [SCREENING_FLOW_TASK_TYPE, "jd_generation", "resume_parse"
 KNOWN_AI_TASK_TYPES = [SCREENING_FLOW_TASK_TYPE, "jd_generation", "resume_parse", "resume_score", SCREENING_ONE_PASS_TASK_TYPE, "interview_question_generation", "chat_orchestrator", "ai_position_match", "resume_mail_dispatch", "publish_task"]
 LLM_TASK_TYPE_OPTIONS = [{"value": "default", "label": "默认模型"}, {"value": "jd_generation", "label": "JD 生成"}, {"value": "resume_parse", "label": "简历解析"}, {"value": "resume_score", "label": "简历评分"}, {"value": SCREENING_ONE_PASS_TASK_TYPE, "label": "一体化初筛"}, {"value": "interview_question_generation", "label": "面试题生成"}, {"value": "chat_orchestrator", "label": "AI 助手"}, {"value": "ai_position_match", "label": "岗位匹配"}]
 SCREENING_STATUS_LABELS = {item["value"]: item["label"] for item in CANDIDATE_STATUS_OPTIONS}
+DEFAULT_CANDIDATE_EXPORT_FIELDS = [
+    "name",
+    "phone",
+    "email",
+    "position_title",
+    "source",
+    "current_status",
+    "screening_score",
+    "uploaded_at",
+]
+CANDIDATE_EXPORT_FIELD_LABELS = {
+    "name": "姓名",
+    "phone": "手机号",
+    "email": "邮箱",
+    "position_title": "应聘岗位",
+    "source": "简历来源",
+    "current_status": "当前状态",
+    "screening_score": "初筛得分",
+    "uploaded_at": "上传时间",
+    "education": "学历",
+    "graduation_school": "毕业院校",
+    "major": "专业",
+    "work_years": "工作年限",
+    "expected_salary": "期望薪资",
+    "current_city": "所在城市",
+    "expected_city": "期望城市",
+    "ai_recommended_position": "AI推荐岗位",
+    "screening_conclusion": "初筛结论",
+    "screening_dimension_scores": "初筛维度得分",
+    "audit_operator": "审计操作人",
+    "last_updated_at": "最后更新时间",
+}
 STRICT_RESUME_SCORE_FIELDS = (
     "total_score",
     "match_percent",
@@ -111,7 +143,7 @@ VALID_SCREENING_SUGGESTED_STATUSES = {"screening_passed", "talent_pool", "screen
 VALID_SCREENING_MODES = {"default", "rerank_from_existing_parse", "fallback_parse_then_score"}
 SCREENING_PAYLOAD_SCHEMA_CONFIG = {
     "parsed_resume": {
-        "basic_info_fields": ("name", "phone", "email", "age", "years_of_experience", "education", "location"),
+        "basic_info_fields": ("name", "phone", "email", "age", "years_of_experience", "education", "location", "expected_city"),
         "list_fields": ("work_experiences", "education_experiences", "skills", "projects"),
         "string_fields": ("summary",),
     },
@@ -154,6 +186,7 @@ logger = logging.getLogger(__name__)
 PROCESS_BOOTED_AT = datetime.now()
 SCREENING_WORKER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_WORKER_MAX_CONCURRENCY", "8")))
 SCREENING_PROVIDER_MAX_CONCURRENCY = max(1, int(os.getenv("SCREENING_PROVIDER_MAX_CONCURRENCY", "4")))
+SCREENING_DISPATCH_SCAN_LIMIT = max(120, int(os.getenv("SCREENING_DISPATCH_SCAN_LIMIT", "240")))
 
 # 匹配超时/重试常量
 MATCH_TIMEOUT_SECONDS = 180  # 3 分钟超时（从 worker 开始执行算起）
@@ -191,24 +224,44 @@ _screening_worker_active_task_ids: set[int] = set()
 _screening_enqueue_lock = threading.Lock()
 _screening_provider_lock = threading.Lock()
 _screening_provider_semaphores: Dict[str, threading.BoundedSemaphore] = {}
+_screening_provider_semaphore_limits: Dict[str, int] = {}
 _screening_provider_qps_windows: Dict[str, deque[float]] = {}
 _screening_provider_state_lock = threading.Lock()
 _screening_provider_consecutive_retryable_failures = 0
 _screening_provider_cooldown_until: Optional[datetime] = None
 
 
-def _get_provider_semaphore(config_key: str) -> threading.BoundedSemaphore:
-    with _screening_provider_state_lock:
-        if config_key not in _screening_provider_semaphores:
-            _screening_provider_semaphores[config_key] = threading.BoundedSemaphore(SCREENING_PROVIDER_MAX_CONCURRENCY)
-        return _screening_provider_semaphores[config_key]
+def _normalize_screening_provider_source(value: Optional[str]) -> str:
+    text = str(value or "").strip()
+    return text or "default"
 
 
-def _get_provider_qps_window(config_key: str) -> deque[float]:
+def _screening_provider_config_key_from_source(value: Optional[str]) -> Optional[str]:
+    source = _normalize_screening_provider_source(value)
+    if source.startswith("db:") and len(source) > 3:
+        return source[3:].strip() or None
+    return None
+
+
+def _get_provider_semaphore(source_key: str, max_concurrent: int) -> threading.BoundedSemaphore:
+    normalized_source = _normalize_screening_provider_source(source_key)
+    normalized_limit = max(1, int(max_concurrent or SCREENING_PROVIDER_MAX_CONCURRENCY))
     with _screening_provider_state_lock:
-        if config_key not in _screening_provider_qps_windows:
-            _screening_provider_qps_windows[config_key] = deque()
-        return _screening_provider_qps_windows[config_key]
+        current = _screening_provider_semaphores.get(normalized_source)
+        current_limit = _screening_provider_semaphore_limits.get(normalized_source)
+        if current is None or current_limit != normalized_limit:
+            current = threading.BoundedSemaphore(normalized_limit)
+            _screening_provider_semaphores[normalized_source] = current
+            _screening_provider_semaphore_limits[normalized_source] = normalized_limit
+        return current
+
+
+def _get_provider_qps_window(source_key: str) -> deque[float]:
+    normalized_source = _normalize_screening_provider_source(source_key)
+    with _screening_provider_state_lock:
+        if normalized_source not in _screening_provider_qps_windows:
+            _screening_provider_qps_windows[normalized_source] = deque()
+        return _screening_provider_qps_windows[normalized_source]
 
 AI_TASK_LOG_PROMPT_LIMIT = 24000
 AI_TASK_LOG_REQUEST_LIMIT = 120000
@@ -2960,6 +3013,7 @@ def _extract_skill_runtime_meta(skill: Any) -> Dict[str, Any]:
         skill_code = str(skill.skill_code or "").strip().lower()
         name = str(skill.name or "").strip().lower()
         tags = json_loads_safe(skill.tags_json, [])
+        stored_task_types = json_loads_safe(getattr(skill, "task_types_json", None), [])
         explicit_group = str(getattr(skill, "skill_group", "") or "").strip()
         explicit_version = str(getattr(skill, "version", "") or "").strip()
         content = skill.content
@@ -2967,6 +3021,7 @@ def _extract_skill_runtime_meta(skill: Any) -> Dict[str, Any]:
         skill_code = str(skill.get("skill_code") or "").strip().lower()
         name = str(skill.get("name") or "").strip().lower()
         tags = skill.get("tags") or []
+        stored_task_types = skill.get("task_types") or []
         explicit_group = str(skill.get("skill_group") or "").strip()
         explicit_version = str(skill.get("version") or skill.get("skill_version") or "").strip()
         content = skill.get("content")
@@ -2974,6 +3029,7 @@ def _extract_skill_runtime_meta(skill: Any) -> Dict[str, Any]:
         skill_code = ""
         name = str(skill or "").strip().lower()
         tags = []
+        stored_task_types = []
         explicit_group = ""
         explicit_version = ""
         content = ""
@@ -2987,6 +3043,9 @@ def _extract_skill_runtime_meta(skill: Any) -> Dict[str, Any]:
         if not version and tag.lower().startswith("version:"):
             version = tag.split(":", 1)[1].strip()
     task_candidates: List[str] = []
+    for raw_value in stored_task_types:
+        if raw_value:
+            task_candidates.append(str(raw_value))
     for field_name in ["applies_to", "task", "tasks", "task_type"]:
         raw_value = frontmatter.get(field_name)
         if raw_value:
@@ -3600,6 +3659,29 @@ def _build_education_summary_from_experiences(items: Any) -> str:
     return candidates[0]
 
 
+def _sanitize_expected_city_value(value: Any, *, searchable_text: str = "") -> str:
+    raw_text = str(value or "").replace("，", ",").replace("、", ",").replace("；", ",")
+    if not raw_text.strip():
+        return ""
+    result: List[str] = []
+    searchable = str(searchable_text or "")
+    lowered_searchable = searchable.lower()
+    for item in re.split(r"[,/|]+", raw_text):
+        text = sanitize_string(item)
+        if not text:
+            continue
+        text = re.sub(r"\s+", " ", text).strip(" ,")
+        if not text:
+            continue
+        if searchable and text.lower() not in lowered_searchable and text not in searchable:
+            continue
+        if text not in result:
+            result.append(text[:24])
+        if len(result) >= 6:
+            break
+    return ",".join(result)
+
+
 def _sanitize_resume_basic_info(
     ai_basic_info: Any,
     fallback_basic_info: Any,
@@ -3609,9 +3691,14 @@ def _sanitize_resume_basic_info(
     ai_info = ai_basic_info if isinstance(ai_basic_info, dict) else {}
     fallback = dict(fallback_basic_info if isinstance(fallback_basic_info, dict) else {})
     searchable = _resume_search_text(raw_text)
-    for field in ["name", "phone", "email", "age", "years_of_experience", "education", "location"]:
+    for field in ["name", "phone", "email", "age", "years_of_experience", "education", "location", "expected_city"]:
         raw_value = ai_info.get(field)
         if raw_value is None or raw_value == "":
+            continue
+        if field == "expected_city":
+            value = _sanitize_expected_city_value(raw_value, searchable_text=raw_text)
+            if value:
+                fallback[field] = value
             continue
         value = str(raw_value).strip()
         if not value:
@@ -4087,10 +4174,12 @@ def _sanitize_basic_info_value(field: str, value: Any) -> str:
 
 def _sanitize_screening_basic_info_payload(basic_info: Any) -> Dict[str, Any]:
     source = basic_info if isinstance(basic_info, dict) else {}
-    return {
+    payload = {
         field: _sanitize_basic_info_value(field, source.get(field))
         for field in ["name", "phone", "email", "age", "years_of_experience", "education", "location"]
     }
+    payload["expected_city"] = _sanitize_expected_city_value(source.get("expected_city"))
+    return payload
 
 
 def _extract_resume_text_lines(raw_resume_text: str, *, limit: int = 400) -> List[str]:
@@ -4355,6 +4444,13 @@ def _validate_screening_basic_info_payload(value: Any) -> Dict[str, Any]:
             result[field] = item
         else:
             raise ValueError(f"AI 返回的 screening JSON 非法：parsed_resume.basic_info.{field} 类型错误")
+    expected_city = value.get("expected_city")
+    if expected_city in (None, ""):
+        result["expected_city"] = ""
+    elif isinstance(expected_city, str):
+        result["expected_city"] = expected_city
+    else:
+        raise ValueError("AI 返回的 screening JSON 非法：parsed_resume.basic_info.expected_city 类型错误")
     return result
 
 
@@ -5668,15 +5764,136 @@ class RecruitmentService:
         )
         return changed_score_context
 
+    def _resolve_screening_provider_limits(
+        self,
+        source: Optional[str],
+    ) -> Tuple[int, int]:
+        normalized_source = _normalize_screening_provider_source(source)
+        config_key = _screening_provider_config_key_from_source(normalized_source)
+        if not config_key:
+            return SCREENING_PROVIDER_MAX_CONCURRENCY, SCREENING_PROVIDER_QPS
+        row = self.db.query(RecruitmentLLMConfig).filter(
+            RecruitmentLLMConfig.config_key == config_key,
+            RecruitmentLLMConfig.is_active.is_(True),
+        ).first()
+        if not row:
+            return SCREENING_PROVIDER_MAX_CONCURRENCY, SCREENING_PROVIDER_QPS
+        max_concurrent = max(1, int(getattr(row, "max_concurrent", SCREENING_PROVIDER_MAX_CONCURRENCY) or SCREENING_PROVIDER_MAX_CONCURRENCY))
+        max_qps = int(getattr(row, "max_qps", SCREENING_PROVIDER_QPS) or 0)
+        return max_concurrent, max(0, max_qps)
+
+    def _load_screening_provider_concurrency_limits(
+        self,
+        sources: Sequence[str],
+    ) -> Dict[str, int]:
+        result: Dict[str, int] = {}
+        config_key_to_sources: Dict[str, List[str]] = {}
+        for source in sources:
+            normalized_source = _normalize_screening_provider_source(source)
+            if normalized_source in result:
+                continue
+            result[normalized_source] = SCREENING_PROVIDER_MAX_CONCURRENCY
+            config_key = _screening_provider_config_key_from_source(normalized_source)
+            if config_key:
+                config_key_to_sources.setdefault(config_key, []).append(normalized_source)
+        if not config_key_to_sources:
+            return result
+        rows = self.db.query(RecruitmentLLMConfig).filter(
+            RecruitmentLLMConfig.config_key.in_(list(config_key_to_sources.keys())),
+            RecruitmentLLMConfig.is_active.is_(True),
+        ).all()
+        for row in rows:
+            max_concurrent = max(1, int(getattr(row, "max_concurrent", SCREENING_PROVIDER_MAX_CONCURRENCY) or SCREENING_PROVIDER_MAX_CONCURRENCY))
+            for source in config_key_to_sources.get(str(getattr(row, "config_key", "") or "").strip(), []):
+                result[source] = max_concurrent
+        return result
+
+    def _select_screening_queue_rows_fairly(
+        self,
+        queued_rows: Sequence[RecruitmentAITaskLog],
+        *,
+        available_slots: int,
+        active_model_counts: Dict[str, int],
+    ) -> List[RecruitmentAITaskLog]:
+        if available_slots <= 0 or not queued_rows:
+            return []
+        normalized_sources = [
+            _normalize_screening_provider_source(getattr(row, "model_source", None))
+            for row in queued_rows
+        ]
+        normalized_sources.extend(active_model_counts.keys())
+        model_limits = self._load_screening_provider_concurrency_limits(normalized_sources)
+        remaining_by_model = {
+            source: max(0, int(model_limits.get(source, SCREENING_PROVIDER_MAX_CONCURRENCY)) - int(active_model_counts.get(source, 0) or 0))
+            for source in {*(model_limits.keys()), *(active_model_counts.keys())}
+        }
+        user_order: List[str] = []
+        user_buckets: Dict[str, List[Tuple[RecruitmentAITaskLog, str]]] = {}
+        for row in queued_rows:
+            if not self._task_is_ready_for_dispatch(row):
+                continue
+            user_id = str(getattr(row, "created_by", None) or "system").strip() or "system"
+            source = _normalize_screening_provider_source(getattr(row, "model_source", None))
+            if user_id not in user_buckets:
+                user_buckets[user_id] = []
+                user_order.append(user_id)
+            user_buckets[user_id].append((row, source))
+        if not user_buckets:
+            return []
+        selected: List[RecruitmentAITaskLog] = []
+        active_users: deque[str] = deque(user_order)
+        while active_users and len(selected) < available_slots:
+            picked_in_round = False
+            for _ in range(len(active_users)):
+                user_id = active_users[0]
+                active_users.rotate(-1)
+                bucket = user_buckets.get(user_id) or []
+                chosen_index = next(
+                    (
+                        index
+                        for index, (_row, source) in enumerate(bucket)
+                        if remaining_by_model.get(source, SCREENING_PROVIDER_MAX_CONCURRENCY) > 0
+                    ),
+                    None,
+                )
+                if chosen_index is None:
+                    if not bucket or not any(
+                        remaining_by_model.get(source, SCREENING_PROVIDER_MAX_CONCURRENCY) > 0
+                        for _row, source in bucket
+                    ):
+                        user_buckets.pop(user_id, None)
+                        try:
+                            active_users.remove(user_id)
+                        except ValueError:
+                            pass
+                    continue
+                row, source = bucket.pop(chosen_index)
+                selected.append(row)
+                remaining_by_model[source] = max(0, remaining_by_model.get(source, SCREENING_PROVIDER_MAX_CONCURRENCY) - 1)
+                picked_in_round = True
+                if not bucket:
+                    user_buckets.pop(user_id, None)
+                    try:
+                        active_users.remove(user_id)
+                    except ValueError:
+                        pass
+                if len(selected) >= available_slots:
+                    break
+            if not picked_in_round:
+                break
+        return selected
+
     @contextmanager
     def _acquire_screening_provider_slot(
         self,
         *,
-        config_key: str = "default",
+        source: str = "default",
         cancel_control: Optional[RecruitmentTaskControl] = None,
     ) -> Iterable[None]:
-        semaphore = _get_provider_semaphore(config_key)
-        qps_window = _get_provider_qps_window(config_key)
+        normalized_source = _normalize_screening_provider_source(source)
+        max_concurrent, max_qps = self._resolve_screening_provider_limits(normalized_source)
+        semaphore = _get_provider_semaphore(normalized_source, max_concurrent)
+        qps_window = _get_provider_qps_window(normalized_source)
         acquired = False
         while not acquired:
             self._raise_if_cancelled(cancel_control)
@@ -5689,7 +5906,7 @@ class RecruitmentService:
                     now = time.monotonic()
                     while qps_window and (now - qps_window[0]) >= 1.0:
                         qps_window.popleft()
-                    if len(qps_window) < SCREENING_PROVIDER_QPS:
+                    if max_qps <= 0 or len(qps_window) < max_qps:
                         qps_window.append(now)
                         break
                     wait_seconds = max(0.01, 1.0 - (now - qps_window[0]))
@@ -5727,8 +5944,8 @@ class RecruitmentService:
         remaining_budget_seconds: Optional[float] = None,
     ) -> Dict[str, Any]:
         try:
-            config_key = str(getattr(runtime_config, "source", "") or "default").replace("db:", "")
-            with self._acquire_screening_provider_slot(config_key=config_key, cancel_control=cancel_control):
+            source = _normalize_screening_provider_source(getattr(runtime_config, "source", "") or "default")
+            with self._acquire_screening_provider_slot(source=source, cancel_control=cancel_control):
                 task = self.ai_gateway.generate_json(
                     task_type=task_type,
                     system_prompt=system_prompt,
@@ -6326,6 +6543,11 @@ class RecruitmentService:
                         stale_rows_touched = True
                 if stale_rows_touched:
                     dispatch_db.commit()
+                active_model_counts: Dict[str, int] = {}
+                for row in stale_live_rows:
+                    if row.status in SCREENING_LIVE_TASK_STATUSES and row.status != "queued":
+                        source = _normalize_screening_provider_source(getattr(row, "model_source", None))
+                        active_model_counts[source] = active_model_counts.get(source, 0) + 1
                 claim_now = datetime.now()
                 queued_query = dispatch_db.query(RecruitmentAITaskLog).filter(
                     dispatch_service._screening_root_task_filter(),
@@ -6334,19 +6556,20 @@ class RecruitmentService:
                     RecruitmentAITaskLog.created_at.asc(),
                     RecruitmentAITaskLog.id.asc(),
                 )
-                queued_limit = min(SCREENING_BATCH_MAX_SIZE, max(available_slots * 4, max(available_slots, 1)))
+                queued_limit = min(500, max(SCREENING_DISPATCH_SCAN_LIMIT, available_slots * 20, SCREENING_BATCH_MAX_SIZE))
                 locked_query = queued_query.with_for_update(skip_locked=True)
                 queued_rows = locked_query.limit(queued_limit).all()
                 if not isinstance(queued_rows, list):
                     queued_rows = queued_query.limit(queued_limit).all()
                 queue_was_empty_at_start = len(queued_rows) == 0
-                for row in queued_rows:
-                    if not dispatch_service._task_is_ready_for_dispatch(row):
-                        continue
+                selected_rows = dispatch_service._select_screening_queue_rows_fairly(
+                    queued_rows,
+                    available_slots=available_slots,
+                    active_model_counts=active_model_counts,
+                )
+                for row in selected_rows:
                     dispatch_service._mark_screening_task_claimed(row, claimed_at=claim_now)
                     scheduled_tasks.append((row.id, row.created_by or "system"))
-                    if len(scheduled_tasks) >= available_slots:
-                        break
                 if scheduled_tasks:
                     dispatch_db.commit()
             finally:
@@ -6845,6 +7068,19 @@ class RecruitmentService:
         links = self.db.query(RecruitmentPositionSkillLink).filter(RecruitmentPositionSkillLink.position_id == position_id).order_by(RecruitmentPositionSkillLink.id.asc()).all()
         return self._load_skill_rows([link.skill_id for link in links], enabled_only=True)
 
+    @staticmethod
+    def _clip_position_task_skill_ids(skill_ids: Optional[Iterable[Any]]) -> List[int]:
+        return _dedupe_ints(skill_ids or [])[:1]
+
+    def _normalize_position_task_skill_ids(self, skill_ids: Optional[Iterable[Any]], task_kind: str) -> List[int]:
+        normalized = self._clip_position_task_skill_ids(skill_ids)
+        if not normalized:
+            return []
+        row = self._get_skill(normalized[0])
+        if task_kind not in set(_extract_skill_task_types(row)):
+            raise ValueError(f"所选评估方案与 {task_kind} 类型不匹配")
+        return [row.id]
+
     def _get_position_task_skill_ids(self, position: Optional[RecruitmentPosition], task_kind: str) -> List[int]:
         if not position:
             return []
@@ -6856,9 +7092,9 @@ class RecruitmentService:
         field_name = field_map.get(task_kind)
         raw_value = getattr(position, field_name, None) if field_name else None
         if raw_value is not None:
-            return _dedupe_ints(json_loads_safe(raw_value, []))
+            return self._clip_position_task_skill_ids(json_loads_safe(raw_value, []))
         legacy_rows = self._filter_skill_rows_for_task(self._get_position_skill_rows(position.id), task_kind)
-        return [row.id for row in legacy_rows]
+        return self._clip_position_task_skill_ids([row.id for row in legacy_rows])
 
     def _get_position_task_skill_rows(self, position_id: Optional[int], task_kind: str, *, _preloaded_position: Optional[RecruitmentPosition] = None) -> List[RecruitmentSkill]:
         if not position_id:
@@ -6875,19 +7111,55 @@ class RecruitmentService:
         screening_skill_ids: Optional[Iterable[Any]] = None,
         interview_skill_ids: Optional[Iterable[Any]] = None,
     ) -> None:
-        current_jd_ids = _dedupe_ints(json_loads_safe(row.jd_skill_ids_json, []))
-        current_screening_ids = _dedupe_ints(json_loads_safe(row.screening_skill_ids_json, []))
-        current_interview_ids = _dedupe_ints(json_loads_safe(row.interview_skill_ids_json, []))
+        current_jd_ids = self._clip_position_task_skill_ids(json_loads_safe(row.jd_skill_ids_json, []))
+        current_screening_ids = self._clip_position_task_skill_ids(json_loads_safe(row.screening_skill_ids_json, []))
+        current_interview_ids = self._clip_position_task_skill_ids(json_loads_safe(row.interview_skill_ids_json, []))
         if jd_skill_ids is not None:
-            current_jd_ids = _dedupe_ints(jd_skill_ids)
+            current_jd_ids = self._normalize_position_task_skill_ids(jd_skill_ids, "jd")
         if screening_skill_ids is not None:
-            current_screening_ids = _dedupe_ints(screening_skill_ids)
+            current_screening_ids = self._normalize_position_task_skill_ids(screening_skill_ids, "screening")
         if interview_skill_ids is not None:
-            current_interview_ids = _dedupe_ints(interview_skill_ids)
+            current_interview_ids = self._normalize_position_task_skill_ids(interview_skill_ids, "interview")
         row.jd_skill_ids_json = json_dumps_safe(current_jd_ids)
         row.screening_skill_ids_json = json_dumps_safe(current_screening_ids)
         row.interview_skill_ids_json = json_dumps_safe(current_interview_ids)
         self._sync_position_skill_links(row.id, [*current_jd_ids, *current_screening_ids, *current_interview_ids], actor_id)
+
+    def _reconcile_bound_skills_for_position(
+        self,
+        position: RecruitmentPosition,
+        *,
+        actor_id: str,
+    ) -> None:
+        desired_skill_ids = {
+            *self._get_position_task_skill_ids(position, "jd"),
+            *self._get_position_task_skill_ids(position, "screening"),
+            *self._get_position_task_skill_ids(position, "interview"),
+        }
+        for skill_id in desired_skill_ids:
+            skill = self._get_skill(int(skill_id))
+            previous_position_id = getattr(skill, "bound_position_id", None)
+            if previous_position_id == position.id:
+                continue
+            skill.bound_position_id = position.id
+            skill.updated_by = actor_id
+            self.db.add(skill)
+            self.db.flush()
+            self._sync_skill_bound_position_assignment(skill, actor_id=actor_id, previous_position_id=previous_position_id)
+
+        current_bound_rows = self.db.query(RecruitmentSkill).filter(
+            RecruitmentSkill.deleted.is_(False),
+            RecruitmentSkill.bound_position_id == position.id,
+        ).all()
+        for skill in current_bound_rows:
+            if skill.id in desired_skill_ids:
+                continue
+            previous_position_id = getattr(skill, "bound_position_id", None)
+            skill.bound_position_id = None
+            skill.updated_by = actor_id
+            self.db.add(skill)
+            self.db.flush()
+            self._sync_skill_bound_position_assignment(skill, actor_id=actor_id, previous_position_id=previous_position_id)
 
     def _resolve_jd_skills(self, position: RecruitmentPosition, explicit_skill_ids: Optional[Iterable[Any]] = None, *, use_position_skills: bool = True, use_global_skills: bool = True) -> Tuple[List[RecruitmentSkill], str]:
         manual_rows = [row for row in self._load_skill_rows(explicit_skill_ids or [], enabled_only=True) if "jd" in _extract_skill_task_types(row)]
@@ -6909,11 +7181,279 @@ class RecruitmentService:
         for skill_id in _dedupe_ints(skill_ids):
             self.db.add(RecruitmentPositionSkillLink(position_id=position_id, skill_id=skill_id, created_by=actor_id, updated_by=actor_id))
         self.db.flush()
+
+    def _sync_skill_bound_position_assignment(
+        self,
+        skill: RecruitmentSkill,
+        *,
+        actor_id: str,
+        previous_position_id: Optional[int] = None,
+    ) -> None:
+        affected_position_ids = [position_id for position_id in {previous_position_id, getattr(skill, "bound_position_id", None)} if position_id]
+        if not affected_position_ids:
+            return
+        task_types = set(_extract_skill_task_types(skill))
+        for position_id in affected_position_ids:
+            position = self._get_position(int(position_id))
+            jd_skill_ids = [skill_id for skill_id in self._get_position_task_skill_ids(position, "jd") if skill_id != skill.id]
+            screening_skill_ids = [skill_id for skill_id in self._get_position_task_skill_ids(position, "screening") if skill_id != skill.id]
+            interview_skill_ids = [skill_id for skill_id in self._get_position_task_skill_ids(position, "interview") if skill_id != skill.id]
+            if int(position_id) == int(getattr(skill, "bound_position_id", 0) or 0):
+                if "jd" in task_types:
+                    jd_skill_ids = [skill.id, *jd_skill_ids]
+                if "screening" in task_types:
+                    screening_skill_ids = [skill.id, *screening_skill_ids]
+                if "interview" in task_types:
+                    interview_skill_ids = [skill.id, *interview_skill_ids]
+            self._sync_position_task_skill_bindings(
+                position,
+                actor_id=actor_id,
+                jd_skill_ids=jd_skill_ids,
+                screening_skill_ids=screening_skill_ids,
+                interview_skill_ids=interview_skill_ids,
+            )
+            position.updated_by = actor_id
+            self.db.add(position)
     def _create_status_history(self, candidate: RecruitmentCandidate, to_status: str, reason: str, actor_id: str, source: str) -> None:
         self.db.add(RecruitmentCandidateStatusHistory(org_code=normalize_org_code(getattr(candidate, "org_code", None)), candidate_id=candidate.id, from_status=candidate.status, to_status=to_status, reason=reason or None, changed_by=actor_id, source=source))
         candidate.status = to_status
         candidate.updated_by = actor_id
         self.db.flush()
+
+    def _sync_candidate_related_org_code(self, candidate: RecruitmentCandidate, next_org_code: Optional[str]) -> None:
+        normalized_org_code = normalize_org_code(next_org_code)
+        if normalize_org_code(getattr(candidate, "org_code", None)) == normalized_org_code:
+            return
+        self.db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.candidate_id == candidate.id).update({RecruitmentResumeFile.org_code: normalized_org_code}, synchronize_session=False)
+        self.db.query(RecruitmentResumeParseResult).filter(RecruitmentResumeParseResult.candidate_id == candidate.id).update({RecruitmentResumeParseResult.org_code: normalized_org_code}, synchronize_session=False)
+        self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.candidate_id == candidate.id).update({RecruitmentCandidateScore.org_code: normalized_org_code}, synchronize_session=False)
+        self.db.query(RecruitmentCandidateStatusHistory).filter(RecruitmentCandidateStatusHistory.candidate_id == candidate.id).update({RecruitmentCandidateStatusHistory.org_code: normalized_org_code}, synchronize_session=False)
+        self.db.query(RecruitmentCandidateWorkflowMemory).filter(RecruitmentCandidateWorkflowMemory.candidate_id == candidate.id).update({RecruitmentCandidateWorkflowMemory.org_code: normalized_org_code}, synchronize_session=False)
+        self.db.query(RecruitmentInterviewQuestion).filter(RecruitmentInterviewQuestion.candidate_id == candidate.id).update({RecruitmentInterviewQuestion.org_code: normalized_org_code}, synchronize_session=False)
+        self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.related_candidate_id == candidate.id).update({RecruitmentAITaskLog.org_code: normalized_org_code}, synchronize_session=False)
+        candidate.org_code = normalized_org_code
+
+    def _reset_candidate_workflow_memory_for_position(self, candidate: RecruitmentCandidate, actor_id: str) -> None:
+        workflow = self._get_workflow_memory(candidate.id)
+        if not workflow:
+            return
+        workflow.position_id = candidate.position_id
+        workflow.org_code = normalize_org_code(getattr(candidate, "org_code", None))
+        workflow.screening_skill_ids_json = json_dumps_safe([])
+        workflow.screening_memory_source = None
+        workflow.screening_rule_snapshot_json = None
+        workflow.latest_parse_result_id = None
+        workflow.latest_score_id = None
+        workflow.last_screened_at = None
+        workflow.interview_skill_ids_json = json_dumps_safe([])
+        workflow.last_interview_question_id = None
+        workflow.updated_by = actor_id
+        self.db.add(workflow)
+
+    def _invalidate_candidate_screening_result_refs(self, candidate_id: int, actor_id: str, *, reason: str) -> None:
+        rows = self.db.query(RecruitmentAITaskLog).filter(
+            self._screening_root_task_filter(),
+            RecruitmentAITaskLog.related_candidate_id == candidate_id,
+        ).all()
+        if not rows:
+            return
+        invalidated_at = datetime.now().isoformat()
+        for row in rows:
+            validation_meta = _decode_ai_task_json_text(getattr(row, "validation_meta_json", None), {})
+            if not isinstance(validation_meta, dict):
+                validation_meta = {}
+            request_meta = dict(validation_meta.get("request_meta") or {}) if isinstance(validation_meta.get("request_meta"), dict) else {}
+            request_meta["invalidated_due_to"] = reason
+            request_meta["invalidated_at"] = invalidated_at
+            request_meta["invalidated_by"] = actor_id
+            validation_meta["request_meta"] = request_meta
+
+            output_snapshot = _decode_ai_task_json_text(getattr(row, "output_snapshot", None), {})
+            if not isinstance(output_snapshot, dict):
+                output_snapshot = {}
+            output_meta = dict(output_snapshot.get("meta") or {}) if isinstance(output_snapshot.get("meta"), dict) else {}
+            output_meta["invalidated_due_to"] = reason
+            output_meta["invalidated_at"] = invalidated_at
+            output_snapshot["meta"] = output_meta
+
+            row.request_hash = None
+            row.output_snapshot = _prepare_ai_task_json_text(output_snapshot)
+            row.validation_meta_json = _prepare_ai_task_json_text(validation_meta)
+            row.persisted_result_refs_json = _prepare_ai_task_json_text(
+                {
+                    "candidate_id": candidate_id,
+                    "parse_result_id": None,
+                    "score_result_id": None,
+                    "invalidated_due_to": reason,
+                    "invalidated_at": invalidated_at,
+                    "invalidated_by": actor_id,
+                }
+            )
+            self.db.add(row)
+
+    def _reset_candidate_position_flow_state(
+        self,
+        candidate: RecruitmentCandidate,
+        *,
+        actor_id: str,
+        clear_ai_match: bool = True,
+    ) -> None:
+        candidate.talent_pool_reason = None
+        candidate.talent_pool_source_status = None
+        candidate.talent_pool_moved_by = None
+        candidate.talent_pool_moved_at = None
+        candidate.ai_recommended_status = None
+        candidate.match_percent = None
+        candidate.latest_score_id = None
+        self._invalidate_candidate_screening_result_refs(
+            candidate.id,
+            actor_id,
+            reason="position_assignment_reset",
+        )
+        if clear_ai_match:
+            candidate.ai_match_position_id = None
+            candidate.ai_match_position_title = None
+            candidate.ai_match_confidence = None
+            candidate.ai_match_reason = None
+            candidate.ai_match_alternatives = None
+            candidate.ai_match_at = None
+            candidate.ai_potential_position = None
+            candidate.ai_potential_reason = None
+        candidate.updated_by = actor_id
+        self._reset_candidate_workflow_memory_for_position(candidate, actor_id)
+
+    def _prepare_candidate_for_position_assignment(
+        self,
+        candidate: RecruitmentCandidate,
+        *,
+        position: Optional[RecruitmentPosition],
+        actor_id: str,
+        update_status: bool = True,
+        clear_ai_match: bool = True,
+    ) -> bool:
+        candidate.position_id = position.id if position else None
+        candidate.updated_by = actor_id
+        if position:
+            self._sync_candidate_related_org_code(candidate, getattr(position, "org_code", None))
+            self._reset_candidate_position_flow_state(candidate, actor_id=actor_id, clear_ai_match=clear_ai_match)
+            if update_status:
+                candidate.status = "pending_screening"
+            return bool(position.auto_screen_on_upload)
+        if update_status:
+            source_status = candidate.status
+            candidate.status = "unmatched"
+            candidate.talent_pool_reason = "moved_by_hr"
+            candidate.talent_pool_source_status = source_status
+            candidate.talent_pool_moved_by = actor_id
+            candidate.talent_pool_moved_at = datetime.now()
+        return False
+
+    @staticmethod
+    def _is_talent_pool_assignment_source_status(status: Optional[str]) -> bool:
+        return str(status or "").strip().lower() in {"matching", "unmatched", "talent_pool"}
+
+    def _rebind_candidate_position_without_screening(
+        self,
+        candidate: RecruitmentCandidate,
+        *,
+        position: Optional[RecruitmentPosition],
+        actor_id: str,
+    ) -> None:
+        candidate.position_id = position.id if position else None
+        candidate.updated_by = actor_id
+        if position:
+            self._sync_candidate_related_org_code(candidate, getattr(position, "org_code", None))
+        workflow = self._get_workflow_memory(candidate.id)
+        if workflow:
+            workflow.position_id = candidate.position_id
+            workflow.org_code = normalize_org_code(getattr(candidate, "org_code", None))
+            workflow.updated_by = actor_id
+            self.db.add(workflow)
+        self.db.add(candidate)
+
+    def _assign_candidate_position(
+        self,
+        candidate: RecruitmentCandidate,
+        *,
+        position: Optional[RecruitmentPosition],
+        actor_id: str,
+        update_status: bool,
+        clear_ai_match: bool = False,
+    ) -> bool:
+        if position is None:
+            if update_status:
+                return self._prepare_candidate_for_position_assignment(
+                    candidate,
+                    position=None,
+                    actor_id=actor_id,
+                    update_status=True,
+                    clear_ai_match=clear_ai_match,
+                )
+            self._rebind_candidate_position_without_screening(candidate, position=None, actor_id=actor_id)
+            return False
+        if update_status and self._is_talent_pool_assignment_source_status(getattr(candidate, "status", None)):
+            return self._prepare_candidate_for_position_assignment(
+                candidate,
+                position=position,
+                actor_id=actor_id,
+                update_status=True,
+                clear_ai_match=clear_ai_match,
+            )
+        self._rebind_candidate_position_without_screening(candidate, position=position, actor_id=actor_id)
+        return False
+
+    def _enqueue_auto_screening_for_candidates(self, candidate_ids: Iterable[Any], actor_id: str, *, batch_prefix: str) -> Dict[str, Any]:
+        normalized_candidate_ids = _dedupe_ints(candidate_ids)
+        if not normalized_candidate_ids:
+            return {
+                "batch_id": None,
+                "queued_count": 0,
+                "skipped_existing_live_task_count": 0,
+                "failed_count": 0,
+                "task_ids": [],
+                "tasks": [],
+                "errors": {},
+            }
+        tasks: List[Dict[str, Any]] = []
+        errors: Dict[int, str] = {}
+        batch_id = f"{batch_prefix}-{uuid.uuid4().hex[:12]}" if len(normalized_candidate_ids) > 1 else None
+        queued_count = 0
+        skipped_existing_live_task_count = 0
+        failed_count = 0
+        for candidate_id in normalized_candidate_ids:
+            try:
+                task = self.enqueue_screen_candidate(
+                    candidate_id,
+                    actor_id,
+                    skill_ids=[],
+                    use_position_skills=True,
+                    use_candidate_memory=True,
+                    custom_requirements="",
+                    dispatch=False,
+                    batch_id=batch_id,
+                )
+                if task.get("reused_existing_task"):
+                    skipped_existing_live_task_count += 1
+                elif not task.get("reused_existing_result"):
+                    queued_count += 1
+                tasks.append(task)
+            except Exception as exc:
+                failed_count += 1
+                errors[candidate_id] = str(exc)
+        if tasks:
+            self.process_next_screening_task()
+        return {
+            "batch_id": batch_id,
+            "queued_count": queued_count,
+            "skipped_existing_live_task_count": skipped_existing_live_task_count,
+            "failed_count": failed_count,
+            "task_ids": [int(item["task_id"]) for item in tasks if item.get("task_id")],
+            "tasks": tasks,
+            "errors": errors,
+        }
+
+    def _candidate_requires_fresh_screening_run(self, candidate: RecruitmentCandidate) -> bool:
+        return str(getattr(candidate, "status", "") or "").strip() == "pending_screening"
 
     def _auto_advance_candidate_after_screening(
         self,
@@ -7564,7 +8104,15 @@ class RecruitmentService:
         meta = _extract_skill_runtime_meta(row)
         stored_task_types = json_loads_safe(getattr(row, "task_types_json", None), None)
         task_types = list(stored_task_types) if isinstance(stored_task_types, list) and stored_task_types else list(meta.get("tasks") or [])
-        return {"id": row.id, "skill_code": row.skill_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "is_system_base": bool(getattr(row, "is_system_base", False)), "name": row.name, "description": row.description, "skill_group": row.skill_group or meta.get("group"), "version": row.version or meta.get("version"), "task_types": task_types, "content": row.content, "tags": json_loads_safe(row.tags_json, []), "sort_order": row.sort_order, "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
+        bound_position_id = getattr(row, "bound_position_id", None)
+        bound_position = (
+            self.db.query(RecruitmentPosition)
+            .filter(RecruitmentPosition.id == bound_position_id, RecruitmentPosition.deleted.is_(False))
+            .first()
+            if bound_position_id
+            else None
+        )
+        return {"id": row.id, "skill_code": row.skill_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "scope_level": getattr(row, "scope_level", None) or "ORG", "share_policy": normalize_share_policy(getattr(row, "share_policy", None)), "allow_sub_org_use": bool(getattr(row, "allow_sub_org_use", False)), "allow_copy": bool(getattr(row, "allow_copy", False)), "is_system_base": bool(getattr(row, "is_system_base", False)), "name": row.name, "description": row.description, "skill_group": row.skill_group or meta.get("group"), "version": row.version or meta.get("version"), "task_types": task_types, "content": row.content, "tags": json_loads_safe(row.tags_json, []), "bound_position_id": bound_position_id, "bound_position_title": bound_position.title if bound_position else None, "sort_order": row.sort_order, "is_enabled": bool(row.is_enabled), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _serialize_skill_snapshot(self, skill: Any, fallback_index: int = 0) -> Dict[str, Any]:
         if isinstance(skill, dict):
@@ -7764,6 +8312,11 @@ class RecruitmentService:
             payload["publish_text"] = truncate_text(publish_text, 6000)
         return payload
 
+    def _apply_position_pipeline_candidate_filter(self, builder):
+        return builder.filter(
+            RecruitmentCandidate.status.notin_(["matching", "unmatched", "talent_pool"])
+        )
+
     def _serialize_position(self, row: RecruitmentPosition) -> Dict[str, Any]:
         jd_skill_rows = self._get_position_task_skill_rows(row.id, "jd")
         screening_skill_rows = self._get_position_task_skill_rows(row.id, "screening")
@@ -7771,7 +8324,12 @@ class RecruitmentService:
         auto_mail_config = self._get_position_auto_mail_config(row.id)
         current_jd = self._get_active_jd_version_for_position(row)
         jd_version_count = self.db.query(func.count(RecruitmentJDVersion.id)).filter(RecruitmentJDVersion.position_id == row.id).scalar() or 0
-        candidate_count = self.db.query(func.count(RecruitmentCandidate.id)).filter(RecruitmentCandidate.position_id == row.id, RecruitmentCandidate.deleted.is_(False)).scalar() or 0
+        candidate_count = self._apply_position_pipeline_candidate_filter(
+            self.db.query(func.count(RecruitmentCandidate.id)).filter(
+                RecruitmentCandidate.position_id == row.id,
+                RecruitmentCandidate.deleted.is_(False),
+            )
+        ).scalar() or 0
         return {"id": row.id, "position_code": row.position_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "title": row.title, "department": row.department, "location": row.location, "employment_type": row.employment_type, "salary_range": row.salary_range, "headcount": row.headcount, "key_requirements": row.key_requirements, "bonus_points": row.bonus_points, "summary": row.summary, "status": row.status, "auto_screen_on_upload": bool(row.auto_screen_on_upload), "auto_advance_on_screening": bool(row.auto_advance_on_screening), "auto_mail_enabled": bool(auto_mail_config.get("auto_mail_enabled")), "auto_mail_use_global_recipients": bool(auto_mail_config.get("auto_mail_use_global_recipients")), "auto_mail_use_position_recipients": bool(auto_mail_config.get("auto_mail_use_position_recipients")), "auto_mail_position_recipient_ids": list(auto_mail_config.get("auto_mail_position_recipient_ids") or []), "auto_mail_allowed_candidate_statuses": list(auto_mail_config.get("auto_mail_allowed_candidate_statuses") or []), "auto_mail_template_id": auto_mail_config.get("auto_mail_template_id"), "auto_mail_dedup_mode": auto_mail_config.get("auto_mail_dedup_mode"), "auto_mail_cc_recipient_ids": list(auto_mail_config.get("auto_mail_cc_recipient_ids") or []), "auto_mail_bcc_recipient_ids": list(auto_mail_config.get("auto_mail_bcc_recipient_ids") or []), "jd_skill_ids": [skill.id for skill in jd_skill_rows], "jd_skills": [self._serialize_skill(skill) for skill in jd_skill_rows], "screening_skill_ids": [skill.id for skill in screening_skill_rows], "screening_skills": [self._serialize_skill(skill) for skill in screening_skill_rows], "interview_skill_ids": [skill.id for skill in interview_skill_rows], "interview_skills": [self._serialize_skill(skill) for skill in interview_skill_rows], "tags": json_loads_safe(row.tags_json, []), "current_jd_version_id": row.current_jd_version_id, "current_jd_title": current_jd.title if current_jd else None, "active_jd_snapshot": self._serialize_active_jd_snapshot(row), "jd_version_count": int(jd_version_count), "candidate_count": int(candidate_count), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at)}
 
     def _serialize_resume_file(self, row: RecruitmentResumeFile) -> Dict[str, Any]:
@@ -7870,6 +8428,7 @@ class RecruitmentService:
             screening_skill_ids=payload.get("screening_skill_ids") or [],
             interview_skill_ids=payload.get("interview_skill_ids") or [],
         )
+        self._reconcile_bound_skills_for_position(row, actor_id=actor_id)
         auto_mail_config = self._normalize_position_auto_mail_config(payload)
         self._upsert_json_rule_config(
             POSITION_AUTO_MAIL_CONFIG_KEY,
@@ -7897,6 +8456,7 @@ class RecruitmentService:
                 screening_skill_ids=payload.get("screening_skill_ids") if "screening_skill_ids" in payload else None,
                 interview_skill_ids=payload.get("interview_skill_ids") if "interview_skill_ids" in payload else None,
             )
+            self._reconcile_bound_skills_for_position(row, actor_id=actor_id)
         auto_mail_payload_fields = {
             "auto_mail_enabled",
             "auto_mail_use_global_recipients",
@@ -7949,11 +8509,12 @@ class RecruitmentService:
             ),
             RecruitmentCandidate,
         )
+        candidate_builder = self._apply_position_pipeline_candidate_filter(candidate_builder)
         candidates = candidate_builder.order_by(RecruitmentCandidate.updated_at.desc(), RecruitmentCandidate.id.desc()).all()
         return {"position": self._serialize_position(row), "current_jd_version": self._serialize_jd_version(current_jd) if current_jd else None, "jd_versions": [self._serialize_jd_version(item) for item in jd_versions], "jd_generation": jd_generation, "publish_tasks": [self._serialize_publish_task(item) for item in publish_tasks], "candidates": [self._serialize_candidate_summary(item) for item in candidates]}
 
     def list_skills(self) -> List[Dict[str, Any]]:
-        rows = self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.id.asc()).all()
+        rows = self.db.query(RecruitmentSkill).filter(RecruitmentSkill.deleted.is_(False)).order_by(RecruitmentSkill.sort_order.asc(), RecruitmentSkill.created_at.desc(), RecruitmentSkill.id.desc()).all()
         return [self._serialize_skill(row) for row in rows if self._can_access_org_resource(row)]
 
     def create_skill(self, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
@@ -7961,8 +8522,16 @@ class RecruitmentService:
         org_code = normalize_org_code(payload.get("org_code") or self._current_org_code())
         self._assert_can_create_in_org(org_code)
         task_types = payload.get("task_types") or []
-        row = RecruitmentSkill(skill_code=f"skill-{_slugify(str(payload.get('name') or 'skill'))}-{uuid.uuid4().hex[:4]}", org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), is_system_base=False, name=str(payload.get("name") or "").strip(), description=payload.get("description"), skill_group=str(payload.get("skill_group") or meta.get("group") or "").strip() or None, version=str(payload.get("version") or meta.get("version") or "").strip() or None, content=str(payload.get("content") or "").strip(), tags_json=json_dumps_safe(payload.get("tags") or []), task_types_json=json_dumps_safe(task_types) if task_types else None, sort_order=int(payload.get("sort_order") or 99), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
+        bound_position_id = payload.get("bound_position_id")
+        if bound_position_id:
+            self._get_position(int(bound_position_id))
+        row = RecruitmentSkill(skill_code=f"skill-{_slugify(str(payload.get('name') or 'skill'))}-{uuid.uuid4().hex[:4]}", org_code=org_code, scope_level=str(payload.get("scope_level") or "ORG").strip().upper() or "ORG", share_policy=normalize_share_policy(payload.get("share_policy")), allow_sub_org_use=bool(payload.get("allow_sub_org_use")), allow_copy=bool(payload.get("allow_copy")), is_system_base=False, name=str(payload.get("name") or "").strip(), description=payload.get("description"), skill_group=str(payload.get("skill_group") or meta.get("group") or "").strip() or None, version=str(payload.get("version") or meta.get("version") or "").strip() or None, content=str(payload.get("content") or "").strip(), tags_json=json_dumps_safe(payload.get("tags") or []), task_types_json=json_dumps_safe(task_types) if task_types else None, bound_position_id=int(bound_position_id) if bound_position_id else None, sort_order=int(payload.get("sort_order") or 99), is_enabled=payload.get("is_enabled") is not False, created_by=actor_id, updated_by=actor_id, deleted=False)
         self.db.add(row)
+        self.db.flush()
+        self._sync_skill_bound_position_assignment(row, actor_id=actor_id)
+        for position_id in {getattr(row, "bound_position_id", None)}:
+            if position_id:
+                self._reconcile_bound_skills_for_position(self._get_position(int(position_id)), actor_id=actor_id)
         self.db.commit()
         self.db.refresh(row)
         return self._serialize_skill(row)
@@ -8010,6 +8579,7 @@ class RecruitmentService:
     def update_skill(self, skill_id: int, payload: Dict[str, Any], actor_id: str) -> Dict[str, Any]:
         row = self._get_skill(skill_id)
         self._assert_resource_manageable(row, actor_id)
+        previous_position_id = getattr(row, "bound_position_id", None)
         for field in ["name", "description", "content", "sort_order", "is_enabled", "scope_level", "allow_sub_org_use", "allow_copy"]:
             if field in payload:
                 setattr(row, field, payload.get(field))
@@ -8024,6 +8594,13 @@ class RecruitmentService:
         if "task_types" in payload:
             task_types = payload.get("task_types") or []
             row.task_types_json = json_dumps_safe(task_types) if task_types else None
+        if "bound_position_id" in payload:
+            bound_position_id = payload.get("bound_position_id")
+            if bound_position_id:
+                self._get_position(int(bound_position_id))
+                row.bound_position_id = int(bound_position_id)
+            else:
+                row.bound_position_id = None
         runtime_meta = _extract_skill_runtime_meta(
             {
                 "skill_code": row.skill_code,
@@ -8041,6 +8618,11 @@ class RecruitmentService:
             row.version = str(payload.get("version") or runtime_meta.get("version") or "").strip() or None
         row.updated_by = actor_id
         self.db.add(row)
+        self.db.flush()
+        self._sync_skill_bound_position_assignment(row, actor_id=actor_id, previous_position_id=previous_position_id)
+        for position_id in {previous_position_id, getattr(row, "bound_position_id", None)}:
+            if position_id:
+                self._reconcile_bound_skills_for_position(self._get_position(int(position_id)), actor_id=actor_id)
         self.db.commit()
         self.db.refresh(row)
         return self._serialize_skill(row)
@@ -8427,6 +9009,69 @@ class RecruitmentService:
             "display_status_reason": display_status_reason,
         }
 
+    def _resolve_candidate_ai_match_snapshot(self, row: RecruitmentCandidate) -> Dict[str, Any]:
+        snapshot = {
+            "ai_match_position_id": getattr(row, "ai_match_position_id", None),
+            "ai_match_position_title": getattr(row, "ai_match_position_title", None),
+            "ai_match_confidence": getattr(row, "ai_match_confidence", None),
+            "ai_match_reason": getattr(row, "ai_match_reason", None),
+            "ai_match_alternatives": json_loads_safe(getattr(row, "ai_match_alternatives", None), None),
+            "ai_potential_position": getattr(row, "ai_potential_position", None),
+            "ai_potential_reason": getattr(row, "ai_potential_reason", None),
+        }
+        if (
+            str(getattr(row, "status", "") or "").strip() not in {"unmatched", "talent_pool"}
+            and not getattr(row, "talent_pool_reason", None)
+        ):
+            return snapshot
+        if snapshot["ai_match_position_title"] and snapshot["ai_potential_position"]:
+            return snapshot
+
+        latest_match_log = self.db.query(RecruitmentAITaskLog).filter(
+            RecruitmentAITaskLog.related_candidate_id == row.id,
+            RecruitmentAITaskLog.task_type == "ai_position_match",
+            RecruitmentAITaskLog.status.in_(["success", "no_match"]),
+        ).order_by(
+            RecruitmentAITaskLog.created_at.desc(),
+            RecruitmentAITaskLog.id.desc(),
+        ).first()
+        if not latest_match_log:
+            return snapshot
+
+        parsed_response = _decode_ai_task_json_text(getattr(latest_match_log, "parsed_response_json", None), {})
+        if not isinstance(parsed_response, dict):
+            parsed_response = {}
+
+        fallback_position_id = parsed_response.get("position_id")
+        try:
+            fallback_position_id = int(fallback_position_id) if fallback_position_id is not None and str(fallback_position_id).strip() else None
+        except (TypeError, ValueError):
+            fallback_position_id = None
+        if fallback_position_id is None:
+            fallback_position_id = getattr(latest_match_log, "related_position_id", None)
+
+        fallback_position_title = str(parsed_response.get("position_title") or "").strip() or None
+        if not fallback_position_title and fallback_position_id:
+            fallback_position = self.db.query(RecruitmentPosition).filter(
+                RecruitmentPosition.id == fallback_position_id,
+                RecruitmentPosition.deleted.is_(False),
+            ).first()
+            fallback_position_title = fallback_position.title if fallback_position else None
+
+        fallback_alternatives = parsed_response.get("alternatives")
+        if not isinstance(fallback_alternatives, list):
+            fallback_alternatives = None
+
+        return {
+            "ai_match_position_id": snapshot["ai_match_position_id"] if snapshot["ai_match_position_id"] is not None else fallback_position_id,
+            "ai_match_position_title": snapshot["ai_match_position_title"] or fallback_position_title,
+            "ai_match_confidence": snapshot["ai_match_confidence"] if snapshot["ai_match_confidence"] is not None else _parse_score_number(parsed_response.get("confidence")),
+            "ai_match_reason": snapshot["ai_match_reason"] or (str(parsed_response.get("reason") or "").strip() or str(getattr(latest_match_log, "output_summary", "") or "").strip() or None),
+            "ai_match_alternatives": snapshot["ai_match_alternatives"] if snapshot["ai_match_alternatives"] is not None else fallback_alternatives,
+            "ai_potential_position": snapshot["ai_potential_position"] or (str(parsed_response.get("potential_position") or "").strip() or None),
+            "ai_potential_reason": snapshot["ai_potential_reason"] or (str(parsed_response.get("potential_reason") or "").strip() or None),
+        }
+
     def _serialize_candidate_summary(
         self,
         row: RecruitmentCandidate,
@@ -8458,7 +9103,9 @@ class RecruitmentService:
             position_screening_skill_rows = self._get_position_task_skill_rows(position.id, "screening") if position and self._is_business_row_visible(position) else []
             position_interview_skill_rows = self._get_position_task_skill_rows(position.id, "interview") if position and self._is_business_row_visible(position) else []
             position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
-        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "owner_id": row.owner_id, "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at), "talent_pool_reason": getattr(row, "talent_pool_reason", None), "talent_pool_source_status": getattr(row, "talent_pool_source_status", None), "talent_pool_moved_by": getattr(row, "talent_pool_moved_by", None), "talent_pool_moved_at": isoformat_or_none(getattr(row, "talent_pool_moved_at", None))}
+        screened_position_title = position.title if position else None
+        ai_match_snapshot = self._resolve_candidate_ai_match_snapshot(row)
+        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "screened_position_title": screened_position_title, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "expected_city": getattr(row, "expected_city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "owner_id": row.owner_id, "ai_match_position_id": ai_match_snapshot.get("ai_match_position_id"), "ai_match_position_title": ai_match_snapshot.get("ai_match_position_title"), "ai_match_confidence": ai_match_snapshot.get("ai_match_confidence"), "ai_match_reason": ai_match_snapshot.get("ai_match_reason"), "ai_match_alternatives": ai_match_snapshot.get("ai_match_alternatives"), "ai_potential_position": ai_match_snapshot.get("ai_potential_position"), "ai_potential_reason": ai_match_snapshot.get("ai_potential_reason"), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at), "talent_pool_reason": getattr(row, "talent_pool_reason", None), "talent_pool_source_status": getattr(row, "talent_pool_source_status", None), "talent_pool_moved_by": getattr(row, "talent_pool_moved_by", None), "talent_pool_moved_at": isoformat_or_none(getattr(row, "talent_pool_moved_at", None))}
 
     def _serialize_candidate_list_item(
         self,
@@ -8495,12 +9142,14 @@ class RecruitmentService:
             display_status = ai_recommended_status
         else:
             display_status = row.status or ""
+        ai_match_snapshot = self._resolve_candidate_ai_match_snapshot(row)
         return {
             "id": row.id,
             "candidate_code": row.candidate_code,
             "org_code": normalize_org_code(getattr(row, "org_code", None)),
             "position_id": row.position_id,
             "position_title": position.title if position else None,
+            "screened_position_title": position.title if position else None,
             "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False,
             # 技能字段给空列表，详情接口会返回完整数据
             "position_jd_skill_ids": [],
@@ -8515,6 +9164,7 @@ class RecruitmentService:
             "email": row.email,
             "age": getattr(row, "age", None),
             "city": getattr(row, "city", None),
+            "expected_city": getattr(row, "expected_city", None),
             "education": getattr(row, "education", None),
             "years_of_experience": getattr(row, "years_of_experience", None),
             "source": row.source,
@@ -8531,6 +9181,13 @@ class RecruitmentService:
             "match_percent": display_match_percent,
             "latest_score_id": row.latest_score_id,
             "latest_total_score": display_total_score,
+            "ai_match_position_id": ai_match_snapshot.get("ai_match_position_id"),
+            "ai_match_position_title": ai_match_snapshot.get("ai_match_position_title"),
+            "ai_match_confidence": ai_match_snapshot.get("ai_match_confidence"),
+            "ai_match_reason": ai_match_snapshot.get("ai_match_reason"),
+            "ai_match_alternatives": ai_match_snapshot.get("ai_match_alternatives"),
+            "ai_potential_position": ai_match_snapshot.get("ai_potential_position"),
+            "ai_potential_reason": ai_match_snapshot.get("ai_potential_reason"),
             "created_at": isoformat_or_none(row.created_at),
             "updated_at": isoformat_or_none(row.updated_at),
             "talent_pool_reason": getattr(row, "talent_pool_reason", None),
@@ -8707,7 +9364,7 @@ class RecruitmentService:
             "sources": source_counts,
         }
 
-    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None) -> Dict[str, Any]:
+    def _build_candidate_scoped_query(self, org_code: Optional[str] = None):
         if org_code:
             codes = self._get_org_and_descendant_codes(org_code)
             builder = self.db.query(RecruitmentCandidate).filter(
@@ -8716,8 +9373,14 @@ class RecruitmentService:
             )
             if self.permission_context and self.permission_context.is_self_scope:
                 builder = builder.filter(RecruitmentCandidate.created_by == self.permission_context.actor_user_code)
-        else:
-            builder = self._apply_business_org_filter(self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)), RecruitmentCandidate)
+            return builder
+        return self._apply_business_org_filter(
+            self.db.query(RecruitmentCandidate).filter(RecruitmentCandidate.deleted.is_(False)),
+            RecruitmentCandidate,
+        )
+
+    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None) -> Dict[str, Any]:
+        builder = self._build_candidate_scoped_query(org_code)
         # 排除待归岗候选人（这些候选人在人才库中显示）
         if not status:
             builder = builder.filter(RecruitmentCandidate.status.notin_(["matching", "unmatched", "talent_pool"]))
@@ -8943,23 +9606,20 @@ class RecruitmentService:
             next_position_id = payload.get("position_id")
             if next_position_id:
                 next_position = self._get_position(int(next_position_id))
-                candidate.position_id = next_position.id
-                # 分配岗位后，待归岗/人才库候选人自动转为待初筛
-                if candidate.status in ("matching", "unmatched", "talent_pool"):
-                    candidate.status = "pending_screening"
-                next_org_code = normalize_org_code(getattr(next_position, "org_code", None))
-                if normalize_org_code(getattr(candidate, "org_code", None)) != next_org_code:
-                    self.db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.candidate_id == candidate.id).update({RecruitmentResumeFile.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentResumeParseResult).filter(RecruitmentResumeParseResult.candidate_id == candidate.id).update({RecruitmentResumeParseResult.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.candidate_id == candidate.id).update({RecruitmentCandidateScore.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentCandidateStatusHistory).filter(RecruitmentCandidateStatusHistory.candidate_id == candidate.id).update({RecruitmentCandidateStatusHistory.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentCandidateWorkflowMemory).filter(RecruitmentCandidateWorkflowMemory.candidate_id == candidate.id).update({RecruitmentCandidateWorkflowMemory.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentInterviewQuestion).filter(RecruitmentInterviewQuestion.candidate_id == candidate.id).update({RecruitmentInterviewQuestion.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.related_candidate_id == candidate.id).update({RecruitmentAITaskLog.org_code: next_org_code}, synchronize_session=False)
-                    candidate.org_code = next_org_code
+                if candidate.position_id != next_position.id:
+                    self._rebind_candidate_position_without_screening(
+                        candidate,
+                        position=next_position,
+                        actor_id=actor_id,
+                    )
             else:
-                candidate.position_id = None
-        for field in ["name", "phone", "email", "current_company", "years_of_experience", "education", "age", "city", "notes", "owner_id"]:
+                if candidate.position_id is not None:
+                    self._rebind_candidate_position_without_screening(
+                        candidate,
+                        position=None,
+                        actor_id=actor_id,
+                    )
+        for field in ["name", "phone", "email", "current_company", "years_of_experience", "education", "age", "city", "expected_city", "notes", "owner_id"]:
             if field in payload:
                 setattr(candidate, field, payload.get(field))
         if "tags" in payload:
@@ -8993,26 +9653,15 @@ class RecruitmentService:
                 candidate = self._get_candidate(candidate_id)
             except ValueError:
                 continue
-            candidate.position_id = position.id if position else None
-            # 分配岗位后，待归岗/人才库候选人自动转为待初筛
-            if position and candidate.status in ("matching", "unmatched", "talent_pool"):
-                candidate.status = "pending_screening"
-            if position:
-                next_org_code = normalize_org_code(getattr(position, "org_code", None))
-                if normalize_org_code(getattr(candidate, "org_code", None)) != next_org_code:
-                    self.db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.candidate_id == candidate.id).update({RecruitmentResumeFile.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentResumeParseResult).filter(RecruitmentResumeParseResult.candidate_id == candidate.id).update({RecruitmentResumeParseResult.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.candidate_id == candidate.id).update({RecruitmentCandidateScore.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentCandidateStatusHistory).filter(RecruitmentCandidateStatusHistory.candidate_id == candidate.id).update({RecruitmentCandidateStatusHistory.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentCandidateWorkflowMemory).filter(RecruitmentCandidateWorkflowMemory.candidate_id == candidate.id).update({RecruitmentCandidateWorkflowMemory.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentInterviewQuestion).filter(RecruitmentInterviewQuestion.candidate_id == candidate.id).update({RecruitmentInterviewQuestion.org_code: next_org_code}, synchronize_session=False)
-                    self.db.query(RecruitmentAITaskLog).filter(RecruitmentAITaskLog.related_candidate_id == candidate.id).update({RecruitmentAITaskLog.org_code: next_org_code}, synchronize_session=False)
-                    candidate.org_code = next_org_code
-            candidate.updated_by = actor_id
-            self.db.add(candidate)
+            self._rebind_candidate_position_without_screening(
+                candidate,
+                position=position,
+                actor_id=actor_id,
+            )
             updated += 1
         self.db.commit()
-        return {"updated_count": updated, "candidate_ids": candidate_ids, "position_id": position_id}
+        auto_screen_result = {"batch_id": None, "queued_count": 0, "skipped_existing_live_task_count": 0, "failed_count": 0, "task_ids": [], "tasks": [], "errors": {}}
+        return {"updated_count": updated, "candidate_ids": candidate_ids, "position_id": position_id, "auto_screen": auto_screen_result}
 
     def batch_update_candidates_status(self, candidate_ids: List[int], status: str, reason: str, actor_id: str) -> Dict[str, Any]:
         updated = 0
@@ -9265,7 +9914,7 @@ class RecruitmentService:
             query = query.filter(RecruitmentCandidate.position_id == position_id)
         return query.order_by(RecruitmentCandidate.id.desc()).first()
 
-    def upload_resume_files(self, uploaded_files: List[Dict[str, Any]], position_id: Optional[int], actor_id: str, target_org_code: Optional[str] = None, city: Optional[str] = None, city_source: Optional[str] = None, source: Optional[str] = "manual", duplicate_strategy: Optional[str] = "skip") -> List[Dict[str, Any]]:
+    def upload_resume_files(self, uploaded_files: List[Dict[str, Any]], position_id: Optional[int], actor_id: str, target_org_code: Optional[str] = None, city: Optional[str] = None, city_source: Optional[str] = None, match_mode: Optional[str] = "position", source: Optional[str] = "manual", duplicate_strategy: Optional[str] = "skip") -> List[Dict[str, Any]]:
         position = self._get_position(position_id) if position_id else None
         fallback_org_code = normalize_org_code(target_org_code or self._current_org_code())
         if not position:
@@ -9274,6 +9923,7 @@ class RecruitmentService:
         target_dir.mkdir(parents=True, exist_ok=True)
         results: List[Dict[str, Any]] = []
         candidate_resume_pairs: List[tuple] = []
+        normalized_match_mode = str(match_mode or "position").strip().lower() or "position"
 
         for item in uploaded_files:
             file_name = str(item.get("file_name") or "resume.bin")
@@ -9304,11 +9954,12 @@ class RecruitmentService:
                 resolved_city = extract_city_from_filename(file_name) or None
             else:
                 resolved_city = city
-            # 根据match_mode确定初始状态
+            # 根据上传模式确定初始状态
             initial_status = "pending_screening"
-            if position_id is None:
-                # 没有指定岗位，进入待归岗状态
+            if normalized_match_mode == "smart" and position_id is None:
                 initial_status = "matching"
+            elif normalized_match_mode == "none" and position_id is None:
+                initial_status = "new_imported"
             # 映射source参数到实际的source值
             source_mapping = {
                 "manual": "manual_upload",
@@ -9394,6 +10045,32 @@ class RecruitmentService:
             results.append(payload)
 
         return results
+
+    def _build_ai_match_resume_text(self, candidate: RecruitmentCandidate) -> str:
+        parse_row = self._get_current_parse_result(candidate)
+        raw_text = str(getattr(parse_row, "raw_text", "") or "").strip() if parse_row else ""
+        if not raw_text and candidate.latest_resume_file_id:
+            try:
+                resume_file = self._get_resume_file(candidate.latest_resume_file_id)
+                raw_text = self._extract_resume_file_raw_text(resume_file)
+            except Exception:
+                logger.warning("Failed to extract raw resume text for ai match candidate_id=%s", candidate.id, exc_info=True)
+
+        normalized_text = str(raw_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        normalized_text = re.sub(r"\n{3,}", "\n\n", normalized_text)
+        if normalized_text:
+            excerpt_limit = min(len(normalized_text), 18000)
+            excerpt_target = min(len(normalized_text), max(len(normalized_text) // 2, 2000))
+            return normalized_text[: min(excerpt_target, excerpt_limit)].strip()
+
+        fallback_lines = [
+            str(candidate.name or "").strip(),
+            str(candidate.current_company or "").strip(),
+            str(candidate.years_of_experience or "").strip(),
+            str(candidate.education or "").strip(),
+            str(candidate.city or "").strip(),
+        ]
+        return "\n".join(line for line in fallback_lines if line)
 
     async def trigger_ai_position_match(self, candidate_ids: List[int], actor_id: str, task_type: str = "ai_position_match") -> Dict[str, Any]:
         """
@@ -9486,43 +10163,7 @@ class RecruitmentService:
 
         # 提取简历内容的函数
         def _extract_resume(candidate: RecruitmentCandidate) -> str:
-            resume_content = ""
-            if candidate.latest_resume_file_id:
-                resume_file = self.db.query(RecruitmentResumeFile).filter(
-                    RecruitmentResumeFile.id == candidate.latest_resume_file_id,
-                ).first()
-                if resume_file and resume_file.parse_status == "done":
-                    try:
-                        parse_result = self.db.query(RecruitmentResumeParseResult).filter(
-                            RecruitmentResumeParseResult.resume_file_id == resume_file.id,
-                        ).order_by(RecruitmentResumeParseResult.id.desc()).first()
-                        if parse_result and parse_result.content_json:
-                            parsed = json.loads(parse_result.content_json)
-                            basic = parsed.get("basic_info", {})
-                            works = parsed.get("work_experiences", [])
-                            edu = parsed.get("education_experiences", [])
-                            skills = parsed.get("skills", [])
-                            summary = parsed.get("summary", "")
-                            resume_content = (
-                                f"姓名: {basic.get('name', candidate.name)}\n"
-                                f"职位: {basic.get('current_title', '')}\n"
-                                f"公司: {basic.get('current_company', candidate.current_company or '')}\n"
-                                f"学历: {edu[0].get('school', '') + ' ' + edu[0].get('major', '') if edu else candidate.education or ''}\n"
-                                f"工作经验: {len(works)}段工作经历\n"
-                                f"技能: {', '.join(skills[:10]) if skills else ''}\n"
-                                f"摘要: {summary[:500] if summary else ''}"
-                            )
-                    except Exception as parse_exc:
-                        logger.warning(f"Failed to parse resume for candidate {candidate.id}: {parse_exc}")
-            if not resume_content.strip():
-                resume_content = (
-                    f"姓名: {candidate.name}\n"
-                    f"公司: {candidate.current_company or '未知'}\n"
-                    f"学历: {candidate.education or '未知'}\n"
-                    f"工作经验: {candidate.years_of_experience or '未知'}\n"
-                    f"城市: {candidate.city or '未知'}"
-                )
-            return resume_content
+            return self._build_ai_match_resume_text(candidate)
 
         # 入队到调度器
         await scheduler.enqueue_batch(
@@ -9584,31 +10225,45 @@ class RecruitmentService:
                     logger.error("[AI_MATCH] Candidate %d not found in DB, skipping", task.candidate_id)
                     return
                 if match_result and match_result.get("position_id"):
-                    candidate.ai_match_position_id = match_result["position_id"]
-                    candidate.ai_match_position_title = match_result.get("position_title", "")
-                    candidate.ai_match_reason = match_result.get("reason", "")
-                    candidate.ai_match_at = datetime.now()
-                    candidate.updated_by = actor_id
-                    # 匹配成功：分配岗位
-                    candidate.position_id = match_result["position_id"]
-                    # 检查岗位是否开启 auto_screen
-                    from ..recruitment_models import RecruitmentPosition
+                    callback_service = RecruitmentService(db)
                     position = db.query(RecruitmentPosition).filter(
                         RecruitmentPosition.id == match_result["position_id"]
                     ).first()
-                    if position and position.auto_screen_on_upload:
-                        candidate.status = "screening_running"
-                    else:
-                        candidate.status = "pending_screening"
+                    should_auto_screen = callback_service._prepare_candidate_for_position_assignment(
+                        candidate,
+                        position=position,
+                        actor_id=actor_id,
+                        update_status=True,
+                        clear_ai_match=True,
+                    )
+                    candidate.ai_match_position_id = match_result["position_id"]
+                    candidate.ai_match_position_title = match_result.get("position_title", "")
+                    candidate.ai_match_confidence = _parse_score_number(match_result.get("confidence"))
+                    candidate.ai_match_reason = match_result.get("reason", "")
+                    candidate.ai_match_at = datetime.now()
+                    candidate.ai_potential_position = str(match_result.get("potential_position") or "").strip() or None
+                    candidate.ai_potential_reason = str(match_result.get("potential_reason") or "").strip() or None
+                    candidate.updated_by = actor_id
+                    db.add(candidate)
+                    db.commit()
+                    db.refresh(candidate)
+                    if should_auto_screen:
+                        try:
+                            callback_service._enqueue_auto_screening_for_candidates([candidate.id], actor_id, batch_prefix="ai-match-auto-screen")
+                        except Exception as auto_screen_exc:
+                            logger.warning("[AI_MATCH] auto screening enqueue failed for candidate %d: %s", candidate.id, auto_screen_exc)
                 else:
                     # 无匹配：标记为待识别
                     candidate.ai_match_reason = match_result.get("reason", "无匹配") if match_result else "无匹配"
+                    candidate.ai_match_confidence = _parse_score_number(match_result.get("confidence")) if match_result else None
                     candidate.ai_match_at = datetime.now()
+                    candidate.ai_potential_position = str((match_result or {}).get("potential_position") or "").strip() or None
+                    candidate.ai_potential_reason = str((match_result or {}).get("potential_reason") or "").strip() or None
                     candidate.updated_by = actor_id
                     candidate.status = "unmatched"
                     candidate.talent_pool_reason = "unmatched_by_ai"
                     candidate.talent_pool_moved_at = datetime.now()
-                db.commit()
+                    db.commit()
 
                 # 写审计日志（直接用 db，不走 self._create_ai_task_log）
                 try:
@@ -9671,6 +10326,8 @@ class RecruitmentService:
                     "status": final_status,
                     "ai_match_position_id": match_result.get("position_id") if match_result else None,
                     "ai_match_position_title": match_result.get("position_title") if match_result else None,
+                    "ai_potential_position": match_result.get("potential_position") if match_result else None,
+                    "ai_potential_reason": match_result.get("potential_reason") if match_result else None,
                 })
 
         return _on_match_done
@@ -9834,12 +10491,9 @@ class RecruitmentService:
 
     def get_pending_match_candidates(self, org_code: Optional[str] = None) -> List[Dict[str, Any]]:
         """获取待归岗的候选人列表"""
-        query = self.db.query(RecruitmentCandidate).filter(
+        query = self._build_candidate_scoped_query(org_code).filter(
             RecruitmentCandidate.status == "unmatched",
-            RecruitmentCandidate.deleted.is_(False)
         )
-        if org_code:
-            query = query.filter(RecruitmentCandidate.org_code == org_code)
 
         candidates = query.order_by(RecruitmentCandidate.created_at.desc()).all()
         return [self._serialize_candidate_summary(c) for c in candidates]
@@ -9959,12 +10613,9 @@ class RecruitmentService:
         # 懒恢复：每次查询人才库时检查并恢复卡死的 matching 候选人
         self._recover_stuck_matching_candidates()
 
-        query = self.db.query(RecruitmentCandidate).filter(
-            RecruitmentCandidate.deleted.is_(False),
+        query = self._build_candidate_scoped_query(org_code).filter(
             RecruitmentCandidate.status.in_(["matching", "unmatched", "talent_pool"])
         )
-        if org_code:
-            query = query.filter(RecruitmentCandidate.org_code == org_code)
 
         candidates = query.order_by(RecruitmentCandidate.created_at.desc()).all()
         return [self._serialize_candidate_summary(c) for c in candidates]
@@ -9979,57 +10630,26 @@ class RecruitmentService:
         if not candidates:
             raise ValueError("No candidates found")
 
-        # 如果分配了岗位，查询岗位的 org_code
-        position_org_code = None
-        if position_id:
-            from ..recruitment_models import RecruitmentPosition
-            position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == position_id).first()
-            if position:
-                position_org_code = position.org_code
-
-        # 查询岗位是否开启自动初筛
-        auto_screen = False
-        if position_id and position:
-            auto_screen = bool(position.auto_screen_on_upload)
-
+        position = self._get_position(position_id) if position_id else None
         updated_count = 0
+        auto_screen_candidate_ids: List[int] = []
         for candidate in candidates:
-            candidate.position_id = position_id
-            candidate.updated_by = actor_id
-            # 分配岗位时同步更新 org_code 到岗位所属组织
-            if position_org_code:
-                candidate.org_code = position_org_code
-            if update_status:
-                if position_id:
-                    # 分配到具体岗位 → 重置状态
-                    if candidate.status in ["matching", "unmatched", "talent_pool"]:
-                        candidate.status = "screening_running" if auto_screen else "pending_screening"
-                    # 清除人才库标记和旧的初筛数据（无论原状态是什么）
-                    candidate.talent_pool_reason = None
-                    candidate.talent_pool_source_status = None
-                    candidate.talent_pool_moved_by = None
-                    candidate.talent_pool_moved_at = None
-                    candidate.ai_recommended_status = None
-                    candidate.match_percent = None
-                    candidate.ai_match_position_id = None
-                    candidate.ai_match_position_title = None
-                    candidate.ai_match_confidence = None
-                    candidate.ai_match_reason = None
-                    candidate.ai_match_at = None
-                else:
-                    # 归入人才库（无岗位）
-                    source_status = candidate.status
-                    candidate.status = "unmatched"
-                    candidate.talent_pool_reason = "moved_by_hr"
-                    candidate.talent_pool_source_status = source_status
-                    candidate.talent_pool_moved_by = actor_id
-                    candidate.talent_pool_moved_at = datetime.now()
+            should_auto_screen = self._assign_candidate_position(
+                candidate,
+                position=position,
+                actor_id=actor_id,
+                update_status=update_status,
+                clear_ai_match=False,
+            )
+            if should_auto_screen:
+                auto_screen_candidate_ids.append(candidate.id)
             updated_count += 1
 
         self.db.commit()
-        return {"updated_count": updated_count}
+        auto_screen_result = self._enqueue_auto_screening_for_candidates(auto_screen_candidate_ids, actor_id, batch_prefix="talent-pool-assign") if auto_screen_candidate_ids else {"batch_id": None, "queued_count": 0, "skipped_existing_live_task_count": 0, "failed_count": 0, "task_ids": [], "tasks": [], "errors": {}}
+        return {"updated_count": updated_count, "auto_screen": auto_screen_result}
 
-    def export_candidates(self, candidate_ids: List[int], include_resumes: bool = True) -> str:
+    def export_candidates(self, candidate_ids: List[int], include_resumes: bool = True, fields: Optional[List[str]] = None) -> str:
         import zipfile
         import tempfile
         from openpyxl import Workbook
@@ -10042,15 +10662,72 @@ class RecruitmentService:
         wb = Workbook()
         ws = wb.active
         ws.title = "Candidates"
-        ws.append(["姓名", "电话", "年龄", "城市", "学历", "工作经验", "状态", "匹配度"])
+        requested_fields = [field for field in (fields or DEFAULT_CANDIDATE_EXPORT_FIELDS) if field in CANDIDATE_EXPORT_FIELD_LABELS]
+        if not requested_fields:
+            requested_fields = list(DEFAULT_CANDIDATE_EXPORT_FIELDS)
+        ws.append([CANDIDATE_EXPORT_FIELD_LABELS[field] for field in requested_fields])
         for c in candidates:
-            display_status = SCREENING_STATUS_LABELS.get(c.status, c.status or "")
-            match_percent = getattr(c, "match_percent", None)
-            ws.append([
-                c.name, c.phone, getattr(c, "age", None), getattr(c, "city", None),
-                c.education, c.years_of_experience, display_status,
-                f"{round(match_percent)}%" if match_percent is not None else "-",
-            ])
+            position = self.db.query(RecruitmentPosition).filter(RecruitmentPosition.id == c.position_id, RecruitmentPosition.deleted.is_(False)).first() if c.position_id else None
+            score_row = self.db.query(RecruitmentCandidateScore).filter(RecruitmentCandidateScore.id == c.latest_score_id).first() if c.latest_score_id else None
+            serialized_score = self._serialize_score(score_row) if score_row else None
+            parse_row = self._get_current_parse_result(c)
+            parsed_resume = self._serialize_parse_result(parse_row) if parse_row else {}
+            basic_info = parsed_resume.get("basic_info") or {}
+            education_rows = parsed_resume.get("education_experiences") or []
+            primary_education = education_rows[0] if education_rows and isinstance(education_rows[0], dict) else {}
+            screening_state = self._build_candidate_screening_state_summary(c)
+            score_suggested_status = str(serialized_score.get("suggested_status") or "").strip() if serialized_score else ""
+            ai_recommended_status = score_suggested_status or str(c.ai_recommended_status or "").strip() or None
+            if screening_state.get("active_screening_task_id"):
+                display_status = "screening_running"
+            elif c.status == "pending_screening" and ai_recommended_status:
+                display_status = ai_recommended_status
+            else:
+                display_status = c.status or ""
+            localized_status = SCREENING_STATUS_LABELS.get(display_status, display_status or "")
+            score_recommendation = str(serialized_score.get("recommendation") or "").strip() if serialized_score else ""
+            dimensions = serialized_score.get("dimensions") if isinstance(serialized_score, dict) else []
+            dimension_items: List[str] = []
+            if isinstance(dimensions, list):
+                for item in dimensions:
+                    if not isinstance(item, dict):
+                        continue
+                    label = str(item.get("label") or "").strip()
+                    if not label:
+                        continue
+                    score_value = _parse_score_number(item.get("score"))
+                    max_score_value = _parse_score_number(item.get("max_score"))
+                    dimension_items.append(
+                        f"{label}: {score_value if score_value is not None else '-'} / {max_score_value if max_score_value is not None else '-'}"
+                    )
+            latest_resume_file = self.db.query(RecruitmentResumeFile).filter(RecruitmentResumeFile.id == c.latest_resume_file_id).first() if c.latest_resume_file_id else None
+            field_values = {
+                "name": c.name or "",
+                "phone": c.phone or "",
+                "email": c.email or "",
+                "position_title": position.title if position else "",
+                "source": c.source or "",
+                "current_status": localized_status,
+                "screening_score": (
+                    f"{round(_parse_score_number(serialized_score.get('match_percent')))}%"
+                    if serialized_score and _parse_score_number(serialized_score.get("match_percent")) is not None
+                    else (f"{round(c.match_percent)}%" if c.match_percent is not None else "")
+                ),
+                "uploaded_at": isoformat_or_none((latest_resume_file.created_at if latest_resume_file else None) or c.created_at) or "",
+                "education": c.education or str(basic_info.get("education") or "").strip(),
+                "graduation_school": str(primary_education.get("school") or "").strip(),
+                "major": str(primary_education.get("major") or "").strip(),
+                "work_years": c.years_of_experience or str(basic_info.get("years_of_experience") or "").strip(),
+                "expected_salary": "",
+                "current_city": c.city or str(basic_info.get("location") or "").strip(),
+                "expected_city": getattr(c, "expected_city", None) or _sanitize_expected_city_value(basic_info.get("expected_city")),
+                "ai_recommended_position": c.ai_match_position_title or c.ai_potential_position or "",
+                "screening_conclusion": score_recommendation or (SCREENING_STATUS_LABELS.get(ai_recommended_status or "", ai_recommended_status or "")),
+                "screening_dimension_scores": "；".join(dimension_items),
+                "audit_operator": c.updated_by or c.talent_pool_moved_by or "",
+                "last_updated_at": isoformat_or_none(c.updated_at) or "",
+            }
+            ws.append([field_values.get(field, "") for field in requested_fields])
         tmp_dir = tempfile.mkdtemp(prefix="candidate-export-")
         date_str = datetime.now().strftime("%Y-%m-%d")
         excel_path = os.path.join(tmp_dir, f"candidates_{date_str}.xlsx")
@@ -10575,6 +11252,14 @@ class RecruitmentService:
             raw_resume_text[:30000],
             "只返回 strict JSON，不要 markdown，不要解释。",
         ])
+
+    def _apply_candidate_parsed_location_fields(self, candidate: RecruitmentCandidate, basic_info: Dict[str, Any]) -> None:
+        location_value = str(basic_info.get("location") or "").strip()
+        if location_value:
+            candidate.city = location_value
+        expected_city_value = _sanitize_expected_city_value(basic_info.get("expected_city"))
+        if expected_city_value:
+            candidate.expected_city = expected_city_value
 
     def _get_current_parse_result(self, candidate: RecruitmentCandidate) -> Optional[RecruitmentResumeParseResult]:
         if not candidate.latest_parse_result_id or not candidate.latest_resume_file_id:
@@ -11192,9 +11877,7 @@ class RecruitmentService:
         parsed_age = _parse_age_value(basic_info.get("age"))
         if parsed_age is not None:
             candidate.age = parsed_age
-        location_value = str(basic_info.get("location") or "").strip()
-        if location_value and not getattr(candidate, "city", None):
-            candidate.city = location_value
+        self._apply_candidate_parsed_location_fields(candidate, basic_info)
         candidate.latest_parse_result_id = parse_row.id
         candidate.updated_by = actor_id
         resume_file.parse_status = "success"
@@ -11468,9 +12151,7 @@ class RecruitmentService:
             parsed_age = _parse_age_value(basic_info.get("age"))
             if parsed_age is not None:
                 candidate.age = parsed_age
-            location_value = str(basic_info.get("location") or "").strip()
-            if location_value and not getattr(candidate, "city", None):
-                candidate.city = location_value
+            self._apply_candidate_parsed_location_fields(candidate, basic_info)
             candidate.latest_parse_result_id = parse_row.id
             candidate.updated_by = actor_id
             resume_file.parse_status = "success"
@@ -11810,9 +12491,7 @@ class RecruitmentService:
         parsed_age = _parse_age_value(basic_info.get("age"))
         if parsed_age is not None:
             candidate.age = parsed_age
-        location_value = str(basic_info.get("location") or "").strip()
-        if location_value and not getattr(candidate, "city", None):
-            candidate.city = location_value
+        self._apply_candidate_parsed_location_fields(candidate, basic_info)
         self.db.add(candidate)
         self.db.commit()
         self.db.refresh(parse_row)
@@ -12519,6 +13198,9 @@ class RecruitmentService:
             raise ValueError("候选人暂无可用简历，无法发起初筛。")
         if not candidate.position_id:
             raise ValueError("候选人未绑定岗位，无法发起初筛。请先为候选人分配岗位后再发起初筛。")
+        force_fresh_screening = self._candidate_requires_fresh_screening_run(candidate)
+        allow_reuse_parse = bool(allow_reuse_parse) and not force_fresh_screening
+        allow_score_only_rerun = bool(allow_score_only_rerun) and not force_fresh_screening
         normalized_screening_mode = _normalize_screening_mode(screening_mode, force_fallback=force_fallback)
         if not force_one_pass and normalized_screening_mode == "default":
             normalized_screening_mode = "fallback_parse_then_score"
@@ -12582,16 +13264,17 @@ class RecruitmentService:
             request_scope="screening_one_pass",
             model_task_type=SCREENING_ONE_PASS_TASK_TYPE,
         )
+        default_request_meta["force_fresh_screening"] = force_fresh_screening
         cached_result = (
             self._load_reusable_screening_result(
                 request_hash=str(default_request_meta.get("request_hash") or "").strip(),
                 candidate_id=candidate.id,
             )
-            if normalized_screening_mode == "default"
+            if normalized_screening_mode == "default" and not force_fresh_screening
             else None
         )
         previous_valid_result = None
-        if normalized_screening_mode == "default" and not cached_result and had_existing_parse:
+        if normalized_screening_mode == "default" and not cached_result and had_existing_parse and not force_fresh_screening:
             previous_valid_result = self._get_latest_valid_screening_result_for_candidate(candidate.id)
             if previous_valid_result and self._should_rerank_from_existing_parse(
                 allow_score_only_rerun=allow_score_only_rerun,
@@ -12630,11 +13313,12 @@ class RecruitmentService:
                 prompt_version=prompt_version,
                 screening_mode=normalized_screening_mode,
                 request_scope=request_scope,
-                model_task_type=SCREENING_ONE_PASS_TASK_TYPE if normalized_screening_mode == "default" else "resume_score",
+                    model_task_type=SCREENING_ONE_PASS_TASK_TYPE if normalized_screening_mode == "default" else "resume_score",
+                )
             )
-        )
+        request_meta["force_fresh_screening"] = force_fresh_screening
         request_hash = str(request_meta.get("request_hash") or "").strip() or None
-        if not cached_result and request_hash:
+        if not cached_result and request_hash and not force_fresh_screening:
             cached_result = self._load_reusable_screening_result(
                 request_hash=request_hash,
                 candidate_id=candidate.id,
@@ -13532,6 +14216,9 @@ class RecruitmentService:
                 raise ValueError("候选人暂无可用简历，无法发起初筛。")
             if not candidate.position_id:
                 raise ValueError("候选人未绑定岗位，无法发起初筛。请先为候选人分配岗位后再发起初筛。")
+            force_fresh_screening = self._candidate_requires_fresh_screening_run(candidate)
+            allow_reuse_parse = bool(allow_reuse_parse) and not force_fresh_screening
+            allow_score_only_rerun = bool(allow_score_only_rerun) and not force_fresh_screening
             existing_live_task = self._find_live_screening_task(candidate.id)
             if existing_live_task:
                 return {
@@ -13577,7 +14264,8 @@ class RecruitmentService:
                 request_scope="screening_one_pass",
                 model_task_type=SCREENING_ONE_PASS_TASK_TYPE,
             )
-            if normalized_screening_mode == "default" and had_existing_parse:
+            default_request_meta["force_fresh_screening"] = force_fresh_screening
+            if normalized_screening_mode == "default" and had_existing_parse and not force_fresh_screening:
                 previous_valid_result = self._get_latest_valid_screening_result_for_candidate(candidate.id)
                 if previous_valid_result and self._should_rerank_from_existing_parse(
                     allow_score_only_rerun=allow_score_only_rerun,
@@ -13617,10 +14305,11 @@ class RecruitmentService:
                     model_task_type=SCREENING_ONE_PASS_TASK_TYPE if normalized_screening_mode == "default" else "resume_score",
                 )
             )
+            request_meta["force_fresh_screening"] = force_fresh_screening
             request_hash = str(request_meta.get("request_hash") or "").strip() or None
             reusable_result = (
                 self._load_reusable_screening_result(request_hash=request_hash, candidate_id=candidate.id)
-                if request_hash
+                if request_hash and not force_fresh_screening
                 else None
             )
             if reusable_result:

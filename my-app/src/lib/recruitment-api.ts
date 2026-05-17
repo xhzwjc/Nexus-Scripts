@@ -134,6 +134,7 @@ export interface CandidateSummary {
   education?: string | null;
   age?: number | null;
   city?: string | null;
+  expected_city?: string | null;
   source?: string | null;
   source_detail?: string | null;
   status: string;
@@ -157,6 +158,7 @@ export interface CandidateSummary {
   latest_score_id?: number | null;
   latest_total_score?: number | null;
   owner_id?: string | null;
+  screened_position_title?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string | null;
@@ -167,6 +169,8 @@ export interface CandidateSummary {
   ai_match_confidence?: number | null;
   ai_match_reason?: string | null;
   ai_match_alternatives?: Array<{ position_id: number; position_title: string; confidence: number }> | null;
+  ai_potential_position?: string | null;
+  ai_potential_reason?: string | null;
   // 人才库归档字段
   talent_pool_reason?: "unmatched_by_ai" | "ai_error" | "auto_archived" | "moved_by_hr" | null;
   talent_pool_source_status?: string | null;
@@ -332,6 +336,8 @@ export interface RecruitmentSkill {
   skill_group?: string | null;
   version?: string | null;
   task_types?: Array<"jd" | "screening" | "interview">;
+  bound_position_id?: number | null;
+  bound_position_title?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string | null;
@@ -355,6 +361,8 @@ export interface RecruitmentLLMConfig {
   has_stored_api_key: boolean;
   has_runtime_api_key: boolean;
   extra_config?: Record<string, unknown> | null;
+  max_concurrent: number;
+  max_qps: number;
   is_active: boolean;
   priority: number;
   resolved_provider?: string | null;
@@ -552,9 +560,8 @@ export interface ResumeUploadResponse {
 
 export interface CandidateExportRequest {
   candidate_ids?: number[] | null;
-  status_filter?: string | null;
-  position_id?: number | null;
   include_resumes?: boolean;
+  fields?: string[];
 }
 
 export interface RecruitmentMailSenderConfig {
