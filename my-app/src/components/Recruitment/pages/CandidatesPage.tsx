@@ -98,7 +98,9 @@ import {
     labelForTaskType,
     parseStructuredLogOutput,
     resolveCandidateDisplayStatus,
+    resolveCandidateFacingErrorContext,
     resolveLogSkillSnapshots,
+    sanitizeCandidateFacingErrorText,
     statusBadgeClass,
 } from "../utils";
 
@@ -260,7 +262,13 @@ const CandidateRow = React.memo(function CandidateRow({
                             </Badge>
                             {candidate.display_status_reason ? (
                                 <HoverRevealText
-                                    text={candidate.display_status_reason}
+                                    text={sanitizeCandidateFacingErrorText(candidate.display_status_reason, {
+                                        context: resolveCandidateFacingErrorContext(
+                                            candidate.active_screening_task_type,
+                                            { autoRetry: candidate.active_screening_auto_retry_scheduled },
+                                        ),
+                                        language,
+                                    })}
                                     className="mt-1 text-[11px] leading-4 text-slate-500 dark:text-slate-400"
                                     tooltipClassName="max-w-sm"
                                 />
@@ -2141,6 +2149,14 @@ export function CandidatesPage({
         && candidateDetailDisplayStatus
         && candidateDetailDisplayStatus !== candidateDetail.candidate.status,
     );
+    const sanitizeTaskMessage = React.useCallback((
+        value?: string | null,
+        taskType?: string | null,
+        autoRetry = false,
+    ) => sanitizeCandidateFacingErrorText(value, {
+        context: resolveCandidateFacingErrorContext(taskType, { autoRetry }),
+        language,
+    }), [language]);
 
     return (
         <>
@@ -2569,7 +2585,9 @@ export function CandidatesPage({
                                                         <div className={candidateDetail.candidate.screened_position_title ? "mt-1" : "font-medium"}>{`${isZh ? "AI 主匹配岗位" : "AI Primary Match"}：${candidateDetail.candidate.ai_match_position_title}`}</div>
                                                     ) : null}
                                                     {candidateDetail.candidate.ai_match_position_title && candidateDetail.candidate.ai_match_reason ? (
-                                                        <div className="text-sky-600 dark:text-sky-200/80">{candidateDetail.candidate.ai_match_reason}</div>
+                                                        <div className="text-sky-600 dark:text-sky-200/80">
+                                                            {sanitizeTaskMessage(candidateDetail.candidate.ai_match_reason, "ai_position_match")}
+                                                        </div>
                                                     ) : null}
                                                     {candidateDetail.candidate.ai_potential_position ? (
                                                         <div className="border-t border-sky-200/70 pt-2 dark:border-sky-900/70">
@@ -2684,8 +2702,17 @@ export function CandidatesPage({
                                                 <div className="min-w-0">
                                                     <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{tr.currentScreeningTask}</p>
                                                     {(() => {
-                                                        const logMsg = currentScreeningTaskLog?.output_summary || currentScreeningTaskLog?.error_message || "";
-                                                        const displayReason = candidateDetail?.candidate.display_status_reason || "";
+                                                        const autoRetry = Boolean(candidateDetail?.candidate.active_screening_auto_retry_scheduled);
+                                                        const logMsg = sanitizeTaskMessage(
+                                                            currentScreeningTaskLog?.output_summary || currentScreeningTaskLog?.error_message || "",
+                                                            currentScreeningTaskType || currentScreeningTaskLog?.task_type,
+                                                            autoRetry,
+                                                        );
+                                                        const displayReason = sanitizeTaskMessage(
+                                                            candidateDetail?.candidate.display_status_reason || "",
+                                                            currentScreeningTaskType || candidateDetail?.candidate.active_screening_task_type,
+                                                            autoRetry,
+                                                        );
                                                         const primary = displayReason || logMsg || tr.taskRunning;
                                                         const secondary = displayReason && logMsg && logMsg !== displayReason ? logMsg : null;
                                                         return (
@@ -3316,8 +3343,23 @@ export function CandidatesPage({
                                                                             <InfoTile label={tr.screeningSkills} value={formatSkillSnapshotNames(logSkillSnapshots, language)}/>
                                                                             <InfoTile label={tr.memorySource} value={labelForMemorySource(log.memory_source)}/>
                                                                         </div>
-                                                                        {log.error_message ? <p className="mt-3 break-all text-sm text-rose-600">{log.error_message}</p> : null}
-                                                                        <OutputSnippet content={formatStructuredValue(log.output_snapshot, log.output_summary || tr.runningAwaitModel)}/>
+                                                                        {log.error_message ? (
+                                                                            <p className="mt-3 break-all text-sm text-rose-600">
+                                                                                {sanitizeTaskMessage(
+                                                                                    log.error_message,
+                                                                                    log.task_type,
+                                                                                    Boolean(log.status === "queued"),
+                                                                                )}
+                                                                            </p>
+                                                                        ) : null}
+                                                                        <OutputSnippet content={formatStructuredValue(
+                                                                            log.output_snapshot,
+                                                                            sanitizeTaskMessage(
+                                                                                log.output_summary || tr.runningAwaitModel,
+                                                                                log.task_type,
+                                                                                Boolean(log.status === "queued"),
+                                                                            ),
+                                                                        )}/>
                                                                         <div className="mt-3 flex flex-wrap gap-2">
                                                                             <Button size="sm" variant="outline" onClick={() => openTaskLogDetail(log.id)}>{tr.viewFullLog}</Button>
                                                                         </div>

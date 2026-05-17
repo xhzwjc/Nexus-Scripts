@@ -170,8 +170,10 @@ import {
     parseEmailList,
     parseStructuredLogOutput,
     resolveCandidateDisplayStatus,
+    resolveCandidateFacingErrorContext,
     resolveLogSkillSnapshots,
     resolveTaskSkillIds,
+    sanitizeCandidateFacingErrorText,
     shortText,
     sortSkillsForTaskPreference,
     statusBadgeClass,
@@ -2986,6 +2988,31 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         clearActiveScreeningTask(event.related_candidate_id, event.task_id);
                     }
                 }
+                if (event.related_candidate_id && event.task_type === "screening_flow") {
+                    const failedLike = new Set(["failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "quota_exceeded", "rate_limited", "upstream_timeout", "request_failed"]);
+                    setAllCandidates((current) => current.map((candidate) => {
+                        if (candidate.id !== event.related_candidate_id) {
+                            return candidate;
+                        }
+                        const nextStatus = failedLike.has(String(event.status || "").trim()) ? "screening_failed" : candidate.status;
+                        return {
+                            ...candidate,
+                            status: nextStatus,
+                            display_status: failedLike.has(String(event.status || "").trim()) ? "screening_failed" : candidate.display_status,
+                            display_status_reason: failedLike.has(String(event.status || "").trim())
+                                ? sanitizeCandidateFacingErrorText(event.status || "", { context: "screening", language })
+                                : candidate.display_status_reason,
+                            active_screening_task_id: undefined,
+                            active_screening_task_status: "",
+                            active_screening_status: "",
+                            active_screening_stage: "",
+                            active_screening_auto_retry_scheduled: false,
+                        };
+                    }));
+                    if (selectedCandidateIdRef.current === event.related_candidate_id) {
+                        void loadCandidateDetail(event.related_candidate_id, { silent: true, force: true });
+                    }
+                }
                 // 只刷新列表，dashboard/stats 由 batch_summary 统一补齐
                 if (pendingRefreshRef.current) {
                     window.clearTimeout(pendingRefreshRef.current);
@@ -2995,6 +3022,31 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }, 500);
             },
             onCandidateUpdated: (event) => {
+                if (event.candidate_id && event.task_type === "screening_flow" && event.auto_requeue_scheduled) {
+                    setAllCandidates((current) => current.map((candidate) => (
+                        candidate.id === event.candidate_id
+                            ? {
+                                ...candidate,
+                                active_screening_task_id: event.task_id ?? candidate.active_screening_task_id,
+                                active_screening_task_type: event.task_type ?? candidate.active_screening_task_type,
+                                active_screening_task_status: "queued",
+                                active_screening_status: "queued",
+                                active_screening_stage: "queued",
+                                active_screening_auto_retry_scheduled: true,
+                            }
+                            : candidate
+                    )));
+                    if (pendingRefreshRef.current) {
+                        window.clearTimeout(pendingRefreshRef.current);
+                    }
+                    pendingRefreshRef.current = window.setTimeout(() => {
+                        void loadCandidates({ silent: true, force: true });
+                        if (selectedCandidateIdRef.current === event.candidate_id) {
+                            void loadCandidateDetail(event.candidate_id, { silent: true, force: true });
+                        }
+                    }, 150);
+                    return;
+                }
                 if (event.candidate_id && event.task_type?.startsWith("ai_position")) {
                     const newStatus = event.status;
                     // 匹配成功（pending_screening/screening_running）：从人才池移除，加入候选人列表
@@ -3011,6 +3063,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     status: newStatus ?? c.status,
                                     ai_match_position_id: event.ai_match_position_id ?? c.ai_match_position_id,
                                     ai_match_position_title: event.ai_match_position_title ?? c.ai_match_position_title,
+                                    ai_match_reason: event.ai_match_reason ?? c.ai_match_reason,
                                     ai_potential_position: event.ai_potential_position ?? c.ai_potential_position,
                                     ai_potential_reason: event.ai_potential_reason ?? c.ai_potential_reason,
                                 }
@@ -4188,7 +4241,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         return;
                     }
                     if (log.status === "failed") {
-                        toast.error(recruitmentUiText.screeningFailed(log.error_message || recruitmentToast.unknownError));
+                        toast.error(recruitmentUiText.screeningFailed(
+                            sanitizeCandidateFacingErrorText(log.error_message || recruitmentToast.unknownError, {
+                                context: "screening",
+                                language,
+                            }),
+                        ));
                     }
                 },
             });
@@ -5101,7 +5159,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 <div className={c.screened_position_title ? "mt-1" : "font-medium"}>{`${isZh ? "AI 主匹配岗位" : "AI Primary Match"}：${c.ai_match_position_title}`}</div>
                             ) : null}
                             {c.ai_match_position_title && c.ai_match_reason ? (
-                                <div className="mt-1 text-sky-600 dark:text-sky-200/80">{c.ai_match_reason}</div>
+                                <div className="mt-1 text-sky-600 dark:text-sky-200/80">
+                                    {sanitizeCandidateFacingErrorText(c.ai_match_reason, {
+                                        context: resolveCandidateFacingErrorContext("ai_position_match"),
+                                        language,
+                                    })}
+                                </div>
                             ) : null}
                             {c.ai_potential_position ? (
                                 <div className={c.screened_position_title || c.ai_match_position_title ? "mt-2 border-t border-sky-200/70 pt-2 dark:border-sky-900/70" : ""}>

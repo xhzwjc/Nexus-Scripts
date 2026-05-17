@@ -119,7 +119,7 @@ test("screening_flow detail view keeps root queued when infra retry is scheduled
         root_task_id: 2001,
         stage: "failed",
         status: "upstream_timeout",
-        output_summary: "上游超时，稍后自动重试",
+        output_summary: "模型接口超时，系统将自动重试，请稍候。",
         created_at: "2026-04-08T16:25:01",
         updated_at: "2026-04-08T16:26:02",
     };
@@ -128,9 +128,9 @@ test("screening_flow detail view keeps root queued when infra retry is scheduled
 
     assert.equal(view.effectiveRootStatus, "queued");
     assert.equal(view.effectiveRootStage, "queued");
-    assert.equal(view.rootNotice, "接口超时，系统稍后自动重试");
+    assert.equal(view.rootNotice, "模型接口超时，系统将自动重试，请稍候。");
     assert.equal(view.nextRetryAt, "2026-04-08T16:40:00");
-    assert.equal(view.stages[0]?.detail, "上游超时，稍后自动重试；系统已安排自动重试。");
+    assert.equal(view.stages[0]?.detail, "模型接口超时，系统将自动重试，请稍候。；系统已安排自动重试。");
     assert.equal(view.inferredFromChildTerminal, false);
 });
 

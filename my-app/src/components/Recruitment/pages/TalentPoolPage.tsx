@@ -28,6 +28,7 @@ import {getCurrentLanguage, useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
+import {sanitizeCandidateFacingErrorText} from "../utils";
 
 function getTalentPoolLocale(language = getCurrentLanguage()) {
     const isZh = language !== "en-US";
@@ -514,6 +515,7 @@ export function TalentPoolPage({
                                             onCancelMatch={onCancelMatch ? () => onCancelMatch(candidate.id) : undefined}
                                             onView={() => onViewCandidate(candidate.id)}
                                             tr={tr}
+                                            language={language}
                                             isMatching={true}
                                         />
                                     ))}
@@ -547,6 +549,7 @@ export function TalentPoolPage({
                                             onManualAssign={() => openSingleAssign(candidate.id)}
                                             onView={() => onViewCandidate(candidate.id)}
                                             tr={tr}
+                                            language={language}
                                         />
                                     ))}
                                 </div>
@@ -579,6 +582,7 @@ export function TalentPoolPage({
                                             onManualAssign={() => openSingleAssign(candidate.id)}
                                             onView={() => onViewCandidate(candidate.id)}
                                             tr={tr}
+                                            language={language}
                                             isArchived={true}
                                         />
                                     ))}
@@ -666,7 +670,7 @@ function StatCard({label, value, hint}: {label: string; value: number; hint: str
 /* ── 候选人卡片 ── */
 function CandidateCard({
     candidate, selected, reIdentifying, reIdentifyFailed,
-    onToggleSelect, onConfirmMatch, onChangePosition, onReIdentify, onCancelMatch, onManualAssign, onView, tr,
+    onToggleSelect, onConfirmMatch, onChangePosition, onReIdentify, onCancelMatch, onManualAssign, onView, tr, language,
     isMatching, isArchived,
 }: {
     candidate: CandidateSummary;
@@ -681,6 +685,7 @@ function CandidateCard({
     onManualAssign?: () => void;
     onView: () => void;
     tr: ReturnType<typeof getTalentPoolLocale>;
+    language: string;
     isMatching?: boolean;
     isArchived?: boolean;
 }) {
@@ -714,7 +719,14 @@ function CandidateCard({
         }
         // 待处理分组
         if (candidate.talent_pool_reason === "ai_error") {
-            return <div className="text-xs text-amber-500 dark:text-amber-400">{tr.aiErrorDesc}</div>;
+            return (
+                <div className="text-xs text-amber-500 dark:text-amber-400">
+                    {sanitizeCandidateFacingErrorText(candidate.ai_match_reason || tr.aiErrorDesc, {
+                        context: "position_match",
+                        language,
+                    })}
+                </div>
+            );
         }
         // unmatched_by_ai 或无 reason
         if (reIdentifyFailed) {
@@ -758,6 +770,14 @@ function CandidateCard({
                     <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/70 px-3 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
                         {screeningPositionTitle ? <div className="font-medium">{`${tr.screeningPosition}：${screeningPositionTitle}`}</div> : null}
                         {aiRecommendedTitle ? <div className={screeningPositionTitle ? "mt-1" : "font-medium"}>{`${tr.aiRecommendedPosition}：${aiRecommendedTitle}`}</div> : null}
+                        {aiRecommendedTitle && candidate.ai_match_reason ? (
+                            <div className="mt-1 text-sky-600/90 dark:text-sky-200/80">
+                                {sanitizeCandidateFacingErrorText(candidate.ai_match_reason, {
+                                    context: "position_match",
+                                    language,
+                                })}
+                            </div>
+                        ) : null}
                         {candidate.ai_potential_position ? (
                             <div className={screeningPositionTitle || aiRecommendedTitle ? "mt-1 border-t border-sky-200/70 pt-2 dark:border-sky-900/70" : ""}>
                                 <div className="font-medium">{`${tr.potentialDirection}：${candidate.ai_potential_position}`}</div>

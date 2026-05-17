@@ -146,6 +146,8 @@ export interface CandidateSummary {
   active_screening_stage?: string | null;
   active_screening_status?: string | null;
   active_screening_task_status?: string | null;
+  active_screening_auto_retry_scheduled?: boolean;
+  active_screening_failure_code?: string | null;
   active_screening_started_at?: string | null;
   latest_completed_parse_task_id?: number | null;
   latest_completed_score_task_id?: number | null;

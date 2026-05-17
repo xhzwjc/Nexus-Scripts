@@ -120,10 +120,10 @@ export function buildScreeningFlowAuditView(rootLog: AITaskLog | null, runLogs: 
         ? String(rootValidation?.next_retry_at ?? rootOutput?.next_retry_at)
         : null;
     const retrySummary = rootFailureCode === "rate_limited"
-        ? "接口限流，系统稍后自动重试"
+        ? "模型接口限流，系统将自动重试，请稍候。"
         : rootFailureCode === "upstream_timeout"
-            ? "接口超时，系统稍后自动重试"
-            : "等待重试中";
+            ? "模型接口超时，系统将自动重试，请稍候。"
+            : "系统已安排自动重试，请稍候。";
     const rootNotice = autoRequeueScheduled
         ? retrySummary
         : (String(rootValidation?.screening_result_state || rootFailureCode) === "screening_total_timeout"

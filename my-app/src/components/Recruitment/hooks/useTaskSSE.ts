@@ -9,7 +9,9 @@ export type TaskSSEEvent = {
   related_candidate_id?: number;
   candidate_id?: number;
   task_type?: string;
+  auto_requeue_scheduled?: boolean;
   // AI 岗位匹配增量推送
+  ai_match_reason?: string | null;
   ai_match_position_id?: number | null;
   ai_match_position_title?: string | null;
   ai_potential_position?: string | null;

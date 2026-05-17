@@ -229,6 +229,9 @@ _screening_provider_qps_windows: Dict[str, deque[float]] = {}
 _screening_provider_state_lock = threading.Lock()
 _screening_provider_consecutive_retryable_failures = 0
 _screening_provider_cooldown_until: Optional[datetime] = None
+_screening_dispatch_timer_lock = threading.Lock()
+_screening_dispatch_timer: Optional[threading.Timer] = None
+_screening_dispatch_timer_due_at: Optional[datetime] = None
 
 
 def _normalize_screening_provider_source(value: Optional[str]) -> str:
@@ -362,7 +365,15 @@ def _is_rate_limited_error(exc: Exception) -> bool:
 def _is_quota_exceeded_error(exc: Exception) -> bool:
     """额度耗尽（订阅到期/余额不足），不应重试"""
     text = str(exc or "").lower()
-    return "usage limit exceeded" in text or "quota exceeded" in text or "insufficient_quota" in text
+    return (
+        "usage limit exceeded" in text
+        or "quota exceeded" in text
+        or "quota exhausted" in text
+        or "insufficient_quota" in text
+        or "subscription expired" in text
+        or "额度不足" in text
+        or "订阅已过期" in text
+    )
 
 
 def _is_timeout_error(exc: Exception) -> bool:
@@ -400,7 +411,77 @@ def _compute_infra_retry_delay_seconds(failure_code: str, retry_count: int) -> i
 
 
 def _should_mark_candidate_screening_failed(failure_status: str) -> bool:
-    return False
+    return str(failure_status or "").strip() in {
+        "failed",
+        "invalid_result",
+        "json_parse_failed",
+        "timeout",
+        "retry_exhausted",
+        "quota_exceeded",
+        "rate_limited",
+        "upstream_timeout",
+        "request_failed",
+        "screening_total_timeout",
+    }
+
+
+def _schedule_screening_queue_dispatch_at(due_at: Optional[datetime], *, reason: str) -> None:
+    global _screening_dispatch_timer
+    global _screening_dispatch_timer_due_at
+    if due_at is None:
+        return
+    normalized_due_at = due_at.replace(tzinfo=None) if getattr(due_at, "tzinfo", None) is not None else due_at
+    now = datetime.now()
+    delay_seconds = max(0.25, (normalized_due_at - now).total_seconds())
+    with _screening_dispatch_timer_lock:
+        current_due_at = (
+            _screening_dispatch_timer_due_at.replace(tzinfo=None)
+            if _screening_dispatch_timer_due_at is not None and getattr(_screening_dispatch_timer_due_at, "tzinfo", None) is not None
+            else _screening_dispatch_timer_due_at
+        )
+        if _screening_dispatch_timer is not None and current_due_at is not None and current_due_at <= normalized_due_at:
+            return
+        if _screening_dispatch_timer is not None:
+            try:
+                _screening_dispatch_timer.cancel()
+            except Exception:
+                logger.debug("Failed to cancel existing screening dispatch timer", exc_info=True)
+
+        def _dispatch() -> None:
+            global _screening_dispatch_timer
+            global _screening_dispatch_timer_due_at
+            with _screening_dispatch_timer_lock:
+                _screening_dispatch_timer = None
+                _screening_dispatch_timer_due_at = None
+            db = SessionLocal()
+            try:
+                service = RecruitmentService(db)
+                payload = service.process_next_screening_task()
+                logger.info(
+                    "Delayed screening queue dispatch fired reason=%s due_at=%s started=%s active=%s",
+                    reason,
+                    normalized_due_at.isoformat(),
+                    payload.get("started_count"),
+                    payload.get("active_count"),
+                )
+            except Exception:
+                logger.exception(
+                    "Delayed screening queue dispatch failed reason=%s due_at=%s",
+                    reason,
+                    normalized_due_at.isoformat(),
+                )
+            finally:
+                db.close()
+
+        timer = threading.Timer(delay_seconds, _dispatch)
+        timer.daemon = True
+        try:
+            timer.name = "screening-queue-dispatch"
+        except Exception:
+            pass
+        _screening_dispatch_timer = timer
+        _screening_dispatch_timer_due_at = normalized_due_at
+        timer.start()
 
 
 def _compute_screening_deadline_at(started_at: Optional[datetime] = None) -> datetime:
@@ -5014,16 +5095,29 @@ def _classify_screening_task_failure(exc: Exception) -> Tuple[str, str]:
         return "json_parse_failed", str(exc) or "AI 返回了无法解析的 JSON。"
     failure_code, failure_message = _classify_infra_failure(exc)
     if failure_code == "quota_exceeded":
-        return "quota_exceeded", failure_message
+        return "quota_exceeded", "模型额度不足，请充值或更换模型后重试。"
     if failure_code == "rate_limited":
-        return "rate_limited", failure_message
+        return "rate_limited", "模型接口限流，请稍后重试。"
     if failure_code == "upstream_timeout":
-        return "upstream_timeout", failure_message
+        return "upstream_timeout", "模型接口超时，请稍后重试。"
     if failure_code == "request_failed":
-        return "request_failed", failure_message
+        return "request_failed", "模型请求失败，请稍后重试。"
     if isinstance(exc, RecruitmentAIRetryExhaustedError):
-        return "retry_exhausted", str(exc) or "AI 请求重试后仍失败。"
+        return "retry_exhausted", "模型请求多次重试后仍失败，请稍后重试。"
     return "failed", str(exc) or "AI 任务执行失败。"
+
+
+def _classify_ai_match_failure(exc: Exception) -> Tuple[str, str]:
+    failure_code, _ = _classify_infra_failure(exc)
+    if failure_code == "quota_exceeded":
+        return "quota_exceeded", "模型额度不足，请充值或更换模型后再试。"
+    if failure_code == "rate_limited":
+        return "rate_limited", "模型接口限流，请稍后重试识别。"
+    if failure_code == "upstream_timeout":
+        return "upstream_timeout", "模型接口超时，请稍后重试识别。"
+    if failure_code == "request_failed":
+        return "request_failed", "模型请求失败，请稍后重试识别。"
+    return "failed", "岗位识别失败，请稍后重试。"
 
 
 class RecruitmentService:
@@ -5092,10 +5186,17 @@ class RecruitmentService:
             token = self._resolve_task_session_token(row)
             if not token:
                 return
-            # rate_limited 不发 task_completed，任务会自动重试，前端不应刷新列表
-            if row.status == "rate_limited":
-                return
-            is_terminal = row.status in ("success", "failed", "cancelled", "fallback", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "upstream_timeout", "quota_exceeded")
+            is_terminal = row.status in TERMINAL_AI_TASK_STATUSES
+            row_validation = _decode_ai_task_json_text(getattr(row, "validation_meta_json", None), {}) if getattr(row, "validation_meta_json", None) else {}
+            row_output = _decode_ai_task_json_text(getattr(row, "output_snapshot", None), {}) if getattr(row, "output_snapshot", None) else {}
+            auto_requeue_scheduled = bool(
+                row.task_type == SCREENING_FLOW_TASK_TYPE
+                and row.status == "queued"
+                and (
+                    (isinstance(row_validation, dict) and row_validation.get("auto_requeue_scheduled"))
+                    or (isinstance(row_output, dict) and row_output.get("auto_requeue_scheduled"))
+                )
+            )
             event_type = "task_completed" if is_terminal else "task_progress"
             payload = {
                 "task_id": row.id,
@@ -5104,9 +5205,13 @@ class RecruitmentService:
                 "task_type": row.task_type,
             }
             TaskEventBus.emit(token, event_type, payload)
-            if is_terminal and row.related_candidate_id:
+            if (is_terminal or auto_requeue_scheduled) and row.related_candidate_id:
                 TaskEventBus.emit(token, "candidate_updated", {
                     "candidate_id": row.related_candidate_id,
+                    "task_id": row.id,
+                    "status": row.status,
+                    "task_type": row.task_type,
+                    "auto_requeue_scheduled": auto_requeue_scheduled,
                 })
         except Exception:
             pass
@@ -6098,8 +6203,26 @@ class RecruitmentService:
             return False
         if row.status in TERMINAL_AI_TASK_STATUSES:
             return False
-        parse_log, score_log = self._get_screening_flow_child_logs(row)
         now = datetime.now()
+        if row.status == "queued":
+            current_output = _decode_ai_task_json_text(getattr(row, "output_snapshot", None), None)
+            current_validation = _decode_ai_task_json_text(getattr(row, "validation_meta_json", None), None)
+            current_output_record = dict(current_output) if isinstance(current_output, dict) else {}
+            current_validation_record = dict(current_validation) if isinstance(current_validation, dict) else {}
+            auto_requeue_scheduled = bool(
+                current_output_record.get("auto_requeue_scheduled")
+                or current_validation_record.get("auto_requeue_scheduled")
+            )
+            next_retry_at = _parse_iso_datetime_value(
+                current_output_record.get("next_retry_at")
+                or current_validation_record.get("next_retry_at")
+            )
+            if auto_requeue_scheduled:
+                if next_retry_at and next_retry_at > now:
+                    return False
+                if next_retry_at and now <= next_retry_at + timedelta(seconds=SCREENING_ROOT_RECOVERY_GRACE_SECONDS):
+                    return False
+        parse_log, score_log = self._get_screening_flow_child_logs(row)
         current_output = _decode_ai_task_json_text(getattr(row, "output_snapshot", None), None)
         current_output_record = dict(current_output) if isinstance(current_output, dict) else {}
         current_validation = _decode_ai_task_json_text(getattr(row, "validation_meta_json", None), None)
@@ -6565,9 +6688,11 @@ class RecruitmentService:
     def _dispatch_screening_queue(self) -> Dict[str, int]:
         scheduled_tasks: List[Tuple[int, str]] = []
         queue_was_empty_at_start = False
+        next_dispatch_at: Optional[datetime] = None
         with _screening_worker_lock:
             global _screening_provider_cooldown_until
             if _screening_provider_cooldown_until and _screening_provider_cooldown_until > datetime.now():
+                _schedule_screening_queue_dispatch_at(_screening_provider_cooldown_until, reason="provider_cooldown")
                 return {
                     "started_count": 0,
                     "active_count": len(_screening_worker_active_task_ids),
@@ -6625,6 +6750,15 @@ class RecruitmentService:
                     available_slots=available_slots,
                     active_model_counts=active_model_counts,
                 )
+                if not selected_rows and queued_rows:
+                    future_retry_ats = [
+                        dispatch_service._task_next_retry_at(row)
+                        for row in queued_rows
+                        if not dispatch_service._task_is_ready_for_dispatch(row)
+                    ]
+                    future_retry_ats = [item for item in future_retry_ats if item is not None]
+                    if future_retry_ats:
+                        next_dispatch_at = min(future_retry_ats)
                 for row in selected_rows:
                     dispatch_service._mark_screening_task_claimed(row, claimed_at=claim_now)
                     scheduled_tasks.append((row.id, row.created_by or "system"))
@@ -6640,6 +6774,8 @@ class RecruitmentService:
         # 批量全部完成时发送汇总事件（本次无调度、启动时队列为空、且无正在运行的任务）
         if not scheduled_tasks and queue_was_empty_at_start and not _screening_worker_active_task_ids:
             self._emit_batch_summary_if_needed()
+        if not scheduled_tasks and next_dispatch_at is not None:
+            _schedule_screening_queue_dispatch_at(next_dispatch_at, reason="queued_retry_ready")
 
         return {
             "started_count": len(scheduled_tasks),
@@ -7449,7 +7585,11 @@ class RecruitmentService:
                 )
             self._rebind_candidate_position_without_screening(candidate, position=None, actor_id=actor_id)
             return False
-        if update_status and self._is_talent_pool_assignment_source_status(getattr(candidate, "status", None)):
+        current_status = str(getattr(candidate, "status", "") or "").strip().lower()
+        if update_status and (
+            self._is_talent_pool_assignment_source_status(current_status)
+            or current_status == "new_imported"
+        ):
             return self._prepare_candidate_for_position_assignment(
                 candidate,
                 position=position,
@@ -7511,7 +7651,7 @@ class RecruitmentService:
         }
 
     def _candidate_requires_fresh_screening_run(self, candidate: RecruitmentCandidate) -> bool:
-        return str(getattr(candidate, "status", "") or "").strip() == "pending_screening"
+        return str(getattr(candidate, "status", "") or "").strip() in {"pending_screening", "new_imported"}
 
     def _auto_advance_candidate_after_screening(
         self,
@@ -7519,7 +7659,7 @@ class RecruitmentService:
         *,
         actor_id: str,
     ) -> None:
-        if candidate.status not in {"pending_screening", "screening_failed"}:
+        if candidate.status not in {"pending_screening", "screening_failed", "new_imported"}:
             return
         suggested_status = _normalize_suggested_status(candidate.ai_recommended_status)
         if not suggested_status or suggested_status == candidate.status:
@@ -7559,7 +7699,7 @@ class RecruitmentService:
         reason: str,
         source: str,
     ) -> None:
-        if candidate.status not in {"pending_screening", "screening_running", "screening_failed", "talent_pool", "matching"}:
+        if candidate.status not in {"pending_screening", "screening_running", "screening_failed", "talent_pool", "matching", "new_imported"}:
             return
         self._create_status_history(
             candidate,
@@ -8006,6 +8146,11 @@ class RecruitmentService:
             return True
         return parsed_next_retry_at <= datetime.now()
 
+    def _task_next_retry_at(self, row: RecruitmentAITaskLog) -> Optional[datetime]:
+        snapshot = _decode_ai_task_json_text(getattr(row, "output_snapshot", None), {}) if getattr(row, "output_snapshot", None) else {}
+        next_retry_at = snapshot.get("next_retry_at") if isinstance(snapshot, dict) else None
+        return _parse_iso_datetime_value(next_retry_at)
+
     def _mark_screening_task_claimed(self, row: RecruitmentAITaskLog, *, claimed_at: Optional[datetime] = None) -> None:
         now = claimed_at or datetime.now()
         current_snapshot = _decode_ai_task_json_text(getattr(row, "output_snapshot", None), {})
@@ -8118,11 +8263,11 @@ class RecruitmentService:
         retry_after_seconds = _compute_infra_retry_delay_seconds(failure_code, next_retry_count)
         next_retry_at = now + timedelta(seconds=retry_after_seconds)
         retry_message = (
-            "上游限流，稍后自动重试"
+            "模型接口限流，系统将自动重试，请稍候。"
             if failure_code == "rate_limited"
-            else "上游超时，稍后自动重试"
+            else "模型接口超时，系统将自动重试，请稍候。"
             if failure_code == "upstream_timeout"
-            else "上游请求失败，稍后自动重试"
+            else "模型请求失败，系统将自动重试，请稍候。"
         )
         global _screening_provider_cooldown_until
         if failure_code == "rate_limited":
@@ -8168,6 +8313,7 @@ class RecruitmentService:
         )
         self.db.add(row)
         self._commit_ai_task_log(row)
+        _schedule_screening_queue_dispatch_at(next_retry_at, reason=f"infra_retry:{failure_code}")
         logger.warning(
             "screening_flow infra retry scheduled task_id=%s run_id=%s failure_code=%s retry_count=%s next_retry_at=%s",
             row.id,
@@ -8992,7 +9138,7 @@ class RecruitmentService:
                 RecruitmentAITaskLog.updated_at.desc(),
                 RecruitmentAITaskLog.id.desc(),
             ).first()
-            if active_root and self._settle_orphaned_live_task(active_root):
+            if active_root and active_root.status != "queued" and self._settle_orphaned_live_task(active_root):
                 self.db.commit()
                 active_root = self.db.query(RecruitmentAITaskLog).filter(
                     RecruitmentAITaskLog.related_candidate_id == row.id,
@@ -9028,6 +9174,8 @@ class RecruitmentService:
             ).first()
 
         display_status_reason = None
+        active_screening_auto_retry_scheduled = False
+        active_screening_failure_code = None
         if active_root:
             active_snapshot = _decode_ai_task_json_text(active_root.output_snapshot, {}) if active_root.output_snapshot else {}
             active_validation = _decode_ai_task_json_text(active_root.validation_meta_json, {}) if active_root.validation_meta_json else {}
@@ -9043,13 +9191,18 @@ class RecruitmentService:
                 or ((active_snapshot or {}).get("failure_code"))
                 or ""
             ).strip()
-            if active_root.status == "queued" and ((active_validation or {}).get("auto_requeue_scheduled") or (active_snapshot or {}).get("auto_requeue_scheduled")):
+            active_screening_auto_retry_scheduled = bool(
+                active_root.status == "queued"
+                and ((active_validation or {}).get("auto_requeue_scheduled") or (active_snapshot or {}).get("auto_requeue_scheduled"))
+            )
+            active_screening_failure_code = failure_code or None
+            if active_screening_auto_retry_scheduled:
                 if failure_code == "rate_limited":
-                    display_status_reason = "接口限流，系统稍后自动重试"
+                    display_status_reason = "模型接口限流，系统将自动重试，请稍候。"
                 elif failure_code == "upstream_timeout":
-                    display_status_reason = "接口超时，系统稍后自动重试"
+                    display_status_reason = "模型接口超时，系统将自动重试，请稍候。"
                 else:
-                    display_status_reason = str(active_root.output_summary or "等待重试中").strip() or "等待重试中"
+                    display_status_reason = str(active_root.output_summary or "系统已安排自动重试，请稍候。").strip() or "系统已安排自动重试，请稍候。"
             elif active_root.stage == "parsing" and reused_existing_parse:
                 display_status_reason = "已复用解析结果，正在准备初筛评分"
             elif active_root.stage == "parsing":
@@ -9081,6 +9234,8 @@ class RecruitmentService:
             "active_screening_task_type": active_root.task_type if active_root else None,
             "active_screening_stage": active_root.stage if active_root else None,
             "active_screening_status": active_root.status if active_root else None,
+            "active_screening_auto_retry_scheduled": active_screening_auto_retry_scheduled,
+            "active_screening_failure_code": active_screening_failure_code,
             "active_screening_started_at": isoformat_or_none(active_root.created_at) if active_root else None,
             "latest_completed_parse_task_id": latest_completed_parse_task.id if latest_completed_parse_task else None,
             "latest_completed_score_task_id": latest_completed_score_task.id if latest_completed_score_task else None,
@@ -9108,7 +9263,7 @@ class RecruitmentService:
         latest_match_log = self.db.query(RecruitmentAITaskLog).filter(
             RecruitmentAITaskLog.related_candidate_id == row.id,
             RecruitmentAITaskLog.task_type == "ai_position_match",
-            RecruitmentAITaskLog.status.in_(["success", "no_match"]),
+            RecruitmentAITaskLog.status.in_(["success", "no_match", "failed"]),
         ).order_by(
             RecruitmentAITaskLog.created_at.desc(),
             RecruitmentAITaskLog.id.desc(),
@@ -9167,9 +9322,10 @@ class RecruitmentService:
         screening_state = _preloaded_screening_state if _preloaded_screening_state is not None else self._build_candidate_screening_state_summary(row)
         score_suggested_status = str(serialized_score.get("suggested_status") or "").strip() if serialized_score else ""
         ai_recommended_status = score_suggested_status or str(row.ai_recommended_status or "").strip() or None
-        if screening_state.get("active_screening_task_id"):
+        active_screening_auto_retry_scheduled = bool(screening_state.get("active_screening_auto_retry_scheduled"))
+        if screening_state.get("active_screening_task_id") and not active_screening_auto_retry_scheduled:
             display_status = "screening_running"
-        elif row.status == "pending_screening" and ai_recommended_status:
+        elif row.status == "pending_screening" and ai_recommended_status and not active_screening_auto_retry_scheduled:
             display_status = ai_recommended_status
         else:
             display_status = row.status or ""
@@ -9183,7 +9339,7 @@ class RecruitmentService:
             position_jd_skill_rows = self._get_position_task_skill_rows(position.id, "jd") if position and self._is_business_row_visible(position) else []
         screened_position_title = position.title if position else None
         ai_match_snapshot = self._resolve_candidate_ai_match_snapshot(row)
-        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "screened_position_title": screened_position_title, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "expected_city": getattr(row, "expected_city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "owner_id": row.owner_id, "ai_match_position_id": ai_match_snapshot.get("ai_match_position_id"), "ai_match_position_title": ai_match_snapshot.get("ai_match_position_title"), "ai_match_confidence": ai_match_snapshot.get("ai_match_confidence"), "ai_match_reason": ai_match_snapshot.get("ai_match_reason"), "ai_match_alternatives": ai_match_snapshot.get("ai_match_alternatives"), "ai_potential_position": ai_match_snapshot.get("ai_potential_position"), "ai_potential_reason": ai_match_snapshot.get("ai_potential_reason"), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at), "talent_pool_reason": getattr(row, "talent_pool_reason", None), "talent_pool_source_status": getattr(row, "talent_pool_source_status", None), "talent_pool_moved_by": getattr(row, "talent_pool_moved_by", None), "talent_pool_moved_at": isoformat_or_none(getattr(row, "talent_pool_moved_at", None))}
+        return {"id": row.id, "candidate_code": row.candidate_code, "org_code": normalize_org_code(getattr(row, "org_code", None)), "position_id": row.position_id, "position_title": position.title if position else None, "screened_position_title": screened_position_title, "position_auto_screen_on_upload": bool(position.auto_screen_on_upload) if position else False, "position_jd_skill_ids": [skill.id for skill in position_jd_skill_rows], "position_jd_skills": [self._serialize_skill(skill) for skill in position_jd_skill_rows], "position_screening_skill_ids": [skill.id for skill in position_screening_skill_rows], "position_screening_skills": [self._serialize_skill(skill) for skill in position_screening_skill_rows], "position_interview_skill_ids": [skill.id for skill in position_interview_skill_rows], "position_interview_skills": [self._serialize_skill(skill) for skill in position_interview_skill_rows], "name": row.name, "phone": row.phone, "email": row.email, "current_company": row.current_company, "years_of_experience": row.years_of_experience, "education": row.education, "age": getattr(row, "age", None), "city": getattr(row, "city", None), "expected_city": getattr(row, "expected_city", None), "source": row.source, "source_detail": row.source_detail, "status": row.status, "display_status": display_status, "display_status_reason": screening_state.get("display_status_reason"), "active_screening_run_id": screening_state.get("active_screening_run_id"), "active_screening_task_id": screening_state.get("active_screening_task_id"), "active_screening_task_type": screening_state.get("active_screening_task_type"), "active_screening_stage": screening_state.get("active_screening_stage"), "active_screening_status": screening_state.get("active_screening_status"), "active_screening_task_status": screening_state.get("active_screening_status"), "active_screening_auto_retry_scheduled": active_screening_auto_retry_scheduled, "active_screening_failure_code": screening_state.get("active_screening_failure_code"), "active_screening_started_at": screening_state.get("active_screening_started_at"), "latest_completed_parse_task_id": screening_state.get("latest_completed_parse_task_id"), "latest_completed_score_task_id": screening_state.get("latest_completed_score_task_id"), "ai_recommended_status": ai_recommended_status, "match_percent": display_match_percent, "tags": json_loads_safe(row.tags_json, []), "notes": row.notes, "latest_resume_file_id": row.latest_resume_file_id, "latest_parse_result_id": row.latest_parse_result_id, "latest_score_id": row.latest_score_id, "latest_total_score": display_total_score, "owner_id": row.owner_id, "ai_match_position_id": ai_match_snapshot.get("ai_match_position_id"), "ai_match_position_title": ai_match_snapshot.get("ai_match_position_title"), "ai_match_confidence": ai_match_snapshot.get("ai_match_confidence"), "ai_match_reason": ai_match_snapshot.get("ai_match_reason"), "ai_match_alternatives": ai_match_snapshot.get("ai_match_alternatives"), "ai_potential_position": ai_match_snapshot.get("ai_potential_position"), "ai_potential_reason": ai_match_snapshot.get("ai_potential_reason"), "created_by": row.created_by, "updated_by": row.updated_by, "created_at": isoformat_or_none(row.created_at), "updated_at": isoformat_or_none(row.updated_at), "talent_pool_reason": getattr(row, "talent_pool_reason", None), "talent_pool_source_status": getattr(row, "talent_pool_source_status", None), "talent_pool_moved_by": getattr(row, "talent_pool_moved_by", None), "talent_pool_moved_at": isoformat_or_none(getattr(row, "talent_pool_moved_at", None))}
 
     def _serialize_candidate_list_item(
         self,
@@ -9214,9 +9370,10 @@ class RecruitmentService:
         screening_state = _preloaded_screening_state if _preloaded_screening_state is not None else self._build_candidate_screening_state_summary(row)
         score_suggested_status = str(serialized_score.get("suggested_status") or "").strip() if serialized_score else ""
         ai_recommended_status = score_suggested_status or str(row.ai_recommended_status or "").strip() or None
-        if screening_state.get("active_screening_task_id"):
+        active_screening_auto_retry_scheduled = bool(screening_state.get("active_screening_auto_retry_scheduled"))
+        if screening_state.get("active_screening_task_id") and not active_screening_auto_retry_scheduled:
             display_status = "screening_running"
-        elif row.status == "pending_screening" and ai_recommended_status:
+        elif row.status == "pending_screening" and ai_recommended_status and not active_screening_auto_retry_scheduled:
             display_status = ai_recommended_status
         else:
             display_status = row.status or ""
@@ -9254,6 +9411,8 @@ class RecruitmentService:
             "active_screening_stage": screening_state.get("active_screening_stage"),
             "active_screening_status": screening_state.get("active_screening_status"),
             "active_screening_task_status": screening_state.get("active_screening_status"),
+            "active_screening_auto_retry_scheduled": active_screening_auto_retry_scheduled,
+            "active_screening_failure_code": screening_state.get("active_screening_failure_code"),
             "active_screening_started_at": screening_state.get("active_screening_started_at"),
             "ai_recommended_status": ai_recommended_status,
             "match_percent": display_match_percent,
@@ -10404,6 +10563,7 @@ class RecruitmentService:
                     "batch_id": task.batch_id,
                     "task_type": task_type,
                     "status": final_status,
+                    "ai_match_reason": match_result.get("reason") if match_result else None,
                     "ai_match_position_id": match_result.get("position_id") if match_result else None,
                     "ai_match_position_title": match_result.get("position_title") if match_result else None,
                     "ai_potential_position": match_result.get("potential_position") if match_result else None,
@@ -10426,6 +10586,7 @@ class RecruitmentService:
 
             logger.warning("[AI_MATCH] _on_match_error called: candidate_id=%d, error=%s, retry_count=%d",
                            task.candidate_id, error, task.retry_count)
+            failure_code, failure_message = _classify_ai_match_failure(error)
 
             # 检查是否被用户取消
             if scheduler.is_cancelled(task.candidate_id):
@@ -10474,12 +10635,17 @@ class RecruitmentService:
                     })
                 return
 
-            # 检查重试次数
-            if task.retry_count < MATCH_MAX_RETRIES:
+            # 仅对真正可重试的基础设施错误执行候选人级重试
+            if task.retry_count < MATCH_MAX_RETRIES and _is_retryable_infra_failure_code(failure_code):
                 task.retry_count += 1
                 delay = MATCH_RETRY_DELAYS[task.retry_count - 1]
-                logger.info("[AI_MATCH] Retrying candidate=%d (attempt %d/%d) after %ds",
-                            task.candidate_id, task.retry_count, MATCH_MAX_RETRIES, delay)
+                logger.info(
+                    "[AI_MATCH] Requeueing candidate=%d for candidate-level retry (%d/%d) after %ds",
+                    task.candidate_id,
+                    task.retry_count,
+                    MATCH_MAX_RETRIES,
+                    delay,
+                )
 
                 # 写重试审计日志
                 db = SessionLocal()
@@ -10491,8 +10657,8 @@ class RecruitmentService:
                         status="retrying",
                         related_candidate_id=task.candidate_id,
                         input_summary=f"candidate={task.candidate_id}",
-                        output_summary=f"第{task.retry_count}次重试，等待{delay}s：{str(error)[:200]}",
-                        error_message=str(error)[:500],
+                        output_summary=f"第{task.retry_count}次重试，等待{delay}s：{failure_message}",
+                        error_message=failure_message,
                         session_token=self._normalize_task_session_token(session_token),
                         created_by=actor_id,
                         created_at=datetime.now(),
@@ -10524,7 +10690,7 @@ class RecruitmentService:
                 ).first()
                 if candidate:
                     candidate.status = "unmatched"
-                    candidate.ai_match_reason = f"匹配异常（重试{MATCH_MAX_RETRIES}次后失败）：{str(error)[:200]}"
+                    candidate.ai_match_reason = failure_message
                     candidate.ai_match_at = now
                     candidate.talent_pool_reason = "ai_error"
                     candidate.talent_pool_moved_at = now
@@ -10538,8 +10704,11 @@ class RecruitmentService:
                     status="failed",
                     related_candidate_id=task.candidate_id,
                     input_summary=f"candidate={task.candidate_id}",
-                    output_summary=f"匹配异常（重试{MATCH_MAX_RETRIES}次后失败）：{str(error)[:200]}",
-                    error_message=str(error)[:500],
+                    output_summary=failure_message,
+                    error_message=failure_message,
+                    validation_meta_json=_prepare_ai_task_json_text({
+                        "failure_code": failure_code,
+                    }),
                     session_token=self._normalize_task_session_token(session_token),
                     created_by=actor_id,
                     created_at=now,
@@ -10566,6 +10735,7 @@ class RecruitmentService:
                     "batch_id": task.batch_id,
                     "task_type": task_type,
                     "status": "unmatched",
+                    "ai_match_reason": failure_message,
                     "ai_match_position_id": None,
                     "ai_match_position_title": None,
                 })
@@ -14299,6 +14469,18 @@ class RecruitmentService:
                 raise ValueError("候选人暂无可用简历，无法发起初筛。")
             if not candidate.position_id:
                 raise ValueError("候选人未绑定岗位，无法发起初筛。请先为候选人分配岗位后再发起初筛。")
+            if str(getattr(candidate, "status", "") or "").strip() == "new_imported":
+                self._create_status_history(
+                    candidate,
+                    "pending_screening",
+                    "已手动发起初筛，候选人进入待初筛状态。",
+                    actor_id,
+                    "manual_screening_start",
+                )
+                candidate.updated_by = actor_id
+                self.db.add(candidate)
+                self.db.commit()
+                self.db.refresh(candidate)
             force_fresh_screening = self._candidate_requires_fresh_screening_run(candidate)
             allow_reuse_parse = bool(allow_reuse_parse) and not force_fresh_screening
             allow_score_only_rerun = bool(allow_score_only_rerun) and not force_fresh_screening

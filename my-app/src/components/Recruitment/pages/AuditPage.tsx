@@ -51,7 +51,9 @@ import {
     labelForTaskExecutionStatus,
     labelForTaskType,
     parseStructuredLogOutput,
+    resolveCandidateFacingErrorContext,
     resolveLogSkillSnapshots,
+    sanitizeCandidateFacingErrorText,
     statusBadgeClass,
 } from "../utils";
 import {resolveAuditNoticePresentation} from "./auditNotice";
@@ -205,6 +207,15 @@ function toRecordList(value: unknown) {
     return Array.isArray(value)
         ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
         : [];
+}
+
+function isAutoRetryQueuedLog(log?: AITaskLog | null) {
+    if (!log || log.status !== "queued") {
+        return false;
+    }
+    const validation = toRecord(log.validation_meta);
+    const output = toRecord(log.output_snapshot);
+    return Boolean(validation?.auto_requeue_scheduled === true || output?.auto_requeue_scheduled === true);
 }
 
 function readStringList(value: unknown) {
@@ -390,6 +401,12 @@ export function AuditPage({
 }: AuditPageProps) {
     const { language } = useI18n();
     const tr = React.useMemo(() => getAuditPageLocale(language), [language]);
+    const sanitizeAuditMessage = React.useCallback((log: AITaskLog | null | undefined, value?: string | null) => (
+        sanitizeCandidateFacingErrorText(value, {
+            context: resolveCandidateFacingErrorContext(log?.task_type, { autoRetry: isAutoRetryQueuedLog(log) }),
+            language,
+        })
+    ), [language]);
     const [auditListViewportEl, setAuditListViewportEl] = React.useState<HTMLDivElement | null>(null);
     const [auditListScrollTop, setAuditListScrollTop] = React.useState(0);
     const [auditListViewportHeight, setAuditListViewportHeight] = React.useState(0);
@@ -1195,8 +1212,8 @@ export function AuditPage({
                                         </div>
                                     </Field>
                                     <InfoTile label={tr.inputSummary} value={selectedLogDetail.input_summary || tr.unrecorded}/>
-                                    <InfoTile label={tr.outputSummary} value={selectedLogDetail.output_summary || tr.unrecorded}/>
-                                    <InfoTile label={tr.errorMessage} value={selectedLogDetail.error_message || tr.none}/>
+                                    <InfoTile label={tr.outputSummary} value={sanitizeAuditMessage(selectedLogDetail, selectedLogDetail.output_summary) || tr.unrecorded}/>
+                                    <InfoTile label={tr.errorMessage} value={sanitizeAuditMessage(selectedLogDetail, selectedLogDetail.error_message) || tr.none}/>
                                     {selectedAuditNotice.show && !selectedFlowAuditView?.autoRequeueScheduled ? (
                                         <Field label={selectedAuditNotice.title}>
                                             <div className={selectedAuditNotice.containerClassName}>

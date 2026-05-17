@@ -1352,9 +1352,14 @@ export function resolveCandidateDisplayStatus(candidate?: CandidateSummary | nul
     if (!candidate) {
         return "";
     }
+    const queuedForAutoRetry = Boolean(
+        candidate.active_screening_task_status === "queued"
+        && candidate.active_screening_auto_retry_scheduled,
+    );
     if (
         candidate.active_screening_task_status
         && ["pending", "queued", "running", "cancelling"].includes(candidate.active_screening_task_status)
+        && !queuedForAutoRetry
     ) {
         return "screening_running";
     }
@@ -1365,6 +1370,126 @@ export function resolveCandidateDisplayStatus(candidate?: CandidateSummary | nul
         return candidate.ai_recommended_status || candidate.status || "";
     }
     return candidate.status || "";
+}
+
+function isLikelyTimeoutText(value: string) {
+    const text = value.toLowerCase();
+    return text.includes("timed out")
+        || text.includes("timeout")
+        || text.includes("upstream_timeout")
+        || text.includes("handshake operation timed out")
+        || text.includes("readtimeout")
+        || text.includes("connecttimeout")
+        || value.includes("超时");
+}
+
+function isLikelyRateLimitText(value: string) {
+    const text = value.toLowerCase();
+    return text.includes("rate limit")
+        || text.includes("rate_limited")
+        || text.includes("too many requests")
+        || text.includes("429")
+        || value.includes("限流");
+}
+
+function isLikelyQuotaText(value: string) {
+    const text = value.toLowerCase();
+    return text.includes("quota exceeded")
+        || text.includes("quota_exceeded")
+        || text.includes("usage limit exceeded")
+        || text.includes("insufficient_quota")
+        || value.includes("额度不足");
+}
+
+export function sanitizeCandidateFacingErrorText(
+    value?: string | null,
+    options?: {
+        context?: "screening" | "screening_auto_retry" | "position_match";
+        language?: string;
+    },
+) {
+    const normalized = String(value || "").trim();
+    if (!normalized) {
+        return "";
+    }
+    const language = options?.language || getCurrentLanguage();
+    const isZh = language !== "en-US";
+    const context = options?.context || "screening";
+
+    if (isLikelyQuotaText(normalized)) {
+        return isZh
+            ? "模型额度不足，请充值或更换模型后重试。"
+            : "Model quota is exhausted. Please recharge or switch models and try again.";
+    }
+    if (normalized.toLowerCase().includes("retry_exhausted")) {
+        if (context === "position_match") {
+            return isZh
+                ? "模型请求多次重试后仍失败，请稍后重试识别。"
+                : "Model API failed after multiple retries. Please retry identification later.";
+        }
+        return isZh
+            ? "模型请求多次重试后仍失败，请稍后重试。"
+            : "Model API failed after multiple retries. Please retry later.";
+    }
+    if (normalized.toLowerCase().includes("request_failed")) {
+        if (context === "position_match") {
+            return isZh
+                ? "模型请求失败，请稍后重试识别。"
+                : "Model API request failed. Please retry identification later.";
+        }
+        if (context === "screening_auto_retry") {
+            return isZh
+                ? "模型请求失败，系统将自动重试，请稍候。"
+                : "Model API request failed. The system will retry automatically. Please wait.";
+        }
+        return isZh
+            ? "模型请求失败，请稍后重试。"
+            : "Model API request failed. Please retry later.";
+    }
+    if (isLikelyRateLimitText(normalized)) {
+        if (context === "position_match") {
+            return isZh
+                ? "模型接口限流，请稍后重试识别。"
+                : "Model API is rate limited. Please retry identification later.";
+        }
+        return isZh
+            ? "模型接口限流，系统将自动重试，请稍候。"
+            : "Model API is rate limited. The system will retry automatically. Please wait.";
+    }
+    if (isLikelyTimeoutText(normalized)) {
+        if (context === "position_match") {
+            return isZh
+                ? "模型接口超时，请稍后重试识别。"
+                : "Model API timed out, please retry identification later.";
+        }
+        if (context === "screening_auto_retry") {
+            return isZh
+                ? "模型接口超时，系统将自动重试，请稍候。"
+                : "Model API timed out, the system will retry automatically. Please wait.";
+        }
+        return isZh
+            ? "模型接口超时，请稍后重试。"
+            : "Model API timed out. Please retry later.";
+    }
+    if (context === "screening_auto_retry" && (normalized.includes("自动重试") || normalized.toLowerCase().includes("retry automatically"))) {
+        return normalized;
+    }
+    return normalized;
+}
+
+export function resolveCandidateFacingErrorContext(
+    taskType?: string | null,
+    options?: {
+        autoRetry?: boolean;
+    },
+): "screening" | "screening_auto_retry" | "position_match" {
+    if (String(taskType || "").startsWith("ai_position")) {
+        return "position_match";
+    }
+    if (options?.autoRetry) {
+        return "screening_auto_retry";
+    }
+    return "screening";
 }
 
 export function labelForTaskType(taskType?: string | null) {

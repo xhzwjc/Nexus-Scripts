@@ -222,10 +222,24 @@ def _run_recruitment_service_call(
     db = SessionLocal()
     try:
         service = RecruitmentService(db).set_permission_context(governance_session)
+        if isinstance(governance_session, dict):
+            raw_token = str(governance_session.get("_raw_token") or "").strip()
+            if raw_token:
+                service._session_token = raw_token
         method = getattr(service, method_name)
         return method(*args, **kwargs)
     finally:
         db.close()
+
+
+def _with_session_token(request: Request, session: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(session, dict):
+        return session
+    enriched = dict(session)
+    raw_token = get_script_hub_token_from_request(request)
+    if raw_token:
+        enriched["_raw_token"] = raw_token
+    return enriched
 
 
 def _encode_sse_event(event: str, payload: Dict[str, Any]) -> str:
@@ -327,7 +341,7 @@ async def delete_position(http_request: Request, position_id: int, db: Session =
         raise HTTPException(status_code=404, detail=str(exc))
 
 @recruitment_router.post("/positions/{position_id}/generate-jd")
-async def generate_jd(position_id: int, payload: JDGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage"))):
+async def generate_jd(request: Request, position_id: int, payload: JDGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -335,7 +349,7 @@ async def generate_jd(position_id: int, payload: JDGenerateRequest, _session: Di
             position_id,
             payload.extra_prompt or "",
             _session.get("id") or "unknown",
-            governance_session=_session,
+            governance_session=_with_session_token(request, _session),
             auto_activate=payload.auto_activate,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -346,7 +360,7 @@ async def generate_jd(position_id: int, payload: JDGenerateRequest, _session: Di
 
 
 @recruitment_router.post("/positions/{position_id}/generate-jd/start")
-async def start_generate_jd(position_id: int, payload: JDGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage"))):
+async def start_generate_jd(request: Request, position_id: int, payload: JDGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-position-manage"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -354,7 +368,7 @@ async def start_generate_jd(position_id: int, payload: JDGenerateRequest, _sessi
             position_id,
             payload.extra_prompt or "",
             _session.get("id") or "unknown",
-            governance_session=_session,
+            governance_session=_with_session_token(request, _session),
             auto_activate=payload.auto_activate,
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
@@ -911,14 +925,14 @@ async def batch_move_to_talent_pool(
 
 
 @recruitment_router.post("/candidates/{candidate_id}/parse")
-async def trigger_candidate_parse(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
+async def trigger_candidate_parse(request: Request, candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
             "trigger_latest_parse",
             candidate_id,
             _session.get("id") or "unknown",
-            governance_session=_session,
+            governance_session=_with_session_token(request, _session),
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -926,7 +940,7 @@ async def trigger_candidate_parse(candidate_id: int, _session: Dict[str, Any] = 
 
 
 @recruitment_router.post("/candidates/{candidate_id}/screen")
-async def screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
+async def screen_candidate(request: Request, candidate_id: int, payload: CandidateScreenRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -942,7 +956,7 @@ async def screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _
             allow_reuse_parse=payload.allow_reuse_parse,
             allow_score_only_rerun=payload.allow_score_only_rerun,
             screening_mode=payload.screening_mode,
-            governance_session=_session,
+            governance_session=_with_session_token(request, _session),
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -952,7 +966,7 @@ async def screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _
 
 
 @recruitment_router.post("/candidates/{candidate_id}/screen/start")
-async def start_screen_candidate(candidate_id: int, payload: CandidateScreenRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
+async def start_screen_candidate(request: Request, candidate_id: int, payload: CandidateScreenRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -968,7 +982,7 @@ async def start_screen_candidate(candidate_id: int, payload: CandidateScreenRequ
             allow_reuse_parse=payload.allow_reuse_parse,
             allow_score_only_rerun=payload.allow_score_only_rerun,
             screening_mode=payload.screening_mode,
-            governance_session=_session,
+            governance_session=_with_session_token(request, _session),
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -979,7 +993,7 @@ async def start_screen_candidate(candidate_id: int, payload: CandidateScreenRequ
 
 @recruitment_router.post("/candidates/screen/batch-start")
 @recruitment_router.post("/candidates/screen/batch/start")
-async def batch_start_screen_candidates(payload: CandidateScreenBatchStartRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
+async def batch_start_screen_candidates(request: Request, payload: CandidateScreenBatchStartRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -995,7 +1009,7 @@ async def batch_start_screen_candidates(payload: CandidateScreenBatchStartReques
             allow_reuse_parse=payload.allow_reuse_parse,
             allow_score_only_rerun=payload.allow_score_only_rerun,
             screening_mode=payload.screening_mode,
-            governance_session=_session,
+            governance_session=_with_session_token(request, _session),
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -1021,14 +1035,14 @@ async def query_screening_batch(payload: CandidateScreenBatchQueryRequest, _sess
 
 
 @recruitment_router.post("/candidates/screen/batch/cancel")
-async def cancel_screening_batch(payload: CandidateScreenBatchCancelRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
+async def cancel_screening_batch(request: Request, payload: CandidateScreenBatchCancelRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
             "cancel_screening_batch",
             payload.batch_id,
             _session.get("id") or "unknown",
-            governance_session=_session,
+            governance_session=_with_session_token(request, _session),
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -1037,14 +1051,14 @@ async def cancel_screening_batch(payload: CandidateScreenBatchCancelRequest, _se
         raise HTTPException(status_code=500, detail=str(exc))
 
 @recruitment_router.post("/candidates/{candidate_id}/score")
-async def trigger_candidate_score(candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
+async def trigger_candidate_score(request: Request, candidate_id: int, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
             "trigger_latest_score",
             candidate_id,
             _session.get("id") or "unknown",
-            governance_session=_session,
+            governance_session=_with_session_token(request, _session),
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -1052,7 +1066,7 @@ async def trigger_candidate_score(candidate_id: int, _session: Dict[str, Any] = 
 
 
 @recruitment_router.post("/candidates/{candidate_id}/interview-questions")
-async def generate_interview_questions(candidate_id: int, payload: InterviewQuestionGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
+async def generate_interview_questions(request: Request, candidate_id: int, payload: InterviewQuestionGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -1064,7 +1078,7 @@ async def generate_interview_questions(candidate_id: int, payload: InterviewQues
             _session.get("id") or "unknown",
             use_candidate_memory=payload.use_candidate_memory,
             use_position_skills=payload.use_position_skills,
-            governance_session=_session,
+            governance_session=_with_session_token(request, _session),
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -1209,7 +1223,7 @@ async def stream_generate_interview_questions(candidate_id: int, payload: Interv
 
 
 @recruitment_router.post("/candidates/{candidate_id}/interview-questions/start")
-async def start_generate_interview_questions(candidate_id: int, payload: InterviewQuestionGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
+async def start_generate_interview_questions(request: Request, candidate_id: int, payload: InterviewQuestionGenerateRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
@@ -1221,7 +1235,7 @@ async def start_generate_interview_questions(candidate_id: int, payload: Intervi
             _session.get("id") or "unknown",
             use_candidate_memory=payload.use_candidate_memory,
             use_position_skills=payload.use_position_skills,
-            governance_session=_session,
+            governance_session=_with_session_token(request, _session),
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -1738,14 +1752,14 @@ async def list_resume_mail_dispatches(_session: Dict[str, Any] = Depends(require
 
 
 @recruitment_router.post("/resume-mail-dispatches/send")
-async def send_resume_mail_dispatch(payload: RecruitmentResumeMailSendRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-send"))):
+async def send_resume_mail_dispatch(request: Request, payload: RecruitmentResumeMailSendRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-mail-send"))):
     try:
         data = await run_in_threadpool(
             _run_recruitment_service_call,
             "send_resume_mail_dispatch",
             payload.model_dump(),
             _session.get("id") or "unknown",
-            governance_session=_session,
+            governance_session=_with_session_token(request, _session),
         )
         return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
     except ValueError as exc:
@@ -1807,7 +1821,7 @@ async def update_chat_context(payload: RecruitmentChatContextUpdateRequest, _ses
 
 
 @recruitment_router.post("/chat")
-async def chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
+async def chat(request: Request, payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     data = await run_in_threadpool(
         _run_recruitment_service_call,
         "chat",
@@ -1815,13 +1829,13 @@ async def chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depen
         _session.get("name") or "unknown",
         payload.message,
         payload.context,
-        governance_session=_session,
+        governance_session=_with_session_token(request, _session),
     )
     return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
 
 
 @recruitment_router.post("/chat/start")
-async def start_chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
+async def start_chat(request: Request, payload: RecruitmentChatRequest, _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-process-execute"))):
     data = await run_in_threadpool(
         _run_recruitment_service_call,
         "start_chat",
@@ -1829,7 +1843,7 @@ async def start_chat(payload: RecruitmentChatRequest, _session: Dict[str, Any] =
         _session.get("name") or "unknown",
         payload.message,
         payload.context,
-        governance_session=_session,
+        governance_session=_with_session_token(request, _session),
     )
     return {"success": True, "data": data, "request_id": str(uuid.uuid4())}
 

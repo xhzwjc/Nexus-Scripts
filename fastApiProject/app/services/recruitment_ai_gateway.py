@@ -1013,19 +1013,36 @@ def _is_retryable_error(exc: Exception) -> bool:
         raw_response_text = str(exc.raw_response_text or "").strip()
         return len(raw_response_text) < JSON_RETRYABLE_MIN_EMPTY_LENGTH
     if isinstance(exc, httpx.HTTPStatusError):
-        status = exc.response.status_code
-        if status in {408, 409, 425, 429} or status >= 500:
-            return True
         try:
             body = (exc.response.text or "").strip()
         except Exception:
             body = ""
+        body_lower = body.lower()
+        if (
+            "quota exhausted" in body_lower
+            or "quota exceeded" in body_lower
+            or "insufficient_quota" in body_lower
+            or "usage limit exceeded" in body_lower
+            or "subscription expired" in body_lower
+        ):
+            return False
+        status = exc.response.status_code
+        if status in {408, 409, 425, 429} or status >= 500:
+            return True
         if "速率限制" in body or "rate limit" in body.lower():
             return True
         return False
     if isinstance(exc, httpx.RequestError):
         return True
     message = str(exc or "").lower()
+    if (
+        "quota exhausted" in message
+        or "quota exceeded" in message
+        or "insufficient_quota" in message
+        or "usage limit exceeded" in message
+        or "subscription expired" in message
+    ):
+        return False
     return "rate limit" in message or "速率限制" in message or "too many requests" in message
 
 
@@ -2340,14 +2357,19 @@ class RecruitmentAIGateway:
                 if standard_retry_attempts < max_retries and _is_retryable_error(exc):
                     sleep_seconds = retry_delay * (standard_retry_attempts + 1)
                     standard_retry_attempts += 1
-                    logger.warning("Recruitment JSON task %s hit retryable error, retrying in %.1fs: %s", task_type, sleep_seconds, exc)
+                    logger.warning(
+                        "Recruitment JSON task %s hit retryable request-level error, retrying HTTP call in %.1fs: %s",
+                        task_type,
+                        sleep_seconds,
+                        exc,
+                    )
                     if cancel_control:
                         if cancel_control.wait(sleep_seconds):
                             raise RecruitmentTaskCancelled("任务已被用户停止。") from exc
                     else:
                         time.sleep(sleep_seconds)
                     continue
-                logger.warning("Recruitment JSON task %s failed: %s", task_type, exc)
+                logger.warning("Recruitment JSON task %s failed after request-level retries: %s", task_type, exc)
                 break
         if fallback_builder is None:
             if isinstance(last_error, RecruitmentAIScreeningTotalTimeoutError):
@@ -2486,97 +2508,59 @@ class RecruitmentAIGateway:
 匹配成功：{{"position_id": 17, "position_title": "税务会计", "confidence": 88, "reason": "候选人有3年增值税申报经验，与岗位核心要求高度吻合", "potential_position": "财务分析", "potential_reason": "具备报表和数据分析基础，可向财务分析延展"}}
 无匹配：{{"position_id": null, "position_title": null, "confidence": 0, "reason": "候选人为产品经理背景，系统现有岗位均为财务和技术类，无对应方向", "potential_position": "售前解决方案", "potential_reason": "跨团队沟通和需求分析能力较强，可培养为售前方向"}}"""
 
-        try:
-            result = self.generate_json(
-                task_type="ai_position_match",
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                runtime_config=runtime_config,
-                max_tokens_override=800,
-                fallback_builder=lambda: {
-                    "position_id": None,
-                    "position_title": None,
-                    "confidence": 0,
-                    "reason": "AI匹配失败",
-                    "potential_position": None,
-                    "potential_reason": None,
-                },
-            )
+        result = self.generate_json(
+            task_type="ai_position_match",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            runtime_config=runtime_config,
+            max_tokens_override=800,
+        )
 
-            content = result.get("content") or {}
-            parsed = content if isinstance(content, dict) else {}
-            position_id = parsed.get("position_id")
-            normalized_position_id: Optional[int] = None
-            if position_id not in (None, ""):
-                try:
-                    normalized_position_id = int(position_id)
-                except (TypeError, ValueError):
-                    normalized_position_id = None
-            position_title = parsed.get("position_title")
-            normalized_position_title = str(position_title or "").strip() or None
-            confidence = parsed.get("confidence")
-            normalized_confidence: Optional[float] = None
-            if confidence not in (None, ""):
-                try:
-                    normalized_confidence = max(0.0, min(100.0, float(confidence)))
-                except (TypeError, ValueError):
-                    normalized_confidence = None
-            reason = str(parsed.get("reason") or "").strip() or "AI自动匹配"
-            potential_position = str(parsed.get("potential_position") or "").strip() or None
-            potential_reason = str(parsed.get("potential_reason") or "").strip() or None
+        content = result.get("content") or {}
+        parsed = content if isinstance(content, dict) else {}
+        position_id = parsed.get("position_id")
+        normalized_position_id: Optional[int] = None
+        if position_id not in (None, ""):
+            try:
+                normalized_position_id = int(position_id)
+            except (TypeError, ValueError):
+                normalized_position_id = None
+        position_title = parsed.get("position_title")
+        normalized_position_title = str(position_title or "").strip() or None
+        confidence = parsed.get("confidence")
+        normalized_confidence: Optional[float] = None
+        if confidence not in (None, ""):
+            try:
+                normalized_confidence = max(0.0, min(100.0, float(confidence)))
+            except (TypeError, ValueError):
+                normalized_confidence = None
+        reason = str(parsed.get("reason") or "").strip() or "AI自动匹配"
+        potential_position = str(parsed.get("potential_position") or "").strip() or None
+        potential_reason = str(parsed.get("potential_reason") or "").strip() or None
 
-            return {
+        return {
+            "position_id": normalized_position_id,
+            "position_title": normalized_position_title,
+            "confidence": normalized_confidence,
+            "reason": reason,
+            "potential_position": potential_position,
+            "potential_reason": potential_reason,
+            "provider": result.get("provider"),
+            "model_name": result.get("model_name"),
+            "source": result.get("source"),
+            "used_fallback": bool(result.get("used_fallback")),
+            "error_message": result.get("error_message"),
+            "prompt_snapshot": result.get("prompt_snapshot"),
+            "full_request_snapshot": result.get("full_request_snapshot"),
+            "input_summary": result.get("input_summary"),
+            "output_summary": result.get("output_summary"),
+            "raw_response_text": result.get("raw_response_text"),
+            "parsed_response": {
                 "position_id": normalized_position_id,
                 "position_title": normalized_position_title,
                 "confidence": normalized_confidence,
                 "reason": reason,
                 "potential_position": potential_position,
                 "potential_reason": potential_reason,
-                "provider": result.get("provider"),
-                "model_name": result.get("model_name"),
-                "source": result.get("source"),
-                "used_fallback": bool(result.get("used_fallback")),
-                "error_message": result.get("error_message"),
-                "prompt_snapshot": result.get("prompt_snapshot"),
-                "full_request_snapshot": result.get("full_request_snapshot"),
-                "input_summary": result.get("input_summary"),
-                "output_summary": result.get("output_summary"),
-                "raw_response_text": result.get("raw_response_text"),
-                "parsed_response": {
-                    "position_id": normalized_position_id,
-                    "position_title": normalized_position_title,
-                    "confidence": normalized_confidence,
-                    "reason": reason,
-                    "potential_position": potential_position,
-                    "potential_reason": potential_reason,
-                },
-            }
-
-        except Exception as exc:
-            logger.error(f"AI position matching failed for candidate {candidate_id}: {exc}")
-            return {
-                "position_id": None,
-                "position_title": None,
-                "confidence": None,
-                "reason": f"匹配异常：{str(exc)[:100]}",
-                "potential_position": None,
-                "potential_reason": None,
-                "provider": None,
-                "model_name": None,
-                "source": None,
-                "used_fallback": True,
-                "error_message": str(exc),
-                "prompt_snapshot": None,
-                "full_request_snapshot": None,
-                "input_summary": _truncate(resume_content, 600),
-                "output_summary": "AI matching failed",
-                "raw_response_text": None,
-                "parsed_response": {
-                    "position_id": None,
-                    "position_title": None,
-                    "confidence": None,
-                    "reason": f"匹配异常：{str(exc)[:100]}",
-                    "potential_position": None,
-                    "potential_reason": None,
-                },
-            }
+            },
+        }
