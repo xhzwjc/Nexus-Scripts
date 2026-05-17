@@ -11,6 +11,7 @@ import {
     Phone,
     Plus,
     RefreshCw,
+    RotateCcw,
     Search,
     Square,
     Trash2,
@@ -34,6 +35,7 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         title: isZh ? "人才库" : "Talent Pool",
         description: isZh ? "未分配岗位的候选人，可按 AI 识别标签批量分配岗位" : "Candidates without assigned positions, batch assign by AI-recognized tags",
         uploadResume: isZh ? "上传简历" : "Upload Resume",
+        refresh: isZh ? "刷新" : "Refresh",
         totalCandidates: isZh ? "总候选人" : "Total Candidates",
         totalHint: isZh ? "待处理" : "Pending",
         aiMatched: isZh ? "AI 已识别岗位" : "AI Matched",
@@ -238,6 +240,9 @@ export function TalentPoolPage({
     const [reIdentifyingIds, setReIdentifyingIds] = React.useState<Set<number>>(new Set());
     const [reIdentifyFailedIds, setReIdentifyFailedIds] = React.useState<Set<number>>(new Set());
 
+    /* ── 刷新 loading ── */
+    const [refreshing, setRefreshing] = React.useState(false);
+
     /* ── 统计 ── */
     const stats = React.useMemo(() => {
         const total = candidates.length;
@@ -401,12 +406,33 @@ export function TalentPoolPage({
                         <h1 className="text-lg font-medium text-slate-900 dark:text-slate-100">{tr.title}</h1>
                         <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">{tr.description}</p>
                     </div>
-                    {onUploadResume && (
-                        <Button size="sm" className="rounded-lg" onClick={onUploadResume}>
-                            <Upload className="mr-1.5 h-3.5 w-3.5"/>
-                            {tr.uploadResume}
-                        </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                        {onRefresh ? (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 rounded-md px-2 text-xs"
+                                disabled={refreshing || loading}
+                                onClick={async () => {
+                                    setRefreshing(true);
+                                    try {
+                                        await onRefresh();
+                                    } finally {
+                                        setRefreshing(false);
+                                    }
+                                }}
+                            >
+                                <RotateCcw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}/>
+                                {tr.refresh}
+                            </Button>
+                        ) : null}
+                        {onUploadResume && (
+                            <Button size="sm" className="rounded-lg" onClick={onUploadResume}>
+                                <Upload className="mr-1.5 h-3.5 w-3.5"/>
+                                {tr.uploadResume}
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {/* 统计卡片 */}

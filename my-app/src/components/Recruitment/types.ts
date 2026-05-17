@@ -215,6 +215,7 @@ type RecruitmentToastLocale = {
         mailRecipient: string;
         resumeMail: string;
         interviewHtml: string;
+        talentPool: string;
     };
     unknownError: string;
     noReason: string;
@@ -420,6 +421,7 @@ const zhRecruitmentLocale: RecruitmentLocaleBundle = {
             mailRecipient: "收件人",
             resumeMail: "简历邮件",
             interviewHtml: "面试题 HTML",
+            talentPool: "人才库",
         },
         unknownError: "未知错误",
         noReason: "未返回具体原因",
@@ -617,6 +619,7 @@ const enRecruitmentLocale: RecruitmentLocaleBundle = {
             mailRecipient: "mail recipient",
             resumeMail: "resume mail",
             interviewHtml: "interview HTML",
+            talentPool: "talent pool",
         },
         unknownError: "Unknown error",
         noReason: "No specific reason returned",

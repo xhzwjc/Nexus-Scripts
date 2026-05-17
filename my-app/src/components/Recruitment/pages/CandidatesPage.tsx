@@ -407,6 +407,7 @@ function getCandidatesLocale(language = getCurrentLanguage()) {
         noKeyword: isZh ? "无关键词" : "No keyword",
         allPrefix: isZh ? "全部" : "All",
         filters: isZh ? "筛选" : "Filters",
+        refresh: isZh ? "刷新" : "Refresh",
         listView: isZh ? "列表" : "List",
         boardView: isZh ? "看板" : "Board",
         collapseFilters: isZh ? "收起筛选" : "Collapse Filters",
@@ -1580,6 +1581,7 @@ type CandidatesPageProps = {
     requestBatchDelete: (candidateIds: number[]) => void;
     batchBindPosition: (candidateIds: number[], positionId: number | null) => Promise<void>;
     onMoveToTalentPool?: (candidateIds: number[]) => Promise<void>;
+    onRefresh?: () => Promise<void>;
     batchUpdateStatus: (candidateIds: number[], status: string, reason: string) => Promise<void>;
     duplicateCandidates: Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>;
     interviewSchedules: Array<{id: number; candidate_id: number; round_name: string; interviewer_name?: string | null; scheduled_at?: string | null; duration_minutes?: number | null; location?: string | null; meeting_link?: string | null; notes?: string | null; status: string; created_at?: string | null}>;
@@ -1684,6 +1686,7 @@ export function CandidatesPage({
     requestBatchDelete,
     batchBindPosition,
     onMoveToTalentPool,
+    onRefresh,
     batchUpdateStatus,
     duplicateCandidates,
     interviewSchedules,
@@ -1729,6 +1732,7 @@ export function CandidatesPage({
     const [candidateListViewportEl, setCandidateListViewportEl] = React.useState<HTMLDivElement | null>(null);
     const [candidateListCompactMode, setCandidateListCompactMode] = React.useState(false);
     const [candidateFilterBarExpanded, setCandidateFilterBarExpanded] = React.useState(false);
+    const [refreshing, setRefreshing] = React.useState(false);
     const [candidateAiOutputDialogOpen, setCandidateAiOutputDialogOpen] = React.useState(false);
     const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
     const [exportIncludeResumes, setExportIncludeResumes] = React.useState(true);
@@ -2190,6 +2194,25 @@ export function CandidatesPage({
                         <div className="flex items-center justify-between gap-3">
                             <CardTitle className="text-[15px] leading-none">{tr.candidateList}</CardTitle>
                             <div className="flex items-center gap-2">
+                                {onRefresh ? (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 rounded-md px-2 text-xs"
+                                        disabled={refreshing || candidatesLoading}
+                                        onClick={async () => {
+                                            setRefreshing(true);
+                                            try {
+                                                await onRefresh();
+                                            } finally {
+                                                setRefreshing(false);
+                                            }
+                                        }}
+                                    >
+                                        <RotateCcw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}/>
+                                        {tr.refresh}
+                                    </Button>
+                                ) : null}
                                 <Badge variant="outline" className="rounded-full">{visibleCandidates.length}{tr.peopleSuffix}</Badge>
                                 <Button
                                     size="sm"

@@ -6,9 +6,11 @@ import {
     BriefcaseBusiness,
     ClipboardCheck,
     FileSearch,
+    Loader2,
     NotebookText,
     Plus,
     Rocket,
+    RotateCcw,
     Sparkles,
     Upload,
     Wand2,
@@ -68,6 +70,7 @@ type WorkspacePageProps = {
     setSelectedLogId: (logId: number) => void;
     openAssistantMode: (mode: AssistantDisplayMode) => void;
     openCreatePosition: () => void;
+    onRefresh?: () => Promise<void>;
     setResumeUploadOpen: (open: boolean) => void;
     renderAssistantConsole: (mode: AssistantDisplayMode) => React.ReactNode;
     renderAssistantSuspendedState: () => React.ReactNode;
@@ -88,12 +91,14 @@ export function WorkspacePage({
     setSelectedLogId,
     openAssistantMode,
     openCreatePosition,
+    onRefresh,
     setResumeUploadOpen,
     renderAssistantConsole,
     renderAssistantSuspendedState,
 }: WorkspacePageProps) {
     const {language} = useI18n();
     const isZh = language === "zh-CN";
+    const [refreshing, setRefreshing] = React.useState(false);
     const todayScreeningPassed = React.useMemo(
         () => stats.cards.screening_passed,
         [stats.cards.screening_passed],
@@ -116,6 +121,7 @@ export function WorkspacePage({
         pendingDecision: isZh ? "待确认结果" : "Pending Decision",
         pendingDecisionDesc: isZh ? "需要确认 Offer 或后续结果" : "Waiting for offer or final decision",
         openAssistant: isZh ? "打开 AI 招聘助手" : "Open AI Recruiting Assistant",
+        refresh: isZh ? "刷新" : "Refresh",
         createPosition: isZh ? "新建岗位" : "New Position",
         activePositionsDesc: isZh ? "当前在推进的岗位" : "Positions currently in progress",
         todayResumesDesc: isZh ? "今天导入的候选人数量" : "Candidates imported today",
@@ -188,15 +194,26 @@ export function WorkspacePage({
                                 </div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                                <Button
-                                    type="button"
-                                    onClick={() => openAssistantMode("drawer")}
-                                    size="sm"
-                                    className="h-9 rounded-xl px-3.5 text-sm"
-                                >
-                                    <Bot className="h-4 w-4"/>
-                                    {tr.openAssistant}
-                                </Button>
+                                {onRefresh ? (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-9 rounded-xl px-3 text-sm"
+                                        disabled={refreshing}
+                                        onClick={async () => {
+                                            setRefreshing(true);
+                                            try {
+                                                await onRefresh();
+                                            } finally {
+                                                setRefreshing(false);
+                                            }
+                                        }}
+                                    >
+                                        {refreshing ? <Loader2 className="h-4 w-4 animate-spin"/> : <RotateCcw className="h-4 w-4"/>}
+                                        {tr.refresh}
+                                    </Button>
+                                ) : null}
                                 <Button
                                     type="button"
                                     variant="outline"

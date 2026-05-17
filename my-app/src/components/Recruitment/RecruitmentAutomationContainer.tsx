@@ -20,6 +20,7 @@ import {
     Plus,
     RefreshCw,
     Rocket,
+    RotateCcw,
     Save,
     Send,
     Settings2,
@@ -1687,7 +1688,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [modelsLoading, setModelsLoading] = useState(false);
     const [mailSettingsLoading, setMailSettingsLoading] = useState(false);
     const [mailAutoPushConfigSaving, setMailAutoPushConfigSaving] = useState(false);
-    const [coreRefreshing, setCoreRefreshing] = useState(false);
     const [orgSwitching, setOrgSwitching] = useState(false);
     const [skillSubmitting, setSkillSubmitting] = useState(false);
     const [llmSubmitting, setLlmSubmitting] = useState(false);
@@ -4025,21 +4025,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         // 静默刷新时不显示 toast
         if (!options?.silent) {
             toast.success(recruitmentToast.dataRefreshed);
-        }
-    }
-
-    async function refreshCoreDataWithFeedback() {
-        if (coreRefreshing) {
-            return;
-        }
-        setCoreRefreshing(true);
-        try {
-            await refreshCoreData();
-            toast.success(recruitmentToast.refreshed(recruitmentToastEntities.workspace));
-        } catch (error) {
-            toast.error(recruitmentToast.refreshFailed(recruitmentToastEntities.workspace, formatActionError(error)));
-        } finally {
-            setCoreRefreshing(false);
         }
     }
 
@@ -8904,6 +8889,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 setSelectedLogId={setSelectedLogId}
                 openAssistantMode={openAssistantMode}
                 openCreatePosition={openCreatePosition}
+                onRefresh={async () => {
+                    await refreshCoreData();
+                    toast.success(recruitmentToast.refreshed(recruitmentToastEntities.workspace));
+                }}
                 setResumeUploadOpen={setResumeUploadOpen}
                 renderAssistantConsole={renderAssistantConsole}
                 renderAssistantSuspendedState={renderAssistantSuspendedState}
@@ -8945,15 +8934,29 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                     <span className="position-panel-title">{isZh ? "岗位列表" : "Position List"}</span>
                                     <span className="position-panel-count">({visiblePositions.length}/{positions.length})</span>
                                 </div>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="mt-3 h-8 w-full rounded-xl border-slate-200/80 bg-white/80 text-xs text-slate-700 shadow-none hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:border-slate-700 dark:hover:bg-slate-900/70"
-                                    onClick={openCreatePosition}
-                                >
-                                    <Plus className="mr-1 h-4 w-4"/>
-                                    {isZh ? "新增岗位" : "Add Position"}
-                                </Button>
+                                <div className="mt-3 flex gap-2">
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-8 flex-1 rounded-xl border-slate-200/80 bg-white/80 text-xs text-slate-700 shadow-none hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:border-slate-700 dark:hover:bg-slate-900/70"
+                                        onClick={openCreatePosition}
+                                    >
+                                        <Plus className="mr-1 h-4 w-4"/>
+                                        {isZh ? "新增岗位" : "Add Position"}
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-8 rounded-xl border-slate-200/80 bg-white/80 px-2 text-xs text-slate-700 shadow-none hover:border-slate-300 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:border-slate-700 dark:hover:bg-slate-900/70"
+                                        disabled={positionsLoading}
+                                        onClick={async () => {
+                                            await loadPositions();
+                                            toast.success(recruitmentToast.refreshed(recruitmentToastEntities.positions));
+                                        }}
+                                    >
+                                        {positionsLoading ? <Loader2 className="h-4 w-4 animate-spin"/> : <RotateCcw className="h-4 w-4"/>}
+                                    </Button>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -9734,6 +9737,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     await loadCandidates();
                     await loadTalentPoolCandidates();
                 }}
+                onRefresh={async () => {
+                    await loadCandidates({ force: true });
+                    toast.success(recruitmentToast.refreshed(recruitmentToastEntities.candidates));
+                }}
                 batchUpdateStatus={batchUpdateStatus}
                 duplicateCandidates={duplicateCandidates}
                 followUps={followUps}
@@ -9805,7 +9812,10 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     onViewCandidate={handleTalentPoolCandidateSelect}
                     onUploadResume={openResumeUploadDialog}
                     onDeleteCandidates={deleteTalentPoolCandidates}
-                    onRefresh={loadTalentPoolCandidates}
+                    onRefresh={async () => {
+                        await loadTalentPoolCandidates();
+                        toast.success(recruitmentToast.refreshed(recruitmentToastEntities.talentPool));
+                    }}
                     onReIdentify={async (candidateId) => {
                         await triggerAIPositionMatch([candidateId]);
                         setAllTalentPoolCandidates(prev => prev.map(c =>
@@ -10021,12 +10031,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             allDepartmentsLabel={recruitmentUiText.allVisibleDepartments}
                             disabled={organizationCatalogLoading || orgSwitching}
                         />
-                        <Button variant="outline" onClick={() => void refreshCoreDataWithFeedback()}
-                                disabled={coreRefreshing} className="rounded-xl">
-                            {coreRefreshing ? <Loader2 className="h-4 w-4 animate-spin"/> :
-                                <RefreshCw className="h-4 w-4"/>}
-                            {coreRefreshing ? recruitmentUiText.refreshing : recruitmentUiText.refresh}
-                        </Button>
                         {canManageCandidate && (
                             <Button variant="outline" onClick={openResumeUploadDialog} className="rounded-xl">
                                 <Upload className="h-4 w-4"/>
