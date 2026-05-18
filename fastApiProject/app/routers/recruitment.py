@@ -744,7 +744,11 @@ async def upload_resumes(
             candidate_ids = [row["id"] for row in rows]
             actor_id = _session.get("id") or "unknown"
             try:
-                ai_match_result = await service.trigger_ai_position_match(candidate_ids, actor_id)
+                ai_match_result = await service.trigger_ai_position_match(
+                    candidate_ids,
+                    actor_id,
+                    require_auto_screen_ready=True,
+                )
                 logger.info(f"AI position match dispatched: {ai_match_result}")
             except Exception as exc:
                 logger.error(f"AI position match dispatch failed: {exc}")

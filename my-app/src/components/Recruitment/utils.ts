@@ -1097,7 +1097,21 @@ export function isLiveTaskStatus(status?: string | null) {
 }
 
 export function isTerminalTaskStatus(status?: string | null) {
-    return ["success", "fallback", "failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "cancelled", "quota_exceeded"].includes(status || "");
+    return [
+        "success",
+        "fallback",
+        "failed",
+        "invalid_result",
+        "json_parse_failed",
+        "timeout",
+        "retry_exhausted",
+        "cancelled",
+        "quota_exceeded",
+        "rate_limited",
+        "upstream_timeout",
+        "request_failed",
+        "screening_total_timeout",
+    ].includes(status || "");
 }
 
 export function labelForMemorySource(source?: string | null) {

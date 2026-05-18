@@ -57,7 +57,7 @@ export interface PositionSummary {
   screening_skills?: RecruitmentSkill[];
   interview_skill_ids?: number[];
   interview_skills?: RecruitmentSkill[];
-  tags: string[];
+  tags?: string[];
   current_jd_version_id?: number | null;
   current_jd_title?: string | null;
   jd_version_count: number;

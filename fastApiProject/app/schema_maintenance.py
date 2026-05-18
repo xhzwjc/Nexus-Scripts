@@ -112,6 +112,45 @@ def _add_column_if_missing(
     logger.info(log_message)
 
 
+def _add_index_if_missing(
+    inspector,
+    table_name: str,
+    index_name: str,
+    ddl: str,
+    log_message: str,
+) -> None:
+    for attempt in range(3):
+        try:
+            indexes = {index["name"] for index in inspector.get_indexes(table_name)}
+            break
+        except Exception as e:
+            if attempt == 2:
+                logger.warning("Could not inspect indexes for %s: %s", table_name, e)
+                return
+            time.sleep(1)
+            try:
+                inspector.clear_cache()
+            except Exception:
+                pass
+    if index_name in indexes:
+        return
+    for attempt in range(3):
+        try:
+            with engine.begin() as connection:
+                connection.execute(text(ddl))
+            break
+        except Exception as e:
+            if attempt == 2:
+                logger.warning("Could not create index %s on %s: %s", index_name, table_name, e)
+                return
+            time.sleep(1)
+    try:
+        inspector.clear_cache()
+    except Exception:
+        pass
+    logger.info(log_message)
+
+
 def _sync_default_organization(db) -> None:
     root = db.query(ScriptHubOrganization).filter(ScriptHubOrganization.org_code == ROOT_ORG_CODE).first()
     if not root:
@@ -519,6 +558,13 @@ def ensure_recruitment_schema() -> None:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_positions ADD COLUMN interview_skill_ids_json TEXT NULL"))
                 logger.info("Added recruitment_positions.interview_skill_ids_json column")
+            _add_index_if_missing(
+                inspector,
+                "recruitment_positions",
+                "idx_position_org_status_deleted",
+                "CREATE INDEX idx_position_org_status_deleted ON recruitment_positions (org_code, status, deleted)",
+                "Created index idx_position_org_status_deleted",
+            )
     
             skill_columns = {column["name"] for column in inspector.get_columns("recruitment_skills")}
             if "skill_group" not in skill_columns:
@@ -651,6 +697,32 @@ def ensure_recruitment_schema() -> None:
                 with engine.begin() as connection:
                     connection.execute(text("CREATE INDEX ix_recruitment_ai_task_logs_batch_email_sent ON recruitment_ai_task_logs (batch_email_sent)"))
                 logger.info("Created index ix_recruitment_ai_task_logs_batch_email_sent")
+            _add_index_if_missing(
+                inspector,
+                "recruitment_ai_task_logs",
+                "idx_task_log_candidate",
+                "CREATE INDEX idx_task_log_candidate ON recruitment_ai_task_logs (related_candidate_id, created_at)",
+                "Created index idx_task_log_candidate",
+            )
+            _add_index_if_missing(
+                inspector,
+                "recruitment_ai_task_logs",
+                "idx_task_log_batch",
+                "CREATE INDEX idx_task_log_batch ON recruitment_ai_task_logs (batch_id)",
+                "Created index idx_task_log_batch",
+            )
+            task_log_session_index_ddl = (
+                "CREATE INDEX idx_task_log_session ON recruitment_ai_task_logs (session_token(64))"
+                if engine.dialect.name == "mysql"
+                else "CREATE INDEX idx_task_log_session ON recruitment_ai_task_logs (session_token)"
+            )
+            _add_index_if_missing(
+                inspector,
+                "recruitment_ai_task_logs",
+                "idx_task_log_session",
+                task_log_session_index_ddl,
+                "Created index idx_task_log_session",
+            )
             if engine.dialect.name == "mysql":
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_ai_task_logs MODIFY COLUMN related_skill_snapshots_json LONGTEXT NULL"))
@@ -806,6 +878,41 @@ def ensure_recruitment_schema() -> None:
                 with engine.begin() as connection:
                     connection.execute(text("ALTER TABLE recruitment_candidates ADD COLUMN talent_pool_moved_at DATETIME NULL"))
                 logger.info("Added recruitment_candidates.talent_pool_moved_at column")
+            _add_index_if_missing(
+                inspector,
+                "recruitment_candidates",
+                "idx_candidate_org_status_deleted",
+                "CREATE INDEX idx_candidate_org_status_deleted ON recruitment_candidates (org_code, status, deleted)",
+                "Created index idx_candidate_org_status_deleted",
+            )
+            _add_index_if_missing(
+                inspector,
+                "recruitment_candidates",
+                "idx_candidate_position_status",
+                "CREATE INDEX idx_candidate_position_status ON recruitment_candidates (position_id, status, deleted)",
+                "Created index idx_candidate_position_status",
+            )
+            _add_index_if_missing(
+                inspector,
+                "recruitment_candidates",
+                "idx_candidate_created_at",
+                "CREATE INDEX idx_candidate_created_at ON recruitment_candidates (created_at)",
+                "Created index idx_candidate_created_at",
+            )
+            _add_index_if_missing(
+                inspector,
+                "recruitment_candidates",
+                "idx_candidate_org_deleted_updated",
+                "CREATE INDEX idx_candidate_org_deleted_updated ON recruitment_candidates (org_code, deleted, updated_at, id)",
+                "Created index idx_candidate_org_deleted_updated",
+            )
+            _add_index_if_missing(
+                inspector,
+                "recruitment_candidates",
+                "idx_candidate_position_deleted_updated",
+                "CREATE INDEX idx_candidate_position_deleted_updated ON recruitment_candidates (position_id, deleted, updated_at, id)",
+                "Created index idx_candidate_position_deleted_updated",
+            )
 
             # Widen phone column to handle encrypted/masked values from resume platforms
             try:

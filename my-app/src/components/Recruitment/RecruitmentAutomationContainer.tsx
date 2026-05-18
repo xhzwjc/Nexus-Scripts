@@ -209,14 +209,66 @@ import {
     syncRecruitmentActivePage,
 } from '@/lib/recruitmentNavBus';
 
-const PAGE_ACTIVITY_POLL_VISIBLE_INTERVAL_MS = 15_000;
-const PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS = 60_000;
-const PAGE_ACTIVITY_POLL_MAX_INTERVAL_MS = 15_000;
 const TASK_MONITOR_VISIBLE_INTERVAL_MS = 30_000;
 const TASK_MONITOR_HIDDEN_INTERVAL_MS = 60_000;
 const TASK_MONITOR_MAX_INTERVAL_MS = 30_000;
 const TASK_MONITOR_BATCH_SCALE_THRESHOLD = 8;
 const ALL_COMPANY_DEPARTMENTS_VALUE = "__all_company_departments__";
+const TERMINAL_SCREENING_TASK_STATUSES = new Set([
+    "success",
+    "fallback",
+    "failed",
+    "invalid_result",
+    "json_parse_failed",
+    "timeout",
+    "retry_exhausted",
+    "cancelled",
+    "quota_exceeded",
+    "rate_limited",
+    "upstream_timeout",
+    "request_failed",
+    "screening_total_timeout",
+]);
+
+function resolveStableCandidateDisplayStatus(candidate: Partial<CandidateSummary>) {
+    const explicitDisplayStatus = String(candidate.display_status || "").trim();
+    if (explicitDisplayStatus && explicitDisplayStatus !== "screening_running") {
+        return explicitDisplayStatus;
+    }
+    const rawStatus = String(candidate.status || "").trim();
+    if (rawStatus === "pending_screening") {
+        return String(candidate.ai_recommended_status || rawStatus || "").trim();
+    }
+    return rawStatus || explicitDisplayStatus;
+}
+
+function sanitizeTerminalScreeningCandidateSnapshot(
+    candidate?: Partial<CandidateSummary> | null,
+    taskStatus?: string | null,
+): Partial<CandidateSummary> | null {
+    if (!candidate?.id) {
+        return null;
+    }
+    const normalizedTaskStatus = String(taskStatus || "").trim().toLowerCase();
+    const nextCandidate: Partial<CandidateSummary> = {
+        ...candidate,
+        active_screening_run_id: null,
+        active_screening_task_id: null,
+        active_screening_task_type: null,
+        active_screening_stage: null,
+        active_screening_status: null,
+        active_screening_task_status: null,
+        active_screening_auto_retry_scheduled: false,
+    };
+    if (normalizedTaskStatus === "success" || normalizedTaskStatus === "fallback") {
+        nextCandidate.active_screening_failure_code = null;
+        nextCandidate.display_status_reason = null;
+    }
+    if (!nextCandidate.display_status || nextCandidate.display_status === "screening_running") {
+        nextCandidate.display_status = resolveStableCandidateDisplayStatus(nextCandidate);
+    }
+    return nextCandidate;
+}
 
 const POPULAR_CITIES = [
     "北京", "上海", "广州", "深圳", "杭州", "成都", "南京", "武汉",
@@ -282,6 +334,19 @@ function deduplicateCandidates(candidates: CandidateSummary[]): CandidateSummary
         seen.set(c.id, c);
     }
     return Array.from(seen.values());
+}
+
+const CANDIDATE_LIST_EXCLUDED_STATUSES = new Set(["matching", "unmatched", "talent_pool"]);
+let sharedRecruitmentMetadataCache: RecruitmentMetadata | null = null;
+let sharedRecruitmentMetadataPromise: Promise<RecruitmentMetadata> | null = null;
+let sharedOrganizationScopeCache: RecruitmentOrganizationScope | null = null;
+let sharedOrganizationScopePromise: Promise<RecruitmentOrganizationScope> | null = null;
+
+function resolveScrollAreaViewport(node: HTMLDivElement | null): HTMLDivElement | null {
+    if (!node) {
+        return null;
+    }
+    return (node.querySelector("[data-slot='scroll-area-viewport']") as HTMLDivElement | null) || node;
 }
 
 function getOrganizationDepth(organization?: ScriptHubOrganizationDefinition | null) {
@@ -1087,6 +1152,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const selectedLogIdRef = useRef<number | null>(null);
     const selectedPositionIdRef = useRef<number | null>(null);
     const selectedCandidateIdRef = useRef<number | null>(null);
+    const recentlyCompletedScreeningCandidatesRef = useRef<Map<number, number>>(new Map());
     const logsFiltersInitializedRef = useRef(false);
     const positionsLoadRequestIdRef = useRef(0);
     const candidatesLoadRequestIdRef = useRef(0);
@@ -1621,6 +1687,15 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [sourceStatsData, setSourceStatsData] = useState<import("@/lib/recruitment-api").SourceStatsData | null>(null);
     const [candidateTotal, setCandidateTotal] = useState(0);
     const [aiLogTotal, setAiLogTotal] = useState(0);
+    const allCandidatesRef = useRef<CandidateSummary[]>(allCandidates);
+    const allTalentPoolCandidatesRef = useRef<CandidateSummary[]>(allTalentPoolCandidates);
+    const candidateTotalRef = useRef(candidateTotal);
+    const skillsLoadedOnceRef = useRef(false);
+    const mailSettingsLoadedOnceRef = useRef(false);
+    const llmConfigsLoadedOnceRef = useRef(false);
+    allCandidatesRef.current = allCandidates;
+    allTalentPoolCandidatesRef.current = allTalentPoolCandidates;
+    candidateTotalRef.current = candidateTotal;
     const [selectedLogDetail, setSelectedLogDetail] = useState<AITaskLog | null>(null);
     const [chatContext, setChatContext] = useState<ChatContext>({
         position_id: null,
@@ -2269,18 +2344,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const showScrollToBottomButton = isUserScrolledUp && chatMessages.length > 0;
     const isBatchScreeningCancelling = activeBatchScreeningTaskIds.length > 0
         && activeBatchScreeningTaskIds.every((taskId) => cancellingTaskIds.includes(taskId));
-    const hasLiveLogActivity = useMemo(() => {
-        return aiLogs.some((item) => isLiveTaskStatus(item.status));
-    }, [aiLogs]);
-    const hasLiveCandidateActivity = useMemo(() => {
-        return (candidateDetail?.activity || []).some((item) => isLiveTaskStatus(item.status));
-    }, [candidateDetail?.activity]);
-    const hasLiveCandidateListActivity = useMemo(() => {
-        return candidates.some((candidate) => (
-            candidate.active_screening_task_status
-            && isLiveTaskStatus(candidate.active_screening_task_status)
-        ));
-    }, [candidates]);
     const resumeMailTargetCandidates = useMemo(() => {
         return resumeMailForm.candidateIds
             .map((candidateId) => (
@@ -2571,11 +2634,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     useEffect(() => {
         setSelectedLogId((current) => {
-            if (!current || visibleAiLogs.some((log) => log.id === current)) {
+            if (!current) {
                 return current;
             }
-            const firstId = visibleAiLogs[0]?.id || null;
-            return firstId;
+            if (visibleAiLogs.some((log) => log.id === current)) {
+                return current;
+            }
+            return null;
         });
     }, [visibleAiLogs]);
 
@@ -2805,47 +2870,36 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
                 if (cancelled) return;
 
-                // 阶段 2: 工作台漏斗/来源统计 (并行)
-                const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
-                const statsPromise = Promise.allSettled([
-                    recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) setFunnelData(d); }).catch(() => {}),
-                    recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam ? `?${orgCodeParam.slice(1)}` : ""}`).then((d) => { if (!cancelled) setSourceStatsData(d); }).catch(() => {}),
-                ]);
-
-                await Promise.allSettled([statsPromise]);
-
-                if (cancelled) return;
+                // 阶段 2: 关键首屏列表尽早开始，避免被统计接口阻塞
+                void loadPositionsWithCache();
+                void loadCandidatesFirstPage();
                 criticalLoaded = true;
                 setBootstrapping(false);
 
-                // 阶段 3: 列表数据 (分页首屏，后台加载)
-                void loadPositionsWithCache();
-                void loadCandidatesFirstPage();
-                void loadLogsFirstPage();
-
-                // 阶段 4: 配置数据 (最低优先级，延迟加载)
+                // 阶段 3: 工作台统计延后，避免抢占首屏
+                const scheduleDeferredLoad = () => {
+                    if (cancelled) {
+                        return;
+                    }
+                    const scopedOrgCode = resolveScopedOrgCode(selectedDepartmentScope, selectedOrgScope);
+                    const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
+                    void Promise.allSettled([
+                        recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam}`)
+                            .then((d) => { if (!cancelled) setFunnelData(d); })
+                            .catch(() => {}),
+                        recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam}`)
+                            .then((d) => { if (!cancelled) setSourceStatsData(d); })
+                            .catch(() => {}),
+                    ]);
+                };
                 if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
                     window.requestIdleCallback(() => {
-                        if (!cancelled) {
-                            void Promise.allSettled([
-                                loadSkills(),
-                                loadMailSettings(),
-                                loadChatContext(),
-                                canManageLLMConfig ? loadLLMConfigs() : Promise.resolve(),
-                            ]);
-                        }
-                    }, { timeout: 5000 });
+                        scheduleDeferredLoad();
+                    }, { timeout: 2000 });
                 } else {
                     setTimeout(() => {
-                        if (!cancelled) {
-                            void Promise.allSettled([
-                                loadSkills(),
-                                loadMailSettings(),
-                                loadChatContext(),
-                                canManageLLMConfig ? loadLLMConfigs() : Promise.resolve(),
-                            ]);
-                        }
-                    }, 500);
+                        scheduleDeferredLoad();
+                    }, 200);
                 }
             } catch (error) {
                 if (!criticalLoaded && !cancelled) {
@@ -2872,7 +2926,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             try {
                 // 设置 loading 状态，防止显示空状态
                 setCandidatesLoading(true);
-                const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+                const scopedOrgCode = resolveScopedOrgCode(selectedDepartmentScope, selectedOrgScope);
+                const orgCodeParam = scopedOrgCode ? `org_code=${encodeURIComponent(scopedOrgCode)}` : "";
                 const url = orgCodeParam ? `/candidates?limit=25&offset=0&${orgCodeParam}` : "/candidates?limit=25&offset=0";
                 const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
                 if (!cancelled) {
@@ -2890,26 +2945,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
         }
 
-        async function loadLogsFirstPage(): Promise<void> {
-            try {
-                const data = await getCachedLogs(
-                    'logs:first-page',
-                    () => recruitmentApi<{items: AITaskLog[]; total: number}>("/ai-task-logs?limit=20&offset=0")
-                );
-                if (!cancelled) {
-                    setAllAiLogs(data?.items || []);
-                    setAiLogTotal(data?.total || 0);
-                }
-            } catch (error) {
-                toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.aiTasks, formatActionError(error)));
-            }
-        }
-
         void bootstrap();
         return () => {
             cancelled = true;
         };
-    }, [canManageLLMConfig]);
+    }, []);
 
     useEffect(() => {
         if (bootstrapping) {
@@ -2948,9 +2988,17 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setCandidateDetail(null);
             return;
         }
-        // 在候选人页面或岗位页面（查看候选人详情时）都需要加载候选人详情
-        void loadCandidateDetail(selectedCandidateId);
-    }, [selectedCandidateId]);
+        const shouldLoadCandidateDetail = (
+            activePage === "candidates"
+            || positionCandidateDetailOpen
+            || talentPoolCandidateDetailOpen
+        );
+        if (!shouldLoadCandidateDetail) {
+            return;
+        }
+        // 仅在详情真正可见时加载，避免 workspace 首屏预拉详情
+        void loadCandidateDetail(selectedCandidateId, { includeDuplicates: true });
+    }, [activePage, positionCandidateDetailOpen, selectedCandidateId, talentPoolCandidateDetailOpen]);
 
     useEffect(() => {
         if (!selectedLogId) {
@@ -2967,220 +3015,299 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }, [activePage]);
 
-    const pendingRefreshRef = useRef<number | null>(null);
-
-    // unmount 时清理所有待执行的 debounce 回调
     useEffect(() => {
-        return () => {
-            if (pendingRefreshRef.current) {
-                window.clearTimeout(pendingRefreshRef.current);
+        if (activePage === "settings-skills") {
+            void ensureSkillsLoaded();
+        }
+    }, [activePage]);
+
+    useEffect(() => {
+        if (activePage === "settings-mail") {
+            void ensureMailSettingsLoaded();
+        }
+    }, [activePage]);
+
+    useEffect(() => {
+        if (activePage === "settings-models" && canManageLLMConfig) {
+            void ensureLLMConfigsLoaded();
+        }
+    }, [activePage, canManageLLMConfig]);
+
+    const scrollCandidateListToTop = useCallback(() => {
+        const viewport = resolveScrollAreaViewport(candidateListScrollEl);
+        if (!viewport) {
+            return;
+        }
+        viewport.scrollTo({
+            top: 0,
+            behavior: "auto",
+        });
+    }, [candidateListScrollEl]);
+
+    const syncRealtimeCandidateLists = useCallback((
+        snapshot?: Partial<CandidateSummary> | null,
+        options?: { insertIntoCandidateList?: boolean },
+    ) => {
+        if (!snapshot?.id) {
+            return;
+        }
+        const candidateId = Number(snapshot.id);
+        if (!Number.isFinite(candidateId)) {
+            return;
+        }
+        const nextItem = { ...snapshot, id: candidateId } as CandidateSummary;
+        const normalizedStatus = String(nextItem.status || "").trim().toLowerCase();
+        const shouldShowInCandidateList = normalizedStatus !== "" && !CANDIDATE_LIST_EXCLUDED_STATUSES.has(normalizedStatus);
+
+        if (shouldShowInCandidateList) {
+            const existsInCandidateList = allCandidatesRef.current.some((candidate) => candidate.id === candidateId);
+            if (existsInCandidateList) {
+                setAllCandidates((current) => current.map((candidate) => (
+                    candidate.id === candidateId ? { ...candidate, ...nextItem } : candidate
+                )));
+            } else if (options?.insertIntoCandidateList) {
+                setAllCandidates((current) => deduplicateCandidates([nextItem, ...current]));
+                setCandidateTotal((current) => current + 1);
             }
-        };
+            if (allTalentPoolCandidatesRef.current.some((candidate) => candidate.id === candidateId)) {
+                setAllTalentPoolCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
+            }
+            return;
+        }
+
+        if (allCandidatesRef.current.some((candidate) => candidate.id === candidateId)) {
+            setAllCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
+            setCandidateTotal((current) => Math.max(0, current - 1));
+        }
+
+        if (!normalizedStatus || !CANDIDATE_LIST_EXCLUDED_STATUSES.has(normalizedStatus)) {
+            return;
+        }
+
+        if (allTalentPoolCandidatesRef.current.some((candidate) => candidate.id === candidateId)) {
+            setAllTalentPoolCandidates((current) => current.map((candidate) => (
+                candidate.id === candidateId ? { ...candidate, ...nextItem } : candidate
+            )));
+            return;
+        }
+        setAllTalentPoolCandidates((current) => deduplicateCandidates([nextItem, ...current]));
+    }, []);
+
+    const applyCandidateDetailSnapshot = useCallback((snapshot?: Partial<CandidateSummary> | null) => {
+        if (!snapshot?.id) {
+            return;
+        }
+        const candidateId = Number(snapshot.id);
+        if (!Number.isFinite(candidateId)) {
+            return;
+        }
+        setCandidateDetail((current) => {
+            if (!current || current.candidate.id !== candidateId) {
+                return current;
+            }
+            return {
+                ...current,
+                candidate: {
+                    ...current.candidate,
+                    ...snapshot,
+                    id: candidateId,
+                },
+            };
+        });
     }, []);
 
     useTaskSSE(
         activePage === "candidates" || activePage === "audit" || activePage === "workspace" || activePage === "talent-pool",
         {
             onTaskCompleted: (event) => {
+                const isTerminalScreeningTask = event.task_type === "screening_flow"
+                    && TERMINAL_SCREENING_TASK_STATUSES.has(String(event.status || "").trim().toLowerCase());
+                const sanitizedCandidateSnapshot = isTerminalScreeningTask
+                    ? sanitizeTerminalScreeningCandidateSnapshot(event.candidate_snapshot, event.status)
+                    : event.candidate_snapshot;
                 if (event.task_id) {
                     stopTaskMonitor(event.task_id);
                     if (event.related_candidate_id) {
                         clearActiveScreeningTask(event.related_candidate_id, event.task_id);
                     }
                 }
+                if (event.related_candidate_id && isTerminalScreeningTask) {
+                    recentlyCompletedScreeningCandidatesRef.current.set(event.related_candidate_id, Date.now());
+                }
+                if (sanitizedCandidateSnapshot) {
+                    syncRealtimeCandidateLists(sanitizedCandidateSnapshot);
+                    applyCandidateDetailSnapshot(sanitizedCandidateSnapshot);
+                }
                 if (event.related_candidate_id && event.task_type === "screening_flow") {
-                    const failedLike = new Set(["failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "quota_exceeded", "rate_limited", "upstream_timeout", "request_failed"]);
-                    setAllCandidates((current) => current.map((candidate) => {
-                        if (candidate.id !== event.related_candidate_id) {
-                            return candidate;
+                    setAllCandidates((current) => current.map((candidate) => (
+                        candidate.id === event.related_candidate_id
+                            ? {
+                                ...candidate,
+                                active_screening_task_id: null,
+                                active_screening_task_type: null,
+                                active_screening_task_status: null,
+                                active_screening_status: null,
+                                active_screening_stage: null,
+                                active_screening_auto_retry_scheduled: false,
+                            }
+                            : candidate
+                    )));
+                    setCandidateDetail((current) => {
+                        if (!current || current.candidate.id !== event.related_candidate_id) {
+                            return current;
                         }
-                        const nextStatus = failedLike.has(String(event.status || "").trim()) ? "screening_failed" : candidate.status;
                         return {
-                            ...candidate,
-                            status: nextStatus,
-                            display_status: failedLike.has(String(event.status || "").trim()) ? "screening_failed" : candidate.display_status,
-                            display_status_reason: failedLike.has(String(event.status || "").trim())
-                                ? sanitizeCandidateFacingErrorText(event.status || "", { context: "screening", language })
-                                : candidate.display_status_reason,
-                            active_screening_task_id: undefined,
-                            active_screening_task_status: "",
-                            active_screening_status: "",
-                            active_screening_stage: "",
-                            active_screening_auto_retry_scheduled: false,
+                            ...current,
+                            candidate: {
+                                ...current.candidate,
+                                active_screening_run_id: null,
+                                active_screening_task_id: null,
+                                active_screening_task_type: null,
+                                active_screening_task_status: null,
+                                active_screening_status: null,
+                                active_screening_stage: null,
+                                active_screening_auto_retry_scheduled: false,
+                                ...(sanitizedCandidateSnapshot || {}),
+                            },
                         };
-                    }));
-                    if (selectedCandidateIdRef.current === event.related_candidate_id) {
+                    });
+                    const failedLike = new Set(["failed", "invalid_result", "json_parse_failed", "timeout", "retry_exhausted", "quota_exceeded", "rate_limited", "upstream_timeout", "request_failed"]);
+                    if (!event.candidate_snapshot) {
+                        setAllCandidates((current) => current.map((candidate) => {
+                            if (candidate.id !== event.related_candidate_id) {
+                                return candidate;
+                            }
+                            const nextStatus = failedLike.has(String(event.status || "").trim()) ? "screening_failed" : candidate.status;
+                            return {
+                                ...candidate,
+                                status: nextStatus,
+                                display_status: failedLike.has(String(event.status || "").trim()) ? "screening_failed" : candidate.display_status,
+                                display_status_reason: failedLike.has(String(event.status || "").trim())
+                                    ? sanitizeCandidateFacingErrorText(event.status || "", { context: "screening", language })
+                                    : candidate.display_status_reason,
+                                active_screening_task_id: undefined,
+                                active_screening_task_status: "",
+                                active_screening_status: "",
+                                active_screening_stage: "",
+                                active_screening_auto_retry_scheduled: false,
+                            };
+                        }));
+                    }
+                    if (
+                        selectedCandidateIdRef.current === event.related_candidate_id
+                        && (activePage === "candidates" || positionCandidateDetailOpen || talentPoolCandidateDetailOpen)
+                    ) {
                         void loadCandidateDetail(event.related_candidate_id, { silent: true, force: true });
                     }
                 }
-                // 只刷新列表，dashboard/stats 由 batch_summary 统一补齐
-                if (pendingRefreshRef.current) {
-                    window.clearTimeout(pendingRefreshRef.current);
+                if (activePage === "audit") {
+                    void loadLogs({ silent: true });
                 }
-                pendingRefreshRef.current = window.setTimeout(() => {
-                    void loadCandidates({ silent: true, force: true });
-                }, 500);
             },
             onCandidateUpdated: (event) => {
-                if (event.candidate_id && event.task_type === "screening_flow" && event.auto_requeue_scheduled) {
+                const isTerminalScreeningTask = event.task_type === "screening_flow"
+                    && TERMINAL_SCREENING_TASK_STATUSES.has(String(event.status || "").trim().toLowerCase());
+                const sanitizedCandidateSnapshot = isTerminalScreeningTask
+                    ? sanitizeTerminalScreeningCandidateSnapshot(event.candidate_snapshot, event.status)
+                    : event.candidate_snapshot;
+                if (sanitizedCandidateSnapshot) {
+                    const nextSnapshot = event.screening_enqueue_failed
+                        ? {
+                            ...sanitizedCandidateSnapshot,
+                            display_status_reason: event.error_message || "自动初筛入队失败，请稍后重试",
+                        }
+                        : sanitizedCandidateSnapshot;
+                    const nextStatus = String(event.status || sanitizedCandidateSnapshot.status || "").trim().toLowerCase();
+                    syncRealtimeCandidateLists(nextSnapshot, {
+                        insertIntoCandidateList: nextStatus === "pending_screening" || nextStatus === "screening_running",
+                    });
+                    applyCandidateDetailSnapshot(nextSnapshot);
+                } else if (event.candidate_id && event.screening_enqueue_failed) {
                     setAllCandidates((current) => current.map((candidate) => (
                         candidate.id === event.candidate_id
                             ? {
                                 ...candidate,
-                                active_screening_task_id: event.task_id ?? candidate.active_screening_task_id,
-                                active_screening_task_type: event.task_type ?? candidate.active_screening_task_type,
-                                active_screening_task_status: "queued",
-                                active_screening_status: "queued",
-                                active_screening_stage: "queued",
-                                active_screening_auto_retry_scheduled: true,
+                                display_status_reason: event.error_message || "自动初筛入队失败，请稍后重试",
                             }
                             : candidate
                     )));
-                    if (pendingRefreshRef.current) {
-                        window.clearTimeout(pendingRefreshRef.current);
+                }
+                if (event.candidate_id && event.task_type === "screening_flow" && event.auto_requeue_scheduled) {
+                    if (!event.candidate_snapshot) {
+                        setAllCandidates((current) => current.map((candidate) => (
+                            candidate.id === event.candidate_id
+                                ? {
+                                    ...candidate,
+                                    active_screening_task_id: event.task_id ?? candidate.active_screening_task_id,
+                                    active_screening_task_type: event.task_type ?? candidate.active_screening_task_type,
+                                    active_screening_task_status: "queued",
+                                    active_screening_status: "queued",
+                                    active_screening_stage: "queued",
+                                    active_screening_auto_retry_scheduled: true,
+                                }
+                                : candidate
+                        )));
                     }
-                    pendingRefreshRef.current = window.setTimeout(() => {
-                        void loadCandidates({ silent: true, force: true });
-                        if (selectedCandidateIdRef.current === event.candidate_id) {
-                            void loadCandidateDetail(event.candidate_id, { silent: true, force: true });
-                        }
-                    }, 150);
                     return;
                 }
                 if (event.candidate_id && event.task_type?.startsWith("ai_position")) {
                     const newStatus = event.status;
-                    // 匹配成功（pending_screening/screening_running）：从人才池移除，加入候选人列表
-                    if (newStatus === "pending_screening" || newStatus === "screening_running") {
-                        setAllTalentPoolCandidates(prev => prev.filter(c => c.id !== event.candidate_id));
-                        // 触发候选人列表刷新
-                        void loadCandidates({ silent: true, force: true });
-                    } else {
-                        // unmatched 或 matching：更新人才池中的匹配信息
-                        setAllTalentPoolCandidates(prev => prev.map(c =>
-                            c.id === event.candidate_id
-                                ? {
-                                    ...c,
-                                    status: newStatus ?? c.status,
-                                    ai_match_position_id: event.ai_match_position_id ?? c.ai_match_position_id,
-                                    ai_match_position_title: event.ai_match_position_title ?? c.ai_match_position_title,
-                                    ai_match_reason: event.ai_match_reason ?? c.ai_match_reason,
-                                    ai_potential_position: event.ai_potential_position ?? c.ai_potential_position,
-                                    ai_potential_reason: event.ai_potential_reason ?? c.ai_potential_reason,
-                                }
-                                : c
-                        ));
+                    if (!event.candidate_snapshot) {
+                        if (newStatus === "pending_screening" || newStatus === "screening_running") {
+                            const existingTalentPoolCandidate = allTalentPoolCandidatesRef.current.find((candidate) => candidate.id === event.candidate_id);
+                            if (existingTalentPoolCandidate) {
+                                syncRealtimeCandidateLists({
+                                    ...existingTalentPoolCandidate,
+                                    status: newStatus,
+                                    ai_match_position_id: event.ai_match_position_id ?? existingTalentPoolCandidate.ai_match_position_id,
+                                    ai_match_position_title: event.ai_match_position_title ?? existingTalentPoolCandidate.ai_match_position_title,
+                                    ai_match_reason: event.ai_match_reason ?? existingTalentPoolCandidate.ai_match_reason,
+                                    ai_potential_position: event.ai_potential_position ?? existingTalentPoolCandidate.ai_potential_position,
+                                    ai_potential_reason: event.ai_potential_reason ?? existingTalentPoolCandidate.ai_potential_reason,
+                                }, { insertIntoCandidateList: true });
+                            } else {
+                                setAllTalentPoolCandidates((current) => current.filter((candidate) => candidate.id !== event.candidate_id));
+                            }
+                        } else {
+                            setAllTalentPoolCandidates((current) => current.map((candidate) => (
+                                candidate.id === event.candidate_id
+                                    ? {
+                                        ...candidate,
+                                        status: newStatus ?? candidate.status,
+                                        ai_match_position_id: event.ai_match_position_id ?? candidate.ai_match_position_id,
+                                        ai_match_position_title: event.ai_match_position_title ?? candidate.ai_match_position_title,
+                                        ai_match_reason: event.ai_match_reason ?? candidate.ai_match_reason,
+                                        ai_potential_position: event.ai_potential_position ?? candidate.ai_potential_position,
+                                        ai_potential_reason: event.ai_potential_reason ?? candidate.ai_potential_reason,
+                                    }
+                                    : candidate
+                            )));
+                        }
+                    }
+                    if (
+                        selectedCandidateIdRef.current === event.candidate_id
+                        && (activePage === "candidates" || positionCandidateDetailOpen || talentPoolCandidateDetailOpen)
+                    ) {
+                        void loadCandidateDetail(event.candidate_id, { silent: true, force: true });
                     }
                 }
             },
             onBatchSummary: () => {
-                // 批次结束：清掉 onTaskCompleted 残留的 debounce timer，直接刷新
-                if (pendingRefreshRef.current) {
-                    window.clearTimeout(pendingRefreshRef.current);
-                    pendingRefreshRef.current = null;
+                if (activePage === "workspace") {
+                    void refreshCandidateStats();
                 }
-                void loadCandidates({ silent: true, force: true });
-                void refreshCandidateStats();
-                // AI匹配批次完成后刷新人才池
-                void loadTalentPoolCandidates();
+                if (activePage === "audit") {
+                    void loadLogs({ silent: true });
+                }
             },
             onReconnect: () => {
-                // 重连只刷新列表
-                if (pendingRefreshRef.current) {
-                    window.clearTimeout(pendingRefreshRef.current);
+                if (activePage === "audit") {
+                    void loadLogs({ silent: true });
                 }
-                pendingRefreshRef.current = window.setTimeout(() => {
-                    void loadCandidates({ silent: true, force: true });
-                }, 500);
             },
             // onTaskProgress 移除：审计日志不在初筛过程中实时更新
         },
     );
-
-    useEffect(() => {
-        const shouldPollLogs = false;
-        const shouldPollCandidateDetail = activePage === "candidates";
-        const shouldPollCandidateList = false;
-        const shouldPollLogDetail = activePage === "audit";
-        const hasVisibleLiveActivity = (
-            (shouldPollLogs && hasLiveLogActivity)
-            || (shouldPollCandidateDetail && hasLiveCandidateActivity)
-            || (shouldPollCandidateList && hasLiveCandidateListActivity)
-        );
-        if (!screeningSubmitting && !interviewGenerating && !chatSending && !resumeMailSubmitting && jdGenerationStatus === "idle" && !hasVisibleLiveActivity) {
-            return undefined;
-        }
-        let cancelled = false;
-        let polling = false;
-        let failureCount = 0;
-        let timerId: number | null = null;
-
-        const scheduleNextPoll = (delay: number) => {
-            if (cancelled) {
-                return;
-            }
-            timerId = window.setTimeout(() => {
-                void poll();
-            }, delay);
-        };
-
-        const poll = async () => {
-            if (cancelled || polling || !mountedRef.current) {
-                return;
-            }
-            polling = true;
-            try {
-                const tasks: Promise<unknown>[] = [];
-                if (shouldPollCandidateDetail && selectedCandidateId && !candidateDetailLoading) {
-                    tasks.push(loadCandidateDetail(selectedCandidateId, {silent: true}));
-                }
-                if (shouldPollLogDetail && selectedLogId && !logDetailLoading) {
-                    tasks.push(loadLogDetail(selectedLogId, {silent: true}));
-                }
-                if (tasks.length) {
-                    const results = await Promise.allSettled(tasks);
-                    failureCount = results.some((result) => result.status === "rejected")
-                        ? Math.min(failureCount + 1, 3)
-                        : 0;
-                } else {
-                    failureCount = 0;
-                }
-            } finally {
-                polling = false;
-                scheduleNextPoll(getPollingDelay(
-                    pageVisibleRef.current,
-                    failureCount,
-                    PAGE_ACTIVITY_POLL_VISIBLE_INTERVAL_MS,
-                    PAGE_ACTIVITY_POLL_HIDDEN_INTERVAL_MS,
-                    PAGE_ACTIVITY_POLL_MAX_INTERVAL_MS,
-                ));
-            }
-        };
-
-        void poll();
-        return () => {
-            cancelled = true;
-            if (timerId) {
-                window.clearTimeout(timerId);
-            }
-        };
-    }, [
-        activePage,
-        screeningSubmitting,
-        interviewGenerating,
-        chatSending,
-        resumeMailSubmitting,
-        jdGenerationStatus,
-        hasLiveLogActivity,
-        hasLiveCandidateActivity,
-        hasLiveCandidateListActivity,
-        selectedCandidateId,
-        selectedLogId,
-        pageVisible,
-        logsLoading,
-        candidatesLoading,
-        candidateDetailLoading,
-        logDetailLoading,
-    ]);
 
     useEffect(() => {
         const current = positionDetail?.current_jd_version;
@@ -3217,14 +3344,26 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [candidateDetail]);
 
     useEffect(() => {
-        void checkDuplicatesForCandidate(candidateDetail);
-    }, [candidateDetail?.candidate.id, candidateDetail?.candidate.phone, candidateDetail?.candidate.email]);
+        const shouldCheckDuplicates = (
+            activePage === "candidates"
+            || positionCandidateDetailOpen
+            || talentPoolCandidateDetailOpen
+        );
+        if (!shouldCheckDuplicates) {
+            setDuplicateCandidates([]);
+        }
+    }, [activePage, positionCandidateDetailOpen, talentPoolCandidateDetailOpen]);
 
     useEffect(() => {
         setSelectedInterviewSkillIds([]);
         setInterviewSkillSelectionDirty(false);
         setCandidateProcessLogsExpanded(false);
-        if (selectedCandidateId) {
+        const shouldLoadCandidateSideData = (
+            activePage === "candidates"
+            || positionCandidateDetailOpen
+            || talentPoolCandidateDetailOpen
+        );
+        if (selectedCandidateId && shouldLoadCandidateSideData) {
             void loadInterviewSchedules(selectedCandidateId);
             void loadOffers(selectedCandidateId);
             void loadFollowUps(selectedCandidateId);
@@ -3233,7 +3372,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             setOffers([]);
             setFollowUps([]);
         }
-    }, [selectedCandidateId]);
+    }, [activePage, positionCandidateDetailOpen, selectedCandidateId, talentPoolCandidateDetailOpen]);
+
+    useEffect(() => {
+        if (activePage !== "assistant") {
+            return;
+        }
+        void loadChatContext();
+    }, [activePage]);
 
     useEffect(() => {
         if (candidateViewMode !== "list" || !candidateListScrollEl) {
@@ -3549,7 +3695,24 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     async function loadMetadata() {
         try {
-            const data = await runDedupedRequest("metadata", () => recruitmentApi<RecruitmentMetadata>("/metadata"));
+            const data = await (async () => {
+                if (sharedRecruitmentMetadataCache) {
+                    return sharedRecruitmentMetadataCache;
+                }
+                if (sharedRecruitmentMetadataPromise) {
+                    return sharedRecruitmentMetadataPromise;
+                }
+                const pending = recruitmentApi<RecruitmentMetadata>("/metadata")
+                    .then((result) => {
+                        sharedRecruitmentMetadataCache = result;
+                        return result;
+                    })
+                    .finally(() => {
+                        sharedRecruitmentMetadataPromise = null;
+                    });
+                sharedRecruitmentMetadataPromise = pending;
+                return pending;
+            })();
             if (mountedRef.current) {
                 setMetadata(data);
             }
@@ -3563,9 +3726,24 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     async function loadOrganizationCatalog() {
         setOrganizationCatalogLoading(true);
         try {
-            const data = await runDedupedRequest("organization-catalog", async () => {
-                return recruitmentApi<RecruitmentOrganizationScope>("/organization-scope");
-            });
+            const data = await (async () => {
+                if (sharedOrganizationScopeCache) {
+                    return sharedOrganizationScopeCache;
+                }
+                if (sharedOrganizationScopePromise) {
+                    return sharedOrganizationScopePromise;
+                }
+                const pending = recruitmentApi<RecruitmentOrganizationScope>("/organization-scope")
+                    .then((result) => {
+                        sharedOrganizationScopeCache = result;
+                        return result;
+                    })
+                    .finally(() => {
+                        sharedOrganizationScopePromise = null;
+                    });
+                sharedOrganizationScopePromise = pending;
+                return pending;
+            })();
             if (mountedRef.current) {
                 setOrganizationCatalog(data.organizations || []);
                 setAuthorizedOrgCodes(
@@ -3651,21 +3829,33 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function loadCandidates(options?: { silent?: boolean; force?: boolean }) {
+    function resolveScopedOrgCode(departmentScope?: string, orgScope?: string) {
+        const normalizedDepartmentScope = String(departmentScope || "").trim();
+        if (normalizedDepartmentScope && normalizedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE) {
+            return normalizeRecruitmentOrgCode(normalizedDepartmentScope);
+        }
+        const normalizedCompanyScope = String(orgScope || "").trim();
+        if (normalizedCompanyScope) {
+            return normalizeRecruitmentOrgCode(normalizedCompanyScope);
+        }
+        return "";
+    }
+
+    async function loadCandidates(options?: { silent?: boolean; force?: boolean; departmentScope?: string; orgScope?: string }) {
         const requestId = candidatesLoadRequestIdRef.current + 1;
         candidatesLoadRequestIdRef.current = requestId;
         if (!options?.silent) {
             setCandidatesLoading(true);
         }
         try {
-            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
-            const refreshLimit = Math.max(25, allCandidates.length);
-            const url = orgCodeParam ? `/candidates?limit=${refreshLimit}&offset=0&${orgCodeParam}` : `/candidates?limit=${refreshLimit}&offset=0`;
+            const scopedOrgCode = resolveScopedOrgCode(options?.departmentScope ?? selectedDepartmentScope, options?.orgScope ?? selectedOrgScope);
+            const orgCodeParam = scopedOrgCode ? `org_code=${encodeURIComponent(scopedOrgCode)}` : "";
+            const url = orgCodeParam ? "/candidates?limit=25&offset=0&" + orgCodeParam : "/candidates?limit=25&offset=0";
             const request = () => recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
             const result = options?.force
                 ? await request()
                 : await runDedupedRequest(
-                    `candidates:first-page${orgCodeParam ? `:${selectedDepartmentScope}` : ""}`,
+                    `candidates:first-page${scopedOrgCode ? `:${scopedOrgCode}` : ""}`,
                     request,
                 );
             if (!mountedRef.current || candidatesLoadRequestIdRef.current !== requestId) {
@@ -3687,6 +3877,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
+    async function refreshCandidatesManually() {
+        await loadCandidates({ force: true });
+        scrollCandidateListToTop();
+        toast.success(isZh ? "已刷新，显示最新前25条" : "Refreshed. Showing the latest 25 candidates.");
+    }
+
     const loadingMoreCandidatesRef = useRef(false);
     async function loadMoreCandidates() {
         if (candidatesLoading || loadingMoreCandidatesRef.current || allCandidates.length >= candidateTotal) return;
@@ -3694,7 +3890,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setIsLoadingMoreCandidates(true);
         try {
             const offset = allCandidates.length;
-            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const scopedOrgCode = resolveScopedOrgCode(selectedDepartmentScope, selectedOrgScope);
+            const orgCodeParam = scopedOrgCode ? `&org_code=${encodeURIComponent(scopedOrgCode)}` : "";
             const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(`/candidates?limit=25&offset=${offset}${orgCodeParam}`);
             if (mountedRef.current) {
                 setAllCandidates(prev => deduplicateCandidates([...prev, ...(data?.items || [])]));
@@ -3708,25 +3905,35 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function loadTalentPoolCandidates() {
-        setTalentPoolLoading(true);
+    async function loadTalentPoolCandidates(options?: { departmentScope?: string; orgScope?: string; silent?: boolean }) {
+        if (!options?.silent) {
+            setTalentPoolLoading(true);
+        }
         try {
-            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `?org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const scopedOrgCode = resolveScopedOrgCode(options?.departmentScope ?? selectedDepartmentScope, options?.orgScope ?? selectedOrgScope);
+            const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
             const data = await recruitmentApi<CandidateSummary[]>(`/candidates/talent-pool${orgCodeParam}`);
             if (mountedRef.current) {
                 setAllTalentPoolCandidates(data || []);
             }
+            return data || [];
         } catch (error) {
             console.error("Failed to load talent pool candidates:", error);
-            toast.error(isZh ? "加载人才库失败" : "Failed to load talent pool");
+            if (!options?.silent) {
+                toast.error(isZh ? "加载人才库失败" : "Failed to load talent pool");
+            }
+            return [];
         } finally {
-            if (mountedRef.current) {
+            if (!options?.silent && mountedRef.current) {
                 setTalentPoolLoading(false);
             }
         }
     }
 
-    async function loadCandidateDetail(candidateId: number, options?: { silent?: boolean; force?: boolean }) {
+    async function loadCandidateDetail(
+        candidateId: number,
+        options?: { silent?: boolean; force?: boolean; includeDuplicates?: boolean },
+    ) {
         if (!options?.silent) {
             setCandidateDetailLoading(true);
         }
@@ -3738,18 +3945,39 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     `candidate-detail:${candidateId}:${options?.silent ? "silent" : "full"}`,
                     request,
                 );
-            if (!mountedRef.current || selectedCandidateIdRef.current !== candidateId) {
-                return data;
+            const recentCompletedAt = recentlyCompletedScreeningCandidatesRef.current.get(candidateId);
+            const shouldSanitizeRecentTerminalScreening = Boolean(
+                recentCompletedAt
+                && Date.now() - recentCompletedAt < 15_000
+                && (
+                    isLiveTaskStatus(data?.candidate?.active_screening_task_status)
+                    || data?.candidate?.display_status === "screening_running"
+                ),
+            );
+            const normalizedData = shouldSanitizeRecentTerminalScreening
+                ? {
+                    ...data,
+                    candidate: (sanitizeTerminalScreeningCandidateSnapshot(data.candidate, "success") || data.candidate) as CandidateSummary,
+                }
+                : data;
+            if (!isLiveTaskStatus(normalizedData?.candidate?.active_screening_task_status)) {
+                recentlyCompletedScreeningCandidatesRef.current.delete(candidateId);
             }
-            setCandidateDetail(data);
-            const nextPositionId = data.candidate.position_id ?? null;
+            if (!mountedRef.current || selectedCandidateIdRef.current !== candidateId) {
+                return normalizedData;
+            }
+            setCandidateDetail(normalizedData);
+            const nextPositionId = normalizedData.candidate.position_id ?? null;
             if (
-                data.candidate.id !== (chatContext.candidate_id ?? null)
+                normalizedData.candidate.id !== (chatContext.candidate_id ?? null)
                 || nextPositionId !== (chatContext.position_id ?? null)
             ) {
-                void saveChatContext(nextPositionId, chatContext.skill_ids, data.candidate.id, {quiet: true});
+                void saveChatContext(nextPositionId, chatContext.skill_ids, normalizedData.candidate.id, {quiet: true});
             }
-            return data;
+            if (options?.includeDuplicates) {
+                void checkDuplicatesForCandidate(normalizedData);
+            }
+            return normalizedData;
         } catch (error) {
             if (!options?.silent) {
                 toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.candidateDetail, formatActionError(error)));
@@ -3789,7 +4017,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function loadLogs(options?: { silent?: boolean }) {
+    async function loadLogs(options?: { silent?: boolean; departmentScope?: string; orgScope?: string }) {
         if (!options?.silent) {
             setLogsLoading(true);
         }
@@ -3800,8 +4028,9 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             const statusParam = logStatusFilter !== "all"
                 ? `&status=${encodeURIComponent(logStatusFilter)}`
                 : "";
-            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
-            const dedupKey = `logs:${options?.silent ? "silent" : "full"}:${logTaskTypeFilter}:${logStatusFilter}${orgCodeParam ? `:${selectedDepartmentScope}` : ""}`;
+            const scopedOrgCode = resolveScopedOrgCode(options?.departmentScope ?? selectedDepartmentScope, options?.orgScope ?? selectedOrgScope);
+            const orgCodeParam = scopedOrgCode ? `&org_code=${encodeURIComponent(scopedOrgCode)}` : "";
+            const dedupKey = `logs:${options?.silent ? "silent" : "full"}:${logTaskTypeFilter}:${logStatusFilter}${scopedOrgCode ? `:${scopedOrgCode}` : ""}`;
             const data = await runDedupedRequest(
                 dedupKey,
                 () => recruitmentApi<{items: AITaskLog[]; total: number}>(
@@ -3839,7 +4068,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             const statusParam = logStatusFilter !== "all"
                 ? `&status=${encodeURIComponent(logStatusFilter)}`
                 : "";
-            const orgCodeParam = selectedDepartmentScope !== ALL_COMPANY_DEPARTMENTS_VALUE ? `&org_code=${encodeURIComponent(selectedDepartmentScope)}` : "";
+            const scopedOrgCode = resolveScopedOrgCode(selectedDepartmentScope, selectedOrgScope);
+            const orgCodeParam = scopedOrgCode ? `&org_code=${encodeURIComponent(scopedOrgCode)}` : "";
             const data = await recruitmentApi<{items: AITaskLog[]; total: number}>(
                 `/ai-task-logs?limit=20&offset=${offset}${taskTypeParam}${statusParam}${orgCodeParam}`
             );
@@ -3893,6 +4123,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (mountedRef.current) {
                 setAllSkills(data);
             }
+            skillsLoadedOnceRef.current = true;
             return data;
         } catch (error) {
             toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.skills, formatActionError(error)));
@@ -3912,6 +4143,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             if (mountedRef.current) {
                 setAllLlmConfigs(data);
             }
+            llmConfigsLoadedOnceRef.current = true;
             return data;
         } catch (error) {
             toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.modelConfigs, formatActionError(error)));
@@ -3957,6 +4189,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 setAllResumeMailDispatches(dispatches);
                 setMailAutoPushGlobalConfig(autoPushConfig);
             }
+            mailSettingsLoadedOnceRef.current = true;
             return {senders, recipients, dispatches, autoPushConfig};
         } catch (error) {
             toast.error(recruitmentToast.loadFailed(recruitmentToastEntities.mailSettings, formatActionError(error)));
@@ -3964,6 +4197,38 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         } finally {
             setMailSettingsLoading(false);
         }
+    }
+
+    async function ensureSkillsLoaded(options?: { force?: boolean }) {
+        if (!options?.force && skillsLoadedOnceRef.current) {
+            return allSkills;
+        }
+        const data = await loadSkills();
+        skillsLoadedOnceRef.current = true;
+        return data;
+    }
+
+    async function ensureMailSettingsLoaded(options?: { force?: boolean }) {
+        if (!options?.force && mailSettingsLoadedOnceRef.current) {
+            return {
+                senders: allMailSenderConfigs,
+                recipients: allMailRecipients,
+                dispatches: allResumeMailDispatches,
+                autoPushConfig: mailAutoPushGlobalConfig,
+            };
+        }
+        const data = await loadMailSettings();
+        mailSettingsLoadedOnceRef.current = true;
+        return data;
+    }
+
+    async function ensureLLMConfigsLoaded(options?: { force?: boolean }) {
+        if (!options?.force && llmConfigsLoadedOnceRef.current) {
+            return allLlmConfigs;
+        }
+        const data = await loadLLMConfigs();
+        llmConfigsLoadedOnceRef.current = true;
+        return data;
     }
 
     async function saveMailAutoPushGlobalConfig(nextConfig: RecruitmentMailAutoPushGlobalConfig) {
@@ -3988,24 +4253,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         }
     }
 
-    async function refreshCandidateStats(departmentScope?: string) {
+    async function refreshCandidateStats(departmentScope?: string, orgScope?: string) {
         try {
-            const deptScope = departmentScope ?? selectedDepartmentScope;
-            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
-                ? `?org_code=${encodeURIComponent(deptScope)}`
-                : selectedOrgScope
-                    ? `?org_code=${encodeURIComponent(selectedOrgScope)}`
-                    : "";
+            const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
+            const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
             const f = await recruitmentApi<import("@/lib/recruitment-api").RecruitmentFunnelData>(`/candidates/funnel${orgCodeParam}`);
             setFunnelData(f);
         } catch {}
         try {
-            const deptScope = departmentScope ?? selectedDepartmentScope;
-            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
-                ? `?org_code=${encodeURIComponent(deptScope)}`
-                : selectedOrgScope
-                    ? `?org_code=${encodeURIComponent(selectedOrgScope)}`
-                    : "";
+            const scopedOrgCode = resolveScopedOrgCode(departmentScope ?? selectedDepartmentScope, orgScope ?? selectedOrgScope);
+            const orgCodeParam = scopedOrgCode ? `?org_code=${encodeURIComponent(scopedOrgCode)}` : "";
             const s = await recruitmentApi<import("@/lib/recruitment-api").SourceStatsData>(`/candidates/source-stats${orgCodeParam}`);
             setSourceStatsData(s);
         } catch {}
@@ -4027,8 +4284,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 : companyScope
                     ? `org_code=${encodeURIComponent(companyScope)}`
                     : "";
-            const refreshLimit = Math.max(25, allCandidates.length);
-            const url = orgCodeParam ? `/candidates?limit=${refreshLimit}&offset=0&${orgCodeParam}` : `/candidates?limit=${refreshLimit}&offset=0`;
+            const url = orgCodeParam ? `/candidates?limit=25&offset=0&${orgCodeParam}` : "/candidates?limit=25&offset=0";
             const d = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
             setAllCandidates(deduplicateCandidates(d?.items || []));
             setCandidateTotal(d?.total || 0);
@@ -4223,33 +4479,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             // Batch tasks: skip startTaskMonitor polling, rely on SSE events
             // (task_completed / batch_summary) to drive UI updates instead of
             // N independent HTTP poll loops.
-        } else {
-            startTaskMonitor(taskId, {
-                onFinish: async (log) => {
-                    if (!mountedRef.current) return;
-                    clearActiveScreeningTask(candidateId, taskId);
-                    if (selectedCandidateIdRef.current === candidateId) {
-                        await loadCandidateDetail(candidateId, { silent: true, force: true });
-                    }
-                    if (options?.suppressFinishToast) return;
-                    if (log.status === "success" || log.status === "fallback") {
-                        toast.success(recruitmentToast.screeningCompleted(log.status === "fallback"));
-                        return;
-                    }
-                    if (log.status === "cancelled") {
-                        toast.success(recruitmentUiText.screeningStopped);
-                        return;
-                    }
-                    if (log.status === "failed") {
-                        toast.error(recruitmentUiText.screeningFailed(
-                            sanitizeCandidateFacingErrorText(log.error_message || recruitmentToast.unknownError, {
-                                context: "screening",
-                                language,
-                            }),
-                        ));
-                    }
-                },
-            });
         }
     }
 
@@ -6190,11 +6419,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             // 智能匹配模式跳人才库，指定岗位模式跳候选人列表
             if (resumeUploadMode === "smart") {
                 navigateToRecruitmentPage("talent-pool");
+                if (activePage === "talent-pool") {
+                    void loadTalentPoolCandidates({ silent: true });
+                }
             } else {
                 navigateToRecruitmentPage("candidates");
+                void refreshCoreData();
             }
-            // Background refresh (don't block UI)
-            void refreshCoreData();
         } catch (error) {
             if (error instanceof Error && error.name === "AbortError") {
                 toast.warning(recruitmentToast.uploadCancelled);
@@ -6974,6 +7205,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function openMailSenderEditor(sender?: RecruitmentMailSenderConfig) {
+        void ensureMailSettingsLoaded();
         if (sender) {
             setMailSenderEditingId(sender.id);
             setMailSenderForm({
@@ -7080,6 +7312,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function openMailRecipientEditor(recipient?: RecruitmentMailRecipient) {
+        void ensureMailSettingsLoaded();
         if (recipient) {
             setMailRecipientEditingId(recipient.id);
             setMailRecipientForm({
@@ -7154,6 +7387,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         candidateIds?: number[],
         overrides?: Partial<ResumeMailFormState> & { mode?: ResumeMailDialogMode; sourceDispatchId?: number | null },
     ) {
+        void ensureMailSettingsLoaded();
         const nextCandidateIds = Array.from(new Set(
             (candidateIds?.length
                 ? candidateIds
@@ -7178,6 +7412,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function openResumeMailReplayDialog(dispatch: RecruitmentResumeMailDispatch) {
+        void ensureMailSettingsLoaded();
         openResumeMailDialog(dispatch.candidate_ids, {
             mode: "resend",
             sourceDispatchId: dispatch.id,
@@ -7842,6 +8077,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function openSkillEditor(skill?: RecruitmentSkill) {
+        void ensureSkillsLoaded();
         if (skill) {
             const taskTypes = (skill.task_types || []) as SkillTaskKind[];
             const isBasicMode = taskTypes.length > 0 && !taskTypes.includes("screening");
@@ -7897,6 +8133,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function openSkillEditorByTaskKind(taskKind: SkillTaskKind) {
+        void ensureSkillsLoaded();
         const nextSkillForm = emptySkillForm();
         nextSkillForm.taskTypes = [taskKind];
         const nextEditorData = emptyScreeningSkillForm();
@@ -7916,6 +8153,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function openSkillEditorWithAI(boundPositionId: number | null = null) {
+        void ensureSkillsLoaded();
         setSkillEditingId(null);
         setSkillForm(emptySkillForm());
         setSkillEditorData(emptyScreeningSkillForm());
@@ -7931,6 +8169,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function openSkillEditorForPosition(taskKind: SkillTaskKind, bindCategory: "jdSkillIds" | "screeningSkillIds" | "interviewSkillIds") {
+        void ensureSkillsLoaded();
         const roleName = positionForm.title.trim();
         const bindingPositionId = positionDialogMode === "edit" ? selectedPositionId : null;
         const empty = emptyScreeningSkillForm();
@@ -8207,6 +8446,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function openLLMEditor(config?: RecruitmentLLMConfig) {
+        void ensureLLMConfigsLoaded();
         if (config) {
             setLlmEditingId(config.id);
             setLlmForm({
@@ -8233,6 +8473,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     function copyLLMEditor(config: RecruitmentLLMConfig) {
+        void ensureLLMConfigsLoaded();
         setLlmEditingId(null);
         setLlmForm({
             configKey: `${config.config_key}-copy`,
@@ -9801,8 +10042,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     await loadTalentPoolCandidates();
                 }}
                 onRefresh={async () => {
-                    await loadCandidates({ force: true });
-                    toast.success(recruitmentToast.refreshed(recruitmentToastEntities.candidates));
+                    await refreshCandidatesManually();
                 }}
                 batchUpdateStatus={batchUpdateStatus}
                 duplicateCandidates={duplicateCandidates}
@@ -10045,11 +10285,29 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setSelectedDepartmentScope(deptScope);
         setOrgSwitching(true);
         try {
-            await refreshCoreData({ silent: true, departmentScope: deptScope, orgScope });
+            if (activePage === "workspace") {
+                await Promise.allSettled([
+                    loadCandidates({ silent: true, force: true, departmentScope: deptScope, orgScope }),
+                    refreshCandidateStats(deptScope, orgScope),
+                ]);
+                return;
+            }
+            if (activePage === "candidates") {
+                await loadCandidates({ silent: true, force: true, departmentScope: deptScope, orgScope });
+                return;
+            }
+            if (activePage === "talent-pool") {
+                await loadTalentPoolCandidates({ silent: true, departmentScope: deptScope, orgScope });
+                return;
+            }
+            if (activePage === "audit") {
+                await loadLogs({ silent: true, departmentScope: deptScope, orgScope });
+                return;
+            }
         } finally {
             setOrgSwitching(false);
         }
-    }, [refreshCoreData]);
+    }, [activePage, refreshCandidateStats]);
 
     if (bootstrapping) {
         return (

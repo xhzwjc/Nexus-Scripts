@@ -715,8 +715,8 @@ export function AuditPage({
             }
             return;
         }
-        if (!selectedLogVisible) {
-            setSelectedLogId(firstVisibleAuditLogId);
+        if (selectedLogId != null && !selectedLogVisible) {
+            setSelectedLogId(null);
         }
     }, [firstVisibleAuditLogId, selectedLogVisible, selectedLogId, setSelectedLogId]);
 

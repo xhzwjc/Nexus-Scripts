@@ -1,6 +1,126 @@
 import { useEffect, useRef } from "react";
 
 import { authenticatedFetch } from "@/lib/auth";
+import type { CandidateSummary } from "@/lib/recruitment-api";
+
+type ListenerEntry = {
+  getHandlers: () => TaskSSEHandlers;
+};
+
+type SharedSSEConnection = {
+  listeners: Map<symbol, ListenerEntry>;
+  abortController: AbortController | null;
+  reconnectTimer: number | null;
+  closeTimer: number | null;
+  reconnectDelay: number;
+  isConnecting: boolean;
+  hasConnectedOnce: boolean;
+};
+
+const sharedSSEConnections = new Map<string, SharedSSEConnection>();
+const SSE_CLOSE_GRACE_MS = 250;
+
+function getSharedConnection(baseUrl: string): SharedSSEConnection {
+  let connection = sharedSSEConnections.get(baseUrl);
+  if (!connection) {
+    connection = {
+      listeners: new Map(),
+      abortController: null,
+      reconnectTimer: null,
+      closeTimer: null,
+      reconnectDelay: 2000,
+      isConnecting: false,
+      hasConnectedOnce: false,
+    };
+    sharedSSEConnections.set(baseUrl, connection);
+  }
+  return connection;
+}
+
+function dispatchSharedEvent(
+  connection: SharedSSEConnection,
+  dispatcher: (handlers: TaskSSEHandlers) => void,
+) {
+  connection.listeners.forEach(({ getHandlers }) => {
+    dispatcher(getHandlers());
+  });
+}
+
+async function ensureSharedConnection(baseUrl: string, connection: SharedSSEConnection) {
+  if (connection.isConnecting || connection.abortController || connection.listeners.size === 0) {
+    return;
+  }
+
+  connection.isConnecting = true;
+  const abortController = new AbortController();
+  connection.abortController = abortController;
+  const wasReconnected = connection.hasConnectedOnce;
+
+  try {
+    const response = await authenticatedFetch(`${baseUrl}/task-events`, {
+      headers: { Accept: "text/event-stream" },
+      signal: abortController.signal,
+    });
+    if (!response.body) {
+      return;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    connection.reconnectDelay = 2000;
+    connection.hasConnectedOnce = true;
+
+    if (wasReconnected) {
+      dispatchSharedEvent(connection, (handlers) => handlers.onReconnect?.());
+    }
+
+    while (connection.listeners.size > 0) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      let sep = buffer.indexOf("\n\n");
+      while (sep !== -1) {
+        const rawEvent = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        sep = buffer.indexOf("\n\n");
+        const dataLine = rawEvent.split("\n").find((line) => line.startsWith("data: "));
+        if (!dataLine) {
+          continue;
+        }
+        try {
+          const data: TaskSSEEvent = JSON.parse(dataLine.slice(6));
+          dispatchSharedEvent(connection, (handlers) => {
+            if (data.type === "task_progress") handlers.onTaskProgress?.(data);
+            else if (data.type === "task_completed") handlers.onTaskCompleted?.(data);
+            else if (data.type === "candidate_updated") handlers.onCandidateUpdated?.(data);
+            else if (data.type === "batch_summary") handlers.onBatchSummary?.(data);
+          });
+        } catch {
+          // ignore malformed events
+        }
+      }
+    }
+  } catch {
+    // ignore fetch errors (network, abort, etc.)
+  } finally {
+    connection.isConnecting = false;
+    connection.abortController = null;
+    if (connection.listeners.size === 0) {
+      if (connection.reconnectTimer) {
+        window.clearTimeout(connection.reconnectTimer);
+        connection.reconnectTimer = null;
+      }
+      return;
+    }
+    connection.reconnectTimer = window.setTimeout(() => {
+      connection.reconnectTimer = null;
+      void ensureSharedConnection(baseUrl, connection);
+    }, connection.reconnectDelay);
+    connection.reconnectDelay = Math.min(connection.reconnectDelay * 1.5, 30_000);
+  }
+}
 
 export type TaskSSEEvent = {
   type: "task_progress" | "task_completed" | "candidate_updated" | "batch_summary" | "reconnect";
@@ -16,7 +136,10 @@ export type TaskSSEEvent = {
   ai_match_position_title?: string | null;
   ai_potential_position?: string | null;
   ai_potential_reason?: string | null;
+  screening_enqueue_failed?: boolean;
+  error_message?: string | null;
   batch_id?: string;
+  candidate_snapshot?: Partial<CandidateSummary> | null;
 };
 
 export type TaskSSEHandlers = {
@@ -34,73 +157,54 @@ export function useTaskSSE(
 ) {
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
+  const listenerIdRef = useRef<symbol | null>(null);
 
   useEffect(() => {
-    if (!enabled) return;
-
-    let abortController: AbortController | null = null;
-    let reconnectTimer: number | null = null;
-    let reconnectDelay = 2000;
-    let destroyed = false;
-    let isFirstConnection = true;
-
-    async function connect() {
-      if (destroyed) return;
-      abortController = new AbortController();
-      const wasFirstConnection = isFirstConnection;
-      try {
-        const response = await authenticatedFetch(`${baseUrl}/task-events`, {
-          headers: { Accept: "text/event-stream" },
-          signal: abortController.signal,
-        });
-        if (!response.body) return;
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        reconnectDelay = 2000;
-        isFirstConnection = false;
-        while (!destroyed) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let sep = buffer.indexOf("\n\n");
-          while (sep !== -1) {
-            const rawEvent = buffer.slice(0, sep);
-            buffer = buffer.slice(sep + 2);
-            sep = buffer.indexOf("\n\n");
-            const dataLine = rawEvent.split("\n").find((l) => l.startsWith("data: "));
-            if (dataLine) {
-              try {
-                const data: TaskSSEEvent = JSON.parse(dataLine.slice(6));
-                const h = handlersRef.current;
-                if (data.type === "task_progress") h.onTaskProgress?.(data);
-                else if (data.type === "task_completed") h.onTaskCompleted?.(data);
-                else if (data.type === "candidate_updated") h.onCandidateUpdated?.(data);
-                else if (data.type === "batch_summary") h.onBatchSummary?.(data);
-              } catch {
-                // ignore malformed events
-              }
-            }
-          }
-        }
-      } catch {
-        // ignore fetch errors (network, abort, etc.)
-      }
-      if (!destroyed) {
-        if (!wasFirstConnection) {
-          handlersRef.current.onReconnect?.();
-        }
-        reconnectTimer = window.setTimeout(connect, reconnectDelay);
-        reconnectDelay = Math.min(reconnectDelay * 1.5, 30_000);
-      }
+    if (!enabled) {
+      return;
     }
 
-    connect();
+    const connection = getSharedConnection(baseUrl);
+    const listenerId = Symbol("task-sse-listener");
+    listenerIdRef.current = listenerId;
+
+    if (connection.closeTimer) {
+      window.clearTimeout(connection.closeTimer);
+      connection.closeTimer = null;
+    }
+    if (connection.reconnectTimer) {
+      window.clearTimeout(connection.reconnectTimer);
+      connection.reconnectTimer = null;
+    }
+
+    connection.listeners.set(listenerId, {
+      getHandlers: () => handlersRef.current,
+    });
+    void ensureSharedConnection(baseUrl, connection);
 
     return () => {
-      destroyed = true;
-      if (reconnectTimer) window.clearTimeout(reconnectTimer);
-      abortController?.abort();
+      const sharedConnection = getSharedConnection(baseUrl);
+      if (listenerIdRef.current) {
+        sharedConnection.listeners.delete(listenerIdRef.current);
+      }
+      listenerIdRef.current = null;
+      if (sharedConnection.listeners.size > 0) {
+        return;
+      }
+      sharedConnection.closeTimer = window.setTimeout(() => {
+        if (sharedConnection.listeners.size > 0) {
+          return;
+        }
+        if (sharedConnection.reconnectTimer) {
+          window.clearTimeout(sharedConnection.reconnectTimer);
+          sharedConnection.reconnectTimer = null;
+        }
+        sharedConnection.abortController?.abort();
+        sharedConnection.abortController = null;
+        sharedConnection.isConnecting = false;
+        sharedConnection.closeTimer = null;
+        sharedSSEConnections.delete(baseUrl);
+      }, SSE_CLOSE_GRACE_MS);
     };
   }, [enabled, baseUrl]);
 }
