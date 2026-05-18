@@ -5108,6 +5108,9 @@ def _classify_screening_task_failure(exc: Exception) -> Tuple[str, str]:
 
 
 def _classify_ai_match_failure(exc: Exception) -> Tuple[str, str]:
+    message = str(exc or "").strip()
+    if "未提取到可识别文本" in message or "文本内容不足" in message:
+        return "resume_text_unavailable", "简历未提取到可识别文本，请上传文本版 PDF 或 Word 后重试。"
     failure_code, _ = _classify_infra_failure(exc)
     if failure_code == "quota_exceeded":
         return "quota_exceeded", "模型额度不足，请充值或更换模型后再试。"
@@ -6536,6 +6539,42 @@ class RecruitmentService:
 
     def _extract_resume_file_raw_text(self, resume_file: RecruitmentResumeFile) -> str:
         return extract_resume_text(_resolve_resume_storage_path(resume_file.storage_path), resume_file.file_ext or "")
+
+    def _extract_resume_file_raw_text_lenient(self, resume_file: RecruitmentResumeFile) -> str:
+        """宽松模式提取简历文本，跳过 MIN_RESUME_TEXT_LENGTH 验证。
+        用于 AI 岗位匹配场景，即使提取到的文本较短也比没有好。
+        """
+        from .recruitment_utils import (
+            extract_text_from_pdf,
+            extract_text_from_docx,
+            clean_resume_text,
+            _is_image_file,
+            _is_truncated_image_text,
+        )
+        file_path = _resolve_resume_storage_path(resume_file.storage_path)
+        ext = (resume_file.file_ext or file_path.suffix or "").lower()
+        if _is_image_file(file_path):
+            return ""
+        try:
+            if ext == ".pdf":
+                text = clean_resume_text(extract_text_from_pdf(file_path))
+            elif ext == ".docx":
+                text = clean_resume_text(extract_text_from_docx(file_path))
+            else:
+                text = clean_resume_text(file_path.read_text(encoding="utf-8", errors="ignore"))
+            meaningful_chars = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", text))
+            if _is_truncated_image_text(text) or meaningful_chars < 24:
+                logger.warning(
+                    "[AI_MATCH] Lenient extraction ignored low-signal resume text resume_file_id=%s meaningful_chars=%s file=%s",
+                    getattr(resume_file, "id", None),
+                    meaningful_chars,
+                    file_path,
+                )
+                return ""
+            return text
+        except Exception:
+            logger.debug("[AI_MATCH] Lenient extraction failed for file %s", file_path, exc_info=True)
+            return ""
 
     def _can_reuse_existing_parse_result(
         self,
@@ -10205,7 +10244,10 @@ class RecruitmentService:
             "reused_existing_parse": latest_screening_validation_meta.get("reused_existing_parse") if isinstance(latest_screening_validation_meta, dict) else None,
             "reused_existing_score": latest_screening_validation_meta.get("reused_existing_score") if isinstance(latest_screening_validation_meta, dict) else None,
         }
-        candidate_payload = _compact_candidate_detail_value(self._serialize_candidate_summary(candidate, _preloaded_score_row=score_row), max_items=48)
+        # 候选人详情需要保留完整 summary 字段。
+        # 之前这里经过 compact 后，字典字段会按 max_items 截断，导致 talent_pool_reason
+        # 等靠后的字段在详情接口里丢失，前端只能把已归档人才误判成“待识别/历史人才库数据”。
+        candidate_payload = self._serialize_candidate_summary(candidate, _preloaded_score_row=score_row)
         workflow_memory_payload = self._serialize_workflow_memory(workflow_memory, compact=True) if workflow_memory else None
         serialized_activity: List[Dict[str, Any]] = []
         for item in activity:
@@ -10705,30 +10747,51 @@ class RecruitmentService:
         return results
 
     def _build_ai_match_resume_text(self, candidate: RecruitmentCandidate) -> str:
+        # 1. 优先使用已成功的解析结果
         parse_row = self._get_current_parse_result(candidate)
         raw_text = str(getattr(parse_row, "raw_text", "") or "").strip() if parse_row else ""
+
+        # 2. 如果没有成功的解析结果，尝试查找任意状态的解析结果（可能正在处理中或失败但有 raw_text）
+        if not raw_text and candidate.latest_resume_file_id and candidate.latest_parse_result_id:
+            try:
+                any_parse_row = self.db.query(RecruitmentResumeParseResult).filter(
+                    RecruitmentResumeParseResult.id == candidate.latest_parse_result_id,
+                ).first()
+                if any_parse_row and any_parse_row.resume_file_id == candidate.latest_resume_file_id:
+                    raw_text = str(getattr(any_parse_row, "raw_text", "") or "").strip()
+                    if raw_text:
+                        logger.info("[AI_MATCH] Using raw_text from non-success parse result candidate_id=%s parse_status=%s text_len=%d",
+                                    candidate.id, any_parse_row.status, len(raw_text))
+            except Exception:
+                logger.warning("[AI_MATCH] Failed to fetch any parse result for candidate_id=%s", candidate.id, exc_info=True)
+
+        # 3. 尝试从简历文件直接提取文本（严格模式 → 宽松模式）
         if not raw_text and candidate.latest_resume_file_id:
             try:
                 resume_file = self._get_resume_file(candidate.latest_resume_file_id)
-                raw_text = self._extract_resume_file_raw_text(resume_file)
+                try:
+                    raw_text = self._extract_resume_file_raw_text(resume_file)
+                except Exception:
+                    logger.warning("[AI_MATCH] Strict text extraction failed for candidate_id=%s, trying lenient mode", candidate.id, exc_info=True)
+                    raw_text = self._extract_resume_file_raw_text_lenient(resume_file)
+                    if raw_text:
+                        logger.info("[AI_MATCH] Lenient extraction succeeded for candidate_id=%s text_len=%d", candidate.id, len(raw_text))
             except Exception:
-                logger.warning("Failed to extract raw resume text for ai match candidate_id=%s", candidate.id, exc_info=True)
+                logger.warning("[AI_MATCH] All text extraction methods failed for candidate_id=%s", candidate.id, exc_info=True)
 
         normalized_text = str(raw_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
         normalized_text = re.sub(r"\n{3,}", "\n\n", normalized_text)
-        if normalized_text:
+        meaningful_chars = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", normalized_text))
+        if normalized_text and meaningful_chars >= 24:
             excerpt_limit = min(len(normalized_text), 18000)
             excerpt_target = min(len(normalized_text), max(len(normalized_text) // 2, 2000))
             return normalized_text[: min(excerpt_target, excerpt_limit)].strip()
 
-        fallback_lines = [
-            str(candidate.name or "").strip(),
-            str(candidate.current_company or "").strip(),
-            str(candidate.years_of_experience or "").strip(),
-            str(candidate.education or "").strip(),
-            str(candidate.city or "").strip(),
-        ]
-        return "\n".join(line for line in fallback_lines if line)
+        logger.warning(
+            "[AI_MATCH] No usable resume text for candidate_id=%s after parse/file extraction; aborting smart match instead of using metadata fallback",
+            candidate.id,
+        )
+        raise ValueError("简历未提取到可识别文本，请上传文本版 PDF 或 Word 后重试。")
 
     async def trigger_ai_position_match(
         self,
@@ -11121,8 +11184,13 @@ class RecruitmentService:
             from .match_scheduler import scheduler
             from .task_event_bus import TaskEventBus
 
-            logger.warning("[AI_MATCH] _on_match_error called: candidate_id=%d, error=%s, retry_count=%d",
-                           task.candidate_id, error, task.retry_count)
+            logger.warning("[AI_MATCH] _on_match_error called: candidate_id=%d, error=%s, error_type=%s, retry_count=%d",
+                           task.candidate_id, error, type(error).__name__, task.retry_count)
+            # 记录异常的详细信息
+            if hasattr(error, 'raw_response_text'):
+                logger.warning("[AI_MATCH] Error raw_response_text: %s", str(error.raw_response_text)[:500] if error.raw_response_text else "None")
+            if hasattr(error, 'debug_meta'):
+                logger.warning("[AI_MATCH] Error debug_meta: %s", error.debug_meta)
             failure_code, failure_message = _classify_ai_match_failure(error)
 
             # 检查是否被用户取消

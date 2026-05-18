@@ -28,7 +28,11 @@ import {getCurrentLanguage, useI18n} from "@/lib/i18n";
 import {cn} from "@/lib/utils";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
-import {sanitizeCandidateFacingErrorText} from "../utils";
+import {
+    isTalentPoolReidentifiable,
+    resolveTalentPoolDisplayStatus,
+    sanitizeCandidateFacingErrorText,
+} from "../utils";
 
 function getTalentPoolLocale(language = getCurrentLanguage()) {
     const isZh = language !== "en-US";
@@ -74,15 +78,20 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         aiStillNoMatch: isZh ? "重新识别后仍未找到匹配岗位" : "Still no match after re-identification",
         stopMatch: isZh ? "停止匹配" : "Stop",
         pendingGroup: isZh ? "待处理" : "Pending",
-        archivedGroup: isZh ? "归档候选人" : "Archived",
-        pendingGroupDesc: isZh ? "需要手动分配或重新识别" : "Need manual assignment or re-identification",
-        archivedGroupDesc: isZh ? "已存档，可在有合适岗位时分配" : "Archived, can be assigned when suitable positions are available",
-        archived: isZh ? "归档" : "Archived",
+        archivedGroup: isZh ? "人才库中" : "In Talent Pool",
+        pendingGroupDesc: isZh ? "AI 未找到岗位，可重新识别或手动分配" : "AI did not find a position. Re-identify or assign manually.",
+        archivedGroupDesc: isZh ? "已进入人才库，可按来源阶段继续分配岗位" : "Already in the talent pool and ready for reassignment.",
+        archived: isZh ? "人才库中" : "In Talent Pool",
         aiErrorDesc: isZh ? "AI 识别异常，请重新识别" : "AI error, please re-identify",
         autoArchivedDesc: isZh ? "初筛完成，系统自动归入" : "Auto-archived after screening",
         movedByHRDesc: (by: string, date: string, from: string) => isZh
             ? `由 ${by} 于 ${date} 归入，来自：${from}`
             : `Moved by ${by} on ${date}, from: ${from}`,
+        sourceStage: isZh ? "来源阶段" : "Source Stage",
+        sourceAiUnmatched: isZh ? "AI 未识别岗位" : "AI Unmatched",
+        sourceAiError: isZh ? "AI 识别异常" : "AI Error",
+        sourceScreeningArchived: isZh ? "初筛完成后入库" : "Archived After Screening",
+        sourceLegacyArchived: isZh ? "历史人才库数据" : "Legacy Talent Pool Record",
         candidatesCount: (count: number) => isZh ? `${count} 人` : `${count}`,
         noCandidates: isZh ? "人才库暂无候选人" : "No candidates in talent pool",
         noCandidatesDesc: isZh ? '上传简历时选择「暂不选择岗位」或「AI智能匹配」，未匹配的候选人将出现在这里' : 'Candidates will appear here when uploaded with "No Position" or "AI Smart Match" mode',
@@ -547,7 +556,7 @@ export function TalentPoolPage({
                                             reIdentifying={reIdentifyingIds.has(candidate.id)}
                                             reIdentifyFailed={reIdentifyFailedIds.has(candidate.id)}
                                             onToggleSelect={() => toggleSelect(candidate.id)}
-                                            onReIdentify={() => handleReIdentify(candidate.id)}
+                                            onReIdentify={isTalentPoolReidentifiable(candidate) ? () => handleReIdentify(candidate.id) : undefined}
                                             onManualAssign={() => openSingleAssign(candidate.id)}
                                             onView={() => onViewCandidate(candidate.id)}
                                             tr={tr}
@@ -692,11 +701,28 @@ function CandidateCard({
     isArchived?: boolean;
 }) {
     const hasAIMatch = !!candidate.ai_match_position_title;
+    const talentPoolDisplayStatus = resolveTalentPoolDisplayStatus(candidate);
     const screeningPositionTitle = candidate.screened_position_title || candidate.position_title;
     const aiRecommendedTitle = candidate.ai_match_position_title || null;
     const colorIdx = avatarColorIndex(candidate.name);
     const initial = avatarInitial(candidate.name);
-    const [potentialReasonExpanded, setPotentialReasonExpanded] = React.useState(false);
+    const sourceStageLabel = React.useMemo(() => {
+        const reason = String(candidate.talent_pool_reason || "").trim().toLowerCase();
+        if (reason === "unmatched_by_ai") {
+            return tr.sourceAiUnmatched;
+        }
+        if (reason === "ai_error") {
+            return tr.sourceAiError;
+        }
+        if (reason === "auto_archived") {
+            return tr.sourceScreeningArchived;
+        }
+        if (reason === "moved_by_hr") {
+            const sourceLabel = STATUS_LABEL_MAP[candidate.talent_pool_source_status || ""] || candidate.talent_pool_source_status || "";
+            return sourceLabel ? sourceLabel : tr.archived;
+        }
+        return tr.sourceLegacyArchived;
+    }, [candidate.talent_pool_reason, candidate.talent_pool_source_status, tr]);
 
     // 根据 talent_pool_reason 决定描述文案
     const getDescription = () => {
@@ -755,7 +781,7 @@ function CandidateCard({
                             <Loader2 className="h-3 w-3 animate-spin"/>
                             {tr.matching}
                         </span>
-                    ) : isArchived ? (
+                    ) : talentPoolDisplayStatus === "talent_pool" ? (
                         <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">{tr.archived}</span>
                     ) : (
                         <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{tr.pendingIdentify}</span>
@@ -769,6 +795,11 @@ function CandidateCard({
                     {candidate.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3"/>{candidate.phone}</span>}
                 </div>
                 {getDescription()}
+                {!isMatching ? (
+                    <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                        {`${tr.sourceStage}：${sourceStageLabel}`}
+                    </div>
+                ) : null}
                 {isMatching ? (
                     <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-400">
                         <div className="flex items-center gap-1.5">

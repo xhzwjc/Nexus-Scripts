@@ -171,6 +171,7 @@ import {
     parseStructuredLogOutput,
     resolveCandidateDisplayStatus,
     resolveCandidateFacingErrorContext,
+    resolveTalentPoolDisplayStatus,
     resolveLogSkillSnapshots,
     resolveTaskSkillIds,
     sanitizeCandidateFacingErrorText,
@@ -5371,6 +5372,30 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const score = candidateDetail.score;
         const resumeFiles = candidateDetail.resume_files || [];
         const statusHistory = candidateDetail.status_history || [];
+        const isTalentPoolDetail = talentPoolCandidateDetailOpen;
+        const candidateDisplayStatus = isTalentPoolDetail ? resolveTalentPoolDisplayStatus(c) : resolveCandidateDisplayStatus(c);
+        const talentPoolSourceStageText = (() => {
+            const reason = String(c.talent_pool_reason || "").trim().toLowerCase();
+            if (!isTalentPoolDetail) {
+                return null;
+            }
+            if (candidateDisplayStatus === "matching") {
+                return null;
+            }
+            if (reason === "unmatched_by_ai") {
+                return isZh ? "AI 未识别岗位" : "AI Unmatched";
+            }
+            if (reason === "ai_error") {
+                return isZh ? "AI 识别异常" : "AI Error";
+            }
+            if (reason === "auto_archived") {
+                return isZh ? "初筛完成后入库" : "Archived After Screening";
+            }
+            if (reason === "moved_by_hr") {
+                return c.talent_pool_source_status ? labelForCandidateStatus(c.talent_pool_source_status) : (isZh ? "手动归入人才库" : "Moved To Talent Pool");
+            }
+            return isZh ? "历史人才库数据" : "Legacy Talent Pool Record";
+        })();
 
         return (
             <div className="flex h-full min-h-0 flex-col">
@@ -5389,9 +5414,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto space-y-5 p-4">
                     <div className="flex flex-wrap items-center gap-2">
-                        <Badge className={cn("rounded-full border", statusBadgeClass("candidate", resolveCandidateDisplayStatus(c)))}>
-                            {labelForCandidateStatus(resolveCandidateDisplayStatus(c))}
+                        <Badge className={cn("rounded-full border", statusBadgeClass("candidate", candidateDisplayStatus))}>
+                            {labelForCandidateStatus(candidateDisplayStatus)}
                         </Badge>
+                        {talentPoolSourceStageText ? (
+                            <Badge variant="outline" className="rounded-full">
+                                {`${isZh ? "来源阶段" : "Source Stage"}：${talentPoolSourceStageText}`}
+                            </Badge>
+                        ) : null}
                         <Badge variant="outline" className="rounded-full">
                             {isZh ? "匹配度" : "Match"} {formatPercent(c.match_percent)}
                         </Badge>

@@ -1386,6 +1386,32 @@ export function resolveCandidateDisplayStatus(candidate?: CandidateSummary | nul
     return candidate.status || "";
 }
 
+export function resolveTalentPoolDisplayStatus(candidate?: CandidateSummary | null) {
+    if (!candidate) {
+        return "";
+    }
+    const normalizedStatus = String(candidate.status || "").trim().toLowerCase();
+    if (normalizedStatus === "matching") {
+        return "matching";
+    }
+    const reason = String(candidate.talent_pool_reason || "").trim().toLowerCase();
+    if (reason === "unmatched_by_ai" || reason === "ai_error") {
+        return "unmatched";
+    }
+    if (normalizedStatus === "talent_pool") {
+        return "talent_pool";
+    }
+    if (reason === "auto_archived" || reason === "moved_by_hr") {
+        return "talent_pool";
+    }
+    return normalizedStatus || "talent_pool";
+}
+
+export function isTalentPoolReidentifiable(candidate?: CandidateSummary | null) {
+    const reason = String(candidate?.talent_pool_reason || "").trim().toLowerCase();
+    return reason === "unmatched_by_ai" || reason === "ai_error";
+}
+
 function isLikelyTimeoutText(value: string) {
     const text = value.toLowerCase();
     return text.includes("timed out")
