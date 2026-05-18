@@ -195,13 +195,11 @@ const CandidateRow = React.memo(function CandidateRow({
                                     text={candidate.phone || candidate.email || tr.noContact}
                                     className="text-xs text-slate-500 dark:text-slate-400"
                                 />
-                                {candidate.ai_potential_position ? (
-                                    <HoverRevealText
-                                        text={`${isZh ? "转岗潜力" : "Potential Transition"}: ${candidate.ai_potential_position}${candidate.ai_potential_reason ? ` · ${candidate.ai_potential_reason}` : ""}`}
-                                        className="mt-1 text-xs text-sky-600 dark:text-sky-300"
-                                        tooltipClassName="max-w-md"
-                                    />
-                                ) : null}
+                                <HoverRevealText
+                                    text={`${isZh ? "转岗潜力" : "Potential Transition"}: ${candidate.ai_potential_position || (isZh ? "暂无转岗建议" : "No transition suggestion")}${candidate.ai_potential_reason ? ` · ${candidate.ai_potential_reason}` : ""}`}
+                                    className="mt-1 text-xs text-sky-600 dark:text-sky-300"
+                                    tooltipClassName="max-w-md"
+                                />
                                 {resumeMailSummary ? (
                                     <HoverRevealText
                                         text={resumeMailSummary}
@@ -2576,26 +2574,14 @@ export function CandidatesPage({
                                             <div data-no-zoom className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 cursor-text select-text">
                                                 {candidateDetailIdentityMeta ? <span>{candidateDetailIdentityMeta}</span> : null}
                                             </div>
-                                            {(candidateDetail.candidate.screened_position_title || candidateDetail.candidate.ai_match_position_title || candidateDetail.candidate.ai_potential_position) ? (
-                                                <div data-no-zoom className="mt-2 space-y-1 rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
-                                                    {candidateDetail.candidate.screened_position_title ? (
-                                                        <div className="font-medium">{`${isZh ? "初筛岗位" : "Screening Position"}：${candidateDetail.candidate.screened_position_title}`}</div>
-                                                    ) : null}
-                                                    {candidateDetail.candidate.ai_match_position_title ? (
-                                                        <div className={candidateDetail.candidate.screened_position_title ? "mt-1" : "font-medium"}>{`${isZh ? "AI 主匹配岗位" : "AI Primary Match"}：${candidateDetail.candidate.ai_match_position_title}`}</div>
-                                                    ) : null}
-                                                    {candidateDetail.candidate.ai_match_position_title && candidateDetail.candidate.ai_match_reason ? (
-                                                        <div className="text-sky-600 dark:text-sky-200/80">
-                                                            {sanitizeTaskMessage(candidateDetail.candidate.ai_match_reason, "ai_position_match")}
-                                                        </div>
-                                                    ) : null}
-                                                    {candidateDetail.candidate.ai_potential_position ? (
-                                                        <div className="border-t border-sky-200/70 pt-2 dark:border-sky-900/70">
-                                                            <div className="font-medium">{`${isZh ? "转岗潜力方向" : "Potential Transition"}：${candidateDetail.candidate.ai_potential_position}`}</div>
-                                                            {candidateDetail.candidate.ai_potential_reason ? (
-                                                                <div className="mt-1 text-sky-600 dark:text-sky-200/80">{candidateDetail.candidate.ai_potential_reason}</div>
-                                                            ) : null}
-                                                        </div>
+                                            {(candidateDetail.candidate.ai_potential_position || candidateDetail.candidate.ai_potential_reason) ? (
+                                                <div data-no-zoom className="mt-2 rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+                                                    <div className="font-medium">
+                                                        {`${isZh ? "转岗潜力方向" : "Potential Transition"}：`}
+                                                        {candidateDetail.candidate.ai_potential_position || (isZh ? "暂无" : "N/A")}
+                                                    </div>
+                                                    {candidateDetail.candidate.ai_potential_reason ? (
+                                                        <div className="mt-1 text-sky-600 dark:text-sky-200/80">{candidateDetail.candidate.ai_potential_reason}</div>
                                                     ) : null}
                                                 </div>
                                             ) : null}
@@ -3602,11 +3588,9 @@ export function CandidatesPage({
                                                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                             {candidate.position_title || tr.unassignedPosition} · {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))} · {tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
                                                         </p>
-                                                        {candidate.ai_potential_position ? (
-                                                            <p className="mt-1 text-xs text-sky-600 dark:text-sky-300">
-                                                                {`${isZh ? "转岗潜力" : "Potential Transition"}：${candidate.ai_potential_position}`}
-                                                            </p>
-                                                        ) : null}
+                                                        <p className="mt-1 text-xs text-sky-600 dark:text-sky-300">
+                                                            {`${isZh ? "转岗潜力" : "Potential Transition"}：${candidate.ai_potential_position || (isZh ? "暂无转岗建议" : "No transition suggestion")}`}
+                                                        </p>
                                                     </div>
                                                     <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.updated_at)}</p>
                                                 </button>

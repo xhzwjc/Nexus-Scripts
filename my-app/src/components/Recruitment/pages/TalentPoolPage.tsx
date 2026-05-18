@@ -769,10 +769,24 @@ function CandidateCard({
                     {candidate.phone && <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3"/>{candidate.phone}</span>}
                 </div>
                 {getDescription()}
-                {(screeningPositionTitle || aiRecommendedTitle || candidate.ai_potential_position) ? (
+                {isMatching ? (
+                    <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-400">
+                        <div className="flex items-center gap-1.5">
+                            <Loader2 className="h-3 w-3 animate-spin"/>
+                            <span>AI 正在分析简历，匹配岗位中...</span>
+                        </div>
+                    </div>
+                ) : (
                     <div className="mt-2 rounded-lg border border-sky-100 bg-sky-50/70 px-3 py-2 text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
                         {screeningPositionTitle ? <div className="font-medium">{`${tr.screeningPosition}：${screeningPositionTitle}`}</div> : null}
-                        {aiRecommendedTitle ? <div className={screeningPositionTitle ? "mt-1" : "font-medium"}>{`${tr.aiRecommendedPosition}：${aiRecommendedTitle}`}</div> : null}
+                        <div className={screeningPositionTitle ? "mt-1" : "font-medium"}>
+                            {`${tr.aiRecommendedPosition}：`}
+                            {aiRecommendedTitle ? (
+                                <span>{aiRecommendedTitle}</span>
+                            ) : (
+                                <span className="text-slate-400 dark:text-slate-500">暂无推荐岗位</span>
+                            )}
+                        </div>
                         {aiRecommendedTitle && candidate.ai_match_reason ? (
                             <div className="mt-1 text-sky-600/90 dark:text-sky-200/80">
                                 {sanitizeCandidateFacingErrorText(candidate.ai_match_reason, {
@@ -781,27 +795,21 @@ function CandidateCard({
                                 })}
                             </div>
                         ) : null}
-                        {candidate.ai_potential_position ? (
-                            <div className={screeningPositionTitle || aiRecommendedTitle ? "mt-1 border-t border-sky-200/70 pt-2 dark:border-sky-900/70" : ""}>
-                                <div className="font-medium">{`${tr.potentialDirection}：${candidate.ai_potential_position}`}</div>
-                                {candidate.ai_potential_reason ? (
-                                    <>
-                                        <button
-                                            type="button"
-                                            className="mt-1 text-[11px] font-medium text-sky-700 underline underline-offset-2 hover:text-sky-800 dark:text-sky-200 dark:hover:text-sky-100"
-                                            onClick={() => setPotentialReasonExpanded((current) => !current)}
-                                        >
-                                            {potentialReasonExpanded ? tr.collapseReason : tr.expandReason}
-                                        </button>
-                                        {potentialReasonExpanded ? (
-                                            <div className="mt-1 text-sky-600/90 dark:text-sky-200/80">{candidate.ai_potential_reason}</div>
-                                        ) : null}
-                                    </>
-                                ) : null}
+                        <div className={screeningPositionTitle || aiRecommendedTitle ? "mt-1 border-t border-sky-200/70 pt-2 dark:border-sky-900/70" : ""}>
+                            <div className="font-medium">
+                                {`${tr.potentialDirection}：`}
+                                {candidate.ai_potential_position ? (
+                                    <span>{candidate.ai_potential_position}</span>
+                                ) : (
+                                    <span className="text-slate-400 dark:text-slate-500">暂无转岗建议</span>
+                                )}
                             </div>
-                        ) : null}
+                            <div className="mt-1 text-sky-600/90 dark:text-sky-200/80">
+                                {candidate.ai_potential_reason || "暂无建议"}
+                            </div>
+                        </div>
                     </div>
-                ) : null}
+                )}
             </div>
             <div className="flex flex-shrink-0 items-center gap-1.5">
                 {hasAIMatch && onConfirmMatch && (

@@ -2843,29 +2843,27 @@ class RecruitmentAIGateway:
             response_mode="json",
         )
 
-        system_prompt = "你是招聘岗位匹配助手。根据候选人简历原文，从给定岗位列表中找出最匹配的岗位，并判断可培养的转岗潜力方向。只输出一个最终 JSON 对象，不要输出 <think>、分析过程、章节标题或任何 JSON 以外的内容。"
+        system_prompt = '你是资深招聘主管。看完简历后，以招聘主管视角推荐最合适的岗位，并给出转岗建议。只输出一个最终 JSON 对象，不要输出 <think>、分析过程、章节标题或任何 JSON 以外的内容。'
 
-        user_prompt = f"""## 系统岗位列表
+        user_prompt = f'''## 系统现有岗位（供参考，不限于此列表）
 {position_list}
 
-## 候选人简历（已截取前半段）
+## 候选人简历
 {resume_content}
 
 ## 规则
-1. 以简历原文中的实际工作经历、项目经历、技能和教育背景为主要依据，求职意向仅作参考
-2. 必须从岗位列表中选择，不能创造新岗位
-3. **必须有明确的匹配证据才能返回岗位ID**：候选人的核心技能、工作经历或专业方向与岗位要求有直接关联。"没有明显不匹配"不等于匹配
-4. 岗位描述模糊、无法判断是否匹配时，返回 null
-5. 无匹配时 position_id 返回 null，不要强行匹配
-6. confidence 返回 0-100 的整数，表示对“主匹配岗位”的把握；无匹配时返回 0
-7. potential_position 用中文概括候选人的“转岗潜力方向”，可以是岗位列表中的某个岗位名称，也可以是概括性方向；没有明显潜力时返回 null
-8. potential_reason 用中文，50字以内，说明为什么认为候选人具备该转岗潜力；没有明显潜力时返回 null
-9. reason 用中文，50字以内，说明匹配或不匹配的原因
-10. 不要输出推理过程、岗位分析、候选人分析、Markdown 标题或列表，只输出最终 JSON
+1. 你作为招聘主管，看完简历后推荐一个最合适的岗位名称（不限于系统岗位列表，可自行判断）
+2. 如果系统岗位列表中有匹配的，优先使用并返回 position_id；没有则 position_id 返回 null，position_title 仍要填写你推荐的岗位
+3. confidence 返回 0-100，表示你对推荐岗位的把握程度
+4. 转岗建议（potential_position）：推荐1个该候选人可以转岗的方向，基于其技能可迁移性判断
+5. 转岗原因（potential_reason）：50字以内，说明为什么具备该转岗潜力
+6. reason：50字以内，说明推荐该岗位的核心依据
+7. **只有简历信息严重缺失（如无工作经历、无技能、内容为空）时，才允许 potential_position 和 potential_reason 返回 null**
+8. 不要输出推理过程、Markdown 标题或列表，只输出最终 JSON
 
 ## 输出格式
-匹配成功：{{"position_id": 17, "position_title": "税务会计", "confidence": 88, "reason": "候选人有3年增值税申报经验，与岗位核心要求高度吻合", "potential_position": "财务分析", "potential_reason": "具备报表和数据分析基础，可向财务分析延展"}}
-无匹配：{{"position_id": null, "position_title": null, "confidence": 0, "reason": "候选人为产品经理背景，系统现有岗位均为财务和技术类，无对应方向", "potential_position": "售前解决方案", "potential_reason": "跨团队沟通和需求分析能力较强，可培养为售前方向"}}"""
+{{“position_id”: 17, “position_title”: “税务会计”, “confidence”: 88, “reason”: “3年增值税申报经验，与岗位核心要求高度吻合”, “potential_position”: “财务分析”, “potential_reason”: “具备报表和数据分析基础，可向财务分析延展”}}
+{{“position_id”: null, “position_title”: “产品经理”, “confidence”: 65, “reason”: “具备需求分析和跨团队协作经验，适合产品经理方向”, “potential_position”: “售前解决方案”, “potential_reason”: “跨团队沟通和需求分析能力较强，可培养为售前方向”}}'''
         try:
             result = self.generate_json(
                 task_type="ai_position_match",

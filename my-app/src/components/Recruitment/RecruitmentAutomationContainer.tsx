@@ -2745,7 +2745,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     useEffect(() => {
         if (activePage !== "talent-pool") {
             setTalentPoolCandidateDetailOpen(false);
-            setSelectedCandidateId(null);
         }
     }, [activePage]);
 
@@ -2753,11 +2752,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (activePage !== "candidates") {
             return;
         }
-        if (!selectedCandidateId || !visibleCandidateIdSet.has(selectedCandidateId)) {
+        // 如果没有选中候选人，清空详情
+        if (!selectedCandidateId) {
             setCandidateDetail(null);
             checkedDuplicateCandidateIdRef.current = null;
         }
-    }, [activePage, selectedCandidateId, visibleCandidateIdSet]);
+        // 如果选中的候选人不在候选人列表中，也清空详情（但从人才库跳转过来的情况除外）
+        // 注意：这里不再检查 visibleCandidateIdSet，因为从人才库跳转过来的候选人可能不在候选人列表中
+    }, [activePage, selectedCandidateId]);
 
     useEffect(() => {
         if (
@@ -5573,7 +5575,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         variant="outline"
                         className="w-full rounded-lg"
                         onClick={() => {
+                            const candidateId = selectedCandidateId;
                             onClose();
+                            if (candidateId) {
+                                setSelectedCandidateId(candidateId);
+                            }
                             navigateToRecruitmentPage("candidates");
                         }}
                     >
