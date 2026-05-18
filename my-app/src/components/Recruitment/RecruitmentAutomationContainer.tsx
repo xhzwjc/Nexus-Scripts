@@ -2749,6 +2749,16 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [activePage]);
 
     useEffect(() => {
+        if (activePage !== "candidates") {
+            return;
+        }
+        if (!selectedCandidateId || !visibleCandidateIdSet.has(selectedCandidateId)) {
+            setCandidateDetail(null);
+            checkedDuplicateCandidateIdRef.current = null;
+        }
+    }, [activePage, selectedCandidateId, visibleCandidateIdSet]);
+
+    useEffect(() => {
         if (
             talentPoolCandidateDetailOpen
             && selectedCandidateId
@@ -3134,16 +3144,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         activePage === "candidates" || activePage === "audit" || activePage === "workspace" || activePage === "talent-pool",
         {
             onTaskCompleted: (event) => {
-                console.log("[SSE_DEBUG] onTaskCompleted", {
-                    task_id: event.task_id,
-                    task_type: event.task_type,
-                    status: event.status,
-                    related_candidate_id: event.related_candidate_id,
-                    snapshot_display_status: event.candidate_snapshot?.display_status,
-                    snapshot_status: event.candidate_snapshot?.status,
-                    snapshot_ai_recommended_status: event.candidate_snapshot?.ai_recommended_status,
-                    snapshot_active_screening_task_id: event.candidate_snapshot?.active_screening_task_id,
-                });
                 const isRootScreeningTask = event.task_type === "screening_flow";
                 const isTerminalScreeningTask = isRootScreeningTask
                     && TERMINAL_SCREENING_TASK_STATUSES.has(String(event.status || "").trim().toLowerCase());
@@ -3160,13 +3160,6 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     recentlyCompletedScreeningCandidatesRef.current.set(event.related_candidate_id, Date.now());
                 }
                 if (sanitizedCandidateSnapshot) {
-                    console.log("[SSE_DEBUG] onTaskCompleted sanitized", {
-                        task_type: event.task_type,
-                        display_status: sanitizedCandidateSnapshot.display_status,
-                        status: sanitizedCandidateSnapshot.status,
-                        isTerminalScreeningTask,
-                        isRootScreeningTask,
-                    });
                     // 只有 screening_flow 根任务完成时才更新候选人列表的 display_status
                     // 子任务（resume_screening_one_pass/resume_parse/resume_score）完成时
                     // snapshot 的 display_status 可能还是 screening_running，不应写入列表
@@ -3242,17 +3235,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
             },
             onCandidateUpdated: (event) => {
-                console.log("[SSE_DEBUG] onCandidateUpdated", {
-                    task_id: event.task_id,
-                    task_type: event.task_type,
-                    status: event.status,
-                    candidate_id: event.candidate_id,
-                    snapshot_display_status: event.candidate_snapshot?.display_status,
-                    snapshot_status: event.candidate_snapshot?.status,
-                    snapshot_ai_recommended_status: event.candidate_snapshot?.ai_recommended_status,
-                    snapshot_active_screening_task_id: event.candidate_snapshot?.active_screening_task_id,
-                });
                 const isRootScreeningTask = event.task_type === "screening_flow";
+                const isAIPositionTask = Boolean(event.task_type?.startsWith("ai_position"));
                 const isTerminalScreeningTask = isRootScreeningTask
                     && TERMINAL_SCREENING_TASK_STATUSES.has(String(event.status || "").trim().toLowerCase());
                 const sanitizedCandidateSnapshot = isTerminalScreeningTask
@@ -3265,11 +3249,12 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             display_status_reason: event.error_message || "自动初筛入队失败，请稍后重试",
                         }
                         : sanitizedCandidateSnapshot;
-                    // 只有 screening_flow 根任务才更新候选人列表 display_status
-                    if (isRootScreeningTask) {
+                    if (isRootScreeningTask || isAIPositionTask) {
                         const nextStatus = String(event.status || sanitizedCandidateSnapshot.status || "").trim().toLowerCase();
                         syncRealtimeCandidateLists(nextSnapshot, {
-                            insertIntoCandidateList: nextStatus === "pending_screening" || nextStatus === "screening_running",
+                            insertIntoCandidateList: isAIPositionTask
+                                ? (nextStatus !== "" && !CANDIDATE_LIST_EXCLUDED_STATUSES.has(nextStatus))
+                                : (nextStatus === "pending_screening" || nextStatus === "screening_running"),
                         });
                     }
                     applyCandidateDetailSnapshot(nextSnapshot);
@@ -6786,7 +6771,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 body: JSON.stringify(payload),
             });
             toast.success(recruitmentToast.updated(recruitmentToastEntities.candidate));
-            await Promise.all([loadCandidateDetail(selectedCandidateId), loadCandidates(), refreshCandidateStats()]);
+            checkedDuplicateCandidateIdRef.current = null;
+            await Promise.all([loadCandidateDetail(selectedCandidateId, {includeDuplicates: true}), loadCandidates(), refreshCandidateStats()]);
         } catch (error) {
             toast.error(recruitmentToast.saveFailed(recruitmentToastEntities.candidate, formatActionError(error)));
         } finally {

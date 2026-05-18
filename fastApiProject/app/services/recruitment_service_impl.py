@@ -5199,17 +5199,6 @@ class RecruitmentService:
             )
             event_type = "task_completed" if is_terminal else "task_progress"
             candidate_snapshot = self._build_candidate_sse_snapshot(row.related_candidate_id)
-            if is_terminal and row.task_type in {SCREENING_FLOW_TASK_TYPE, "resume_parse", *SCREENING_SCORE_TASK_TYPES}:
-                logger.info(
-                    "[SSE_EMIT_DEBUG] task_id=%s task_type=%s task_status=%s event_type=%s candidate_id=%s "
-                    "snapshot_display_status=%s snapshot_status=%s snapshot_ai_recommended_status=%s "
-                    "snapshot_active_screening_task_id=%s",
-                    row.id, row.task_type, row.status, event_type, row.related_candidate_id,
-                    (candidate_snapshot or {}).get("display_status"),
-                    (candidate_snapshot or {}).get("status"),
-                    (candidate_snapshot or {}).get("ai_recommended_status"),
-                    (candidate_snapshot or {}).get("active_screening_task_id"),
-                )
             payload = {
                 "task_id": row.id,
                 "status": row.status,
@@ -10972,6 +10961,8 @@ class RecruitmentService:
                     )
                 else:
                     # 无匹配：标记为待识别
+                    candidate.ai_match_position_id = None
+                    candidate.ai_match_position_title = str((match_result or {}).get("position_title") or "").strip() or None
                     candidate.ai_match_reason = match_result.get("reason", "无匹配") if match_result else "无匹配"
                     candidate.ai_match_confidence = _parse_score_number(match_result.get("confidence")) if match_result else None
                     candidate.ai_match_at = datetime.now()
@@ -11051,16 +11042,21 @@ class RecruitmentService:
                             or str(candidate.status or "").strip()
                         )
                         if session_token:
+                            snapshot_ai_match_position_id = candidate_snapshot.get("ai_match_position_id") if isinstance(candidate_snapshot, dict) else None
+                            snapshot_ai_match_position_title = candidate_snapshot.get("ai_match_position_title") if isinstance(candidate_snapshot, dict) else None
+                            snapshot_ai_match_reason = candidate_snapshot.get("ai_match_reason") if isinstance(candidate_snapshot, dict) else None
+                            snapshot_ai_potential_position = candidate_snapshot.get("ai_potential_position") if isinstance(candidate_snapshot, dict) else None
+                            snapshot_ai_potential_reason = candidate_snapshot.get("ai_potential_reason") if isinstance(candidate_snapshot, dict) else None
                             payload = {
                                 "candidate_id": task.candidate_id,
                                 "batch_id": task.batch_id,
                                 "task_type": task_type,
                                 "status": final_status,
-                                "ai_match_reason": match_result.get("reason") if match_result else None,
-                                "ai_match_position_id": match_result.get("position_id") if match_result else None,
-                                "ai_match_position_title": match_result.get("position_title") if match_result else None,
-                                "ai_potential_position": match_result.get("potential_position") if match_result else None,
-                                "ai_potential_reason": match_result.get("potential_reason") if match_result else None,
+                                "ai_match_reason": snapshot_ai_match_reason or (match_result.get("reason") if match_result else None),
+                                "ai_match_position_id": snapshot_ai_match_position_id if snapshot_ai_match_position_id is not None else (match_result.get("position_id") if match_result else None),
+                                "ai_match_position_title": snapshot_ai_match_position_title or (match_result.get("position_title") if match_result else None),
+                                "ai_potential_position": snapshot_ai_potential_position or (match_result.get("potential_position") if match_result else None),
+                                "ai_potential_reason": snapshot_ai_potential_reason or (match_result.get("potential_reason") if match_result else None),
                                 "screening_enqueue_failed": True,
                                 "error_message": screening_enqueue_error_message,
                                 "candidate_snapshot": candidate_snapshot,
@@ -11088,16 +11084,21 @@ class RecruitmentService:
 
             # 推送 SSE 增量更新
             if session_token:
+                snapshot_ai_match_position_id = candidate_snapshot.get("ai_match_position_id") if isinstance(candidate_snapshot, dict) else None
+                snapshot_ai_match_position_title = candidate_snapshot.get("ai_match_position_title") if isinstance(candidate_snapshot, dict) else None
+                snapshot_ai_match_reason = candidate_snapshot.get("ai_match_reason") if isinstance(candidate_snapshot, dict) else None
+                snapshot_ai_potential_position = candidate_snapshot.get("ai_potential_position") if isinstance(candidate_snapshot, dict) else None
+                snapshot_ai_potential_reason = candidate_snapshot.get("ai_potential_reason") if isinstance(candidate_snapshot, dict) else None
                 payload = {
                     "candidate_id": task.candidate_id,
                     "batch_id": task.batch_id,
                     "task_type": task_type,
                     "status": final_status,
-                    "ai_match_reason": match_result.get("reason") if match_result else None,
-                    "ai_match_position_id": match_result.get("position_id") if match_result else None,
-                    "ai_match_position_title": match_result.get("position_title") if match_result else None,
-                    "ai_potential_position": match_result.get("potential_position") if match_result else None,
-                    "ai_potential_reason": match_result.get("potential_reason") if match_result else None,
+                    "ai_match_reason": snapshot_ai_match_reason or (match_result.get("reason") if match_result else None),
+                    "ai_match_position_id": snapshot_ai_match_position_id if snapshot_ai_match_position_id is not None else (match_result.get("position_id") if match_result else None),
+                    "ai_match_position_title": snapshot_ai_match_position_title or (match_result.get("position_title") if match_result else None),
+                    "ai_potential_position": snapshot_ai_potential_position or (match_result.get("potential_position") if match_result else None),
+                    "ai_potential_reason": snapshot_ai_potential_reason or (match_result.get("potential_reason") if match_result else None),
                 }
                 if screening_enqueue_failed:
                     payload["screening_enqueue_failed"] = True

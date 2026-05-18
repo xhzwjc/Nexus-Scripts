@@ -43,9 +43,13 @@ Rules:
 - Do not output HTML.
 """
 
+_COMMON_STRICT_JSON_OUTPUT_RULES = """- Return exactly one final JSON object.
+- Self-check before output: braces, brackets, quotes, and commas must all be valid.
+- Every array item must be a complete JSON value. If an item is an object, it must start with { and end with }.
+- Do not output markdown, comments, explanations, drafts, or multiple variants."""
+
 RESUME_PARSE_SYSTEM_PROMPT = """You are a recruitment resume parsing engine.
 Read the provided raw resume text and return strict JSON only.
-Do not wrap the response in markdown.
 Return this schema exactly:
 {
   "basic_info": {
@@ -64,6 +68,8 @@ Return this schema exactly:
   "projects": [],
   "summary": ""
 }
+JSON rules:
+""" + _COMMON_STRICT_JSON_OUTPUT_RULES + """
 Rules:
 - Extract factual information only.
 - If a field is missing, use an empty string or empty list.
@@ -257,8 +263,8 @@ RESUME_SCORE_SYSTEM_PROMPT_V3 = """你是 ATS 评分引擎。基于已有 parsed
 输出 schema：
 """ + SCORE_ONLY_OUTPUT_SCHEMA_V3
 
-RESUME_SCREENING_PROMPT_VERSION = "resume_screening_one_pass_v2"
-RESUME_SCORE_PROMPT_VERSION = "resume_score_only_v2"
+RESUME_SCREENING_PROMPT_VERSION = "resume_screening_one_pass_v4"
+RESUME_SCORE_PROMPT_VERSION = "resume_score_only_v4"
 # V3 versions — activate by changing the above two lines
 RESUME_SCREENING_PROMPT_VERSION_V3 = "resume_screening_one_pass_v3"
 RESUME_SCORE_PROMPT_VERSION_V3 = "resume_score_only_v3"
@@ -271,14 +277,16 @@ _COMMON_EVIDENCE_RULES = """- The only valid evidence source is the raw resume t
 - Do not reuse the same evidence as full support for unrelated dimensions."""
 
 
-RESUME_SCREENING_SYSTEM_PROMPT = f"""You are an ATS screening engine for recruitment.
+RESUME_SCREENING_SYSTEM_PROMPT = """You are an ATS screening engine for recruitment.
 
 Output schema:
-{SCREENING_OUTPUT_SCHEMA}
+""" + SCREENING_OUTPUT_SCHEMA + """
 
 Core rules:
+JSON Rules:
+""" + _COMMON_STRICT_JSON_OUTPUT_RULES + """
 Evidence Rules:
-{_COMMON_EVIDENCE_RULES}
+""" + _COMMON_EVIDENCE_RULES + """
 Scoring Rules:
 - All textual output fields must be written in Simplified Chinese unless quoting an English proper noun from the resume.
 - Extract parsed_resume factually from the raw resume text; use empty strings or empty lists for missing fields.
@@ -301,17 +309,19 @@ Output Rules:
 - advantages must summarize positively scored, evidence-backed dimensions; concerns must summarize zero-score, low-score, hard-constraint-missing, or core-evidence-missing dimensions.
 - advantages must not be empty if any dimension score is greater than 0; concerns must not be empty if any dimension score is 0, any core dimension lacks evidence, or the candidate is not clearly strong.
 - recommendation must be a short HR-facing decision phrase.
-- Verify parsed_resume coverage, dimension coverage, score consistency, and status consistency before outputting the final JSON object."""
+- Final self-check: parsed_resume complete, dimensions complete, score math correct, status consistent, and output is one valid JSON object."""
 
-RESUME_SCORE_SYSTEM_PROMPT = f"""You are an ATS screening engine for recruitment.
+RESUME_SCORE_SYSTEM_PROMPT = """You are an ATS screening engine for recruitment.
 This prompt reranks a candidate from an existing parsed_resume helper and the raw resume text.
 
 Output schema:
-{SCORE_ONLY_OUTPUT_SCHEMA}
+""" + SCORE_ONLY_OUTPUT_SCHEMA + """
 
 Core rules:
+JSON Rules:
+""" + _COMMON_STRICT_JSON_OUTPUT_RULES + """
 Evidence Rules:
-{_COMMON_EVIDENCE_RULES}
+""" + _COMMON_EVIDENCE_RULES + """
 - The parsed_resume helper is context only, not an independent evidence source, and cannot be cited unless the same wording appears in the raw resume text.
 - Each positive-scoring dimension should cite 1-2 short direct resume excerpts when available.
 Scoring Rules:
@@ -336,7 +346,7 @@ Output Rules:
 - recommendation must be a short HR-facing decision phrase, ideally within 30 Chinese characters or 80 English characters, and it must not be empty, punctuation-only, or a placeholder.
 - Do not wrap the result under parsed_resume, score, or any extra top-level field. Do not return parsed_resume in resume_score tasks.
 - The top-level object must contain only total_score, match_percent, advantages, concerns, recommendation, suggested_status, and dimensions.
-- Output exactly one final JSON object; never return drafts, multiple variants, or multiple totals/status values."""
+- Final self-check: score fields complete, score math correct, status consistent, and output is one valid JSON object."""
 
 INTERVIEW_QUESTION_SYSTEM_PROMPT = """You are an interview question generation engine for recruitment.
 Use the provided candidate, position/JD, raw resume text, parsed resume, screening result, workflow memory, active skills, round name, and custom requirements.

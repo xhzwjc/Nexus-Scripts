@@ -216,9 +216,156 @@ def _repair_missing_commas_globally(value: str) -> str:
     return repaired
 
 
+def _looks_like_object_key_start(value: str, start: int) -> bool:
+    index = _next_nonspace_index(value, start)
+    if index is None or index >= len(value) or value[index] != '"':
+        return False
+    escape = False
+    for cursor in range(index + 1, len(value)):
+        char = value[cursor]
+        if escape:
+            escape = False
+            continue
+        if char == "\\":
+            escape = True
+            continue
+        if char == '"':
+            next_index = _next_nonspace_index(value, cursor + 1)
+            return next_index is not None and next_index < len(value) and value[next_index] == ":"
+    return False
+
+
+def _find_implicit_object_end_in_array(value: str, start: int) -> Optional[int]:
+    index = _next_nonspace_index(value, start)
+    if index is None or not _looks_like_object_key_start(value, index):
+        return None
+    stack: list[str] = []
+    in_string = False
+    escape = False
+    cursor = index
+    while cursor < len(value):
+        char = value[cursor]
+        if escape:
+            escape = False
+            cursor += 1
+            continue
+        if char == "\\":
+            escape = True
+            cursor += 1
+            continue
+        if char == '"':
+            in_string = not in_string
+            cursor += 1
+            continue
+        if in_string:
+            cursor += 1
+            continue
+        if char == "{":
+            stack.append("}")
+        elif char == "[":
+            stack.append("]")
+        elif char in "}]" and stack and char == stack[-1]:
+            stack.pop()
+        elif not stack and char == ",":
+            next_index = _next_nonspace_index(value, cursor + 1)
+            if next_index is None:
+                return len(value)
+            if _looks_like_object_key_start(value, next_index):
+                cursor += 1
+                continue
+            return cursor
+        elif not stack and char == "]":
+            return cursor
+        cursor += 1
+    return len(value)
+
+
+def _repair_missing_object_wrappers_in_arrays(value: str) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    result: list[str] = []
+    container_stack: list[str] = []
+    in_string = False
+    escape = False
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if escape:
+            result.append(char)
+            escape = False
+            index += 1
+            continue
+        if char == "\\":
+            result.append(char)
+            escape = True
+            index += 1
+            continue
+        if char == '"':
+            result.append(char)
+            in_string = not in_string
+            index += 1
+            continue
+        if in_string:
+            result.append(char)
+            index += 1
+            continue
+        if char == "{":
+            container_stack.append("{")
+            result.append(char)
+            index += 1
+            continue
+        if char == "[":
+            container_stack.append("[")
+            result.append(char)
+            next_index = _next_nonspace_index(text, index + 1)
+            if next_index is not None and _looks_like_object_key_start(text, next_index):
+                end_index = _find_implicit_object_end_in_array(text, next_index)
+                if end_index is not None and end_index > next_index:
+                    result.append(text[index + 1:next_index])
+                    result.append("{")
+                    result.append(text[next_index:end_index])
+                    result.append("}")
+                    index = end_index
+                    continue
+            index += 1
+            continue
+        if char == "}":
+            if container_stack and container_stack[-1] == "{":
+                container_stack.pop()
+            result.append(char)
+            index += 1
+            continue
+        if char == "]":
+            if container_stack and container_stack[-1] == "[":
+                container_stack.pop()
+            result.append(char)
+            index += 1
+            continue
+        if char == ",":
+            result.append(char)
+            if container_stack and container_stack[-1] == "[":
+                next_index = _next_nonspace_index(text, index + 1)
+                if next_index is not None and _looks_like_object_key_start(text, next_index):
+                    end_index = _find_implicit_object_end_in_array(text, next_index)
+                    if end_index is not None and end_index > next_index:
+                        result.append(text[index + 1:next_index])
+                        result.append("{")
+                        result.append(text[next_index:end_index])
+                        result.append("}")
+                        index = end_index
+                        continue
+            index += 1
+            continue
+        result.append(char)
+        index += 1
+    return "".join(result)
+
+
 def _repair_json_candidate(value: str) -> str:
     repaired = _normalize_json_candidate_text(_extract_json_candidate(value or "{}").strip() or "{}")
     repaired = _escape_control_chars_in_json_strings(repaired)
+    repaired = _repair_missing_object_wrappers_in_arrays(repaired)
     repaired = _repair_missing_commas_globally(repaired)
     repaired = re.sub(r",(\s*[}\]])", r"\1", repaired)
     repaired = _balance_json_closers(repaired)
@@ -610,7 +757,18 @@ def _select_one_pass_candidate(records: Sequence[Dict[str, Any]]) -> Dict[str, A
         if not isinstance(payload.get("score"), dict) and not any(field in payload for field in STRICT_SCORE_REQUIRED_FIELDS):
             continue
         eligible.append(record)
-    selected_pool = eligible or list(records)
+    if not eligible:
+        raise RecruitmentAIJSONParseError(
+            "AI screening JSON 解析失败: 未找到同时包含 parsed_resume 与 score 的完整 one-pass JSON",
+            raw_response_text=json.dumps([record.get("payload") for record in records], ensure_ascii=False),
+            error_code="json_parse_failed",
+            debug_meta={
+                "task_type": "resume_screening_one_pass",
+                "candidate_count": len(records),
+                "eligible_candidate_count": 0,
+            },
+        )
+    selected_pool = eligible
     selected = max(
         selected_pool,
         key=lambda item: (*completeness(item.get("payload") or {}), len(str(item.get("candidate_text") or ""))),

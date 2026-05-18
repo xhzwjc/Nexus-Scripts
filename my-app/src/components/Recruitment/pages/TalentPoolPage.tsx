@@ -111,6 +111,8 @@ function getTalentPoolLocale(language = getCurrentLanguage()) {
         aiRecommendedPosition: isZh ? "AI推荐岗位" : "AI Recommended Position",
         potentialDirection: isZh ? "转岗潜力方向" : "Potential Transition Direction",
         potentialReason: isZh ? "潜力原因" : "Potential Reason",
+        expandReason: isZh ? "展开原因" : "Show reason",
+        collapseReason: isZh ? "收起原因" : "Hide reason",
     };
 }
 
@@ -694,6 +696,7 @@ function CandidateCard({
     const aiRecommendedTitle = candidate.ai_match_position_title || null;
     const colorIdx = avatarColorIndex(candidate.name);
     const initial = avatarInitial(candidate.name);
+    const [potentialReasonExpanded, setPotentialReasonExpanded] = React.useState(false);
 
     // 根据 talent_pool_reason 决定描述文案
     const getDescription = () => {
@@ -781,7 +784,20 @@ function CandidateCard({
                         {candidate.ai_potential_position ? (
                             <div className={screeningPositionTitle || aiRecommendedTitle ? "mt-1 border-t border-sky-200/70 pt-2 dark:border-sky-900/70" : ""}>
                                 <div className="font-medium">{`${tr.potentialDirection}：${candidate.ai_potential_position}`}</div>
-                                {candidate.ai_potential_reason ? <div className="mt-1 text-sky-600/90 dark:text-sky-200/80">{candidate.ai_potential_reason}</div> : null}
+                                {candidate.ai_potential_reason ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            className="mt-1 text-[11px] font-medium text-sky-700 underline underline-offset-2 hover:text-sky-800 dark:text-sky-200 dark:hover:text-sky-100"
+                                            onClick={() => setPotentialReasonExpanded((current) => !current)}
+                                        >
+                                            {potentialReasonExpanded ? tr.collapseReason : tr.expandReason}
+                                        </button>
+                                        {potentialReasonExpanded ? (
+                                            <div className="mt-1 text-sky-600/90 dark:text-sky-200/80">{candidate.ai_potential_reason}</div>
+                                        ) : null}
+                                    </>
+                                ) : null}
                             </div>
                         ) : null}
                     </div>
