@@ -5199,6 +5199,17 @@ class RecruitmentService:
             )
             event_type = "task_completed" if is_terminal else "task_progress"
             candidate_snapshot = self._build_candidate_sse_snapshot(row.related_candidate_id)
+            if is_terminal and row.task_type in {SCREENING_FLOW_TASK_TYPE, "resume_parse", *SCREENING_SCORE_TASK_TYPES}:
+                logger.info(
+                    "[SSE_EMIT_DEBUG] task_id=%s task_type=%s task_status=%s event_type=%s candidate_id=%s "
+                    "snapshot_display_status=%s snapshot_status=%s snapshot_ai_recommended_status=%s "
+                    "snapshot_active_screening_task_id=%s",
+                    row.id, row.task_type, row.status, event_type, row.related_candidate_id,
+                    (candidate_snapshot or {}).get("display_status"),
+                    (candidate_snapshot or {}).get("status"),
+                    (candidate_snapshot or {}).get("ai_recommended_status"),
+                    (candidate_snapshot or {}).get("active_screening_task_id"),
+                )
             payload = {
                 "task_id": row.id,
                 "status": row.status,

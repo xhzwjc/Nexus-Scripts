@@ -294,6 +294,7 @@ def _repair_unterminated_string_from_error(value: str, exc: json.JSONDecodeError
 
 
 def _parse_llm_json_response(raw_text: str) -> Dict[str, Any]:
+    raw_text = _strip_reasoning_blocks(raw_text)
     repaired = _repair_json_candidate(raw_text or "{}")
     last_error: Optional[json.JSONDecodeError] = None
     for _ in range(JSON_REPAIR_MAX_ROUNDS):
@@ -338,7 +339,12 @@ def _strip_reasoning_blocks(value: Any) -> str:
     text = str(value or "")
     if not text:
         return ""
+    # Strip closed <think>...</think> blocks (handles multiple blocks)
     text = re.sub(r"<think\b[^>]*>.*?</think>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    # Strip unclosed <think> tag (model started thinking but never closed)
+    text = re.sub(r"<think\b[^>]*>.*$", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    # Strip orphan </think> (model closed thinking without opening)
+    text = re.sub(r"^.*?</think>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     return text
 
 
@@ -631,6 +637,9 @@ def _parse_strict_json_response(
     provider_payload: Any = None,
     response_debug: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    # --- Strip reasoning/thinking blocks (e.g. <think>...</think>) before any JSON parsing ---
+    raw_text = _strip_reasoning_blocks(raw_text)
+
     # --- FAST PATH: skip full repair pipeline when raw text is already valid JSON ---
     _fast_stripped = (raw_text or "").strip()
     if _fast_stripped and _fast_stripped[0] == "{":

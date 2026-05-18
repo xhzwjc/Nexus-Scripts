@@ -1,11 +1,16 @@
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text
-from sqlalchemy.dialects.mysql import MEDIUMTEXT
+from sqlalchemy.dialects.mysql import LONGTEXT, MEDIUMTEXT
 from sqlalchemy.sql import func
 
 
 def MediumText():
     """Cross-database MediumText: uses MEDIUMTEXT on MySQL/MariaDB, Text elsewhere."""
     return Text(16777215)
+
+
+def LongText():
+    """Cross-database LongText: uses LONGTEXT on MySQL/MariaDB, Text elsewhere."""
+    return Text(4294967295)
 
 from .database import Base
 
@@ -148,7 +153,7 @@ class RecruitmentCandidateScore(Base):
     candidate_id = Column(Integer, nullable=False, index=True)
     parse_result_id = Column(Integer, nullable=False, index=True)
     org_code = Column(String(100), default="group", nullable=False, index=True)
-    score_json = Column(MediumText())
+    score_json = Column(LongText())
     total_score = Column(Float)
     match_percent = Column(Float)
     advantages_text = Column(Text)

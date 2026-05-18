@@ -752,7 +752,16 @@ def ensure_recruitment_schema() -> None:
                     logger.info("Expanded recruitment_candidate_scores.recommendation to VARCHAR(255)")
                 else:
                     logger.info("Skipped expanding recruitment_candidate_scores.recommendation on dialect %s", engine.dialect.name)
-    
+
+            score_json_column = score_columns.get("score_json")
+            if score_json_column is not None and engine.dialect.name == "mysql":
+                col_type = score_json_column.get("type")
+                type_name = str(col_type).upper() if col_type else ""
+                if "LONGTEXT" not in type_name:
+                    with engine.begin() as connection:
+                        connection.execute(text("ALTER TABLE recruitment_candidate_scores MODIFY COLUMN score_json LONGTEXT NULL"))
+                    logger.info("Expanded recruitment_candidate_scores.score_json to LONGTEXT")
+
             llm_columns = {column["name"] for column in inspector.get_columns("recruitment_llm_configs")}
             if "api_key_ciphertext" not in llm_columns:
                 with engine.begin() as connection:

@@ -264,7 +264,15 @@ function sanitizeTerminalScreeningCandidateSnapshot(
         nextCandidate.active_screening_failure_code = null;
         nextCandidate.display_status_reason = null;
     }
-    if (!nextCandidate.display_status || nextCandidate.display_status === "screening_running") {
+    // 后端 snapshot 已带明确终态 display_status 时直接保留，不走推导逻辑
+    const TERMINAL_DISPLAY_STATUSES = new Set([
+        "screening_passed", "screening_rejected", "screening_failed",
+        "pending_screening", "unmatched", "talent_pool",
+    ]);
+    const originalDisplayStatus = String(nextCandidate.display_status || "").trim();
+    if (TERMINAL_DISPLAY_STATUSES.has(originalDisplayStatus)) {
+        // 保留后端终态值
+    } else {
         nextCandidate.display_status = resolveStableCandidateDisplayStatus(nextCandidate);
     }
     return nextCandidate;
@@ -1759,6 +1767,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const [previewCandidateName, setPreviewCandidateName] = useState<string>("");
     const previewPdfAbortRef = useRef<AbortController | null>(null);
     const [duplicateCandidates, setDuplicateCandidates] = useState<Array<{id: number; candidate_code: string; name: string; phone: string | null; email: string | null; status: string}>>([]);
+    const checkedDuplicateCandidateIdRef = useRef<number | null>(null);
     const [logsLoading, setLogsLoading] = useState(false);
     const [logDetailLoading, setLogDetailLoading] = useState(false);
     const [skillsLoading, setSkillsLoading] = useState(false);
@@ -2986,6 +2995,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     useEffect(() => {
         if (!selectedCandidateId) {
             setCandidateDetail(null);
+            checkedDuplicateCandidateIdRef.current = null;
             return;
         }
         const shouldLoadCandidateDetail = (
@@ -2997,7 +3007,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
         // 仅在详情真正可见时加载，避免 workspace 首屏预拉详情
-        void loadCandidateDetail(selectedCandidateId, { includeDuplicates: true });
+        const shouldCheckDuplicates = checkedDuplicateCandidateIdRef.current !== selectedCandidateId;
+        if (shouldCheckDuplicates) {
+            checkedDuplicateCandidateIdRef.current = selectedCandidateId;
+        }
+        void loadCandidateDetail(selectedCandidateId, { includeDuplicates: shouldCheckDuplicates });
     }, [activePage, positionCandidateDetailOpen, selectedCandidateId, talentPoolCandidateDetailOpen]);
 
     useEffect(() => {
@@ -3120,7 +3134,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         activePage === "candidates" || activePage === "audit" || activePage === "workspace" || activePage === "talent-pool",
         {
             onTaskCompleted: (event) => {
-                const isTerminalScreeningTask = event.task_type === "screening_flow"
+                console.log("[SSE_DEBUG] onTaskCompleted", {
+                    task_id: event.task_id,
+                    task_type: event.task_type,
+                    status: event.status,
+                    related_candidate_id: event.related_candidate_id,
+                    snapshot_display_status: event.candidate_snapshot?.display_status,
+                    snapshot_status: event.candidate_snapshot?.status,
+                    snapshot_ai_recommended_status: event.candidate_snapshot?.ai_recommended_status,
+                    snapshot_active_screening_task_id: event.candidate_snapshot?.active_screening_task_id,
+                });
+                const isRootScreeningTask = event.task_type === "screening_flow";
+                const isTerminalScreeningTask = isRootScreeningTask
                     && TERMINAL_SCREENING_TASK_STATUSES.has(String(event.status || "").trim().toLowerCase());
                 const sanitizedCandidateSnapshot = isTerminalScreeningTask
                     ? sanitizeTerminalScreeningCandidateSnapshot(event.candidate_snapshot, event.status)
@@ -3135,7 +3160,19 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                     recentlyCompletedScreeningCandidatesRef.current.set(event.related_candidate_id, Date.now());
                 }
                 if (sanitizedCandidateSnapshot) {
-                    syncRealtimeCandidateLists(sanitizedCandidateSnapshot);
+                    console.log("[SSE_DEBUG] onTaskCompleted sanitized", {
+                        task_type: event.task_type,
+                        display_status: sanitizedCandidateSnapshot.display_status,
+                        status: sanitizedCandidateSnapshot.status,
+                        isTerminalScreeningTask,
+                        isRootScreeningTask,
+                    });
+                    // 只有 screening_flow 根任务完成时才更新候选人列表的 display_status
+                    // 子任务（resume_screening_one_pass/resume_parse/resume_score）完成时
+                    // snapshot 的 display_status 可能还是 screening_running，不应写入列表
+                    if (isRootScreeningTask) {
+                        syncRealtimeCandidateLists(sanitizedCandidateSnapshot);
+                    }
                     applyCandidateDetailSnapshot(sanitizedCandidateSnapshot);
                 }
                 if (event.related_candidate_id && event.task_type === "screening_flow") {
@@ -3197,7 +3234,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         selectedCandidateIdRef.current === event.related_candidate_id
                         && (activePage === "candidates" || positionCandidateDetailOpen || talentPoolCandidateDetailOpen)
                     ) {
-                        void loadCandidateDetail(event.related_candidate_id, { silent: true, force: true });
+                        void loadCandidateDetail(event.related_candidate_id, { silent: true, force: true, skipChatContextSave: true });
                     }
                 }
                 if (activePage === "audit") {
@@ -3205,7 +3242,18 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 }
             },
             onCandidateUpdated: (event) => {
-                const isTerminalScreeningTask = event.task_type === "screening_flow"
+                console.log("[SSE_DEBUG] onCandidateUpdated", {
+                    task_id: event.task_id,
+                    task_type: event.task_type,
+                    status: event.status,
+                    candidate_id: event.candidate_id,
+                    snapshot_display_status: event.candidate_snapshot?.display_status,
+                    snapshot_status: event.candidate_snapshot?.status,
+                    snapshot_ai_recommended_status: event.candidate_snapshot?.ai_recommended_status,
+                    snapshot_active_screening_task_id: event.candidate_snapshot?.active_screening_task_id,
+                });
+                const isRootScreeningTask = event.task_type === "screening_flow";
+                const isTerminalScreeningTask = isRootScreeningTask
                     && TERMINAL_SCREENING_TASK_STATUSES.has(String(event.status || "").trim().toLowerCase());
                 const sanitizedCandidateSnapshot = isTerminalScreeningTask
                     ? sanitizeTerminalScreeningCandidateSnapshot(event.candidate_snapshot, event.status)
@@ -3217,10 +3265,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                             display_status_reason: event.error_message || "自动初筛入队失败，请稍后重试",
                         }
                         : sanitizedCandidateSnapshot;
-                    const nextStatus = String(event.status || sanitizedCandidateSnapshot.status || "").trim().toLowerCase();
-                    syncRealtimeCandidateLists(nextSnapshot, {
-                        insertIntoCandidateList: nextStatus === "pending_screening" || nextStatus === "screening_running",
-                    });
+                    // 只有 screening_flow 根任务才更新候选人列表 display_status
+                    if (isRootScreeningTask) {
+                        const nextStatus = String(event.status || sanitizedCandidateSnapshot.status || "").trim().toLowerCase();
+                        syncRealtimeCandidateLists(nextSnapshot, {
+                            insertIntoCandidateList: nextStatus === "pending_screening" || nextStatus === "screening_running",
+                        });
+                    }
                     applyCandidateDetailSnapshot(nextSnapshot);
                 } else if (event.candidate_id && event.screening_enqueue_failed) {
                     setAllCandidates((current) => current.map((candidate) => (
@@ -3288,7 +3339,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                         selectedCandidateIdRef.current === event.candidate_id
                         && (activePage === "candidates" || positionCandidateDetailOpen || talentPoolCandidateDetailOpen)
                     ) {
-                        void loadCandidateDetail(event.candidate_id, { silent: true, force: true });
+                        void loadCandidateDetail(event.candidate_id, { silent: true, force: true, skipChatContextSave: true });
                     }
                 }
             },
@@ -3932,7 +3983,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
 
     async function loadCandidateDetail(
         candidateId: number,
-        options?: { silent?: boolean; force?: boolean; includeDuplicates?: boolean },
+        options?: { silent?: boolean; force?: boolean; includeDuplicates?: boolean; skipChatContextSave?: boolean },
     ) {
         if (!options?.silent) {
             setCandidateDetailLoading(true);
@@ -3967,12 +4018,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 return normalizedData;
             }
             setCandidateDetail(normalizedData);
-            const nextPositionId = normalizedData.candidate.position_id ?? null;
-            if (
-                normalizedData.candidate.id !== (chatContext.candidate_id ?? null)
-                || nextPositionId !== (chatContext.position_id ?? null)
-            ) {
-                void saveChatContext(nextPositionId, chatContext.skill_ids, normalizedData.candidate.id, {quiet: true});
+            if (!options?.skipChatContextSave) {
+                const nextPositionId = normalizedData.candidate.position_id ?? null;
+                if (
+                    normalizedData.candidate.id !== (chatContext.candidate_id ?? null)
+                    || nextPositionId !== (chatContext.position_id ?? null)
+                ) {
+                    void saveChatContext(nextPositionId, chatContext.skill_ids, normalizedData.candidate.id, {quiet: true});
+                }
             }
             if (options?.includeDuplicates) {
                 void checkDuplicatesForCandidate(normalizedData);
