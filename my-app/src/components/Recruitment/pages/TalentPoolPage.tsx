@@ -382,10 +382,10 @@ export function TalentPoolPage({
     const handleBatchDelete = React.useCallback(async () => {
         if (!onDeleteCandidates || selectedIds.size === 0) return;
         setDeleting(true);
+        setDeleteDialogOpen(false);
         try {
             await onDeleteCandidates(Array.from(selectedIds));
             setSelectedIds(new Set());
-            setDeleteDialogOpen(false);
         } finally {
             setDeleting(false);
         }

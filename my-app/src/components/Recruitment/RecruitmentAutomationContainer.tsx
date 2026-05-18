@@ -2745,6 +2745,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     useEffect(() => {
         if (activePage !== "talent-pool") {
             setTalentPoolCandidateDetailOpen(false);
+            setSelectedCandidateId(null);
         }
     }, [activePage]);
 

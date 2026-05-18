@@ -29,7 +29,7 @@ OPENAI_STREAM_JSON_TASK_WHITELIST: frozenset[str] = frozenset({
     "resume_score",
     "resume_parse",
 })
-STRICT_JSON_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass", "interview_question_generation"})
+STRICT_JSON_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass", "interview_question_generation", "ai_position_match"})
 STRICT_JSON_RECOVERY_RETRY_TASK_TYPES: frozenset[str] = frozenset({"resume_parse", "resume_score", "resume_screening_one_pass", "interview_question_generation", "ai_position_match"})
 STRICT_SCORE_REQUIRED_FIELDS: tuple[str, ...] = (
     "total_score",
@@ -788,6 +788,186 @@ def _select_one_pass_candidate(records: Sequence[Dict[str, Any]]) -> Dict[str, A
     }
 
 
+def _select_ai_position_match_candidate(records: Sequence[Dict[str, Any]], *, raw_text: str) -> Dict[str, Any]:
+    def completeness(payload: Dict[str, Any]) -> tuple[int, int, int]:
+        has_primary_match = 1 if payload.get("position_id") not in (None, "", 0, "0") else 0
+        meaningful_fields = sum(
+            1
+            for field in ("position_title", "reason", "potential_position", "potential_reason")
+            if _has_meaningful_field(payload, field)
+        )
+        confidence_score = 1 if payload.get("confidence") not in (None, "", 0, "0") else 0
+        return has_primary_match, meaningful_fields, confidence_score
+
+    eligible = []
+    for record in records:
+        payload = record.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("position_id") not in (None, "", 0, "0"):
+            eligible.append(record)
+            continue
+        if any(_has_meaningful_field(payload, field) for field in ("position_title", "reason", "potential_position", "potential_reason")):
+            eligible.append(record)
+    if not eligible:
+        raise RecruitmentAIJSONParseError(
+            "AI 岗位匹配 JSON 解析失败: 未找到包含匹配结论或转岗建议的合法对象",
+            raw_response_text=raw_text,
+            error_code="json_parse_failed",
+            debug_meta={
+                "task_type": "ai_position_match",
+                "candidate_count": len(records),
+                "eligible_candidate_count": 0,
+            },
+        )
+    selected = max(
+        eligible,
+        key=lambda item: (*completeness(item.get("payload") or {}), len(str(item.get("candidate_text") or ""))),
+    )
+    warnings: List[str] = []
+    if len(records) > 1:
+        warnings.append(f"ai_position_match 检测到 {len(records)} 个顶层 JSON 候选，已选用最完整对象")
+    return {
+        "content": dict(selected.get("payload") or {}),
+        "warnings": warnings,
+        "debug_meta": {
+            "candidate_count": len(records),
+            "parsed_candidate_count": len(records),
+            "selected_candidate_index": selected.get("index"),
+            "selected_candidate_source": "top_level_object",
+        },
+    }
+
+
+def _unwrap_reasoning_markup(value: Any) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    text = re.sub(r"</?think\b[^>]*>", " ", text, flags=re.IGNORECASE)
+    return text
+
+
+def _truncate_match_reason(value: str, limit: int = 60) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" ：:;；，,。")
+    if not text:
+        return ""
+    return text[:limit].rstrip(" ：:;；，,。")
+
+
+def _extract_ai_position_match_recovery_from_text(raw_text: Any, positions: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    text = _unwrap_reasoning_markup(raw_text)
+    if not text.strip():
+        return None
+    normalized_text = re.sub(r"[ \t]+", " ", text)
+    lines = [line.strip() for line in re.split(r"[\r\n]+", normalized_text) if line.strip()]
+    lower_text = normalized_text.lower()
+
+    no_match_reason = ""
+    no_match_patterns = (
+        r"(?:无匹配|未能匹配|没有匹配岗位|无对应方向|无法匹配)[^。\n]{0,80}",
+        r"(?:系统现有岗位[^。\n]{0,60}(?:无对应方向|均不匹配|无法匹配))",
+    )
+    for pattern in no_match_patterns:
+        match = re.search(pattern, normalized_text, flags=re.IGNORECASE)
+        if match:
+            no_match_reason = _truncate_match_reason(match.group(0))
+            break
+    if not no_match_reason:
+        direct_match_block = re.search(
+            r"直接匹配岗位[:：]?\s*(.*?)(?:关键转岗潜力方向|转岗潜力方向|候选人具备丰富的|$)",
+            normalized_text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if direct_match_block:
+            no_match_reason = _truncate_match_reason(direct_match_block.group(1), limit=50)
+    if not no_match_reason:
+        for line in lines:
+            if any(keyword in line for keyword in ("无对应方向", "未能匹配", "无匹配", "不匹配", "无法匹配", "明显差异", "未能完全契合", "不契合")):
+                no_match_reason = _truncate_match_reason(line)
+                break
+
+    potential_position = None
+    potential_reason = None
+
+    heading_patterns = (
+        r"关键转岗潜力方向[:：]?\s*(.*?)(?:这些方向|候选人的技能组合|虽然简历中未涉及|$)",
+        r"转岗潜力方向[:：]?\s*(.*?)(?:这些方向|候选人的技能组合|虽然简历中未涉及|$)",
+    )
+    potential_block = ""
+    for pattern in heading_patterns:
+        block_match = re.search(pattern, normalized_text, flags=re.IGNORECASE | re.DOTALL)
+        if block_match:
+            potential_block = block_match.group(1).strip()
+            break
+    if potential_block:
+        list_items = re.findall(r"(?:^|\n|\s)\d+\.\s*([^\n]+)", potential_block)
+        if not list_items:
+            list_items = re.findall(r"(?:^|\n|\s)[-•]\s*([^\n]+)", potential_block)
+        if list_items:
+            potential_position = _truncate_match_reason(list_items[0], limit=40)
+
+    if not potential_position:
+        for pattern in (
+            r"可培养为([^\n，,。；;]{2,30}?)(?:方向|岗位)",
+            r"转岗潜力(?:方向)?[:：]\s*([^\n，,。；;]{2,30})",
+        ):
+            match = re.search(pattern, normalized_text, flags=re.IGNORECASE)
+            if match:
+                potential_position = _truncate_match_reason(match.group(1), limit=40)
+                break
+
+    if potential_position:
+        for line in lines:
+            condensed = re.sub(r"\s+", "", line)
+            if "这些方向" in line or "具备" in line or "能力" in line or "经验表明" in line or "可培养" in line:
+                potential_reason = _truncate_match_reason(line, limit=50)
+                break
+            if potential_position.replace(" ", "") in condensed and ("能力" in line or "经验" in line):
+                potential_reason = _truncate_match_reason(line, limit=50)
+                break
+        if not potential_reason:
+            potential_reason = "现有测试经验可向相近测试方向迁移"
+
+    matched_position_id = None
+    matched_position_title = None
+    for position in sorted(positions, key=lambda item: len(str(item.get("title") or "")), reverse=True):
+        title = str(position.get("title") or "").strip()
+        if not title:
+            continue
+        if title in normalized_text and re.search(r"(推荐归入|主匹配岗位|最匹配岗位|推荐岗位)[:：]?\s*" + re.escape(title), normalized_text):
+            try:
+                matched_position_id = int(position.get("id"))
+            except (TypeError, ValueError):
+                matched_position_id = None
+            matched_position_title = title
+            break
+
+    if not any([matched_position_id, matched_position_title, no_match_reason, potential_position, potential_reason]):
+        return None
+
+    return {
+        "position_id": matched_position_id,
+        "position_title": matched_position_title,
+        "confidence": 0 if matched_position_id is None else None,
+        "reason": no_match_reason or "AI自动匹配",
+        "potential_position": potential_position,
+        "potential_reason": potential_reason,
+    }
+
+
+def _sanitize_ai_position_match_recorded_text(raw_text: Any, parsed_response: Optional[Dict[str, Any]] = None) -> str:
+    sanitized = _strip_reasoning_blocks(raw_text)
+    sanitized = str(sanitized or "").strip()
+    if sanitized:
+        return sanitized
+    if isinstance(parsed_response, dict) and any(
+        parsed_response.get(field) not in (None, "", [], {})
+        for field in ("position_id", "position_title", "reason", "potential_position", "potential_reason")
+    ):
+        return json.dumps(parsed_response, ensure_ascii=False)
+    return ""
+
+
 def _parse_strict_json_response(
     raw_text: str,
     *,
@@ -795,6 +975,7 @@ def _parse_strict_json_response(
     provider_payload: Any = None,
     response_debug: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    original_raw_text = str(raw_text or "")
     # --- Strip reasoning/thinking blocks (e.g. <think>...</think>) before any JSON parsing ---
     raw_text = _strip_reasoning_blocks(raw_text)
 
@@ -809,6 +990,8 @@ def _parse_strict_json_response(
                     _fast_selected = _select_resume_score_candidate(_fast_records, raw_text=raw_text)
                 elif task_type == "resume_parse":
                     _fast_selected = _select_resume_parse_candidate(_fast_records)
+                elif task_type == "ai_position_match":
+                    _fast_selected = _select_ai_position_match_candidate(_fast_records, raw_text=original_raw_text)
                 else:
                     _fast_selected = _select_one_pass_candidate(_fast_records)
                 return {
@@ -879,15 +1062,17 @@ def _parse_strict_json_response(
         )
         raise RecruitmentAIJSONParseError(
             "AI screening JSON 解析失败: 未找到可解析的 JSON 对象",
-            raw_response_text=raw_text,
+            raw_response_text=original_raw_text,
             error_code="json_parse_failed",
             debug_meta=debug_meta,
             provider_payload=provider_payload_snapshot,
         )
     if task_type == "resume_score":
-        selected = _select_resume_score_candidate(parsed_records, raw_text=raw_text)
+        selected = _select_resume_score_candidate(parsed_records, raw_text=original_raw_text)
     elif task_type == "resume_parse":
         selected = _select_resume_parse_candidate(parsed_records)
+    elif task_type == "ai_position_match":
+        selected = _select_ai_position_match_candidate(parsed_records, raw_text=original_raw_text)
     else:
         selected = _select_one_pass_candidate(parsed_records)
     return {
@@ -2651,8 +2836,14 @@ class RecruitmentAIGateway:
             f"{p.get('id')}. {p.get('title')}（{p.get('department') or ''}）：{(p.get('key_requirements') or p.get('summary') or '')[:150]}"
             for p in positions
         )
+        effective_runtime_config = runtime_config or self.resolve_config("ai_position_match")
+        effective_request_config = _clone_runtime_config_with_task_overrides(
+            effective_runtime_config,
+            task_type="ai_position_match",
+            response_mode="json",
+        )
 
-        system_prompt = "你是招聘岗位匹配助手。根据候选人简历原文，从给定岗位列表中找出最匹配的岗位，并判断可培养的转岗潜力方向。\n输出严格遵守JSON格式，禁止输出任何JSON以外的内容。"
+        system_prompt = "你是招聘岗位匹配助手。根据候选人简历原文，从给定岗位列表中找出最匹配的岗位，并判断可培养的转岗潜力方向。只输出一个最终 JSON 对象，不要输出 <think>、分析过程、章节标题或任何 JSON 以外的内容。"
 
         user_prompt = f"""## 系统岗位列表
 {position_list}
@@ -2670,18 +2861,52 @@ class RecruitmentAIGateway:
 7. potential_position 用中文概括候选人的“转岗潜力方向”，可以是岗位列表中的某个岗位名称，也可以是概括性方向；没有明显潜力时返回 null
 8. potential_reason 用中文，50字以内，说明为什么认为候选人具备该转岗潜力；没有明显潜力时返回 null
 9. reason 用中文，50字以内，说明匹配或不匹配的原因
+10. 不要输出推理过程、岗位分析、候选人分析、Markdown 标题或列表，只输出最终 JSON
 
 ## 输出格式
 匹配成功：{{"position_id": 17, "position_title": "税务会计", "confidence": 88, "reason": "候选人有3年增值税申报经验，与岗位核心要求高度吻合", "potential_position": "财务分析", "potential_reason": "具备报表和数据分析基础，可向财务分析延展"}}
 无匹配：{{"position_id": null, "position_title": null, "confidence": 0, "reason": "候选人为产品经理背景，系统现有岗位均为财务和技术类，无对应方向", "potential_position": "售前解决方案", "potential_reason": "跨团队沟通和需求分析能力较强，可培养为售前方向"}}"""
-
-        result = self.generate_json(
-            task_type="ai_position_match",
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            runtime_config=runtime_config,
-            max_tokens_override=800,
-        )
+        try:
+            result = self.generate_json(
+                task_type="ai_position_match",
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                runtime_config=effective_runtime_config,
+                max_tokens_override=800,
+            )
+        except RecruitmentAIJSONParseError as exc:
+            recovered_payload = _extract_ai_position_match_recovery_from_text(exc.raw_response_text, positions)
+            if not recovered_payload:
+                raise
+            recorded_raw_text = _sanitize_ai_position_match_recorded_text(exc.raw_response_text, recovered_payload)
+            logger.warning(
+                "Recruitment JSON task ai_position_match returned non-JSON content, recovered structured fields from raw text for candidate_id=%s",
+                candidate_id,
+            )
+            return {
+                "position_id": recovered_payload.get("position_id"),
+                "position_title": recovered_payload.get("position_title"),
+                "confidence": recovered_payload.get("confidence"),
+                "reason": recovered_payload.get("reason") or "AI自动匹配",
+                "potential_position": recovered_payload.get("potential_position"),
+                "potential_reason": recovered_payload.get("potential_reason"),
+                "provider": effective_request_config.provider,
+                "model_name": effective_request_config.model_name,
+                "source": effective_request_config.source,
+                "used_fallback": True,
+                "error_message": "AI 返回非 JSON，已从原始文本恢复匹配结论",
+                "prompt_snapshot": f"SYSTEM:\n{system_prompt}\n\nUSER:\n{user_prompt}",
+                "full_request_snapshot": _build_request_snapshot(
+                    effective_request_config,
+                    response_mode="json",
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                ),
+                "input_summary": _truncate(user_prompt, 600),
+                "output_summary": _truncate(recorded_raw_text or recovered_payload, 600),
+                "raw_response_text": recorded_raw_text,
+                "parsed_response": recovered_payload,
+            }
 
         content = result.get("content") or {}
         parsed = content if isinstance(content, dict) else {}
@@ -2704,6 +2929,34 @@ class RecruitmentAIGateway:
         reason = str(parsed.get("reason") or "").strip() or "AI自动匹配"
         potential_position = str(parsed.get("potential_position") or "").strip() or None
         potential_reason = str(parsed.get("potential_reason") or "").strip() or None
+        if (
+            normalized_position_id is None
+            and normalized_position_title is None
+            and not potential_position
+            and not potential_reason
+        ):
+            recovered_payload = _extract_ai_position_match_recovery_from_text(result.get("raw_response_text"), positions)
+            if recovered_payload:
+                logger.warning(
+                    "Recruitment JSON task ai_position_match produced low-signal JSON, recovered supplemental fields from raw text for candidate_id=%s",
+                    candidate_id,
+                )
+                normalized_position_id = recovered_payload.get("position_id")
+                normalized_position_title = recovered_payload.get("position_title")
+                normalized_confidence = recovered_payload.get("confidence")
+                reason = str(recovered_payload.get("reason") or "").strip() or reason
+                potential_position = str(recovered_payload.get("potential_position") or "").strip() or None
+                potential_reason = str(recovered_payload.get("potential_reason") or "").strip() or None
+
+        parsed_response_payload = {
+            "position_id": normalized_position_id,
+            "position_title": normalized_position_title,
+            "confidence": normalized_confidence,
+            "reason": reason,
+            "potential_position": potential_position,
+            "potential_reason": potential_reason,
+        }
+        recorded_raw_text = _sanitize_ai_position_match_recorded_text(result.get("raw_response_text"), parsed_response_payload)
 
         return {
             "position_id": normalized_position_id,
@@ -2721,13 +2974,6 @@ class RecruitmentAIGateway:
             "full_request_snapshot": result.get("full_request_snapshot"),
             "input_summary": result.get("input_summary"),
             "output_summary": result.get("output_summary"),
-            "raw_response_text": result.get("raw_response_text"),
-            "parsed_response": {
-                "position_id": normalized_position_id,
-                "position_title": normalized_position_title,
-                "confidence": normalized_confidence,
-                "reason": reason,
-                "potential_position": potential_position,
-                "potential_reason": potential_reason,
-            },
+            "raw_response_text": recorded_raw_text,
+            "parsed_response": parsed_response_payload,
         }
