@@ -1699,6 +1699,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     const allCandidatesRef = useRef<CandidateSummary[]>(allCandidates);
     const allTalentPoolCandidatesRef = useRef<CandidateSummary[]>(allTalentPoolCandidates);
     const candidateTotalRef = useRef(candidateTotal);
+    const candidateListUsingVisibleFiltersRef = useRef(false);
     const skillsLoadedOnceRef = useRef(false);
     const mailSettingsLoadedOnceRef = useRef(false);
     const llmConfigsLoadedOnceRef = useRef(false);
@@ -2401,6 +2402,8 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         return recruitmentUiText.sentCountSummary(stat.sentCount, stat.latestSentAt);
     }, [candidateResumeMailStats, recruitmentUiText]);
 
+    const isCandidatePageActive = activePage === "candidates";
+
     const sourceOptions = useMemo(() => {
         return Array.from(
             new Set(
@@ -2430,12 +2433,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }, [deferredPositionQuery, positionStatusFilter, positions]);
 
     const visibleCandidates = useMemo(() => {
-        const normalizedQuery = deferredCandidateQuery.trim().toLowerCase();
+        const useServerDrivenPrimaryFilters = isCandidatePageActive;
+        const normalizedQuery = useServerDrivenPrimaryFilters ? "" : deferredCandidateQuery.trim().toLowerCase();
         return candidates.filter((candidate) => {
-            if (candidatePositionFilter.length > 0 && !candidatePositionFilter.includes(String(candidate.position_id || ""))) {
+            if (
+                !useServerDrivenPrimaryFilters
+                && candidatePositionFilter.length > 0
+                && !candidatePositionFilter.includes(String(candidate.position_id || ""))
+            ) {
                 return false;
             }
-            if (candidateStatusFilter.length > 0 && !candidateStatusFilter.includes(resolveCandidateDisplayStatus(candidate))) {
+            if (
+                !useServerDrivenPrimaryFilters
+                && candidateStatusFilter.length > 0
+                && !candidateStatusFilter.includes(resolveCandidateDisplayStatus(candidate))
+            ) {
                 return false;
             }
             if (normalizedQuery && ![
@@ -2470,7 +2482,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             }
             return true;
         });
-    }, [candidateMatchFilter, candidatePositionFilter, candidateSourceFilter, candidateStatusFilter, candidateTimeFilter, candidates, deferredCandidateQuery]);
+    }, [candidateMatchFilter, candidatePositionFilter, candidateSourceFilter, candidateStatusFilter, candidateTimeFilter, candidates, deferredCandidateQuery, isCandidatePageActive]);
 
     const visibleCandidateIdSet = useMemo(
         () => new Set(visibleCandidates.map((c) => c.id)),
@@ -2786,10 +2798,25 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         if (positionCandidatesLoading) return;
         
         const timer = window.setTimeout(() => {
-            void loadPositionCandidates(selectedPositionId, positionCandidateSearch || undefined);
+            void loadPositionCandidates(
+                selectedPositionId,
+                positionCandidateSearch || undefined,
+                positionCandidateStatusFilter !== "__all__" ? positionCandidateStatusFilter : undefined,
+            );
         }, 300);
         return () => window.clearTimeout(timer);
-    }, [positionCandidateSearch, positionWorkspaceView, selectedPositionId, activePage]);
+    }, [positionCandidateSearch, positionCandidateStatusFilter, positionWorkspaceView, selectedPositionId, activePage]);
+
+    useEffect(() => {
+        if (bootstrapping || activePage === "candidates" || !candidateListUsingVisibleFiltersRef.current) {
+            return;
+        }
+        void loadCandidates({
+            silent: true,
+            force: true,
+            useVisibleFilters: false,
+        });
+    }, [activePage, bootstrapping]);
 
 
     useEffect(() => {
@@ -2952,11 +2979,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             try {
                 // 设置 loading 状态，防止显示空状态
                 setCandidatesLoading(true);
-                const scopedOrgCode = resolveScopedOrgCode(selectedDepartmentScope, selectedOrgScope);
-                const orgCodeParam = scopedOrgCode ? `org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-                const url = orgCodeParam ? `/candidates?limit=25&offset=0&${orgCodeParam}` : "/candidates?limit=25&offset=0";
+                const queryString = buildCandidateListQueryString({
+                    useVisibleFilters: false,
+                });
+                const url = `/candidates?${queryString}`;
                 const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
                 if (!cancelled) {
+                    candidateListUsingVisibleFiltersRef.current = false;
                     setAllCandidates(deduplicateCandidates(data?.items || []));
                     setCandidateTotal(data?.total || 0);
                     setCandidatesInitialLoaded(true);
@@ -3075,6 +3104,46 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         });
     }, [candidateListScrollEl]);
 
+    useEffect(() => {
+        if (bootstrapping || activePage !== "candidates") {
+            return;
+        }
+        const timer = window.setTimeout(() => {
+            scrollCandidateListToTop();
+            void loadCandidates({
+                silent: true,
+                force: true,
+                useVisibleFilters: true,
+                query: deferredCandidateQuery,
+            });
+        }, 150);
+        return () => window.clearTimeout(timer);
+    }, [activePage, bootstrapping, candidatePositionFilter, candidateStatusFilter, deferredCandidateQuery, scrollCandidateListToTop]);
+
+    const matchesActiveCandidateListFilters = useCallback((candidate: CandidateSummary) => {
+        if (!candidateListUsingVisibleFiltersRef.current) {
+            return true;
+        }
+        const activePositionId = candidatePositionFilter[0] || "";
+        if (activePositionId && String(candidate.position_id || "") !== activePositionId) {
+            return false;
+        }
+        const activeStatus = candidateStatusFilter[0] || "";
+        if (activeStatus && resolveCandidateDisplayStatus(candidate) !== activeStatus) {
+            return false;
+        }
+        const normalizedQuery = candidateQuery.trim().toLowerCase();
+        if (!normalizedQuery) {
+            return true;
+        }
+        return [
+            candidate.name,
+            candidate.phone,
+            candidate.email,
+            candidate.current_company,
+        ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
+    }, [candidatePositionFilter, candidateQuery, candidateStatusFilter]);
+
     const syncRealtimeCandidateLists = useCallback((
         snapshot?: Partial<CandidateSummary> | null,
         options?: { insertIntoCandidateList?: boolean },
@@ -3089,9 +3158,21 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const nextItem = { ...snapshot, id: candidateId } as CandidateSummary;
         const normalizedStatus = String(nextItem.status || "").trim().toLowerCase();
         const shouldShowInCandidateList = normalizedStatus !== "" && !CANDIDATE_LIST_EXCLUDED_STATUSES.has(normalizedStatus);
+        const existsInCandidateList = allCandidatesRef.current.some((candidate) => candidate.id === candidateId);
+        const matchesCurrentCandidateList = matchesActiveCandidateListFilters(nextItem);
+
+        if (shouldShowInCandidateList && !matchesCurrentCandidateList) {
+            if (existsInCandidateList) {
+                setAllCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
+                setCandidateTotal((current) => Math.max(0, current - 1));
+            }
+            if (allTalentPoolCandidatesRef.current.some((candidate) => candidate.id === candidateId)) {
+                setAllTalentPoolCandidates((current) => current.filter((candidate) => candidate.id !== candidateId));
+            }
+            return;
+        }
 
         if (shouldShowInCandidateList) {
-            const existsInCandidateList = allCandidatesRef.current.some((candidate) => candidate.id === candidateId);
             if (existsInCandidateList) {
                 setAllCandidates((current) => current.map((candidate) => (
                     candidate.id === candidateId ? { ...candidate, ...nextItem } : candidate
@@ -3122,7 +3203,7 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
             return;
         }
         setAllTalentPoolCandidates((current) => deduplicateCandidates([nextItem, ...current]));
-    }, []);
+    }, [matchesActiveCandidateListFilters]);
 
     const applyCandidateDetailSnapshot = useCallback((snapshot?: Partial<CandidateSummary> | null) => {
         if (!snapshot?.id) {
@@ -3884,26 +3965,78 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         return "";
     }
 
-    async function loadCandidates(options?: { silent?: boolean; force?: boolean; departmentScope?: string; orgScope?: string }) {
+    function buildCandidateListQueryString(options?: {
+        departmentScope?: string;
+        orgScope?: string;
+        query?: string;
+        positionFilter?: string[];
+        statusFilter?: string[];
+        useVisibleFilters?: boolean;
+        limit?: number;
+        offset?: number;
+    }) {
+        const params = new URLSearchParams();
+        params.set("limit", String(options?.limit ?? 25));
+        params.set("offset", String(options?.offset ?? 0));
+        const scopedOrgCode = resolveScopedOrgCode(options?.departmentScope ?? selectedDepartmentScope, options?.orgScope ?? selectedOrgScope);
+        if (scopedOrgCode) {
+            params.set("org_code", scopedOrgCode);
+        }
+        const useVisibleFilters = options?.useVisibleFilters ?? activePage === "candidates";
+        if (useVisibleFilters) {
+            const normalizedQuery = String(options?.query ?? deferredCandidateQuery).trim();
+            const positionId = String((options?.positionFilter ?? candidatePositionFilter)[0] || "").trim();
+            const status = String((options?.statusFilter ?? candidateStatusFilter)[0] || "").trim();
+            if (normalizedQuery) {
+                params.set("query", normalizedQuery);
+            }
+            if (positionId) {
+                params.set("position_id", positionId);
+            }
+            if (status) {
+                params.set("status", status);
+            }
+        }
+        return params.toString();
+    }
+
+    async function loadCandidates(options?: {
+        silent?: boolean;
+        force?: boolean;
+        departmentScope?: string;
+        orgScope?: string;
+        query?: string;
+        positionFilter?: string[];
+        statusFilter?: string[];
+        useVisibleFilters?: boolean;
+    }) {
         const requestId = candidatesLoadRequestIdRef.current + 1;
         candidatesLoadRequestIdRef.current = requestId;
         if (!options?.silent) {
             setCandidatesLoading(true);
         }
         try {
-            const scopedOrgCode = resolveScopedOrgCode(options?.departmentScope ?? selectedDepartmentScope, options?.orgScope ?? selectedOrgScope);
-            const orgCodeParam = scopedOrgCode ? `org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-            const url = orgCodeParam ? "/candidates?limit=25&offset=0&" + orgCodeParam : "/candidates?limit=25&offset=0";
+            const useVisibleFilters = options?.useVisibleFilters ?? activePage === "candidates";
+            const queryString = buildCandidateListQueryString({
+                departmentScope: options?.departmentScope,
+                orgScope: options?.orgScope,
+                query: options?.query,
+                positionFilter: options?.positionFilter,
+                statusFilter: options?.statusFilter,
+                useVisibleFilters,
+            });
+            const url = `/candidates?${queryString}`;
             const request = () => recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
             const result = options?.force
                 ? await request()
                 : await runDedupedRequest(
-                    `candidates:first-page${scopedOrgCode ? `:${scopedOrgCode}` : ""}`,
+                    `candidates:first-page:${queryString}`,
                     request,
                 );
             if (!mountedRef.current || candidatesLoadRequestIdRef.current !== requestId) {
                 return result?.items || [];
             }
+            candidateListUsingVisibleFiltersRef.current = useVisibleFilters;
             setAllCandidates(deduplicateCandidates(result?.items || []));
             setCandidateTotal(result?.total || 0);
             setCandidatesInitialLoaded(true);
@@ -3921,9 +4054,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     async function refreshCandidatesManually() {
-        await loadCandidates({ force: true });
+        await loadCandidates({ force: true, useVisibleFilters: true });
         scrollCandidateListToTop();
-        toast.success(isZh ? "已刷新，显示最新前25条" : "Refreshed. Showing the latest 25 candidates.");
+        toast.success(
+            isZh
+                ? "已刷新，显示当前筛选结果的最新前 25 条"
+                : "Refreshed. Showing the latest 25 rows for the current filters.",
+        );
     }
 
     const loadingMoreCandidatesRef = useRef(false);
@@ -3933,9 +4070,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         setIsLoadingMoreCandidates(true);
         try {
             const offset = allCandidates.length;
-            const scopedOrgCode = resolveScopedOrgCode(selectedDepartmentScope, selectedOrgScope);
-            const orgCodeParam = scopedOrgCode ? `&org_code=${encodeURIComponent(scopedOrgCode)}` : "";
-            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(`/candidates?limit=25&offset=${offset}${orgCodeParam}`);
+            const queryString = buildCandidateListQueryString({
+                offset,
+                useVisibleFilters: candidateListUsingVisibleFiltersRef.current,
+            });
+            const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(`/candidates?${queryString}`);
             if (mountedRef.current) {
                 setAllCandidates(prev => deduplicateCandidates([...prev, ...(data?.items || [])]));
                 setCandidateTotal(data?.total || 0);
@@ -4323,17 +4462,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const companyScope = (options as any)?.orgScope ?? selectedOrgScope;
 
         // 直接调用 API，避免闭包中 selectedDepartmentScope 还是旧值的问题
-        const candidatesPromise = (async () => {
-            const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
-                ? `org_code=${encodeURIComponent(deptScope)}`
-                : companyScope
-                    ? `org_code=${encodeURIComponent(companyScope)}`
-                    : "";
-            const url = orgCodeParam ? `/candidates?limit=25&offset=0&${orgCodeParam}` : "/candidates?limit=25&offset=0";
-            const d = await recruitmentApi<{items: CandidateSummary[]; total: number}>(url);
-            setAllCandidates(deduplicateCandidates(d?.items || []));
-            setCandidateTotal(d?.total || 0);
-        })();
+        const candidatesPromise = loadCandidates({
+            silent: true,
+            force: true,
+            departmentScope: deptScope,
+            orgScope: companyScope,
+            useVisibleFilters: activePage === "candidates",
+        });
 
         const logsPromise = (async () => {
             const orgCodeParam = deptScope !== ALL_COMPANY_DEPARTMENTS_VALUE
@@ -5270,13 +5405,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
     }
 
     // 加载候选人列表数据（点击候选人 Tab 时调用，支持服务端搜索）
-    async function loadPositionCandidates(positionId: number, query?: string) {
+    async function loadPositionCandidates(positionId: number, query?: string, status?: string) {
         const requestId = ++positionCandidatesLoadRequestIdRef.current;
         setPositionCandidatesLoading(true);
         try {
             const queryParam = query ? `&query=${encodeURIComponent(query)}` : "";
+            const statusParam = status ? `&status=${encodeURIComponent(status)}` : "";
             const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(
-                `/candidates?position_id=${positionId}&limit=25&offset=0${queryParam}`
+                `/candidates?position_id=${positionId}&limit=25&offset=0&compact=1${queryParam}${statusParam}`
             );
             if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === requestId) {
                 setPositionCandidatesData(data?.items || []);
@@ -5284,7 +5420,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                 setPositionCandidatesInitialLoaded(true);
             }
         } catch {
-            if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === requestId && positionDetail) {
+            if (
+                mountedRef.current
+                && positionCandidatesLoadRequestIdRef.current === requestId
+                && positionDetail
+                && !query
+                && !status
+            ) {
                 setPositionCandidatesData(positionDetail.candidates);
                 setPositionCandidatesInitialLoaded(true);
             }
@@ -5302,8 +5444,11 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
         const currentRequestId = positionCandidatesLoadRequestIdRef.current;
         try {
             const queryParam = positionCandidateSearch ? `&query=${encodeURIComponent(positionCandidateSearch)}` : "";
+            const statusParam = positionCandidateStatusFilter !== "__all__"
+                ? `&status=${encodeURIComponent(positionCandidateStatusFilter)}`
+                : "";
             const data = await recruitmentApi<{items: CandidateSummary[]; total: number}>(
-                `/candidates?position_id=${positionId}&limit=25&offset=${positionCandidatesData.length}${queryParam}`
+                `/candidates?position_id=${positionId}&limit=25&offset=${positionCandidatesData.length}&compact=1${queryParam}${statusParam}`
             );
             if (mountedRef.current && positionCandidatesLoadRequestIdRef.current === currentRequestId) {
                 setPositionCandidatesData(prev => [...prev, ...(data?.items || [])]);
@@ -9668,7 +9813,13 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                                 onClick={() => {
                                                     setPositionWorkspaceView("candidates");
                                                     // 数据已加载或正在加载时跳过重复请求
-                                                    if (selectedPositionId && positionCandidatesData.length === 0 && !positionCandidatesLoading) loadPositionCandidates(selectedPositionId);
+                                                    if (selectedPositionId && positionCandidatesData.length === 0 && !positionCandidatesLoading) {
+                                                        loadPositionCandidates(
+                                                            selectedPositionId,
+                                                            positionCandidateSearch || undefined,
+                                                            positionCandidateStatusFilter !== "__all__" ? positionCandidateStatusFilter : undefined,
+                                                        );
+                                                    }
                                                 }}
                                             >
                                                 {recruitmentUiText.positionCandidates}

@@ -9779,10 +9779,13 @@ class RecruitmentService:
             "current_company": row.current_company,
             "phone": row.phone,
             "email": row.email,
+            "years_of_experience": getattr(row, "years_of_experience", None),
+            "education": getattr(row, "education", None),
             "age": getattr(row, "age", None),
             "city": getattr(row, "city", None),
             "expected_city": getattr(row, "expected_city", None),
             "source": row.source,
+            "source_detail": row.source_detail,
             "status": row.status,
             "display_status": display_payload["display_status"],
             "display_status_reason": screening_state.get("display_status_reason"),
@@ -10066,7 +10069,7 @@ class RecruitmentService:
             RecruitmentCandidate,
         )
 
-    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None) -> Dict[str, Any]:
+    def list_candidates(self, query: Optional[str] = None, status: Optional[str] = None, position_id: Optional[int] = None, tag: Optional[str] = None, limit: int = 0, offset: int = 0, org_code: Optional[str] = None, compact: bool = False) -> Dict[str, Any]:
         builder = self._build_candidate_scoped_query(org_code)
         # 排除待归岗候选人（这些候选人在人才库中显示）
         if not status:
@@ -10182,8 +10185,12 @@ class RecruitmentService:
                     seen_cids_score.add(cid)
                     completed_score_map[cid] = sr
 
+        ai_match_snapshot_map: Dict[int, Dict[str, Any]] = {}
+        if not compact:
+            ai_match_snapshot_map = self._build_candidate_ai_match_snapshot_map(rows)
+
         serialized_rows = []
-        serializer = self._serialize_position_candidate_item if position_id else self._serialize_candidate_list_item
+        serializer = self._serialize_position_candidate_item if compact else self._serialize_candidate_list_item
         for row in rows:
             preloaded_position = position_map.get(row.position_id) if row.position_id else None
             preloaded_score_row = score_map.get(row.latest_score_id) if row.latest_score_id else None
@@ -10198,6 +10205,7 @@ class RecruitmentService:
                 _preloaded_position=preloaded_position,
                 _preloaded_score_row=preloaded_score_row,
                 _preloaded_screening_state=screening_state,
+                **({"_preloaded_ai_match_snapshot": ai_match_snapshot_map.get(row.id)} if not compact else {}),
             ))
         return {"items": serialized_rows, "total": total}
 

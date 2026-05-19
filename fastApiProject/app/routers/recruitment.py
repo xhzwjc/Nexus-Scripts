@@ -459,8 +459,8 @@ async def get_source_stats(position_id: Optional[int] = Query(None), org_code: O
 
 
 @recruitment_router.get("/candidates")
-async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), limit: int = Query(0), offset: int = Query(0), org_code: Optional[str] = Query(None), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
-    result = service.list_candidates(query=query, status=status, position_id=position_id, tag=tag, limit=limit, offset=offset, org_code=org_code)
+async def list_candidates(query: Optional[str] = Query(None), status: Optional[str] = Query(None), position_id: Optional[int] = Query(None), tag: Optional[str] = Query(None), limit: int = Query(0), offset: int = Query(0), org_code: Optional[str] = Query(None), compact: bool = Query(False), _session: Dict[str, Any] = Depends(require_script_hub_permission("recruitment-dashboard-view")), service: RecruitmentService = Depends(get_recruitment_service)):
+    result = service.list_candidates(query=query, status=status, position_id=position_id, tag=tag, limit=limit, offset=offset, org_code=org_code, compact=compact)
     return {"success": True, "data": {"items": result["items"], "total": result["total"]}, "request_id": str(uuid.uuid4())}
 
 

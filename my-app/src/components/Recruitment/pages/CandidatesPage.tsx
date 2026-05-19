@@ -1422,30 +1422,10 @@ function CandidateFilterBar({
                 </div>
 
                 <div className="mt-2 border-t border-slate-200/80 pt-2 dark:border-slate-800">
-                    <div className="grid gap-2.5 xl:grid-cols-[minmax(0,1.45fr)_repeat(5,minmax(0,0.88fr))]">
+                    <div className="grid gap-2.5 xl:grid-cols-[minmax(0,1.45fr)_repeat(3,minmax(0,0.9fr))]">
                         <div className="space-y-1">
                             <label className={fieldLabelClassName}>{tr.search}</label>
                             <SearchField value={candidateQuery} onChange={setCandidateQuery} placeholder={tr.searchPlaceholder}/>
-                        </div>
-                        <div className="space-y-1">
-                            <label className={fieldLabelClassName}>{tr.position}</label>
-                            <MultiSelect
-                                options={positions.map((p) => ({ value: String(p.id), label: p.title }))}
-                                selected={candidatePositionFilter}
-                                onChange={setCandidatePositionFilter}
-                                placeholder={tr.allPositions}
-                                selectedLabel={tr.selectedLabel}
-                            />
-                        </div>
-                        <div className="space-y-1">
-                            <label className={fieldLabelClassName}>{tr.status}</label>
-                            <MultiSelect
-                                options={Object.entries(candidateStatusLabels).map(([value, label]) => ({ value, label }))}
-                                selected={candidateStatusFilter}
-                                onChange={setCandidateStatusFilter}
-                                placeholder={tr.allStatuses}
-                                selectedLabel={tr.selectedLabel}
-                            />
                         </div>
                         <div className="space-y-1">
                             <label className={fieldLabelClassName}>{tr.matchPercent}</label>
@@ -1711,6 +1691,8 @@ export function CandidatesPage({
     const {language} = useI18n();
     const isZh = language !== "en-US";
     const tr = React.useMemo(() => getCandidatesLocale(language), [language]);
+    const activeQuickStatus = candidateStatusFilter[0] || "";
+    const activeQuickPosition = candidatePositionFilter[0] || "";
     const exportFieldOptions = React.useMemo(() => ([
         { key: "name", label: isZh ? "姓名" : "Name", defaultChecked: true },
         { key: "phone", label: isZh ? "手机号" : "Phone", defaultChecked: true },
@@ -2211,7 +2193,45 @@ export function CandidatesPage({
                     <CardHeader className="px-4 pt-2 pb-0 sm:px-5">
                         <div className="flex items-center justify-between gap-3">
                             <CardTitle className="text-[19px] leading-none">{tr.candidateList}</CardTitle>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                    size="sm"
+                                    variant={activeQuickStatus === "screening_passed" ? "default" : "outline"}
+                                    className="h-7 rounded-md px-2.5 text-sm"
+                                    onClick={() => setCandidateStatusFilter(activeQuickStatus === "screening_passed" ? [] : ["screening_passed"])}
+                                >
+                                    {candidateStatusLabels.screening_passed || (isZh ? "初筛通过" : "Screening Passed")}
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant={activeQuickStatus === "screening_rejected" ? "default" : "outline"}
+                                    className="h-7 rounded-md px-2.5 text-sm"
+                                    onClick={() => setCandidateStatusFilter(activeQuickStatus === "screening_rejected" ? [] : ["screening_rejected"])}
+                                >
+                                    {candidateStatusLabels.screening_rejected || (isZh ? "初筛淘汰" : "Screening Rejected")}
+                                </Button>
+                                <div className="w-[220px] max-w-[220px] min-w-0 shrink-0">
+                                    <NativeSelect
+                                        value={activeQuickPosition || "__all__"}
+                                        title={
+                                            activeQuickPosition
+                                                ? (positions.find((position) => String(position.id) === activeQuickPosition)?.title || "")
+                                                : tr.allPositions
+                                        }
+                                        onChange={(event) => {
+                                            const nextValue = event.target.value;
+                                            setCandidatePositionFilter(nextValue === "__all__" ? [] : [nextValue]);
+                                        }}
+                                        className="h-7 w-full max-w-full truncate rounded-md pr-8 text-sm"
+                                    >
+                                        <option value="__all__">{tr.allPositions}</option>
+                                        {positions.map((position) => (
+                                            <option key={position.id} value={String(position.id)}>
+                                                {position.title}
+                                            </option>
+                                        ))}
+                                    </NativeSelect>
+                                </div>
                                 {onRefresh ? (
                                     <Button
                                         size="sm"
