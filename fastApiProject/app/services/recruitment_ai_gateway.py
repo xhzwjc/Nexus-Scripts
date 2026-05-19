@@ -1734,6 +1734,15 @@ class RecruitmentAIGateway:
             },
         ]
 
+    # MiniMax 模型需要禁用 thinking 的任务类型
+    _MINIMAX_DISABLE_THINKING_TASKS: frozenset[str] = frozenset({
+        "ai_position_match",
+        "resume_screening_one_pass",
+        "resume_score",
+        "jd_generation",
+        "interview_question_generation",
+    })
+
     def _build_openai_compatible_request_body(
         self,
         config: RecruitmentLLMRuntimeConfig,
@@ -1742,6 +1751,7 @@ class RecruitmentAIGateway:
         user_prompt: str,
         response_mode: str,
         stream: bool,
+        task_type: str = "",
     ) -> Dict[str, Any]:
         body: Dict[str, Any] = {
             "model": config.model_name,
@@ -1761,6 +1771,11 @@ class RecruitmentAIGateway:
         max_tokens_override = config.extra_config.get("max_tokens_override")
         if max_tokens_override:
             body["max_tokens"] = max_tokens_override
+        # MiniMax 模型：指定任务类型禁用 thinking，避免思考过程消耗 token
+        if task_type in self._MINIMAX_DISABLE_THINKING_TASKS:
+            model_lower = (config.model_name or "").lower()
+            if model_lower.startswith(("minimax-", "abab")):
+                body["thinking"] = {"type": "disabled"}
         return body
 
     def _stream_openai_compatible_completion(
@@ -1787,6 +1802,7 @@ class RecruitmentAIGateway:
             user_prompt=user_prompt,
             response_mode=response_mode,
             stream=True,
+            task_type=task_type,
         )
         client = self._build_httpx_client(
             config,
@@ -1950,6 +1966,7 @@ class RecruitmentAIGateway:
             user_prompt=user_prompt,
             response_mode="json",
             stream=False,
+            task_type=task_type,
         )
         client = self._build_httpx_client(
             config,
@@ -2870,7 +2887,7 @@ class RecruitmentAIGateway:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 runtime_config=effective_runtime_config,
-                max_tokens_override=800,
+                max_tokens_override=2500,
             )
         except RecruitmentAIJSONParseError as exc:
             recovered_payload = _extract_ai_position_match_recovery_from_text(exc.raw_response_text, positions)
