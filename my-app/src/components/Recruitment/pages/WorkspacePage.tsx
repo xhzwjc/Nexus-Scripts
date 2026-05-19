@@ -98,6 +98,8 @@ export function WorkspacePage({
 }: WorkspacePageProps) {
     const {language} = useI18n();
     const isZh = language === "zh-CN";
+    // Temporary UI toggle: keep these cards in code so we can restore them quickly later.
+    const hideFutureWorkspaceMetrics = true;
     const [refreshing, setRefreshing] = React.useState(false);
     const todayScreeningPassed = React.useMemo(
         () => stats.cards.screening_passed,
@@ -239,10 +241,14 @@ export function WorkspacePage({
                             description={isZh ? "优先需要处理的简历" : "Resumes that need immediate attention"} icon={FileSearch}/>
                 <MetricCard title={tr.screeningPassed} value={todayScreeningPassed}
                             description={tr.screeningPassedDesc} icon={ClipboardCheck}/>
-                <MetricCard title={tr.aiRunsToday} value={dashboard?.cards.recent_ai_tasks ?? 0}
-                            description={tr.aiRunsTodayDesc} icon={Sparkles}/>
-                <MetricCard title={tr.pendingPublish} value={stats.todo.pendingPublish}
-                            description={tr.pendingPublishDesc} icon={Rocket}/>
+                {!hideFutureWorkspaceMetrics ? (
+                    <MetricCard title={tr.aiRunsToday} value={dashboard?.cards.recent_ai_tasks ?? 0}
+                                description={tr.aiRunsTodayDesc} icon={Sparkles}/>
+                ) : null}
+                {!hideFutureWorkspaceMetrics ? (
+                    <MetricCard title={tr.pendingPublish} value={stats.todo.pendingPublish}
+                                description={tr.pendingPublishDesc} icon={Rocket}/>
+                ) : null}
                 <MetricCard title={tr.pendingInterview} value={stats.todo.pendingInterview}
                             description={tr.pendingInterviewDesc} icon={NotebookText}/>
                 <MetricCard title={tr.pendingDecision} value={stats.todo.pendingDecision}

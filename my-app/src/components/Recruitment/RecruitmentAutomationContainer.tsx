@@ -1143,6 +1143,8 @@ function TalentPoolSearch({
 export default function RecruitmentAutomationContainer({onBack, initialPage}: RecruitmentAutomationContainerProps) {
     const {language} = useI18n();
     const isZh = language === "zh-CN";
+    // Temporary UI toggle: keep the top-right assistant button in code for quick restore later.
+    const hideTopRightAssistantEntry = true;
     const sessionUser = useMemo(() => getStoredScriptHubSession()?.user ?? null, []);
     const defaultOrgScope = normalizeRecruitmentOrgCode(sessionUser?.primaryOrgCode);
     const recruitmentToast = useMemo(() => getRecruitmentToastLocale(language), [language]);
@@ -10750,12 +10752,14 @@ export default function RecruitmentAutomationContainer({onBack, initialPage}: Re
                                 {recruitmentUiText.createPosition}
                             </Button>
                         )}
-                        <Button
-                            className="rounded-xl bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
-                            onClick={() => openAssistantMode("drawer")}>
-                            <Bot className="h-4 w-4"/>
-                            {recruitmentUiText.openAssistantDrawer}
-                        </Button>
+                        {!hideTopRightAssistantEntry ? (
+                            <Button
+                                className="rounded-xl bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+                                onClick={() => openAssistantMode("drawer")}>
+                                <Bot className="h-4 w-4"/>
+                                {recruitmentUiText.openAssistantDrawer}
+                            </Button>
+                        ) : null}
                         {canManageRecruitment ? (
                             <Popover open={settingsPopoverOpen} onOpenChange={setSettingsPopoverOpen}>
                                 <PopoverTrigger asChild>
