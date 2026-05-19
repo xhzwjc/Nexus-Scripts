@@ -116,6 +116,10 @@ def _normalize_json_candidate_text(value: str) -> str:
     if not text:
         return '{}'
     text = text.replace('\ufeff', '').replace('\u2019', "'")
+    # 修复中文引号和标点：AI 模型有时会在 JSON 中混用全角/弯引号
+    text = text.replace('\u201c', '"').replace('\u201d', '"')
+    text = text.replace('\u300c', '"').replace('\u300d', '"')
+    text = text.replace('\uff02', '"')
     # 修复中文逗号和冒号：AI 模型有时会在 JSON 中使用中文标点
     text = text.replace('\uff0c', ',')
     text = text.replace('\uff1a', ':')

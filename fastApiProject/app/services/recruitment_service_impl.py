@@ -10939,11 +10939,68 @@ class RecruitmentService:
             )
 
         if not positions:
+            message = "No auto-screen-ready positions available for this organization" if require_auto_screen_ready else "No active positions available for this organization"
+            localized_reason = "当前组织暂无可自动初筛岗位，AI 智能匹配未启动" if require_auto_screen_ready else "当前组织暂无可用岗位，AI 智能匹配未启动"
+            now = datetime.now()
+            for candidate in candidates:
+                candidate.ai_match_position_id = None
+                candidate.ai_match_position_title = None
+                candidate.ai_match_confidence = None
+                candidate.ai_match_reason = localized_reason
+                candidate.ai_match_at = now
+                candidate.ai_potential_position = None
+                candidate.ai_potential_reason = None
+                candidate.status = "unmatched"
+                candidate.talent_pool_reason = "unmatched_by_ai"
+                candidate.talent_pool_source_status = "matching"
+                candidate.talent_pool_moved_by = actor_id
+                candidate.talent_pool_moved_at = now
+                candidate.updated_by = actor_id
+                self.db.add(candidate)
+            self.db.flush()
+            for candidate in candidates:
+                self.db.add(
+                    RecruitmentAITaskLog(
+                        task_type=task_type,
+                        org_code=normalize_org_code(getattr(candidate, "org_code", None)),
+                        batch_id=batch_id,
+                        status="no_match",
+                        related_candidate_id=candidate.id,
+                        input_summary="positions=0",
+                        output_summary=localized_reason,
+                        error_message=None,
+                        session_token=self._normalize_task_session_token(session_token),
+                        created_by=actor_id,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            self.db.commit()
+            if session_token:
+                from .task_event_bus import TaskEventBus
+                for candidate in candidates:
+                    candidate_snapshot = self._serialize_realtime_candidate_item(candidate)
+                    TaskEventBus.emit(
+                        session_token,
+                        "candidate_updated",
+                        {
+                            "candidate_id": candidate.id,
+                            "batch_id": batch_id,
+                            "task_type": task_type,
+                            "status": "unmatched",
+                            "ai_match_reason": localized_reason,
+                            "ai_match_position_id": None,
+                            "ai_match_position_title": None,
+                            "ai_potential_position": None,
+                            "ai_potential_reason": None,
+                            "candidate_snapshot": candidate_snapshot,
+                        },
+                    )
             return {
                 "batch_id": batch_id,
                 "matched_count": 0,
                 "total_candidates": 0,
-                "message": "No auto-screen-ready positions available for this organization" if require_auto_screen_ready else "No active positions available for this organization",
+                "message": message,
             }
 
         position_summaries = []
