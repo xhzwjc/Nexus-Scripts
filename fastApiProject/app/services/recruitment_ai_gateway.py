@@ -2855,7 +2855,7 @@ class RecruitmentAIGateway:
 1. 你作为招聘主管，看完简历后推荐一个最合适的岗位名称（不限于系统岗位列表，可自行判断）
 2. 如果系统岗位列表中有匹配的，优先使用并返回 position_id；没有则 position_id 返回 null，position_title 仍要填写你推荐的岗位
 3. confidence 返回 0-100，表示你对推荐岗位的把握程度
-4. 转岗建议（potential_position）：推荐1个该候选人可以转岗的方向，基于其技能可迁移性判断
+4. 转岗建议（potential_position）：推荐1个该候选人可以转岗的方向，**必须与推荐岗位（position_title）不同**，基于其技能可迁移性判断
 5. 转岗原因（potential_reason）：50字以内，说明为什么具备该转岗潜力
 6. reason：50字以内，说明推荐该岗位的核心依据
 7. **只有简历信息严重缺失（如无工作经历、无技能、内容为空）时，才允许 potential_position 和 potential_reason 返回 null**

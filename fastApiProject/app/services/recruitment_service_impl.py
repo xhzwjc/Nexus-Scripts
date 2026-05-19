@@ -1182,7 +1182,7 @@ def _sanitize_screening_payload_structure(
     sanitized_score["dimensions"] = sanitized_dimensions
     sanitized_score["radar_scores"] = _sanitize_radar_scores(score_payload.get("radar_scores"))
 
-    return {
+    result = {
         "parsed_resume": sanitized_parsed_resume,
         "score": sanitized_score,
         "_sanitize_meta": {
@@ -1190,6 +1190,11 @@ def _sanitize_screening_payload_structure(
             "structure_warnings": structure_warnings,
         },
     }
+    # 透传 position_match 字段（一体化初筛 AI 返回的推荐岗位和转岗建议）
+    position_match_raw = source_payload.get("position_match")
+    if isinstance(position_match_raw, dict):
+        result["position_match"] = position_match_raw
+    return result
 
 
 def _resolve_dimension_max_possible_score(
@@ -10793,6 +10798,62 @@ class RecruitmentService:
         )
         raise ValueError("简历未提取到可识别文本，请上传文本版 PDF 或 Word 后重试。")
 
+    def _run_position_match_for_screened_candidate(
+        self,
+        candidate: RecruitmentCandidate,
+        parse_row: RecruitmentResumeParseResult,
+        actor_id: str,
+    ) -> None:
+        """fallback 初筛路径：单独调用 AI 推荐岗位和转岗建议。失败不影响初筛流程。"""
+        try:
+            resume_content = str(getattr(parse_row, "raw_text", "") or "").strip()
+            if not resume_content:
+                return
+            org_code = candidate.org_code or self._current_org_code()
+            positions = self.db.query(RecruitmentPosition).filter(
+                RecruitmentPosition.status.in_(["recruiting", "draft"]),
+                RecruitmentPosition.deleted.is_(False),
+                RecruitmentPosition.org_code == org_code,
+            ).all()
+            if not positions:
+                return
+            position_summaries = []
+            for pos in positions:
+                summary = f"{pos.title}"
+                if pos.department:
+                    summary += f" ({pos.department})"
+                if pos.key_requirements:
+                    summary += f" - {pos.key_requirements[:100]}"
+                position_summaries.append({
+                    "id": pos.id,
+                    "title": pos.title,
+                    "department": pos.department or "",
+                    "key_requirements": pos.key_requirements or "",
+                    "summary": summary,
+                })
+            match_result = self.ai_gateway.match_position(
+                candidate_id=candidate.id,
+                resume_content=resume_content,
+                positions=position_summaries,
+            )
+            if not match_result:
+                return
+            candidate.ai_match_position_id = match_result.get("position_id")
+            candidate.ai_match_position_title = str(match_result.get("position_title") or "").strip() or None
+            candidate.ai_match_confidence = _parse_score_number(match_result.get("confidence"))
+            candidate.ai_match_reason = str(match_result.get("reason") or "").strip() or None
+            candidate.ai_match_at = datetime.now()
+            candidate.ai_potential_position = str(match_result.get("potential_position") or "").strip() or None
+            candidate.ai_potential_reason = str(match_result.get("potential_reason") or "").strip() or None
+            candidate.updated_by = actor_id
+            self.db.add(candidate)
+            self.db.commit()
+            self.db.refresh(candidate)
+            logger.info("[SCREENING_POSITION_MATCH] fallback path done candidate_id=%s title=%s potential=%s",
+                        candidate.id, candidate.ai_match_position_title, candidate.ai_potential_position)
+        except Exception:
+            logger.warning("[SCREENING_POSITION_MATCH] fallback path failed candidate_id=%s", candidate.id, exc_info=True)
+
     async def trigger_ai_position_match(
         self,
         candidate_ids: List[int],
@@ -12106,15 +12167,35 @@ class RecruitmentService:
         dimension_rules = _distill_dimension_rules(skill_snapshots, limit=12)
         position_payload = self._get_position_screening_payload(candidate)
         dimension_labels = [d["label"] for d in dimension_rules if d.get("label")]
+        # 构建系统岗位列表（供 position_match 推荐参考）
+        org_code = candidate.org_code or self._current_org_code()
+        positions = self.db.query(RecruitmentPosition).filter(
+            RecruitmentPosition.status.in_(["recruiting", "draft"]),
+            RecruitmentPosition.deleted.is_(False),
+            RecruitmentPosition.org_code == org_code,
+        ).all()
+        position_list_lines = []
+        for pos in positions:
+            line = f"{pos.id}. {pos.title}"
+            if pos.department:
+                line += f"（{pos.department}）"
+            if pos.key_requirements:
+                line += f"：{pos.key_requirements[:100]}"
+            position_list_lines.append(line)
+        position_list_text = "\n".join(position_list_lines) if position_list_lines else "暂无系统岗位"
+        current_position_title = str((position_payload or {}).get("title") or candidate.position_title or "").strip()
         return "\n\n".join([
-            "TASK: 请先解析简历，再基于岗位要求和评分维度完成初筛评分。",
+            "TASK: 请先解析简历，再基于岗位要求和评分维度完成初筛评分，最后推荐最合适的岗位和转岗建议。",
             f"CANDIDATE_NAME: {candidate.name or '未提供'}",
+            f"CURRENT_SCREENING_POSITION: {current_position_title or '未指定'}",
             "POSITION_SUMMARY:",
             json_dumps_safe(position_payload or {}),
             f"CUSTOM_REQUIREMENTS: {custom_requirements or '无'}",
             "DIMENSION_RULES:",
             json_dumps_safe(dimension_rules),
             f"REQUIRED_DIMENSIONS: 以下 {len(dimension_labels)} 个维度每个都必须在 dimensions 数组中有评分，不得遗漏：{'、'.join(dimension_labels)}",
+            "AVAILABLE_POSITIONS（供 position_match 参考，不限于此列表）:",
+            position_list_text,
             "RAW_RESUME_TEXT:",
             raw_text[:30000],
             "只返回 strict JSON，不要 markdown，不要解释。",
@@ -12599,6 +12680,7 @@ class RecruitmentService:
             )
             parsed_resume = sanitized_payload.get("parsed_resume") if isinstance(sanitized_payload.get("parsed_resume"), dict) else {}
             raw_score_payload = sanitized_payload.get("score") if isinstance(sanitized_payload.get("score"), dict) else {}
+            position_match_payload = sanitized_payload.get("position_match") if isinstance(sanitized_payload.get("position_match"), dict) else {}
             model_schema_violation = False
             model_schema_violation_reason = None
             validation_started_at = time.perf_counter()
@@ -12768,6 +12850,17 @@ class RecruitmentService:
         self._apply_candidate_parsed_location_fields(candidate, basic_info)
         candidate.latest_parse_result_id = parse_row.id
         candidate.updated_by = actor_id
+        # 保存 AI 推荐岗位和转岗建议（从一体化初筛响应中提取）
+        if position_match_payload:
+            candidate.ai_match_position_id = None  # 一体化模式不匹配系统岗位ID
+            candidate.ai_match_position_title = str(position_match_payload.get("recommended_position") or "").strip() or None
+            candidate.ai_match_confidence = _parse_score_number(position_match_payload.get("confidence"))
+            candidate.ai_match_reason = str(position_match_payload.get("reason") or "").strip() or None
+            candidate.ai_match_at = datetime.now()
+            candidate.ai_potential_position = str(position_match_payload.get("potential_position") or "").strip() or None
+            candidate.ai_potential_reason = str(position_match_payload.get("potential_reason") or "").strip() or None
+            logger.info("[SCREENING_POSITION_MATCH] candidate_id=%s recommended=%s potential=%s",
+                        candidate.id, candidate.ai_match_position_title, candidate.ai_potential_position)
         resume_file.parse_status = "success"
         resume_file.parse_error = None
         self.db.add(candidate)
@@ -14971,6 +15064,8 @@ class RecruitmentService:
                 deadline_at=screening_deadline_at,
                 batch_id=batch_id,
             )
+            # fallback 路径：单独调用 AI 推荐岗位和转岗建议
+            self._run_position_match_for_screened_candidate(candidate, parse_row, actor_id)
             flow_state["score_result_id"] = score_row.id
             score_log_for_root = self._get_latest_screening_run_task(
                 screening_run_id,

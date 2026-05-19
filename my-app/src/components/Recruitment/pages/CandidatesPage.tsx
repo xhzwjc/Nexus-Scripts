@@ -195,11 +195,13 @@ const CandidateRow = React.memo(function CandidateRow({
                                     text={candidate.phone || candidate.email || tr.noContact}
                                     className="text-xs text-slate-500 dark:text-slate-400"
                                 />
-                                <HoverRevealText
-                                    text={`${isZh ? "转岗潜力" : "Potential Transition"}: ${candidate.ai_potential_position || (isZh ? "暂无转岗建议" : "No transition suggestion")}${candidate.ai_potential_reason ? ` · ${candidate.ai_potential_reason}` : ""}`}
-                                    className="mt-1 text-xs text-sky-600 dark:text-sky-300"
-                                    tooltipClassName="max-w-md"
-                                />
+                                {candidate.ai_potential_position ? (
+                                    <HoverRevealText
+                                        text={`${isZh ? "转岗潜力" : "Potential Transition"}: ${candidate.ai_potential_position}${candidate.ai_potential_reason ? ` · ${candidate.ai_potential_reason}` : ""}`}
+                                        className="mt-1 text-xs text-sky-600 dark:text-sky-300"
+                                        tooltipClassName="max-w-md"
+                                    />
+                                ) : null}
                                 {resumeMailSummary ? (
                                     <HoverRevealText
                                         text={resumeMailSummary}
@@ -3588,9 +3590,11 @@ export function CandidatesPage({
                                                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                                                             {candidate.position_title || tr.unassignedPosition} · {labelForCandidateStatus(resolveCandidateDisplayStatus(candidate))} · {tr.matchBadge} {formatPercent(resolveCandidateSummaryMatchPercent(candidate))}
                                                         </p>
-                                                        <p className="mt-1 text-xs text-sky-600 dark:text-sky-300">
-                                                            {`${isZh ? "转岗潜力" : "Potential Transition"}：${candidate.ai_potential_position || (isZh ? "暂无转岗建议" : "No transition suggestion")}`}
-                                                        </p>
+                                                        {candidate.ai_potential_position ? (
+                                                            <p className="mt-1 text-xs text-sky-600 dark:text-sky-300">
+                                                                {`${isZh ? "转岗潜力" : "Potential Transition"}：${candidate.ai_potential_position}`}
+                                                            </p>
+                                                        ) : null}
                                                     </div>
                                                     <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{formatDateTime(candidate.updated_at)}</p>
                                                 </button>

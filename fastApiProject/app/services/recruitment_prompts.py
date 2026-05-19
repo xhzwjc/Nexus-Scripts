@@ -154,6 +154,13 @@ SCREENING_OUTPUT_SCHEMA = """{
         "evidence": ""
       }
     ]
+  },
+  "position_match": {
+    "recommended_position": "",
+    "confidence": 0,
+    "reason": "",
+    "potential_position": "",
+    "potential_reason": ""
   }
 }"""
 
@@ -309,7 +316,15 @@ Output Rules:
 - advantages must summarize positively scored, evidence-backed dimensions; concerns must summarize zero-score, low-score, hard-constraint-missing, or core-evidence-missing dimensions.
 - advantages must not be empty if any dimension score is greater than 0; concerns must not be empty if any dimension score is 0, any core dimension lacks evidence, or the candidate is not clearly strong.
 - recommendation must be a short HR-facing decision phrase.
-- Final self-check: parsed_resume complete, dimensions complete, score math correct, status consistent, and output is one valid JSON object."""
+Position Match Rules:
+- You are also a senior recruitment manager. After scoring, recommend the most suitable position for this candidate based on the full resume (not limited to the provided position list).
+- If a position from the provided list matches well, use its title; otherwise recommend a position name based on your judgment.
+- confidence: 0-100, your certainty level about the recommendation.
+- reason: within 50 characters, core basis for the recommendation.
+- potential_position: recommend 1 transfer/career-growth direction that is DIFFERENT from the current screening position and the recommended position. This should be a direction the candidate could develop into based on transferable skills, not a repeat of what they are already being screened for.
+- potential_reason: within 50 characters, why the candidate has this transfer potential.
+- Only set potential_position and potential_reason to empty strings when the resume is severely lacking (no work experience, no skills, empty content).
+- Final self-check: parsed_resume complete, dimensions complete, score math correct, status consistent, position_match filled, and output is one valid JSON object."""
 
 RESUME_SCORE_SYSTEM_PROMPT = """You are an ATS screening engine for recruitment.
 This prompt reranks a candidate from an existing parsed_resume helper and the raw resume text.
